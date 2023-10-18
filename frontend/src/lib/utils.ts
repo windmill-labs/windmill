@@ -68,6 +68,16 @@ export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+export function addIfNotExists<T>(e: T, arr: Array<T> | undefined): Array<T> {
+	if (!arr) {
+		return [e]
+	} else if (arr.includes(e)) {
+		return arr
+	} else {
+		return arr.concat([e])
+	}
+}
+
 export function validatePassword(password: string): boolean {
 	const re = /^(?=.*[\d])(?=.*[!@#$%^&*])[\w!@#$%^&*]{8,30}$/
 	return re.test(password)

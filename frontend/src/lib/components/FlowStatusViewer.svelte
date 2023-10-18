@@ -1,24 +1,62 @@
 <script lang="ts">
-	import FlowStatusViewerInner from "./FlowStatusViewerInner.svelte"
+	import { writable, type Writable } from 'svelte/store'
+	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
+	import type { FlowState } from './flows/flowState'
+	import { createEventDispatcher, setContext } from 'svelte'
+	import type { FlowStatusViewerContext } from './graph'
+	import { isOwner as loadIsOwner } from '$lib/utils'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	export let jobId: string
 	export let workspaceId: string | undefined = undefined
-	export let flowState: FlowState | undefined = undefined
-	export let flowJobIds:
-		| {
-				moduleId: string
-				flowJobs: string[]
-		  }
-		| undefined = undefined
-	export let job: Job | undefined = undefined
+	export let flowStateStore: Writable<FlowState> | undefined = undefined
 
-	export let flowModuleStates: Record<string, GraphModuleState> = {}
+	export let isOwner = false
 
-	export let retry_status: Record<string, number> = {}
-	export let suspend_status: number | undefined = undefined
-	export let render = true
+	let lastJobId: string = jobId
 
-	export let is_owner = false
+	let flowModuleStates = writable({})
+	let retryStatus = writable({})
+	let suspendStatus = writable({})
+	let durationStatuses = writable({})
+	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
+		flowStateStore,
+		flowModuleStates,
+		retryStatus,
+		suspendStatus,
+		durationStatuses
+	})
+
+	function loadOwner(path: string) {
+		isOwner = loadIsOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
+	}
+
+	async function updateJobId() {
+		if (jobId !== lastJobId) {
+			lastJobId = jobId
+			$flowModuleStates = {}
+			$retryStatus = {}
+			$suspendStatus = {}
+			$durationStatuses = {}
+		}
+	}
+
+	const dispatch = createEventDispatcher()
+
+	let lastScriptPath: string | undefined = undefined
+
+	$: jobId && updateJobId()
 </script>
 
-<FlowStatusViewerInner on:jobsLoaded {jobId} {workspaceId} {flowState}
+<FlowStatusViewerInner
+	on:jobsLoaded={({ detail }) => {
+		if (detail.script_path != lastScriptPath && detail.script_path) {
+			lastScriptPath = detail.script_path
+			loadOwner(lastScriptPath ?? '')
+		}
+		dispatch('jobsLoaded', detail)
+	}}
+	{jobId}
+	{workspaceId}
+	{isOwner}
+/>

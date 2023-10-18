@@ -1,30 +1,32 @@
 <script lang="ts">
-	import { FlowStatusModule, Job, JobService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { FlowStatusModule, Job, JobService, type FlowStatus } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp, faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { onDestroy } from 'svelte'
-	import type { FlowState } from './flows/flowState'
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import { FlowGraph, type GraphModuleState } from './graph'
+	import { FlowGraph, type FlowStatusViewerContext } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { emptyString, isOwner, msToSec, pluralize, truncateRev } from '$lib/utils'
+	import { emptyString, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
+	import { dfs } from './flows/flowStore'
 
 	const dispatch = createEventDispatcher()
 
+	let { flowStateStore, flowModuleStates, retryStatus, suspendStatus, durationStatuses } =
+		getContext<FlowStatusViewerContext>('FlowStatusViewer')
+
 	export let jobId: string
 	export let workspaceId: string | undefined = undefined
-	export let flowState: FlowState | undefined = undefined
 	export let flowJobIds:
 		| {
 				moduleId: string
@@ -33,14 +35,9 @@
 		| undefined = undefined
 	export let job: Job | undefined = undefined
 
-	export let flowModuleStates: Record<string, GraphModuleState> = {}
-
-	let localFlowModuleStates: Record<string, GraphModuleState> = {}
-	export let retry_status: Record<string, number> = {}
-	export let suspend_status: number | undefined = undefined
 	export let render = true
 
-	export let is_owner = false
+	export let isOwner = false
 
 	let selectedNode: string | undefined = undefined
 
@@ -50,18 +47,6 @@
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
 
-	$: localFlowModuleStates && updateFlowModuleStates()
-
-	function updateFlowModuleStates() {
-		Object.entries(localFlowModuleStates).forEach(([moduleId, state]) => {
-			if (
-				flowModuleStates[moduleId] !== state &&
-				flowModuleStates[moduleId]?.type !== FlowStatusModule.type.FAILURE
-			) {
-				flowModuleStates[moduleId] = state
-			}
-		})
-	}
 	let lastSize = 0
 	$: {
 		let len = (flowJobIds?.flowJobs ?? []).length
@@ -75,38 +60,36 @@
 		lastSize = len
 	}
 
-	$: updateFailCount(job?.flow_status?.retry?.fail_count)
-	$: suspend_status = job?.flow_status?.modules?.[job?.flow_status.step]?.count
+	let innerModules: FlowStatusModule[] = []
 
-	function updateFailCount(count?: number) {
+	function updateStatus(status: FlowStatus) {
+		innerModules =
+			status?.modules?.concat(
+				status.failure_module.type != 'WaitingForPriorSteps' ? status.failure_module : []
+			) ?? []
+		updateInnerModules()
+
+		let count = status.retry?.fail_count
 		if (count) {
-			retry_status[jobId ?? ''] = count
-		} else {
-			delete retry_status[jobId ?? '']
+			$retryStatus[jobId ?? ''] = count
+		} else if ($retryStatus[jobId ?? ''] != undefined) {
+			delete $retryStatus[jobId ?? '']
 		}
+		$suspendStatus[jobId ?? ''] = job?.flow_status?.modules?.[job?.flow_status.step]?.count
 	}
 
-	$: innerModules =
-		job?.flow_status?.modules.concat(
-			job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
-				? job?.flow_status.failure_module
-				: []
-		) ?? []
-
-	$: innerModules && updateInnerModules()
-
 	function updateInnerModules() {
-		if (localFlowModuleStates) {
+		if ($flowModuleStates) {
 			innerModules.forEach((mod, i) => {
 				if (
 					mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
-					localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
+					$flowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
 						FlowStatusModule.type.SUCCESS
 				) {
-					localFlowModuleStates[mod.id ?? ''] = { type: mod.type, args: job?.args }
+					$flowModuleStates[mod.id ?? ''] = { type: mod.type, args: job?.args }
 				} else if (
 					mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
-					localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
+					$flowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 				) {
 					console.debug('updating', mod.job)
 					JobService.getJob({
@@ -121,8 +104,8 @@
 								parent_module: mod['parent_module'],
 								args: job?.args
 							}
-							if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
-								localFlowModuleStates[mod.id ?? ''] = newState
+							if (!deepEqual(newState, $flowModuleStates[mod.id ?? ''])) {
+								$flowModuleStates[mod.id ?? ''] = newState
 							}
 						})
 						.catch((e) => {
@@ -143,6 +126,9 @@
 				})
 				if (!deepEqual(job, newJob)) {
 					job = newJob
+					console.log('LOAD')
+					job?.flow_status && updateStatus(job?.flow_status)
+					dispatch('jobsLoaded', job)
 				}
 				errorCount = 0
 			} catch (e) {
@@ -155,15 +141,12 @@
 		}
 	}
 
-	$: job && dispatch('jobsLoaded', job)
-
 	async function updateJobId() {
 		if (jobId !== job?.id) {
-			retry_status = {}
-			flowModuleStates = {}
-			localFlowModuleStates = {}
+			flowTimeline?.reset()
+			timeout && clearTimeout(timeout)
+			innerModules = []
 			await loadJobInProgress()
-			job?.script_path && loadOwner(job.script_path)
 		}
 	}
 
@@ -174,10 +157,6 @@
 	onDestroy(() => {
 		timeout && clearTimeout(timeout)
 	})
-
-	function loadOwner(path: string) {
-		is_owner = isOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
-	}
 
 	$: selected = isListJob ? 'sequence' : 'graph'
 
@@ -191,20 +170,30 @@
 
 	function onJobsLoaded(mod: FlowStatusModule, job: Job): void {
 		if (mod.id && (mod.flow_jobs ?? []).length == 0) {
-			if (flowState && flowState[mod.id]) {
-				flowState[mod.id].previewResult = job['result']
-				flowState[mod.id].previewArgs = job.args
+			if ($flowStateStore?.[mod.id]) {
+				$flowStateStore[mod.id] = {
+					...$flowStateStore[mod.id],
+					previewResult: job['result'],
+					previewArgs: job.args
+				}
 			}
+			if ($durationStatuses[mod.id] == undefined) {
+				$durationStatuses[mod.id] = {}
+			}
+			let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
 			if (job.type == 'QueuedJob') {
-				localFlowModuleStates[mod.id] = {
+				$flowModuleStates[mod.id] = {
 					type: FlowStatusModule.type.IN_PROGRESS,
+					job_id: job.id,
 					logs: job.logs,
 					args: job.args,
-					started_at: job.started_at ? new Date(job.started_at).getTime() : undefined,
+					started_at,
 					parent_module: mod['parent_module']
 				}
+				$durationStatuses[mod.id][job.id] = { started_at }
+				console.log('A', started_at)
 			} else {
-				localFlowModuleStates[mod.id] = {
+				$flowModuleStates[mod.id] = {
 					args: job.args,
 					type: job['success'] ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
 					logs: job.logs,
@@ -212,21 +201,29 @@
 					job_id: job.id,
 					parent_module: mod['parent_module'],
 					duration_ms: job['duration_ms'],
-					started_at: job.started_at ? new Date(job.started_at).getTime() : undefined,
+					started_at: started_at,
 					iteration_total: mod.iterator?.itered?.length
-					// retries: flowState?.raw_flow
+					// retries: $flowStateStore?.raw_flow
 				}
+				$durationStatuses[mod.id][job.id] = { started_at, duration_ms: job['duration_ms'] }
+				console.log('B', started_at)
 			}
 		}
 	}
 	let showEmbeddeds = -20
+
+	let flowTimeline: FlowTimeline
+
+	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
 </script>
 
 {#if job}
 	<div class="flow-root w-full space-y-4">
-		{#if innerModules.length > 0}
+		<!-- {#if innerModules.length > 0 && true}
 			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
-		{/if}
+		{:else}
+			<div class="h-8" />
+		{/if} -->
 		{#if isListJob}
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20}
 				<p class="text-tertiary italic">
@@ -245,9 +242,13 @@
 				</div>
 			{/if}
 		{:else if render}
-			<div class={innerModules.length > 0 ? 'border rounded-md shadow p-2' : ''}>
+			<div class={'border rounded-md shadow p-2'}>
 				<FlowPreviewStatus {job} />
-				{#if `result` in job}
+				{#if !job}
+					<div>
+						<Loader2 class="animate-spin" />
+					</div>
+				{:else if `result` in job}
 					<div class="w-full h-full">
 						<FlowJobResult
 							workspaceId={job?.workspace_id}
@@ -258,7 +259,7 @@
 						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
-					<FlowStatusWaitingForEvents {workspaceId} {job} {is_owner} />
+					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 				{:else if job.logs}
 					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
 						<pre class="w-full">{job.logs}</pre>
@@ -295,13 +296,9 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
-					<Tab value="timeline"><span class="font-semibold">Timeline</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{/if}
-		{/if}
-		{#if render && selected == 'timeline'}
-			<FlowTimeline {flowModuleStates} />
 		{/if}
 		<div class={selected != 'sequence' ? 'hidden' : ''}>
 			{#if isListJob}
@@ -354,50 +351,65 @@
 						<svelte:self
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
 							{workspaceId}
-							bind:suspend_status
-							bind:retry_status
-							bind:flowState
-							bind:flowModuleStates={localFlowModuleStates}
 							jobId={loopJobId}
 							on:jobsLoaded={(e) => {
-								if (flowJobIds?.moduleId) {
-									if (flowState?.[flowJobIds.moduleId]) {
+								let modId = flowJobIds?.moduleId
+								if (modId) {
+									if ($flowStateStore?.[modId]) {
 										if (
-											!flowState[flowJobIds.moduleId].previewResult ||
-											!Array.isArray(flowState[flowJobIds.moduleId]?.previewResult)
+											!$flowStateStore[modId].previewResult ||
+											!Array.isArray($flowStateStore[modId]?.previewResult)
 										) {
-											flowState[flowJobIds.moduleId].previewResult = []
+											$flowStateStore[modId].previewResult = []
 										}
-										flowState[flowJobIds.moduleId].previewResult[j] = e.detail.result
-										flowState[flowJobIds.moduleId].previewArgs = e.detail.args
-										jobResults[j] =
-											e.detail.type == 'QueuedJob' ? 'Job in progress ...' : e.detail.result
-										jobFailures[j] = e.detail.success === false
+										$flowStateStore[modId].previewResult[j] = e.detail.result
+										$flowStateStore[modId].previewArgs = e.detail.args
+										if (e.detail.type == 'QueuedJob') {
+											jobResults[j] = 'Job in progress ...'
+										} else {
+											jobResults[j] = e.detail.result
+											jobFailures[j] = e.detail.success === false
+										}
+									}
+
+									let started_at = e.detail.started_at
+										? new Date(e.detail.started_at).getTime()
+										: undefined
+
+									let job_id = e.detail.id
+									if ($durationStatuses[modId] == undefined) {
+										$durationStatuses[modId] = {}
 									}
 									if (e.detail.type == 'QueuedJob') {
-										localFlowModuleStates[flowJobIds.moduleId] = {
+										$flowModuleStates[modId] = {
 											type: FlowStatusModule.type.IN_PROGRESS,
-											started_at: e.detail.started_at
-												? new Date(e.detail.started_at).getTime()
-												: undefined,
+											started_at,
 											logs: e.detail.logs,
-											job_id: e.detail.id,
+											job_id,
 											args: e.detail.args,
-											iteration_total: flowJobIds?.flowJobs.length
+											iteration_total: flowJobIds?.flowJobs.length,
+											duration_ms: undefined
 										}
+
+										$durationStatuses[modId][job_id] = { started_at }
+										console.log('C', started_at)
 									} else {
-										localFlowModuleStates[flowJobIds.moduleId] = {
-											started_at: e.detail.started_at
-												? new Date(e.detail.started_at).getTime()
-												: undefined,
+										$flowModuleStates[modId] = {
+											started_at,
 											args: e.detail.args,
 											type: e.detail.success
 												? FlowStatusModule.type.SUCCESS
 												: FlowStatusModule.type.FAILURE,
 											logs: 'All jobs completed',
 											result: jobResults,
-											job_id: e.detail.id,
+											job_id,
 											iteration_total: flowJobIds?.flowJobs.length,
+											duration_ms: e.detail.duration_ms,
+											isListJob: true
+										}
+										console.log('D', started_at)
+										$durationStatuses[modId][job_id] = {
+											started_at,
 											duration_ms: e.detail.duration_ms
 										}
 									}
@@ -441,18 +453,12 @@
 										render={selected == 'sequence' && render}
 										{workspaceId}
 										jobId={mod.job}
-										bind:suspend_status
-										bind:retry_status
 										on:jobsLoaded={(e) => onJobsLoaded(mod, e.detail)}
 									/>
 								{:else}
 									<svelte:self
 										render={selected == 'sequence' && render}
 										{workspaceId}
-										bind:suspend_status
-										bind:retry_status
-										bind:flowState
-										bind:flowModuleStates={localFlowModuleStates}
 										jobId={mod.job}
 										flowJobIds={mod.flow_jobs
 											? {
@@ -466,7 +472,7 @@
 							{:else}
 								<ModuleStatus
 									type={mod.type}
-									scheduled_for={localFlowModuleStates?.[mod.id ?? '']?.scheduled_for}
+									scheduled_for={$flowModuleStates?.[mod.id ?? '']?.scheduled_for}
 								/>
 							{/if}
 						</li>
@@ -481,23 +487,28 @@
 				<div class="grid grid-cols-3 border">
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
-							{#each Object.values(retry_status) as count}
-								<span class="text-sm">
-									Retry in progress, # of failed attempts: {count}
-								</span>
+							{#each Object.values($retryStatus) as count}
+								{#if count}
+									<span class="text-sm">
+										Retry in progress, # of failed attempts: {count}
+									</span>
+								{/if}
 							{/each}
-							{#if suspend_status}
-								<span class="text-sm">
-									Flow suspended, waiting for {pluralize(suspend_status, 'approval')}
-								</span>
-							{/if}
+							{#each Object.values($suspendStatus) as count}
+								{#if count}
+									<span class="text-sm">
+										Flow suspended, waiting for {count} events
+									</span>
+								{/if}
+							{/each}
 						</div>
 
 						<FlowGraph
 							download
 							success={isSuccess(job?.['success'])}
-							flowModuleStates={localFlowModuleStates}
+							flowModuleStates={$flowModuleStates}
 							on:select={(e) => {
+								rightColumnSelect = 'detail'
 								if (typeof e.detail == 'string') {
 									if (e.detail == 'Input') {
 										selectedNode = 'start'
@@ -515,77 +526,94 @@
 						/>
 					</div>
 					<div class="border-l border-gray-400 pt-1 overflow-auto min-h-[800px] flex flex-col">
-						{#if selectedNode}
-							{@const node = localFlowModuleStates[selectedNode]}
-							{#if selectedNode == 'end'}
-								<FlowJobResult
-									workspaceId={job?.workspace_id}
-									jobId={job?.id}
-									filename={job.id}
-									loading={job['running']}
-									noBorder
-									col
-									result={job['result']}
-									logs={job.logs ?? ''}
-								/>
-							{:else if selectedNode == 'start'}
-								{#if job.args}
-									<div class="p-2">
-										<JobArgs args={job.args} />
-									</div>
-								{:else}
-									<p class="p-2">No arguments</p>
-								{/if}
-							{:else if node}
-								<div class="px-2 flex gap-2 min-w-0 overflow-hidden w-full">
-									<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
-									{#if node.duration_ms}
-										<Badge>
-											<Icon data={faHourglassHalf} scale={0.6} class="mr-2" />
-											{msToSec(node.duration_ms)} s
-										</Badge>
-									{/if}
-									{#if node.job_id}
-										<div class="grow w-full flex flex-row-reverse">
-											<a
-												class="text-right text-xs"
-												rel="noreferrer"
-												target="_blank"
-												href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-											>
-												{truncateRev(node.job_id ?? '', 10)}
-											</a>
-										</div>
-									{/if}
-								</div>
-								<div class="px-1 py-1">
-									<JobArgs args={node.args} />
-								</div>
+						<Tabs bind:selected={rightColumnSelect}>
+							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+						</Tabs>
+						{#if rightColumnSelect == 'timeline'}
+							<FlowTimeline
+								bind:this={flowTimeline}
+								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}
+								durationStatuses={$durationStatuses}
+							/>
+						{:else if rightColumnSelect == 'detail'}
+							<div class="pt-2">
+								{#if selectedNode}
+									{@const node = $flowModuleStates[selectedNode]}
 
-								<FlowJobResult
-									workspaceId={job?.workspace_id}
-									jobId={node.job_id}
-									noBorder
-									loading={false}
-									col
-									result={node.result}
-									logs={node.logs ?? ''}
-								/>
-							{:else}
-								<p class="p-2 text-tertiary italic"
-									>The execution of this node has no information attached to it. The job likely did
-									not run yet</p
-								>
-							{/if}
-						{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
-							>{/if}
+									{#if selectedNode == 'end'}
+										<FlowJobResult
+											workspaceId={job?.workspace_id}
+											jobId={job?.id}
+											filename={job.id}
+											loading={job['running']}
+											noBorder
+											col
+											result={job['result']}
+											logs={job.logs ?? ''}
+										/>
+									{:else if selectedNode == 'start'}
+										{#if job.args}
+											<div class="p-2">
+												<JobArgs args={job.args} />
+											</div>
+										{:else}
+											<p class="p-2">No arguments</p>
+										{/if}
+									{:else if node}
+										<div class="px-2 flex gap-2 min-w-0 overflow-hidden w-full">
+											<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
+											{#if node.duration_ms}
+												<Badge>
+													<Icon data={faHourglassHalf} scale={0.6} class="mr-2" />
+													{msToSec(node.duration_ms)} s
+												</Badge>
+											{/if}
+											{#if node.job_id}
+												<div class="grow w-full flex flex-row-reverse">
+													<a
+														class="text-right text-xs"
+														rel="noreferrer"
+														target="_blank"
+														href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+													>
+														{truncateRev(node.job_id ?? '', 10)}
+													</a>
+												</div>
+											{/if}
+										</div>
+										{#if !node.isListJob}
+											<div class="px-1 py-1">
+												<JobArgs args={node.args} />
+											</div>
+										{/if}
+
+										<FlowJobResult
+											workspaceId={job?.workspace_id}
+											jobId={node.job_id}
+											noBorder
+											loading={false}
+											col
+											result={node.result}
+											logs={node.logs ?? ''}
+										/>
+									{:else}
+										<p class="p-2 text-tertiary italic"
+											>The execution of this node has no information attached to it. The job likely
+											did not run yet</p
+										>
+									{/if}
+								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
+									>{/if}
+							</div>
+						{/if}
 					</div>
 				</div>
 			</div>
 		{/if}
 	{/if}
 {:else}
-	Job loading...
+	<Loader2 class="animate-spin" />
 {/if}
 
 <style>

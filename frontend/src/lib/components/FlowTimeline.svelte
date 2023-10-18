@@ -1,125 +1,143 @@
 <script lang="ts">
-	import { FlowStatusModule } from '$lib/gen'
-	import { tweened, type Tweened } from 'svelte/motion'
-	import { Skeleton } from './common'
-	import type { GraphModuleState } from './graph'
-	import TimelineBar from './TimelineBar.svelte'
-	import { displayDate } from '$lib/utils'
+	import { displayDate, msToSec } from '$lib/utils'
+	import FlowTimelineBar from './FlowTimelineBar.svelte'
+	import { onDestroy } from 'svelte'
+	import { getDbClockNow } from '$lib/forLater'
+	import { Loader2 } from 'lucide-svelte'
 
-	export let flowModuleStates: Record<string, GraphModuleState> = {}
+	export let flowModules: string[]
+	export let durationStatuses: Record<
+		string,
+		Record<string, { started_at?: number; duration_ms?: number }>
+	>
 
 	let min: undefined | number = undefined
 	let max: undefined | number = undefined
+	let total: number | undefined = undefined
 
 	let items:
-		| Record<
-				string,
-				{
-					started_at_p: Tweened<number>
-					len_p: Tweened<number>
-					duration_ms?: number
-					started_at?: number
-				}
-		  >
+		| Record<string, Array<{ started_at?: number; duration_ms?: number; id: string }>>
 		| undefined = undefined
+	$: computeItems(durationStatuses)
 
-	$: computeItems(flowModuleStates)
+	export function reset() {
+		min = undefined
+		max = undefined
+		items = computeItems(durationStatuses)
+	}
 
-	function computeItems(flowModuleStates: Record<string, GraphModuleState>): any {
+	function computeItems(
+		durationStatuses: Record<string, Record<string, { started_at?: number; duration_ms?: number }>>
+	): any {
 		let nmin: undefined | number = undefined
 		let nmax: undefined | number = undefined
 
 		let isStillRunning = false
-		Object.values(flowModuleStates).forEach((v) => {
-			if (v.started_at) {
-				if (!nmin) {
-					nmin = v.started_at
-				} else {
-					nmin = Math.min(nmin, v.started_at)
-				}
-			}
-			if (v.type == FlowStatusModule.type.IN_PROGRESS) {
-				isStillRunning = true
-			}
-			if (!isStillRunning) {
-				if (v.started_at && v.duration_ms) {
-					let lmax = v.started_at + v.duration_ms
-					if (!nmax) {
-						nmax = lmax
+
+		let cnt = 0
+		let nitems = {}
+		Object.entries(durationStatuses).forEach(([k, o]) => {
+			Object.values(o).forEach((v) => {
+				cnt++
+				if (v.started_at) {
+					if (!nmin) {
+						nmin = v.started_at
 					} else {
-						nmax = Math.max(nmax, lmax)
+						nmin = Math.min(nmin, v.started_at)
 					}
 				}
-			}
-		})
+				if (v.duration_ms == undefined) {
+					isStillRunning = true
+				}
+				if (!isStillRunning) {
+					if (v.started_at && v.duration_ms) {
+						let lmax = v.started_at + v.duration_ms
+						if (!nmax) {
+							nmax = lmax
+						} else {
+							nmax = Math.max(nmax, lmax)
+						}
+					}
+				}
+			})
+			let arr = Object.entries(o).map(([k, v]) => ({ ...v, id: k }))
+			arr.sort((x, y) => {
+				if (!x.started_at) {
+					return -1
+				} else if (!y.started_at) {
+					return 1
+				} else {
+					return x.started_at - y.started_at
+				}
+			})
 
-		let total = (isStillRunning || !nmax ? Date.now() : nmax) - (nmin ?? Date.now())
-
-		const nentries = Object.entries(flowModuleStates).map(([k, v]) => {
-			let started_at_n = v.started_at && nmin ? ((v.started_at - nmin) / total) * 100 : undefined
-			let len_n = 0
-			if (v.duration_ms) {
-				len_n = v.duration_ms
-			} else if (v.started_at) {
-				len_n = Date.now() - v.started_at
-			} else {
-				len_n = 0
-			}
-			if (total) {
-				len_n *= 100 / total
-			} else {
-				len_n = 0
-			}
-			let p = items?.[k]
-			console.log(p)
-			let started_at_p =
-				p?.started_at_p ??
-				tweened(started_at_n ?? 0, {
-					duration: 1000
-				})
-			let len_p =
-				p?.len_p ??
-				tweened(len_n, {
-					duration: 1000
-				})
-			started_at_p?.set(started_at_n ?? 0)
-			len_p.set(len_n)
-			return [k, { started_at_p, len_p, started_at: v.started_at, duration_ms: v.duration_ms }]
+			nitems[k] = arr
 		})
+		items = nitems
 		min = nmin
-		max = nmax
-		items = Object.fromEntries(nentries)
+		max = isStillRunning || cnt < flowModules.length ? undefined : nmax
+		if (max && min) {
+			total = max - min
+		}
 	}
+
+	let now = getDbClockNow().getTime()
+
+	let i = 0
+	let interval = setInterval((x) => {
+		if (!max) {
+			i++
+			now = getDbClockNow().getTime()
+		}
+		if (min && (!max || total == undefined)) {
+			total = max ? max - min : Math.max(now - min, 2000)
+		}
+	}, 20)
+
+	onDestroy(() => {
+		interval && clearInterval(interval)
+	})
 </script>
 
 {#if items}
-	<div class="border rounded-md divide-y">
+	<div class="divide-y">
 		<div class="px-2 py-2 grid grid-cols-12 w-full"
 			><div />
-			<div class="col-span-11 pt-1 px-2 flex text-xs text-secondary justify-between"
-				><div>| {min ? displayDate(new Date(min)) : ''}</div><div
-					>{max ? displayDate(new Date(max)) + ' |' : 'running'}</div
+			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
+				><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
+						class="hidden lg:block">{msToSec(max - min)}s</div
+					>
+				{/if}<div class="flex gap-1 items-center"
+					>{max ? displayDate(new Date(max), true) : ''}{#if !max && min}{#if now}
+							{msToSec(now - min)}s
+						{/if}<Loader2 size={14} class="animate-spin" />{/if}</div
 				></div
 			>
 		</div>
-		{#each Object.entries(items) as [k, v] (k)}
-			<div class="px-2 py-2 grid grid-cols-12 w-full"
-				><div>{k}</div>
-				<div class="col-span-11 pt-1 px-2 flex"
-					><TimelineBar
-						len_p={v.len_p}
-						started_at_p={v.started_at_p}
-						duration_ms={v.duration_ms}
-						started_at={v.started_at}
-					/></div
-				></div
-			>
-		{/each}
+		{#key i}
+			{#each Object.values(flowModules) as k}
+				<div class="px-2 py-2 grid grid-cols-12 w-full"
+					><div>{k}</div>
+					<div class="col-span-11 pt-1 px-2 flex min-h-6 w-full"
+						>{#if min && total}
+							<div class="flex flex-col gap-2 w-full">
+								{#each items?.[k] ?? [] as b}
+									<FlowTimelineBar
+										{total}
+										{now}
+										{min}
+										started_at={b?.started_at}
+										duration_ms={b?.duration_ms}
+										id={b?.id}
+									/>
+								{/each}
+							</div>
+						{/if}</div
+					></div
+				>
+			{/each}
+		{/key}
 	</div>
 {:else}
-	<div class="mt-4" />
-	<Skeleton layout={[[2], 1]} />
-	{#each new Array(6) as _}
-		<Skeleton layout={[[4], 0.5]} />
-	{/each}
+	<Loader2 class="animate-spin" />
 {/if}
