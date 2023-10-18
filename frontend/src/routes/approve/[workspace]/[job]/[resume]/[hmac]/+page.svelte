@@ -11,7 +11,7 @@
 	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { LogIn } from 'lucide-svelte'
+	import { LogIn, AlertTriangle } from 'lucide-svelte'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
@@ -117,12 +117,22 @@
 <CenteredModal title="Approval for resuming of flow" disableLogo>
 	{#if error}
 		<div class="space-y-6">
-			<p class="text-red-400 text-lg">{error}</p>
-			{#if error.toLowerCase().startsWith('not authorized')}
+			{#if error.startsWith('Not authorized:')}
+				<div class="flex flex-row gap-4 justify-center">
+					<AlertTriangle />
+					<p class="text-lg">Not Authorized</p>
+				</div>
+				<p class="text-sm">{error.replace(/^(Not authorized: )/, '')}</p>
 				<Button href={`/user/login?${rd ? 'rd=' + encodeURIComponent(rd) : ''}`}>
 					Sign in
 					<LogIn class="w-8" size={18} />
 				</Button>
+			{:else}
+				<div class="flex flex-row gap-4 justify-center">
+					<AlertTriangle class="" />
+					<p class="text-lg">Permission denied</p>
+				</div>
+				<p class="text-sm">{error.replace(/^(Permission denied: )/, '')}</p>
 			{/if}
 		</div>
 	{:else}

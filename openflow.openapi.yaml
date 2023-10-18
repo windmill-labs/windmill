@@ -119,6 +119,12 @@ components:
               properties:
                 schema:
                   type: object
+            user_auth_required:
+              type: boolean
+            user_groups_required:
+              type: array
+              items:
+                type: string
         retry:
           $ref: "#/components/schemas/Retry"
       required:

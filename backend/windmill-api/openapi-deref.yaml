@@ -3495,6 +3495,12 @@ paths:
                                       properties:
                                         schema:
                                           type: object
+                                    user_auth_required:
+                                      type: boolean
+                                    user_groups_required:
+                                      type: array
+                                      items:
+                                        type: string
                                 retry:
                                   type: object
                                   properties: &ref_173

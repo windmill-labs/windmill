@@ -4,13 +4,27 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import type { FlowModule } from '$lib/gen'
+	import { GroupService, type FlowModule } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
+	import { workspaceStore } from '$lib/stores.js'
 	import { SecondsInput } from '../../common'
+	import Multiselect from 'svelte-multiselect'
 
 	export let flowModule: FlowModule
 
+	export let allUserGroups: string[] = []
+
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
+
+	async function loadGroups(): Promise<void> {
+		allUserGroups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+	}
+
+	$: {
+		if ($workspaceStore) {
+			loadGroups()
+		}
+	}
 </script>
 
 <h2 class="pb-4">
@@ -53,6 +67,37 @@
 	{:else}
 		<SecondsInput disabled />
 	{/if}
+
+	{#if flowModule.suspend}
+		<div class="flex flex-col gap-2">
+			<Toggle
+				checked={Boolean(flowModule.suspend.user_auth_required)}
+				options={{
+					right: 'Require approvers to be logged in'
+				}}
+				on:change={(e) => {
+					if (flowModule.suspend) {
+						flowModule.suspend.user_auth_required = e.detail
+					}
+				}}
+			/>
+
+			<span class="text-xs font-bold"
+				>Require approvers to be members of one of the following user groups (leave empty for any)
+			</span>
+			<Multiselect
+				disabled={!flowModule.suspend.user_auth_required}
+				bind:selected={flowModule.suspend.user_groups_required}
+				options={allUserGroups}
+				selectedOptionsDraggable={false}
+				placeholder="Authorized user groups"
+				ulOptionsClass={'!bg-surface-secondary'}
+			/>
+		</div>
+	{/if}
+
+	{#if flowModule.suspend}{/if}
+
 	{#if flowModule.suspend}
 		<div class="mt-4" />
 		<div class="flex gap-4">
