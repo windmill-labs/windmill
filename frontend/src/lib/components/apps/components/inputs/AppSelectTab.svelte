@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -29,6 +35,9 @@
 		result: undefined as string | undefined
 	})
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
 	let selected: string = ''
 	$: selected === '' && resolvedConfig && setDefaultValue()
 
@@ -51,6 +60,9 @@
 
 	function handleSelection(value: string) {
 		outputs?.result.set(value)
+		if (iterContext && listInputs) {
+			listInputs(id, value)
+		}
 	}
 
 	$: selected && handleSelection(selected)
