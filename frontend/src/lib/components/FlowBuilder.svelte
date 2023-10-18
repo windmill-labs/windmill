@@ -13,7 +13,6 @@
 	import {
 		copilotInfo,
 		enterpriseLicense,
-		hubScripts,
 		tutorialsToDo,
 		userStore,
 		workspaceStore
@@ -39,7 +38,6 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import { Pen } from 'lucide-svelte'
-	import { loadHubScripts } from '$lib/scripts'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -300,8 +298,6 @@
 
 	$: initialPath && $workspaceStore && loadSchedule()
 
-	loadHubScripts()
-
 	function onKeyDown(event: KeyboardEvent) {
 		let classes = event.target?.['className']
 		if (
@@ -397,25 +393,23 @@
 		try {
 			// make sure we display the results of the last request last
 			const ts = Date.now()
-			const scriptIds = await ScriptService.queryHubScripts({
-				text: `${text}`,
-				limit: 3,
-				kind: type
-			})
+			const scripts = (
+				await ScriptService.queryHubScripts({
+					text: `${text}`,
+					limit: 3,
+					kind: type
+				})
+			).map((s) => ({
+				...s,
+				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+				summary: `${s.summary} (${s.app})`
+			}))
 			if (ts < doneTs) return
 			doneTs = ts
-
-			const scripts = scriptIds
-				.map((qs) => {
-					const s = $hubScripts?.find((hs) => hs.ask_id === Number(qs.id))
-					return s
-				})
-				.filter((s) => !!s)
 
 			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
-				approved: boolean
 				kind: string
 				app: string
 				ask_id: number

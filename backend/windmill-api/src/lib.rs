@@ -48,12 +48,14 @@ mod configs;
 mod db;
 mod drafts;
 pub mod ee;
+mod embeddings;
 mod favorite;
 mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
 mod inputs;
+mod integration;
 pub mod jobs;
 pub mod oauth2;
 mod openai;
@@ -204,11 +206,12 @@ pub async fn run_server(
                 .nest("/workers", workers::global_service())
                 .nest("/configs", configs::global_service())
                 .nest("/scripts", scripts::global_service())
-                .nest("/resources", resources::global_service())
+                .nest("/integrations", integration::global_service())
                 .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
+                .nest("/embeddings", embeddings::global_service(&db))
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())

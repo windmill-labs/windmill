@@ -15,7 +15,6 @@ export type FlowCopilotModule = {
 	hubCompletions: {
 		path: string
 		summary: string
-		approved: boolean
 		kind: string
 		app: string
 		ask_id: number
@@ -24,7 +23,6 @@ export type FlowCopilotModule = {
 		| {
 				path: string
 				summary: string
-				approved: boolean
 				kind: string
 				app: string
 				ask_id: number
@@ -218,7 +216,7 @@ export async function glueCopilot(
 		abortController
 	)
 
-	const matches = response.matchAll(/(.+?): (.+)/g)
+	const matches = response.matchAll(/([a-zA-Z_0-9]+): (.+)/g)
 
 	const result: Record<string, string> = {}
 	for (const match of matches) {
