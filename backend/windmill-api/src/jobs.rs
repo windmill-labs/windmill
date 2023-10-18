@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use serde_json::value::RawValue;
 use std::collections::HashMap;
 
 use crate::db::ApiAuthed;
@@ -342,19 +343,24 @@ async fn get_job(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let cjob_option = sqlx::query("SELECT 
+    let job = get_job_internal(&db, w_id.as_str(), id).await?;
+    Ok(Json(job).into_response())
+}
+
+async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::Result<Job> {
+    let cjob_maybe = sqlx::query_as::<_, CompletedJob>("SELECT 
         id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
         CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
         schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
         raw_lock, email, visible_to_owner, mem_peak, tag 
         FROM completed_job WHERE id = $1 AND workspace_id = $2")
-            .bind(id)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?;
-    if let Some(job) = cjob_option {
-        let job = Job::CompletedJob(CompletedJob::from_row(&job)?);
-        Ok(Json(job).into_response())
+            .bind(job_id)
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?
+            .map(Job::CompletedJob);
+    if let Some(cjob) = cjob_maybe {
+        Ok(cjob)
     } else {
         let job_o = sqlx::query_as::<_, QueuedJob>(
             "SELECT  id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for, running,
@@ -364,13 +370,13 @@ async fn get_job(
                 root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl
                 FROM queue WHERE id = $1 AND workspace_id = $2",
         )
-        .bind(id)
-        .bind(&w_id)
-        .fetch_optional(&db)
+        .bind(job_id)
+        .bind(workspace_id)
+        .fetch_optional(db)
         .await?
         .map(Job::QueuedJob);
-        let job: Job<'_> = not_found_if_none(job_o, "Job", id.to_string())?;
-        Ok(Json(job).into_response())
+        let job: Job = not_found_if_none(job_o, "Job", job_id.to_string())?;
+        Ok(job)
     }
 }
 
@@ -391,7 +397,7 @@ async fn get_job_logs(
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
-pub struct CompletedJob<'rows> {
+pub struct CompletedJob {
     pub workspace_id: String,
     pub id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -405,9 +411,9 @@ pub struct CompletedJob<'rows> {
     pub script_hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
-    pub args: Option<&'rows JsonRawValue>,
-    #[serde(skip_serializing_if = "Option::is_none", borrow)]
-    pub result: Option<&'rows JsonRawValue>,
+    pub args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     pub deleted: bool,
@@ -423,9 +429,9 @@ pub struct CompletedJob<'rows> {
     pub schedule_path: Option<String>,
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<serde_json::Value>,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<serde_json::Value>,
+    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
@@ -437,7 +443,7 @@ pub struct CompletedJob<'rows> {
     pub tag: String,
 }
 
-impl<'row> CompletedJob<'row> {
+impl CompletedJob {
     pub fn json_result(&self) -> Option<serde_json::Value> {
         self.result
             .as_ref()
@@ -489,7 +495,7 @@ pub struct ListableCompletedJob {
     pub tag: String,
 }
 
-impl<'a> IntoResponse for CompletedJob<'a> {
+impl<'a> IntoResponse for CompletedJob {
     fn into_response(self) -> Response {
         Json(self).into_response()
     }
@@ -735,7 +741,7 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-) -> error::JsonResult<Vec<Job<'static>>> {
+) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("listjobs"))?;
 
     let (per_page, offset) = paginate(pagination);
@@ -892,7 +898,7 @@ pub async fn resume_suspended_flow_as_owner(
 }
 
 pub async fn resume_suspended_job(
-    /* unauthed */
+    authed: Option<ApiAuthed>,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
@@ -909,7 +915,17 @@ pub async fn resume_suspended_job(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = get_suspended_parent_flow_info(job_id, &mut tx).await?;
+    let parent_flow_info = get_suspended_parent_flow_info(job_id, &mut tx).await?;
+
+    let parent_flow = get_job_internal(&db, w_id.as_str(), parent_flow_info.id).await?;
+    let flow_status = parent_flow
+        .flow_status()
+        .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+    let flow_value = parent_flow
+        .raw_flow()
+        .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
+
+    conditionally_require_authed_user(authed, job_id, flow_status, flow_value)?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -925,9 +941,17 @@ pub async fn resume_suspended_job(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
-    insert_resume_job(resume_id, job_id, &flow, value, approver.approver, &mut tx).await?;
+    insert_resume_job(
+        resume_id,
+        job_id,
+        &parent_flow_info,
+        value,
+        approver.approver,
+        &mut tx,
+    )
+    .await?;
 
-    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+    resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
 
     tx.commit().await?;
     Ok(StatusCode::CREATED)
@@ -1053,7 +1077,7 @@ async fn get_suspended_flow_info<'c>(
 }
 
 pub async fn cancel_suspended_job(
-    /* unauthed */
+    authed: Option<ApiAuthed>,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
@@ -1071,12 +1095,22 @@ pub async fn cancel_suspended_job(
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
 
     let whom = approver.approver.unwrap_or_else(|| "unknown".to_string());
-    let parent_flow = get_suspended_parent_flow_info(job, &mut tx).await?.id;
+    let parent_flow_id = get_suspended_parent_flow_info(job, &mut tx).await?.id;
+
+    let parent_flow = get_job_internal(&db, w_id.as_str(), parent_flow_id).await?;
+    let flow_status = parent_flow
+        .flow_status()
+        .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+    let flow_value = parent_flow
+        .raw_flow()
+        .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
+
+    conditionally_require_authed_user(authed, job, flow_status, flow_value)?;
 
     let (mut tx, cjob) = windmill_queue::cancel_job(
         &whom,
         Some("approval request disapproved".to_string()),
-        parent_flow,
+        parent_flow_id,
         &w_id,
         tx,
         &db,
@@ -1091,23 +1125,23 @@ pub async fn cancel_suspended_job(
             "jobs.disapproval",
             ActionKind::Delete,
             &w_id,
-            Some(&parent_flow.to_string()),
+            Some(&parent_flow_id.to_string()),
             None,
         )
         .await?;
         tx.commit().await?;
 
-        Ok(format!("Flow {parent_flow} of job {job} cancelled"))
+        Ok(format!("Flow {parent_flow_id} of job {job} cancelled"))
     } else {
         Ok(format!(
-            "Flow {parent_flow} of job {job} was not cancellable"
+            "Flow {parent_flow_id} of job {job} was not cancellable"
         ))
     }
 }
 
 #[derive(Serialize)]
-pub struct SuspendedJobFlow<'a> {
-    pub job: Job<'a>,
+pub struct SuspendedJobFlow {
+    pub job: Job,
     pub approvers: Vec<Approval>,
 }
 
@@ -1117,7 +1151,7 @@ pub struct QueryApprover {
 }
 
 pub async fn get_suspended_job_flow(
-    /* unauthed */
+    authed: Option<ApiAuthed>,
     Extension(db): Extension<DB>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
@@ -1132,6 +1166,7 @@ pub async fn get_suspended_job_flow(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+
     let flow_id = sqlx::query_scalar!(
         r#"
         SELECT parent_job
@@ -1149,39 +1184,23 @@ pub async fn get_suspended_job_flow(
     .await?
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    let cjob_option =
-        sqlx::query("SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2")
-            .bind(flow_id)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?;
-    let mut _rows = None;
-    let flow_o = if let Some(job) = cjob_option {
-        _rows = Some(job);
-        Some(Job::CompletedJob(CompletedJob::from_row(
-            _rows.as_ref().unwrap(),
-        )?))
-    } else {
-        sqlx::query_as::<_, QueuedJob>(
-            "SELECT *
-        FROM queue WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(flow_id)
-        .bind(&w_id)
-        .fetch_optional(&db)
-        .await?
-        .map(Job::QueuedJob)
-    };
-    let flow = not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
+
+    let flow = get_job_internal(&db, w_id.as_str(), flow_id).await?;
 
     let flow_status = flow
         .flow_status()
-        .ok_or_else(|| anyhow::anyhow!("unable to deserialize the flow"))?;
+        .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+    let flow_value = flow
+        .raw_flow()
+        .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
+
     let flow_module_status = flow_status
         .modules
         .iter()
         .find(|p| p.job() == Some(job))
         .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
+
+    conditionally_require_authed_user(authed, job, flow_status.clone(), flow_value)?;
 
     let approvers_from_status = match flow_module_status {
         FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
@@ -1209,6 +1228,39 @@ pub async fn get_suspended_job_flow(
     };
 
     Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
+}
+
+fn conditionally_require_authed_user(
+    authed: Option<ApiAuthed>,
+    job: Uuid,
+    flow_status: FlowStatus,
+    flow_value: FlowValue,
+) -> error::Result<()> {
+    let flow_module_status = flow_status
+        .modules
+        .iter()
+        .find(|p| p.job() == Some(job))
+        .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
+
+    // Check if user is authed and fail if it's required by the flow
+    let raw_flow_module = flow_value
+        .modules
+        .iter()
+        .find(|m| m.id == flow_module_status.id())
+        .ok_or_else(|| anyhow::anyhow!("unable to find the module in the raw flow"))?;
+    let user_auth_required_for_approval = raw_flow_module
+        .suspend
+        .as_ref()
+        .map(|s| s.user_auth_required)
+        .flatten()
+        .unwrap_or(false);
+    if user_auth_required_for_approval && authed.is_none() {
+        return Err(Error::NotAuthorized(
+            "Only logged in users can approve this flow step".to_string(),
+        ));
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn create_job_signature(
@@ -1289,25 +1341,39 @@ pub async fn get_resume_urls(
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "type")]
-pub enum Job<'a> {
+pub enum Job {
     QueuedJob(QueuedJob),
-    CompletedJob(CompletedJob<'a>),
+    CompletedJob(CompletedJob),
 }
 
-impl<'a> Job<'a> {
+impl Job {
     pub fn raw_flow(&self) -> Option<FlowValue> {
-        let value = match self {
-            Job::QueuedJob(job) => job.raw_flow.clone(),
-            Job::CompletedJob(job) => job.raw_flow.clone(),
-        };
-        value.map(|v| serde_json::from_value(v).ok()).flatten()
+        match self {
+            Job::QueuedJob(job) => job
+                .raw_flow
+                .as_ref()
+                .map(|rf| serde_json::from_str(rf.0.get()).ok())
+                .flatten(),
+            Job::CompletedJob(job) => job
+                .raw_flow
+                .as_ref()
+                .map(|rf| serde_json::from_str(rf.0.get()).ok())
+                .flatten(),
+        }
     }
     pub fn flow_status(&self) -> Option<FlowStatus> {
-        let value = match self {
-            Job::QueuedJob(job) => job.flow_status.clone(),
-            Job::CompletedJob(job) => job.flow_status.clone(),
-        };
-        value.map(|v| serde_json::from_value(v).ok()).flatten()
+        match self {
+            Job::QueuedJob(job) => job
+                .flow_status
+                .as_ref()
+                .map(|rf| serde_json::from_str(rf.0.get()).ok())
+                .flatten(),
+            Job::CompletedJob(job) => job
+                .flow_status
+                .as_ref()
+                .map(|rf| serde_json::from_str(rf.0.get()).ok())
+                .flatten(),
+        }
     }
 }
 
@@ -1344,7 +1410,7 @@ struct UnifiedJob {
     concurrency_time_window_s: Option<i32>,
 }
 
-impl<'a> From<UnifiedJob> for Job<'a> {
+impl<'a> From<UnifiedJob> for Job {
     fn from(uj: UnifiedJob) -> Self {
         match uj.typ.as_ref() {
             "CompletedJob" => Job::CompletedJob(CompletedJob {

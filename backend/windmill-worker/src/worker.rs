@@ -2365,7 +2365,7 @@ async fn handle_flow_dependency_job(
             "Flow Dependency requires raw flow".to_owned(),
         ))
     })?;
-    let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
+    let mut flow = serde_json::from_str::<FlowValue>((*raw_flow.0).get()).map_err(to_anyhow)?;
 
     flow.modules = lock_modules(
         flow.modules,

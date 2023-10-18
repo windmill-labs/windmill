@@ -990,11 +990,12 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         .as_ref()
         .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
         .to_owned();
-    let flow = serde_json::from_value::<FlowValue>(value)?;
+    let flow = serde_json::from_str::<FlowValue>((*value.0).get())?;
 
-    let status: FlowStatus =
-        serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
-            .with_context(|| format!("parse flow status {}", flow_job.id))?;
+    let status: FlowStatus = serde_json::from_str::<FlowStatus>(
+        (*flow_job.flow_status.clone().unwrap_or_default().0).get(),
+    )
+    .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
     tracing::debug!("handle_flow: {:#?}", flow_job.flow_status);
     push_next_flow_job(
