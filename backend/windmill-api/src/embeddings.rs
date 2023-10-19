@@ -419,32 +419,41 @@ fn normalize_l2(v: &Tensor) -> Result<Tensor> {
 
 pub fn global_service(db: &Pool<Postgres>) -> Router {
     let embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
-    let db_clone = db.clone();
-    let embeddings_clone: Arc<RwLock<Option<EmbeddingsDb>>> = embeddings_db.clone();
-    tokio::spawn(async move {
-        let model_instance = ModelInstance::new().await;
 
-        if let Ok(model_instance) = model_instance {
-            let model_instance = Arc::new(model_instance);
-            loop {
-                let new_embeddings_db = EmbeddingsDb::new(&db_clone, model_instance.clone()).await;
-                if let Err(e) = new_embeddings_db.as_ref() {
-                    tracing::error!("Failed to create embeddings db: {}", e);
-                } else {
-                    let mut embeddings_db = embeddings_clone.write().await;
-                    *embeddings_db = new_embeddings_db.ok();
-                    tracing::info!("Loaded embeddings DB");
+    let disable_embedding = std::env::var("DISABLE_EMBEDDING")
+        .ok()
+        .map(|x| x.parse::<bool>().unwrap_or(false))
+        .unwrap_or(false);
+
+    if !disable_embedding {
+        let db_clone = db.clone();
+        let embeddings_clone: Arc<RwLock<Option<EmbeddingsDb>>> = embeddings_db.clone();
+        tokio::spawn(async move {
+            let model_instance = ModelInstance::new().await;
+
+            if let Ok(model_instance) = model_instance {
+                let model_instance = Arc::new(model_instance);
+                loop {
+                    let new_embeddings_db =
+                        EmbeddingsDb::new(&db_clone, model_instance.clone()).await;
+                    if let Err(e) = new_embeddings_db.as_ref() {
+                        tracing::error!("Failed to create embeddings db: {}", e);
+                    } else {
+                        let mut embeddings_db = embeddings_clone.write().await;
+                        *embeddings_db = new_embeddings_db.ok();
+                        tracing::info!("Loaded embeddings DB");
+                    }
+
+                    tokio::time::sleep(std::time::Duration::from_secs(3600 * 24)).await;
                 }
-
-                tokio::time::sleep(std::time::Duration::from_secs(3600 * 24)).await;
+            } else {
+                tracing::error!(
+                    "Failed to initialize model instance: {}",
+                    model_instance.err().unwrap()
+                );
             }
-        } else {
-            tracing::error!(
-                "Failed to initialize model instance: {}",
-                model_instance.err().unwrap()
-            );
-        }
-    });
+        });
+    }
 
     Router::new()
         .route("/query_hub_scripts", get(query_hub_scripts))
