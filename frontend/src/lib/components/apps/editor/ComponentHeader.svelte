@@ -7,7 +7,7 @@
 	import { Alert, Button, Popup } from '$lib/components/common'
 	import type { AppComponent } from './component'
 	import { twMerge } from 'tailwind-merge'
-	import { connectOutput, getErrorFromLatestResult } from './appUtils'
+	import { connectOutput } from './appUtils'
 
 	import TabsDebug from './TabsDebug.svelte'
 	import ComponentOutputViewer from './contextPanel/ComponentOutputViewer.svelte'
@@ -23,16 +23,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun, jobs, connectingInput } =
+	const { errorByComponent, openDebugRun, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	$: error = getErrorFromLatestResult(component.id, $errorByComponent, $jobs)
-
-	function openDebugRuns() {
-		if ($openDebugRun) {
-			$openDebugRun(component.id)
-		}
-	}
 </script>
 
 {#if connecting}
@@ -144,8 +136,8 @@
 	</div>
 {/if}
 
-{#if error && !errorHandledByComponent}
-	{@const json = JSON.parse(JSON.stringify(error))}
+{#if !errorHandledByComponent && $errorByComponent[component.id]}
+	{@const json = JSON.parse(JSON.stringify($errorByComponent[component.id].error))}
 	<span
 		title="Error"
 		class={classNames(
@@ -164,7 +156,12 @@
 									{json?.stack ?? ''}	
 								</pre>
 							</div>
-							<Button color="red" variant="border" on:click={openDebugRuns}>Open Debug Runs</Button>
+							<Button
+								color="red"
+								variant="border"
+								on:click={() => $openDebugRun?.($errorByComponent[component.id]?.jobId ?? '')}
+								>Open Debug Runs</Button
+							>
 						</div>
 					</Alert>
 				</div>

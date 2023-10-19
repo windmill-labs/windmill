@@ -19,7 +19,7 @@
 	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
-	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
+	import { deleteGridItem } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
@@ -52,7 +52,6 @@
 		stateId,
 		state,
 		errorByComponent,
-		jobs,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
@@ -70,13 +69,13 @@
 			onDelete()
 		}
 
-		if (componentSettings?.item.id) {
-			delete $worldStore.outputsById[componentSettings?.item.id]
-			$errorByComponent = clearErrorByComponentId(componentSettings?.item.id, $errorByComponent)
-			$jobs = clearJobsByComponentId(componentSettings?.item.id, $jobs)
+		let cId = componentSettings?.item.id
+		if (cId) {
+			delete $worldStore.outputsById[cId]
+			delete $errorByComponent[cId]
 
-			if ($movingcomponents?.includes(componentSettings?.item.id)) {
-				$movingcomponents = $movingcomponents.filter((id) => id !== componentSettings?.item.id)
+			if ($movingcomponents?.includes(cId)) {
+				$movingcomponents = $movingcomponents.filter((id) => id !== cId)
 			}
 		}
 

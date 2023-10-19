@@ -79,7 +79,21 @@
 
 	const history = initHistory(app)
 
-	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
+	const errorByComponent = writable<Record<string, string>({})
+	const jobsById = writable<
+		Record<
+			string,
+			{
+				job: string
+				component: string
+				result?: string
+				error?: string
+				transformer?: { result?: string; error?: string }
+				started_at?: number
+				duration_ms?: number
+			}
+		>
+	>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
 	let context = {
@@ -117,6 +131,7 @@
 		staticExporter: writable({}),
 		noBackend: false,
 		errorByComponent,
+		jobsById,
 		openDebugRun: writable(undefined),
 		focusedGrid,
 		stateId: writable(0),

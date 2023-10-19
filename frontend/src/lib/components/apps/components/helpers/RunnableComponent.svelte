@@ -20,7 +20,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
-	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
+	import { selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 
@@ -58,6 +58,7 @@
 		appPath,
 		isEditor,
 		jobs,
+		jobsById,
 		noBackend,
 		errorByComponent,
 		mode,
@@ -82,7 +83,7 @@
 	export function setArgs(value: any) {
 		args = value
 	}
-	
+
 	let args: Record<string, any> | undefined = undefined
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
@@ -171,7 +172,7 @@
 	function generateNextFrontendJobId() {
 		const prefix = 'Frontend: '
 		let nextJobNumber = 1
-		while ($jobs.find((j) => j.job === `${prefix}#${nextJobNumber}`)) {
+		while ($jobsById[`${prefix}#${nextJobNumber}`]) {
 			nextJobNumber++
 		}
 		return `${prefix}#${nextJobNumber}`
@@ -294,23 +295,17 @@
 		}
 	}
 
-	function recordError(error: string, jobId: string) {
-		$errorByComponent[jobId] = {
-			error: error,
-			componentId: id
-		}
-	}
-
 	async function setJobId(jobId: string) {
 		outputs.jobId?.set(jobId)
 	}
 
 	function recordJob(
 		jobId: string,
-		result?: string,
-		error?: string,
+		result?: any,
+		jobError?: string,
 		transformer?: { result?: string; error?: string }
 	) {
+		const error = jobError ?? transformer?.error
 		const job = {
 			...(result ? { result } : {}),
 			...(error ? { error } : {}),
@@ -319,15 +314,17 @@
 			component: id
 		}
 
-		if (error) {
-			recordError(error, jobId)
-		} else if (job?.transformer?.error) {
-			recordError(job.transformer.error, jobId)
-		}
+		$errorByComponent[id] = jobId
 
-		const njobs = [job, ...$jobs]
+		$jobsById[jobId] = job
+		const njobs = [jobId, ...$jobs]
 		// Only keep the last 100 jobs
-		$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
+		if (njobs?.length > 100) {
+			while (njobs?.length > 100) {
+				delete $jobsById[njobs.shift()!]
+			}
+		}
+		$jobs = njobs
 	}
 
 	function getResultErrors(result: any | any[]): string | undefined {
@@ -415,7 +412,7 @@
 
 		updateResult(transformerResult ?? res)
 		recordJob(jobId!, result, undefined, transformerResult)
-		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+		delete $errorByComponent[id]
 
 		dispatch('success')
 		donePromise?.()
@@ -462,7 +459,7 @@
 
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
-		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+		delete $errorByComponent[id]
 		if ($runnableComponents[id]) {
 			$runnableComponents[id] = {
 				...$runnableComponents[id],

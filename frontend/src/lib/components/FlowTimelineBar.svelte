@@ -10,8 +10,6 @@
 </script>
 
 {#if started_at}
-	<!-- {started_at}
-	{duration_ms} -->
 	<TimelineBar
 		{id}
 		{total}
