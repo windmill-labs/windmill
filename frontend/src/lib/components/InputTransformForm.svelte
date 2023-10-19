@@ -220,7 +220,7 @@
 								label={'${}'}
 							/>
 						{:else}
-							<ToggleButton small label="Static" value="static" />
+							<ToggleButton small light label="Static" value="static" />
 						{/if}
 
 						<ToggleButton

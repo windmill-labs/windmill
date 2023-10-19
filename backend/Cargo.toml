@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.184.0"
+version = "1.185.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -21,7 +21,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.184.0"
+version = "1.185.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -194,3 +194,9 @@ rust_decimal = { version = "1.31.0", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
+tinyvector = { git = "https://github.com/windmill-labs/tinyvector" }
+hf-hub = "0.3.2"
+tokenizers = "0.14.1"
+candle-core = "0.3.0"
+candle-transformers = "0.3.0"
+candle-nn = "0.3.0"

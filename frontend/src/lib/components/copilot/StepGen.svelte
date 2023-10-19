@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
-	import { copilotInfo, hubScripts } from '$lib/stores'
+	import { copilotInfo } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
@@ -30,20 +30,18 @@
 		try {
 			// make sure we display the results of the last request last
 			const ts = Date.now()
-			const scriptIds = await ScriptService.queryHubScripts({
-				text: `${text}`,
-				limit: 3,
-				kind: trigger ? 'trigger' : 'script'
-			})
+			const scripts = (
+				await ScriptService.queryHubScripts({
+					text: `${text}`,
+					limit: 3,
+					kind: trigger ? 'trigger' : 'script'
+				})
+			).map((s) => ({
+				...s,
+				path: `hub/${s.id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
+			}))
 			if (ts < doneTs) return
 			doneTs = ts
-
-			const scripts = scriptIds
-				.map((qs) => {
-					const s = $hubScripts?.find((hs) => hs.ask_id === Number(qs.id))
-					return s
-				})
-				.filter((s) => !!s)
 
 			hubCompletions = scripts as FlowCopilotModule['hubCompletions']
 		} catch (err) {
