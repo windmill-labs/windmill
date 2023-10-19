@@ -28,8 +28,6 @@ use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
-#[cfg(not(feature = "enterprise"))]
-use windmill_common::flows::FlowValue;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::{
     db::UserDB,
@@ -285,45 +283,6 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
-#[cfg(not(feature = "enterprise"))]
-fn validate_flow_definition_enterprise(flow: &NewFlow) -> Result<()> {
-    if flow.ws_error_handler_muted.unwrap_or(false) {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
-
-    let flow_module_value = flow.value.clone();
-    let flow_value = serde_json::value::from_value::<FlowValue>(flow_module_value);
-    for flow_module in flow_value.expect("error deserializing flow value").modules {
-        let suspend_config = flow_module.suspend;
-        if suspend_config
-            .clone()
-            .map(|s| s.user_auth_required)
-            .flatten()
-            .unwrap_or(false)
-        {
-            return Err(Error::BadRequest(
-                "Restricting approvals to logged in users is only available in enterprise version"
-                    .to_string(),
-            ));
-        }
-        if suspend_config
-            .clone()
-            .map(|s| s.user_groups_required)
-            .flatten()
-            .is_some()
-        {
-            return Err(Error::BadRequest(
-                "Restricting approvals to certain user groups is only available in enterprise version"
-                    .to_string(),
-            ));
-        }
-    }
-    Ok(())
-}
-
 async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -334,7 +293,17 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     #[cfg(not(feature = "enterprise"))]
-    validate_flow_definition_enterprise(&nf)?;
+    if nf
+        .value
+        .get("ws_error_handler_muted")
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
 
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
@@ -472,7 +441,17 @@ async fn update_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
     #[cfg(not(feature = "enterprise"))]
-    validate_flow_definition_enterprise(&nf)?;
+    if nf
+        .value
+        .get("ws_error_handler_muted")
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
 
     let flow_path = flow_path.to_path();
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;

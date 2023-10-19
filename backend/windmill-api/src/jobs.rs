@@ -916,7 +916,6 @@ pub async fn resume_suspended_job(
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
     let parent_flow_info = get_suspended_parent_flow_info(job_id, &mut tx).await?;
-
     let parent_flow = get_job_internal(&db, w_id.as_str(), parent_flow_info.id).await?;
     let flow_status = parent_flow
         .flow_status()
@@ -1254,10 +1253,17 @@ fn conditionally_require_authed_user(
         .map(|s| s.user_auth_required)
         .flatten()
         .unwrap_or(false);
-    if user_auth_required_for_approval && authed.is_none() {
-        return Err(Error::NotAuthorized(
-            "Only logged in users can approve this flow step".to_string(),
+    if user_auth_required_for_approval {
+        #[cfg(not(feature = "enterprise"))]
+        return Err(Error::BadRequest(
+            "Approvals for logged in users is an enterprise only feature".to_string(),
         ));
+        #[cfg(feature = "enterprise")]
+        if authed.is_none() {
+            return Err(Error::NotAuthorized(
+                "Only logged in users can approve this flow step".to_string(),
+            ));
+        }
     }
     if authed.is_some() && !authed.as_ref().unwrap().username.eq("admin") {
         let required_groups = raw_flow_module
@@ -1273,14 +1279,22 @@ fn conditionally_require_authed_user(
                 let required_groups_or_empty = serde_json::from_value::<Vec<String>>(value)
                     .expect("Unable to deserialize group names");
                 if !required_groups_or_empty.is_empty() {
-                    for required_group in required_groups_or_empty.iter() {
-                        if authed.as_ref().unwrap().groups.contains(&required_group) {
-                            return Ok(());
+                    #[cfg(not(feature = "enterprise"))]
+                    return Err(Error::BadRequest(
+                        "Approvals for users in certain user groups is an enterprise only feature"
+                            .to_string(),
+                    ));
+                    #[cfg(feature = "enterprise")]
+                    if true {
+                        for required_group in required_groups_or_empty.iter() {
+                            if authed.as_ref().unwrap().groups.contains(&required_group) {
+                                return Ok(());
+                            }
                         }
+                        let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
+                            required_groups_or_empty.join(", "));
+                        return Err(Error::PermissionDenied(error_msg));
                     }
-                    let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
-                        required_groups_or_empty.join(", "));
-                    return Err(Error::PermissionDenied(error_msg));
                 }
             }
             InputTransform::Javascript { expr: _ } => {
