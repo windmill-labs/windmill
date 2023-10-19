@@ -8,10 +8,17 @@
 
 	export let loading: boolean = false
 
-	const { mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { mode, jobs, jobsById } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
-<ToggleButtonGroup class="h-[30px]" bind:selected={$mode}>
+<ToggleButtonGroup
+	class="h-[30px]"
+	bind:selected={$mode}
+	on:selected={(e) => {
+		jobs.set([])
+		jobsById.set({})
+	}}
+>
 	<ToggleButton label="Editor" value="dnd" icon={Pen} disabled={loading} />
 	<ToggleButton
 		label="Preview"

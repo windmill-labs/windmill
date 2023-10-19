@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { buildWorld } from '../rx'
 	import type {
@@ -68,6 +68,9 @@
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const state = writable({})
+
+	let parentContext = getContext<AppViewerContext>('AppViewerContext')
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(ncontext),
 		initialized: writable({ initialized: false, initializedComponents: [] }),
@@ -82,7 +85,8 @@
 		workspace,
 		onchange: undefined,
 		isEditor,
-		jobs: writable([]),
+		jobs: parentContext?.jobs ?? writable([]),
+		jobsById: parentContext?.jobsById ?? writable({}),
 		staticExporter: writable({}),
 		noBackend,
 		errorByComponent: writable({}),

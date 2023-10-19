@@ -210,13 +210,13 @@ export type AppViewerContext = {
 		job: string
 		component: string
 		result?: string
-		error?: string
+		error?: any
 		transformer?: { result?: string; error?: string }
 		started_at?: number
 		duration_ms?: number
 	}>>,
 	noBackend: boolean
-	errorByComponent: Writable<Record<string, string>>
+	errorByComponent: Writable<Record<string, {id?: string, error: string}>>
 	openDebugRun: Writable<((jobID: string) => void) | undefined>
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>

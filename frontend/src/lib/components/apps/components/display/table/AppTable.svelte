@@ -631,8 +631,8 @@
 		<div class="flex flex-col h-full w-full overflow-auto">
 			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
 				The result should be an array of objects. Received:
-				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap">
-					{JSON.stringify(result, null, 4)}
+				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap mt-2"
+					>{JSON.stringify(result, null, 4)}
 				</pre>
 			</Alert>
 		</div>

@@ -105,6 +105,7 @@
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
+			dispatch('cancel', id)
 			currentId = undefined
 			try {
 				await JobService.cancelQueuedJob({
@@ -190,6 +191,7 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (currentId != id) {
+			dispatch('cancel', id)
 			return
 		}
 		syncIteration++

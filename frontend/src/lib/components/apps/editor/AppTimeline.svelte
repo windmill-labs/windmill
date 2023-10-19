@@ -1,49 +1,35 @@
 <script lang="ts">
-	import { debounce, displayDate, msToSec } from '$lib/utils'
-	import { onDestroy } from 'svelte'
-	import { getDbClockNow } from '$lib/forLater'
-	import { Loader2 } from 'lucide-svelte'
-	import TimelineBar from '$lib/components/TimelineBar.svelte'
+	import { debounce } from '$lib/utils'
+	import { getContext, onDestroy } from 'svelte'
 
-	export let jobs: {
-		job: string
-		component: string
-		result?: string
-		error?: string
-		transformer?: { result?: string; error?: string }
-		started_at?: number
-		duration_ms?: number
-	}[]
+	import TimelineBar from '$lib/components/TimelineBar.svelte'
+	import type { AppViewerContext } from '../types'
+
+	const { jobs, jobsById } = getContext<AppViewerContext>('AppViewerContext')
 
 	let min: undefined | number = undefined
 	let max: undefined | number = undefined
 	let total: number | undefined = undefined
 
-	let debounced = debounce(() => computeItems(jobs), 30)
-	$: jobs && debounced()
+	let debounced = debounce(() => computeItems($jobs), 30)
+	$: $jobs && $jobsById && debounced()
+
+	let items: Record<string, { started_at?: number; duration_ms?: number; id: string }[]> = {}
 
 	export function reset() {
 		min = undefined
 		max = undefined
 	}
 
-	function computeItems(
-		jobs: {
-			job: string
-			component: string
-			result?: string
-			error?: string
-			transformer?: { result?: string; error?: string }
-			started_at?: number
-			duration_ms?: number
-		}[]
-	): any {
+	function computeItems(jobs: string[]): any {
 		let nmin: undefined | number = undefined
 		let nmax: undefined | number = undefined
 
 		let isStillRunning = false
 
-		jobs.forEach((v) => {
+		let nitems: Record<string, { started_at?: number; duration_ms?: number; id: string }[]> = {}
+		jobs.forEach((k) => {
+			let v = $jobsById[k]
 			if (v.started_at) {
 				if (!nmin) {
 					nmin = v.started_at
@@ -64,6 +50,22 @@
 					}
 				}
 			}
+			if (!nitems[v.component]) {
+				nitems[v.component] = []
+			}
+			nitems[v.component].push({ started_at: v.started_at, duration_ms: v.duration_ms, id: v.job })
+		})
+
+		Object.values(nitems).forEach((v) => {
+			v.sort((x, y) => {
+				if (!x.started_at) {
+					return -1
+				} else if (!y.started_at) {
+					return 1
+				} else {
+					return x.started_at - y.started_at
+				}
+			})
 		})
 
 		min = nmin
@@ -71,13 +73,14 @@
 		if (max && min) {
 			total = max - min
 		}
+		items = nitems
 	}
 
-	let now = getDbClockNow().getTime()
+	let now = Date.now()
 
 	let interval = setInterval((x) => {
 		if (!max) {
-			now = getDbClockNow().getTime()
+			now = Date.now()
 		}
 		if (min && (!max || total == undefined)) {
 			total = max ? max - min : Math.max(now - min, 2000)
@@ -89,35 +92,27 @@
 	})
 </script>
 
+<!-- <pre class="text-xs">
+{JSON.stringify(items, null, 4)}
+</pre> -->
 <div class="divide-y">
-	<div class="px-2 py-2 grid grid-cols-12 w-full"
-		><div />
-		<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
-			><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
-					class="hidden lg:block">{msToSec(max - min)}s</div
-				>
-			{/if}<div class="flex gap-1 items-center"
-				>{max ? displayDate(new Date(max), true) : ''}{#if !max && min}{#if now}
-						{msToSec(now - min)}s
-					{/if}<Loader2 size={14} class="animate-spin" />{/if}</div
-			></div
-		>
-	</div>
-	{#each Object.values(jobs ?? []) as j}
+	{#each Object.entries(items) as [k, v]}
 		<div class="px-2 py-2 grid grid-cols-12 w-full"
-			><div>{j.component}</div>
-			<div class="col-span-11 pt-1 px-2 flex min-h-6 w-full"
+			><div class="col-span-2">{k}</div>
+			<div class="col-span-10 pt-1 px-2 flex min-h-6 w-full"
 				>{#if min && total}
-					{#if j.started_at}
-						<TimelineBar
-							id={j.job}
-							{total}
-							{min}
-							started_at={j.started_at}
-							len={j.duration_ms ?? now - j.started_at}
-							running={j.duration_ms == undefined}
-						/>
-					{/if}
+					<div class="flex flex-col gap-2 w-full">
+						{#each v ?? [] as b}
+							<TimelineBar
+								id={b?.id}
+								{total}
+								{min}
+								started_at={b.started_at}
+								len={b?.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+								running={b?.duration_ms == undefined}
+							/>
+						{/each}
+					</div>
 				{/if}</div
 			></div
 		>

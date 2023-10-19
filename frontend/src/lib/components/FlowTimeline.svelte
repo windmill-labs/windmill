@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { debounce, displayDate, msToSec } from '$lib/utils'
-	import FlowTimelineBar from './FlowTimelineBar.svelte'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
+	import TimelineBar from './TimelineBar.svelte'
 
 	export let flowModules: string[]
 	export let durationStatuses: Record<
@@ -121,13 +121,13 @@
 					>{#if min && total}
 						<div class="flex flex-col gap-2 w-full">
 							{#each items?.[k] ?? [] as b}
-								<FlowTimelineBar
-									{total}
-									{now}
-									{min}
-									started_at={b?.started_at}
-									duration_ms={b?.duration_ms}
+								<TimelineBar
 									id={b?.id}
+									{total}
+									{min}
+									started_at={b.started_at}
+									len={b?.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+									running={b?.duration_ms == undefined}
 								/>
 							{/each}
 						</div>

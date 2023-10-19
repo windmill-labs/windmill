@@ -4,7 +4,7 @@
 	import { Anchor, Bug, Expand, Move, Pen, Plug2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Alert, Button, Popup } from '$lib/components/common'
+	import { Button, Popup } from '$lib/components/common'
 	import type { AppComponent } from './component'
 	import { twMerge } from 'tailwind-merge'
 	import { connectOutput } from './appUtils'
@@ -137,34 +137,27 @@
 {/if}
 
 {#if !errorHandledByComponent && $errorByComponent[component.id]}
-	{@const json = JSON.parse(JSON.stringify($errorByComponent[component.id].error))}
+	{@const error = $errorByComponent[component.id]?.error}
 	<span
 		title="Error"
 		class={classNames(
-			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer',
-			'bg-red-100/80'
+			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer'
 		)}
 	>
 		<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
 			<Bug size={14} />
 			<span slot="text">
 				<div class="bg-surface">
-					<Alert type="error" title={`${json?.name}: ${json?.message}`}>
-						<div class="flex flex-col gap-2">
-							<div>
-								<pre class=" whitespace-pre-wrap text-primary bg-surface border w-full p-4 text-xs">
-									{json?.stack ?? ''}	
+					<pre class=" whitespace-pre-wrap text-red-600 bg-surface border w-full p-4 text-xs mb-2"
+						>{error ?? ''}	
 								</pre>
-							</div>
-							<Button
-								color="red"
-								variant="border"
-								on:click={() => $openDebugRun?.($errorByComponent[component.id]?.jobId ?? '')}
-								>Open Debug Runs</Button
-							>
-						</div>
-					</Alert>
 				</div>
+				<Button
+					color="red"
+					variant="border"
+					on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
+					>Open Debug Runs</Button
+				>
 			</span>
 		</Popover>
 	</span>

@@ -79,7 +79,6 @@
 
 	const history = initHistory(app)
 
-	const errorByComponent = writable<Record<string, string>({})
 	const jobsById = writable<
 		Record<
 			string,
@@ -87,7 +86,6 @@
 				job: string
 				component: string
 				result?: string
-				error?: string
 				transformer?: { result?: string; error?: string }
 				started_at?: number
 				duration_ms?: number
@@ -130,7 +128,7 @@
 		jobs: writable([]),
 		staticExporter: writable({}),
 		noBackend: false,
-		errorByComponent,
+		errorByComponent: writable({}),
 		jobsById,
 		openDebugRun: writable(undefined),
 		focusedGrid,
