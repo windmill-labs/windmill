@@ -276,7 +276,12 @@ impl EmbeddingsDb {
                     .await?
             };
 
-            let embedding = Embedding { id: rt.name.clone(), vector, metadata: Some(hm) };
+            let embedding = Embedding {
+                id: format!("{}_{}", rt.workspace_id, rt.name),
+                vector,
+                metadata: Some(hm),
+            };
+
             self.db
                 .insert_into_collection("resource_types", embedding)?;
         }
