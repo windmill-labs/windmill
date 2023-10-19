@@ -150,21 +150,24 @@
 					<div class="flex gap-2 flex-wrap">
 						<div class="flex justify-start">
 							<ToggleButtonGroup bind:selected={searchKind} class="h-10">
-								<ToggleButton small value="all" label={'All' + counts.all} />
+								<ToggleButton small light value="all" label={'All' + counts.all} />
 								<ToggleButton
 									small
+									light
 									value="scripts"
 									icon={Code2}
 									label={'Scripts' + counts.scripts}
 								/>
 								<ToggleButton
 									small
+									light
 									value="resources"
 									icon={Boxes}
 									label={'Resources' + counts.resources}
 								/>
 								<ToggleButton
 									small
+									light
 									value="flows"
 									label={'Flows' + counts.flows}
 									icon={FlowIcon}
@@ -172,6 +175,7 @@
 								/>
 								<ToggleButton
 									small
+									light
 									value="apps"
 									label={'Apps' + counts.apps}
 									icon={LayoutDashboard}
