@@ -2363,35 +2363,10 @@ paths:
                 items:
                   type: string
 
-  /resources/type/hub/list:
+  /embeddings/query_resource_types:
     get:
-      summary: list hub resource types
-      operationId: listHubResourceTypes
-      tags:
-        - resource
-      responses:
-        "200":
-          description: resource type details
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    name:
-                      type: string
-                    schema: {}
-                  required:
-                    - id
-                    - name
-
-  /resources/type/hub/query:
-    get:
-      summary: query hub resource types by similarity
-      operationId: queryHubResourceTypes
+      summary: query resource types by similarity
+      operationId: queryResourceTypes
       tags:
         - resource
       parameters:
@@ -2417,56 +2392,42 @@ paths:
                 items:
                   type: object
                   properties:
-                    id:
+                    name:
                       type: string
+                    score:
+                      type: number
+                    schema: {}
                   required:
-                    - id
+                    - name
+                    - score
 
-  /scripts/hub/list:
+  /integrations/hub/list:
     get:
-      summary: list all available hub scripts
-      operationId: listHubScripts
+      summary: list hub integrations
+      operationId: listHubIntegrations
       tags:
-        - script
+        - integration
+      parameters:
+        - name: kind
+          description: query integrations kind
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
-          description: hub scripts list
+          description: integrations details
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  asks:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: number
-                        ask_id:
-                          type: number
-                        summary:
-                          type: string
-                        app:
-                          type: string
-                        approved:
-                          type: boolean
-                        kind:
-                          type: string
-                          enum: [script, failure, trigger, command, approval]
-                        votes:
-                          type: number
-                        views:
-                          type: number
-                      required:
-                        - id
-                        - ask_id
-                        - summary
-                        - app
-                        - approved
-                        - kind
-                        - views
-                        - votes
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
 
   /flows/hub/list:
     get:
@@ -2642,8 +2603,73 @@ paths:
                 required:
                   - content
                   - language
+  
+  /scripts/hub/top:
+    get:
+      summary: get top hub scripts
+      operationId: getTopHubScripts
+      tags:
+        - script
+      parameters:
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: app
+          description: query scripts app
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: kind
+          description: query scripts kind
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: hub scripts list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        ask_id:
+                          type: number
+                        summary:
+                          type: string
+                        app:
+                          type: string
+                        approved:
+                          type: boolean
+                        kind:
+                          type: string
+                          enum: [script, failure, trigger, command, approval]
+                        votes:
+                          type: number
+                        views:
+                          type: number
+                      required:
+                        - id
+                        - ask_id
+                        - summary
+                        - app
+                        - approved
+                        - kind
+                        - views
+                        - votes
 
-  /scripts/hub/query:
+  /embeddings/query_hub_scripts:
     get:
       summary: query hub scripts by similarity
       operationId: queryHubScripts
@@ -2668,6 +2694,12 @@ paths:
           required: false
           schema:
             type: number
+        - name: app
+          description: query scripts app
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: script details
@@ -2678,10 +2710,29 @@ paths:
                 items:
                   type: object
                   properties:
+                    ask_id:
+                      type: number
                     id:
+                      type: number
+                    version_id:
+                      type: number
+                    summary:
                       type: string
+                    app:
+                      type: string
+                    kind:
+                      type: string
+                      enum: [script, failure, trigger, command, approval]
+                    score:
+                      type: number
                   required:
+                    - ask_id
                     - id
+                    - version_id
+                    - summary
+                    - app
+                    - kind
+                    - score
 
   /w/{workspace}/scripts/list_search:
     get:
