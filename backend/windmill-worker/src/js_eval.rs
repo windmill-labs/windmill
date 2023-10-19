@@ -345,10 +345,9 @@ function get_from_env(name) {{
 {}
 {}
 {by_id_code}
-{HAS_CYCLE}
 ((async () => {{ 
     {f};
-}})()).then((r) => hasCycle(r) ? 'cycle detected' : r).then(JSON.stringify)
+}})()).then((x) => JSON.stringify(x ?? null))
         "#,
         transform_context
             .iter()
@@ -373,39 +372,6 @@ function get_from_env(name) {{
     Ok(unsafe_raw(r))
 }
 
-const HAS_CYCLE: &str = r#"
-function hasCycle(obj) {
-    if (obj === null || typeof obj !== 'object') {
-        return false;
-    }
-
-    let visited = new WeakSet();
-
-    function _detectCycle(o) {
-        if (o === null || typeof o !== 'object') {
-            return false;
-        }
-
-        if (visited.has(o)) {
-            return true;
-        }
-
-        visited.add(o);
-
-        for (let key in o) {
-            if (Boolean(o.hasOwnProperty) && o.hasOwnProperty(key)) {
-                if (_detectCycle(o[key])) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    return _detectCycle(obj);
-} 
-"#;
 // #[warn(dead_code)]
 // async fn op_test(
 //     _state: Rc<RefCell<OpState>>,
