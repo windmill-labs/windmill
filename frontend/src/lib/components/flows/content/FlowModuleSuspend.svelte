@@ -3,19 +3,30 @@
 	import Slider from '$lib/components/Slider.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { getContext } from 'svelte'
 
 	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores.js'
 	import { SecondsInput } from '../../common'
-	import Multiselect from 'svelte-multiselect'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import type { FlowEditorContext } from '../types'
+
+	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
+	let editor: SimpleEditor | undefined = undefined
 
 	export let flowModule: FlowModule
+	export let previousModuleId: string | undefined
 
 	export let allUserGroups: string[] = []
-	let selectedUserGroups: string[] | undefined
 	let suspendTabSelected: 'core' | 'form' | 'permissions' = 'core'
+	let selectedUserGroups: string[] | undefined = undefined
+
+	let schema = emptySchema()
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 
@@ -26,6 +37,13 @@
 	$: {
 		if ($workspaceStore) {
 			loadGroups()
+			schema.properties['groups'] = {
+				type: 'array',
+				items: {
+					type: 'string',
+					enum: allUserGroups
+				}
+			}
 		}
 		switch (flowModule.suspend?.user_groups_required?.type) {
 			case 'static':
@@ -124,29 +142,33 @@
 						}
 					}}
 				/>
-
 				<div class="mb-4" />
 
 				<span class="text-xs font-bold"
 					>Require approvers to be members of one of the following user groups (leave empty for any)
 				</span>
 				{#if allUserGroups.length !== 0}
-					<Multiselect
-						disabled={emptyString($enterpriseLicense) || !flowModule.suspend.user_auth_required}
-						on:change={(e) => {
-							if (flowModule.suspend) {
-								flowModule.suspend.user_groups_required = {
-									value: selectedUserGroups,
-									type: 'static'
-								}
-							}
-						}}
-						bind:selected={selectedUserGroups}
-						options={allUserGroups}
-						selectedOptionsDraggable={false}
-						placeholder="Authorized user groups"
-						ulOptionsClass={'!bg-surface-secondary'}
-					/>
+					{#if allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
+						<div class="border">
+							<PropPickerWrapper
+								{result}
+								displayContext={false}
+								pickableProperties={undefined}
+								on:select={({ detail }) => {
+									editor?.insertAtCursor(detail)
+									editor?.focus()
+								}}
+							>
+								<InputTransformForm
+									class="min-h-[256px] items-start"
+									bind:arg={flowModule.suspend.user_groups_required}
+									argName="groups"
+									{schema}
+									{previousModuleId}
+								/>
+							</PropPickerWrapper>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}

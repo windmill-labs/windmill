@@ -7,6 +7,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
+	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { Badge, Button, SecondsInput } from './common'
@@ -292,78 +293,77 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					<div class="w-full">
-						{#key redraw}
-							{#if Array.isArray(value)}
-								{#each value ?? [] as v, i}
-									{#if i < itemsLimit}
-										<div class="flex max-w-md mt-1 w-full items-center">
-											{#if itemsType?.type == 'number'}
-												<input type="number" bind:value={v} id="arg-input-number-array" />
-											{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-												<input
-													type="file"
-													class="my-6"
-													on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-													multiple={false}
-												/>
-											{:else if itemsType?.type == 'object'}
-												<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
-											{:else if Array.isArray(itemsType?.enum)}
-												<select
-													on:focus={(e) => {
-														dispatch('focus')
+					{#if Array.isArray(itemsType?.enum)}
+						<div class="items-start">
+							<Multiselect
+								{disabled}
+								bind:selected={value}
+								options={itemsType?.enum ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
+					{:else}
+						<div class="w-full">
+							{#key redraw}
+								{#if Array.isArray(value)}
+									{#each value ?? [] as v, i}
+										{#if i < itemsLimit}
+											<div class="flex max-w-md mt-1 w-full items-center">
+												{#if itemsType?.type == 'number'}
+													<input type="number" bind:value={v} id="arg-input-number-array" />
+												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+													<input
+														type="file"
+														class="my-6"
+														on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+														multiple={false}
+													/>
+												{:else if itemsType?.type == 'object'}
+													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+												{:else}
+													<input type="text" bind:value={v} id="arg-input-array" />
+												{/if}
+												<button
+													transition:fade|local={{ duration: 100 }}
+													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+													aria-label="Clear"
+													on:click={() => {
+														value.splice(i, 1)
+														redraw += 1
 													}}
-													class="px-6"
-													bind:value={v}
 												>
-													{#each itemsType?.enum ?? [] as e}
-														<option>{e}</option>
-													{/each}
-												</select>
-											{:else}
-												<input type="text" bind:value={v} id="arg-input-array" />
-											{/if}
-											<button
-												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-												aria-label="Clear"
-												on:click={() => {
-													value.splice(i, 1)
-													redraw += 1
-												}}
-											>
-												<X size={14} />
-											</button>
-										</div>
+													<X size={14} />
+												</button>
+											</div>
+										{/if}
+									{/each}
+									{#if value.length > itemsLimit}
+										<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+											>{itemsLimit}/{value.length}: Load 50 more...</button
+										>
 									{/if}
-								{/each}
-								{#if value.length > itemsLimit}
-									<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
-										>{itemsLimit}/{value.length}: Load 50 more...</button
-									>
 								{/if}
-							{/if}
-						{/key}
-					</div>
-					<div class="flex mt-2">
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							btnClasses="mt-1"
-							on:click={() => {
-								if (value == undefined || !Array.isArray(value)) {
-									value = []
-								}
-								value = value.concat('')
-							}}
-							id="arg-input-add-item"
-						>
-							<Icon data={faPlus} class="mr-2" />
-							Add item
-						</Button>
-					</div>
+							{/key}
+						</div>
+						<div class="flex mt-2">
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								btnClasses="mt-1"
+								on:click={() => {
+									if (value == undefined || !Array.isArray(value)) {
+										value = []
+									}
+									value = value.concat('')
+								}}
+								id="arg-input-add-item"
+							>
+								<Icon data={faPlus} class="mr-2" />
+								Add item
+							</Button>
+						</div>
+					{/if}
 				</div>
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
