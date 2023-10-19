@@ -24,6 +24,7 @@
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
+	export let propagateEvent: boolean = false
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
@@ -99,7 +100,10 @@
 	async function onClick(event: MouseEvent) {
 		if (!nonCaptureEvent) {
 			event.preventDefault()
-			event.stopPropagation()
+			if (!propagateEvent) {
+				// by default events are not propagated, added this prop so that we can
+				event.stopPropagation()
+			}
 			dispatch('click', event)
 		}
 	}
