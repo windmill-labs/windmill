@@ -23,7 +23,9 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::flow_status::{FlowStatusModuleWParent, Iterator, JobResult};
+use windmill_common::flow_status::{
+    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
+};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, JobPayload, Metrics, QueuedJob, RawCode,
 };
@@ -1182,7 +1184,67 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .to_string()
             }));
 
+            // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
+            let user_auth_required = suspend.user_auth_required.unwrap_or(false);
+            if user_auth_required {
+                let mut user_groups_required: Vec<String> = Vec::new();
+                if suspend.user_groups_required.is_some() {
+                    match suspend.user_groups_required.unwrap() {
+                        InputTransform::Static { value } => {
+                            user_groups_required = serde_json::from_value::<Vec<String>>(value)
+                                .expect("Unable to deserialize group names");
+                        }
+                        InputTransform::Javascript { expr } => {
+                            let mut context = HashMap::with_capacity(2);
+                            context.insert("result".to_string(), arc_result.clone());
+                            context.insert("previous_result".to_string(), arc_result.clone());
+
+                            let eval_result = serde_json::from_str::<Vec<String>>(
+                                eval_timeout(
+                                    expr.to_string(),
+                                    context,
+                                    Some(arc_flow_job_args.clone()),
+                                    None,
+                                    None,
+                                )
+                                .await
+                                .map_err(|e| {
+                                    Error::ExecutionErr(format!(
+                                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                                    ))
+                                })?
+                                .get(),
+                            );
+                            if eval_result.is_ok() {
+                                user_groups_required = eval_result.ok().unwrap_or(Vec::new())
+                            } else {
+                                let e = eval_result.err().unwrap();
+                                return Err(Error::ExecutionErr(format!(
+                                    "Result returned by input transform invalid `{e}`"
+                                )));
+                            }
+                        }
+                    }
+                }
+                let approval_conditions = ApprovalConditions {
+                    user_auth_required: user_auth_required,
+                    user_groups_required: user_groups_required,
+                };
+                sqlx::query(
+                    "
+                    UPDATE queue
+                       SET flow_status = 
+                            JSONB_SET(flow_status, ARRAY['approval_conditions'], $1)
+                       WHERE id = $2
+                      ",
+                )
+                .bind(json!(approval_conditions))
+                .bind(flow_job.id)
+                .execute(&mut *tx)
+                .await?;
+            }
+
             if resume_messages.len() >= required_events as usize {
                 sqlx::query(
                     "
@@ -1221,6 +1283,18 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         .0,
                     )
                 }
+
+                // Remove the approval conditions from the flow status
+                sqlx::query(
+                    "
+                    UPDATE queue
+                       SET flow_status = flow_status - 'approval_conditions'
+                       WHERE id = $1
+                      ",
+                )
+                .bind(flow_job.id)
+                .execute(&mut *tx)
+                .await?;
 
                 /* continue on and run this job! */
                 tx.commit().await?;

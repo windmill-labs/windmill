@@ -35,7 +35,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && allUserGroups.length === 0) {
 			loadGroups()
 			schema.properties['groups'] = {
 				type: 'array',

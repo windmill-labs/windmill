@@ -924,7 +924,7 @@ pub async fn resume_suspended_job(
         .raw_flow()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
 
-    conditionally_require_authed_user(authed, job_id, flow_status, flow_value)?;
+    conditionally_require_authed_user(authed, flow_status)?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -1100,11 +1100,8 @@ pub async fn cancel_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    let flow_value = parent_flow
-        .raw_flow()
-        .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
 
-    conditionally_require_authed_user(authed, job, flow_status, flow_value)?;
+    conditionally_require_authed_user(authed, flow_status)?;
 
     let (mut tx, cjob) = windmill_queue::cancel_job(
         &whom,
@@ -1199,7 +1196,7 @@ pub async fn get_suspended_job_flow(
         .find(|p| p.job() == Some(job))
         .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
 
-    conditionally_require_authed_user(authed, job, flow_status.clone(), flow_value)?;
+    conditionally_require_authed_user(authed, flow_status.clone())?;
 
     let approvers_from_status = match flow_module_status {
         FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
@@ -1231,29 +1228,16 @@ pub async fn get_suspended_job_flow(
 
 fn conditionally_require_authed_user(
     authed: Option<ApiAuthed>,
-    job: Uuid,
     flow_status: FlowStatus,
-    flow_value: FlowValue,
 ) -> error::Result<()> {
-    let flow_module_status = flow_status
-        .modules
-        .iter()
-        .find(|p| p.job() == Some(job))
-        .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
+    let approval_conditions_opt = flow_status.approval_conditions;
 
-    // Check if user is authed and fail if it's required by the flow
-    let raw_flow_module = flow_value
-        .modules
-        .iter()
-        .find(|m| m.id == flow_module_status.id())
-        .ok_or_else(|| anyhow::anyhow!("unable to find the module in the raw flow"))?;
-    let user_auth_required_for_approval = raw_flow_module
-        .suspend
-        .as_ref()
-        .map(|s| s.user_auth_required)
-        .flatten()
-        .unwrap_or(false);
-    if user_auth_required_for_approval {
+    if approval_conditions_opt.is_none() {
+        return Ok(());
+    }
+    let approval_conditions = approval_conditions_opt.unwrap();
+
+    if approval_conditions.user_auth_required {
         #[cfg(not(feature = "enterprise"))]
         return Err(Error::BadRequest(
             "Approvals for logged in users is an enterprise only feature".to_string(),
@@ -1266,39 +1250,22 @@ fn conditionally_require_authed_user(
         }
     }
     if authed.is_some() && !authed.as_ref().unwrap().username.eq("admin") {
-        let required_groups = raw_flow_module
-            .suspend
-            .as_ref()
-            .map(|s| s.user_groups_required.clone())
-            .flatten();
-        if required_groups.is_none() {
-            return Ok(());
-        }
-        match required_groups.unwrap() {
-            InputTransform::Static { value } => {
-                let required_groups_or_empty = serde_json::from_value::<Vec<String>>(value)
-                    .expect("Unable to deserialize group names");
-                if !required_groups_or_empty.is_empty() {
-                    #[cfg(not(feature = "enterprise"))]
-                    return Err(Error::BadRequest(
-                        "Approvals for users in certain user groups is an enterprise only feature"
-                            .to_string(),
-                    ));
-                    #[cfg(feature = "enterprise")]
-                    if true {
-                        for required_group in required_groups_or_empty.iter() {
-                            if authed.as_ref().unwrap().groups.contains(&required_group) {
-                                return Ok(());
-                            }
-                        }
-                        let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
-                            required_groups_or_empty.join(", "));
-                        return Err(Error::PermissionDenied(error_msg));
+        if !approval_conditions.user_groups_required.is_empty() {
+            #[cfg(not(feature = "enterprise"))]
+            return Err(Error::BadRequest(
+                "Approvals for users in certain user groups is an enterprise only feature"
+                    .to_string(),
+            ));
+            #[cfg(feature = "enterprise")]
+            if true {
+                for required_group in approval_conditions.user_groups_required.iter() {
+                    if authed.as_ref().unwrap().groups.contains(&required_group) {
+                        return Ok(());
                     }
                 }
-            }
-            InputTransform::Javascript { expr: _ } => {
-                return Err(Error::InternalErr("Not yet implemented".to_string()))
+                let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
+                    approval_conditions.user_groups_required.join(", "));
+                return Err(Error::PermissionDenied(error_msg));
             }
         }
     }
