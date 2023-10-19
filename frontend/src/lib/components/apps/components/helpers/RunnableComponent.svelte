@@ -181,19 +181,21 @@
 	}
 
 	function addJob(jobId: string) {
-		const njobs = [...$jobs, jobId]
-		// Only keep the last 100 jobs
-		if (njobs?.length > 100) {
-			while (njobs?.length > 100) {
-				delete $jobsById[njobs.shift()!]
-			}
-		}
 		$jobsById[jobId] = {
 			component: id,
 			job: jobId,
 			started_at: Date.now()
 		}
-		$jobs = njobs
+		jobs.update((jobs) => {
+			const njobs = [...jobs, jobId]
+			// Only keep the last 100 jobs
+			if (njobs?.length > 100) {
+				while (njobs?.length > 100) {
+					delete $jobsById[njobs.shift()!]
+				}
+			}
+			return njobs
+		})
 	}
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		console.debug(`Executing ${id}`)
