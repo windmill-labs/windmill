@@ -26,6 +26,35 @@ const openaiConfig: CompletionCreateParamsStreaming = {
 let workspace: string | undefined = undefined
 let openai: OpenAI | undefined = undefined
 
+export async function testKey({
+	apiKey,
+	abortController,
+	messages
+}: {
+	apiKey?: string
+	messages: CreateChatCompletionRequestMessage[]
+	abortController: AbortController
+}) {
+	if (apiKey) {
+		const openai = new OpenAI({
+			apiKey,
+			dangerouslyAllowBrowser: true
+		})
+		await openai.chat.completions.create(
+			{
+				...openaiConfig,
+				messages,
+				stream: false
+			},
+			{
+				signal: abortController.signal
+			}
+		)
+	} else {
+		await getNonStreamingCompletion(messages, abortController)
+	}
+}
+
 workspaceStore.subscribe(async (value) => {
 	workspace = value
 	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
@@ -79,8 +108,6 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 		throw new Error('Workspace not initialized')
 	}
 
-	const localResourceTypes = await ResourceService.listResourceType({ workspace })
-
 	const elems =
 		scriptOptions.type === 'gen' || scriptOptions.type === 'edit' ? [scriptOptions.description] : []
 
@@ -103,22 +130,9 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 		}
 	}
 
-	const hubResourceTypes = await ResourceService.listHubResourceTypes()
-	const queriedIds = (
-		await ResourceService.queryHubResourceTypes({
-			text: elems.join(';')
-		})
-	).map((rt) => rt.id)
-	const customResourceTypes = localResourceTypes.filter((rt) => rt.name.startsWith('c_'))
-	const resourceTypes = [
-		...hubResourceTypes
-			.filter((rt) => queriedIds.includes(String(rt.id)))
-			.map((rt) => ({
-				...rt,
-				schema: JSON.parse(rt.schema)
-			})),
-		...customResourceTypes
-	]
+	const resourceTypes = await ResourceService.queryResourceTypes({
+		text: elems.join(';')
+	})
 
 	return resourceTypes
 }

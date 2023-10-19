@@ -11,6 +11,8 @@
 	export let containerClasses: string = 'rounded-lg shadow-md border p-4 bg-surface'
 
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
+
+	export let blockOpen = false
 </script>
 
 <Popover on:close>
@@ -22,6 +24,7 @@
 	<Portal>
 		<div use:floatingContent class="z5000">
 			<Transition
+				show={blockOpen || undefined}
 				enter="transition ease-out duration-200"
 				enterFrom="opacity-0 translate-y-1"
 				enterTo="opacity-100 translate-y-0"
@@ -29,7 +32,7 @@
 				leaveFrom="opacity-100 translate-y-0"
 				leaveTo="opacity-0 translate-y-1"
 			>
-				<PopoverPanel let:close>
+				<PopoverPanel let:close static={blockOpen}>
 					<div class={containerClasses}>
 						<slot {close} />
 					</div>

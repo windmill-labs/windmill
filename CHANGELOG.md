@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.185.0](https://github.com/windmill-labs/windmill/compare/v1.184.0...v1.185.0) (2023-10-19)
+
+
+### Features
+
+* add timeline progress bars to flows" ([#2464](https://github.com/windmill-labs/windmill/issues/2464)) ([d96f8d0](https://github.com/windmill-labs/windmill/commit/d96f8d0d41540053cb0e65b643c3ce3e1f43a095))
+
+
+### Bug Fixes
+
+* add select tabs as list inputs for apps ([39e612e](https://github.com/windmill-labs/windmill/commit/39e612e11601ab0aea26ccf30ad45b6452c127ce))
+* fix handling of undefined values in input transforms by serde ([acbe129](https://github.com/windmill-labs/windmill/commit/acbe1298fc01dd3264e3533277a1c837e3b2961b))
+* fix mocking for workflows ([f9045dc](https://github.com/windmill-labs/windmill/commit/f9045dc70f42df53222ccfc58599e32b8e2487aa))
+* go-client build dependencies ([#2460](https://github.com/windmill-labs/windmill/issues/2460)) ([92c0ab2](https://github.com/windmill-labs/windmill/commit/92c0ab21b7f22626dbed02017fddc11e8c093186))
+
 ## [1.184.0](https://github.com/windmill-labs/windmill/compare/v1.183.0...v1.184.0) (2023-10-17)
 
 

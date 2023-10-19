@@ -41,7 +41,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
-    flows::FlowValue,
+    flows::{FlowValue, InputTransform},
     jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{Script, ScriptHash, ScriptLang},
@@ -920,7 +920,6 @@ pub async fn resume_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-
     conditionally_require_authed_user(authed, flow_status)?;
 
     let exists = sqlx::query_scalar!(
@@ -1097,7 +1096,6 @@ pub async fn cancel_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-
     conditionally_require_authed_user(authed, flow_status)?;
 
     let (mut tx, cjob) = windmill_queue::cancel_job(
@@ -1188,7 +1186,6 @@ pub async fn get_suspended_job_flow(
         .iter()
         .find(|p| p.job() == Some(job))
         .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
-
     conditionally_require_authed_user(authed, flow_status.clone())?;
 
     let approvers_from_status = match flow_module_status {

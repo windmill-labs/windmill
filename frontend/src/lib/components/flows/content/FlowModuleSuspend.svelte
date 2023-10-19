@@ -22,10 +22,10 @@
 	export let flowModule: FlowModule
 	export let previousModuleId: string | undefined
 
+	let schema = emptySchema()
+
 	let allUserGroups: string[] = []
 	let suspendTabSelected: 'core' | 'form' | 'permissions' = 'core'
-
-	let schema = emptySchema()
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 
