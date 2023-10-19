@@ -22,9 +22,8 @@
 	export let flowModule: FlowModule
 	export let previousModuleId: string | undefined
 
-	export let allUserGroups: string[] = []
+	let allUserGroups: string[] = []
 	let suspendTabSelected: 'core' | 'form' | 'permissions' = 'core'
-	let selectedUserGroups: string[] | undefined = undefined
 
 	let schema = emptySchema()
 
@@ -32,30 +31,18 @@
 
 	async function loadGroups(): Promise<void> {
 		allUserGroups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+		schema.properties['groups'] = {
+			type: 'array',
+			items: {
+				type: 'string',
+				enum: allUserGroups
+			}
+		}
 	}
 
 	$: {
 		if ($workspaceStore && allUserGroups.length === 0) {
 			loadGroups()
-			schema.properties['groups'] = {
-				type: 'array',
-				items: {
-					type: 'string',
-					enum: allUserGroups
-				}
-			}
-		}
-		switch (flowModule.suspend?.user_groups_required?.type) {
-			case 'static':
-				if (flowModule.suspend?.user_groups_required.value === undefined) {
-					selectedUserGroups = []
-				} else {
-					selectedUserGroups = flowModule.suspend?.user_groups_required.value
-				}
-				break
-			case 'javascript':
-				console.warn('javascript input transform not supported yet')
-				break
 		}
 	}
 </script>
@@ -139,6 +126,14 @@
 					on:change={(e) => {
 						if (flowModule.suspend) {
 							flowModule.suspend.user_auth_required = e.detail
+							if (e.detail && flowModule.suspend?.user_groups_required === undefined) {
+								flowModule.suspend.user_groups_required = {
+									type: 'static',
+									value: []
+								}
+							} else if (!e.detail) {
+								flowModule.suspend.user_groups_required = undefined
+							}
 						}
 					}}
 				/>
@@ -147,28 +142,26 @@
 				<span class="text-xs font-bold"
 					>Require approvers to be members of one of the following user groups (leave empty for any)
 				</span>
-				{#if allUserGroups.length !== 0}
-					{#if allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
-						<div class="border">
-							<PropPickerWrapper
-								{result}
-								displayContext={false}
-								pickableProperties={undefined}
-								on:select={({ detail }) => {
-									editor?.insertAtCursor(detail)
-									editor?.focus()
-								}}
-							>
-								<InputTransformForm
-									class="min-h-[256px] items-start"
-									bind:arg={flowModule.suspend.user_groups_required}
-									argName="groups"
-									{schema}
-									{previousModuleId}
-								/>
-							</PropPickerWrapper>
-						</div>
-					{/if}
+				{#if allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
+					<div class="border">
+						<PropPickerWrapper
+							{result}
+							displayContext={false}
+							pickableProperties={undefined}
+							on:select={({ detail }) => {
+								editor?.insertAtCursor(detail)
+								editor?.focus()
+							}}
+						>
+							<InputTransformForm
+								class="min-h-[256px] items-start"
+								bind:arg={flowModule.suspend.user_groups_required}
+								argName="groups"
+								{schema}
+								{previousModuleId}
+							/>
+						</PropPickerWrapper>
+					</div>
 				{/if}
 			</div>
 		{/if}
