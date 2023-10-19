@@ -1268,7 +1268,6 @@ fn conditionally_require_authed_user(
         if required_groups.is_none() {
             return Ok(());
         }
-        tracing::warn!("{:?}", required_groups.clone().unwrap());
         match required_groups.unwrap() {
             InputTransform::Static { value } => {
                 let required_groups_or_empty = serde_json::from_value::<Vec<String>>(value)
