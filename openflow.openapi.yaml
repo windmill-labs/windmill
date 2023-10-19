@@ -119,6 +119,11 @@ components:
               properties:
                 schema:
                   type: object
+            user_auth_required:
+              type: boolean
+            user_groups_required:
+              $ref: "#/components/schemas/InputTransform"
+
         retry:
           $ref: "#/components/schemas/Retry"
       required:

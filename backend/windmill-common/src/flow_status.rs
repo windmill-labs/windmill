@@ -24,7 +24,7 @@ pub fn is_retry_default(v: &RetryStatus) -> bool {
     v.fail_count == 0 && v.failed_jobs.is_empty()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
