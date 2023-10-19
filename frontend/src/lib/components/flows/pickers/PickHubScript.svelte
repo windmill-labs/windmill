@@ -6,10 +6,13 @@
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import { IntegrationService, ScriptService } from '$lib/gen'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let filter = ''
 	export let syncQuery = false
+
+	let loading = false
 
 	const dispatch = createEventDispatcher()
 
@@ -38,20 +41,23 @@
 					kind: filterKind
 				})
 			).map((x) => x.name)
-			console.log('allApps', allApps)
 		} catch (err) {
 			sendUserToast(err.message, true)
 		}
 	}
 
-	let doneTs = 0
+	let startTs = 0
 	async function applyFilter(
 		filter: string,
 		filterKind: typeof kind,
 		appFilter: string | undefined
 	) {
 		try {
+			loading = true
 			const ts = Date.now()
+			startTs = ts
+			await new Promise((r) => setTimeout(r, 100))
+			if (ts < startTs) return
 			const scripts =
 				filter.length > 0
 					? await ScriptService.queryHubScripts({
@@ -67,8 +73,9 @@
 								kind: filterKind
 							})
 					  ).asks ?? []
-			if (ts < doneTs) return
-			doneTs = ts
+			if (ts === startTs) {
+				loading = false
+			}
 			const processed = scripts.map((x) => ({
 				...x,
 				path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
@@ -81,10 +88,19 @@
 	}
 </script>
 
-<!-- <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} /> -->
 <div class="w-full flex mt-1 items-center gap-2">
 	<slot />
-	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
+	<div class="relative w-full">
+		<input
+			type="text"
+			placeholder="Search Hub Scripts"
+			bind:value={filter}
+			class="text-2xl grow !pr-9"
+		/>
+		{#if loading}
+			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />
+		{/if}
+	</div>
 </div>
 
 {#if items.length > 0 && apps.length > 0}
