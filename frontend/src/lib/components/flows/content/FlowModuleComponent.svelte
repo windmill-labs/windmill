@@ -343,7 +343,7 @@
 										<FlowModuleEarlyStop bind:flowModule />
 									{:else if advancedSelected === 'suspend'}
 										<div>
-											<FlowModuleSuspend bind:flowModule />
+											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'sleep'}
 										<div>

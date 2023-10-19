@@ -32,6 +32,7 @@ pub struct FlowStatus {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_retry_default")]
     pub retry: RetryStatus,
+    pub approval_conditions: Option<ApprovalConditions>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -39,6 +40,13 @@ pub struct FlowStatus {
 pub struct RetryStatus {
     pub fail_count: u16,
     pub failed_jobs: Vec<Uuid>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct ApprovalConditions {
+    pub user_auth_required: bool,
+    pub user_groups_required: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -176,6 +184,7 @@ impl FlowStatus {
     pub fn new(f: &FlowValue) -> Self {
         Self {
             step: 0,
+            approval_conditions: None,
             modules: f
                 .modules
                 .iter()
