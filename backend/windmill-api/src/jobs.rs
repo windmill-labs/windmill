@@ -41,7 +41,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
-    flows::{FlowValue, InputTransform},
+    flows::FlowValue,
     jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{Script, ScriptHash, ScriptLang},
