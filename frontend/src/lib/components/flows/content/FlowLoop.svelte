@@ -140,7 +140,7 @@
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend bind:flowModule={mod} />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
 								</div>
 							</TabContent>
 							<TabContent value="sleep" class="flex flex-col flex-1 h-full">

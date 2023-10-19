@@ -148,185 +148,187 @@
 </script>
 
 {#if arg != undefined}
-	<div class="flex flex-row justify-between gap-1 pb-1">
-		<div class="flex items-center flex-wrap grow">
-			<FieldHeader
-				label={argName}
-				format={schema.properties[argName].format}
-				contentEncoding={schema.properties[argName].contentEncoding}
-				required={schema.required.includes(argName)}
-				type={schema.properties[argName].type}
-			/>
+	<div class={$$props.class}>
+		<div class="flex flex-row justify-between gap-1 pb-1">
+			<div class="flex flex-wrap grow">
+				<FieldHeader
+					label={argName}
+					format={schema.properties[argName].format}
+					contentEncoding={schema.properties[argName].contentEncoding}
+					required={schema.required.includes(argName)}
+					type={schema.properties[argName].type}
+				/>
 
-			{#if isStaticTemplate(inputCat)}
-				<span
-					class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2 {propertyType ==
-						'static' && arg.type === 'javascript'
-						? 'visible'
-						: 'invisible'}"
-				>
-					{'${...}'}
-				</span>
-			{/if}
-		</div>
-		{#if !noDynamicToggle}
-			<div class="flex flex-row gap-x-6 gap-y-1 flex-wrap z-10 items-center">
-				<div>
-					<ToggleButtonGroup
-						bind:selected={propertyType}
-						on:selected={(e) => {
-							const staticTemplate = isStaticTemplate(inputCat)
-							if (e.detail === 'javascript') {
-								if (arg.expr == undefined) {
-									arg.expr = getDefaultExpr(
-										argName,
-										previousModuleId,
-										staticTemplate
-											? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
-											: arg.value
-											? JSON.stringify(arg?.value, null, 4)
-											: ''
-									)
-								}
-								if (arg) {
-									arg.value = undefined
-									arg.type = 'javascript'
-								}
-								propertyType = 'javascript'
-							} else {
-								if (staticTemplate) {
-									if (arg) {
-										arg.value = codeToStaticTemplate(arg.expr)
-										arg.expr = undefined
-									}
-									setPropertyType(arg?.value)
-								} else {
-									if (arg) {
-										arg.type = 'static'
-										arg.value = undefined
-										arg.expr = undefined
-									}
-								}
-								propertyType = 'static'
-							}
-						}}
+				{#if isStaticTemplate(inputCat)}
+					<span
+						class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2 {propertyType ==
+							'static' && arg.type === 'javascript'
+							? 'visible'
+							: 'invisible'}"
 					>
-						{#if isStaticTemplate(inputCat)}
-							<ToggleButton
-								tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
-								light
-								value="static"
-								size="xs2"
-								label={'${}'}
-							/>
-						{:else}
-							<ToggleButton small light label="Static" value="static" />
-						{/if}
-
-						<ToggleButton
-							small
-							light
-							tooltip="Javascript expression ('flow_input' or 'results')."
-							value="javascript"
-							icon={FunctionSquare}
-						/>
-					</ToggleButtonGroup>
-				</div>
-				<div>
-					<Button
-						title="Connect to another node's output"
-						variant="border"
-						color="light"
-						size="xs2"
-						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								return true
-							})
-						}}
-						id="flow-editor-plug"
-					>
-						<Plug size={16} /> &rightarrow;
-					</Button>
-				</div>
-			</div>
-		{/if}
-	</div>
-
-	<div class="max-w-xs" />
-	<div
-		class="relative {$propPickerConfig?.propName == argName
-			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
-			: ''}"
-	>
-		{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
-			<span
-				class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
-			>
-				Connect input &rightarrow;
-			</span>
-		{/if}
-		{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-			<div class="mt-2 min-h-[28px]">
-				{#if arg}
-					<TemplateEditor
-						bind:this={monacoTemplate}
-						{extraLib}
-						on:focus={onFocus}
-						bind:code={arg.value}
-						fontSize={14}
-					/>
+						{'${...}'}
+					</span>
 				{/if}
 			</div>
-		{:else if propertyType === undefined || propertyType == 'static'}
-			<ArgInput
-				{resourceTypes}
-				noMargin
-				compact
-				bind:this={argInput}
-				on:focus={onFocus}
-				label={argName}
-				bind:editor={monaco}
-				bind:description={schema.properties[argName].description}
-				bind:value={arg.value}
-				type={schema.properties[argName].type}
-				required={schema.required.includes(argName)}
-				bind:pattern={schema.properties[argName].pattern}
-				bind:valid={inputCheck}
-				defaultValue={schema.properties[argName].default}
-				bind:enum_={schema.properties[argName].enum}
-				bind:format={schema.properties[argName].format}
-				contentEncoding={schema.properties[argName].contentEncoding}
-				bind:itemsType={schema.properties[argName].items}
-				properties={schema.properties[argName].properties}
-				displayHeader={false}
-				extra={argExtra}
-				{variableEditor}
-				{itemPicker}
-				bind:pickForField
-				showSchemaExplorer
-			/>
-		{:else if arg.expr != undefined}
-			<div class="border rounded mt-2 border-gray-300">
-				<SimpleEditor
-					bind:this={monaco}
-					bind:code={arg.expr}
-					{extraLib}
-					lang="javascript"
-					shouldBindKey={false}
-					on:focus={() => {
-						focusProp(argName, 'insert', (path) => {
-							monaco?.insertAtCursor(path)
-							return false
-						})
-					}}
-					autoHeight
+			{#if !noDynamicToggle}
+				<div class="flex flex-row gap-x-6 gap-y-1 flex-wrap z-10">
+					<div>
+						<ToggleButtonGroup
+							bind:selected={propertyType}
+							on:selected={(e) => {
+								const staticTemplate = isStaticTemplate(inputCat)
+								if (e.detail === 'javascript') {
+									if (arg.expr == undefined) {
+										arg.expr = getDefaultExpr(
+											argName,
+											previousModuleId,
+											staticTemplate
+												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
+												: arg.value
+												? JSON.stringify(arg?.value, null, 4)
+												: ''
+										)
+									}
+									if (arg) {
+										arg.value = undefined
+										arg.type = 'javascript'
+									}
+									propertyType = 'javascript'
+								} else {
+									if (staticTemplate) {
+										if (arg) {
+											arg.value = codeToStaticTemplate(arg.expr)
+											arg.expr = undefined
+										}
+										setPropertyType(arg?.value)
+									} else {
+										if (arg) {
+											arg.type = 'static'
+											arg.value = undefined
+											arg.expr = undefined
+										}
+									}
+									propertyType = 'static'
+								}
+							}}
+						>
+							{#if isStaticTemplate(inputCat)}
+								<ToggleButton
+									tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
+									light
+									value="static"
+									size="xs2"
+									label={'${}'}
+								/>
+							{:else}
+								<ToggleButton small label="Static" value="static" />
+							{/if}
+
+							<ToggleButton
+								small
+								light
+								tooltip="Javascript expression ('flow_input' or 'results')."
+								value="javascript"
+								icon={FunctionSquare}
+							/>
+						</ToggleButtonGroup>
+					</div>
+					<div>
+						<Button
+							title="Connect to another node's output"
+							variant="border"
+							color="light"
+							size="xs2"
+							on:click={() => {
+								focusProp(argName, 'connect', (path) => {
+									connectProperty(path)
+									return true
+								})
+							}}
+							id="flow-editor-plug"
+						>
+							<Plug size={16} /> &rightarrow;
+						</Button>
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<div class="max-w-xs" />
+		<div
+			class="relative {$propPickerConfig?.propName == argName
+				? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
+				: ''}"
+		>
+			{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
+				<span
+					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
+				>
+					Connect input &rightarrow;
+				</span>
+			{/if}
+			{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+				<div class="mt-2 min-h-[28px]">
+					{#if arg}
+						<TemplateEditor
+							bind:this={monacoTemplate}
+							{extraLib}
+							on:focus={onFocus}
+							bind:code={arg.value}
+							fontSize={14}
+						/>
+					{/if}
+				</div>
+			{:else if propertyType === undefined || propertyType == 'static'}
+				<ArgInput
+					{resourceTypes}
+					noMargin
+					compact
+					bind:this={argInput}
+					on:focus={onFocus}
+					label={argName}
+					bind:editor={monaco}
+					bind:description={schema.properties[argName].description}
+					bind:value={arg.value}
+					type={schema.properties[argName].type}
+					required={schema.required.includes(argName)}
+					bind:pattern={schema.properties[argName].pattern}
+					bind:valid={inputCheck}
+					defaultValue={schema.properties[argName].default}
+					bind:enum_={schema.properties[argName].enum}
+					bind:format={schema.properties[argName].format}
+					contentEncoding={schema.properties[argName].contentEncoding}
+					bind:itemsType={schema.properties[argName].items}
+					properties={schema.properties[argName].properties}
+					displayHeader={false}
+					extra={argExtra}
+					{variableEditor}
+					{itemPicker}
+					bind:pickForField
+					showSchemaExplorer
 				/>
-			</div>
-			<DynamicInputHelpBox />
-			<div class="mb-2" />
-		{:else}
-			Not recognized input type {argName}
-		{/if}
+			{:else if arg.expr != undefined}
+				<div class="border rounded mt-2 border-gray-300">
+					<SimpleEditor
+						bind:this={monaco}
+						bind:code={arg.expr}
+						{extraLib}
+						lang="javascript"
+						shouldBindKey={false}
+						on:focus={() => {
+							focusProp(argName, 'insert', (path) => {
+								monaco?.insertAtCursor(path)
+								return false
+							})
+						}}
+						autoHeight
+					/>
+				</div>
+				<DynamicInputHelpBox />
+				<div class="mb-2" />
+			{:else}
+				Not recognized input type {argName}
+			{/if}
+		</div>
 	</div>
 {/if}
