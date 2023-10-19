@@ -920,9 +920,6 @@ pub async fn resume_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    let flow_value = parent_flow
-        .raw_flow()
-        .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
 
     conditionally_require_authed_user(authed, flow_status)?;
 
@@ -1186,10 +1183,6 @@ pub async fn get_suspended_job_flow(
     let flow_status = flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    let flow_value = flow
-        .raw_flow()
-        .ok_or_else(|| anyhow::anyhow!("unable to find the flow value in the flow job"))?;
-
     let flow_module_status = flow_status
         .modules
         .iter()
