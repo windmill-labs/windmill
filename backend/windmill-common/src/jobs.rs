@@ -65,9 +65,9 @@ pub struct QueuedJob {
     pub schedule_path: Option<String>,
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<serde_json::Value>,
+    pub flow_status: Option<Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<serde_json::Value>,
+    pub raw_flow: Option<Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
@@ -127,13 +127,13 @@ impl QueuedJob {
     pub fn parse_raw_flow(&self) -> Option<FlowValue> {
         self.raw_flow
             .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
     }
 
     pub fn parse_flow_status(&self) -> Option<FlowStatus> {
         self.flow_status
             .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
     }
 }
 

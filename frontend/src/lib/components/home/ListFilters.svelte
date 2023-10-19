@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { Folder, User } from 'lucide-svelte'
-	import { flip } from 'svelte/animate'
-	import { fade } from 'svelte/transition'
 	import { Badge } from '../common'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { onDestroy, onMount } from 'svelte'
@@ -65,7 +63,7 @@
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
 	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
 		{#each filtersAndSelected as filter (filter)}
-			<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
+			<div>
 				<Badge
 					class={classNames(
 						'cursor-pointer inline-flex items-center gap-1 align-middle',

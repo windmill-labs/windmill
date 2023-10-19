@@ -31,7 +31,7 @@
 			? (window.location.hash?.replace('#', '') as Tab)
 			: 'workspace'
 
-	let subtab: 'flow' | 'script' | 'app' = 'app'
+	let subtab: 'flow' | 'script' | 'app' = 'script'
 
 	let filter: string = ''
 

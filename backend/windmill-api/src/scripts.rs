@@ -82,10 +82,9 @@ pub struct ScriptWDraft {
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/hub/list", get(list_hub_scripts))
+        .route("/hub/top", get(get_top_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
-        .route("/hub/query", get(query_hub_scripts))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -249,41 +248,31 @@ async fn list_scripts(
     Ok(Json(rows))
 }
 
-async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
-    let (status_code, headers, response) = query_elems_from_hub(
-        &HTTP_CLIENT,
-        "https://hub.windmill.dev/searchData?approved=true",
-        &email,
-        None,
-    )
-    .await?;
-    Ok::<_, Error>((
-        status_code,
-        headers,
-        StreamBody::new(response.bytes_stream()),
-    ))
+#[derive(Deserialize)]
+struct TopHubScriptsQuery {
+    limit: Option<i64>,
+    app: Option<String>,
+    kind: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct HubScriptsQuery {
-    text: String,
-    kind: Option<String>,
-    limit: Option<i64>,
-}
-async fn query_hub_scripts(
+async fn get_top_hub_scripts(
     ApiAuthed { email, .. }: ApiAuthed,
-    Query(query): Query<HubScriptsQuery>,
+    Query(query): Query<TopHubScriptsQuery>,
 ) -> impl IntoResponse {
-    let mut query_params = vec![("text", query.text)];
-    if let Some(query_kind) = query.kind {
-        query_params.push(("kind", query_kind.clone()));
-    }
+    let mut query_params = vec![];
     if let Some(query_limit) = query.limit {
         query_params.push(("limit", query_limit.to_string().clone()));
     }
+    if let Some(query_app) = query.app {
+        query_params.push(("app", query_app.to_string().clone()));
+    }
+    if let Some(query_kind) = query.kind {
+        query_params.push(("kind", query_kind.to_string().clone()));
+    }
+
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        "https://hub.windmill.dev/scripts/query",
+        "https://hub.windmill.dev/scripts/top",
         &email,
         Some(query_params),
     )

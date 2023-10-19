@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.184.0
+  version: 1.185.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -119,6 +119,11 @@ components:
               properties:
                 schema:
                   type: object
+            user_auth_required:
+              type: boolean
+            user_groups_required:
+              $ref: "#/components/schemas/InputTransform"
+
         retry:
           $ref: "#/components/schemas/Retry"
       required:

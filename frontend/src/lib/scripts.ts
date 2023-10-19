@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, Script, ScriptService } from './gen'
-import { workspaceStore, hubScripts } from './stores'
+import { workspaceStore } from './stores'
 
 export function scriptLangToEditorLang(lang: Script.language) {
 	if (lang == 'deno') {
@@ -93,25 +93,4 @@ export async function getLatestHashForScript(path: string): Promise<string> {
 		path: path ?? ''
 	})
 	return script.hash
-}
-
-export async function loadHubScripts() {
-	try {
-		const scripts = (await ScriptService.listHubScripts()).asks ?? []
-		const processed = scripts
-			.map((x) => ({
-				path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-				summary: `${x.summary} (${x.app})`,
-				approved: x.approved,
-				kind: x.kind,
-				app: x.app,
-				views: x.views,
-				votes: x.votes,
-				ask_id: x.ask_id
-			}))
-			.sort((a, b) => b.views - a.views)
-		hubScripts.set(processed)
-	} catch {
-		console.error('Hub is not available')
-	}
 }

@@ -58,17 +58,6 @@ export const userWorkspaces: Readable<
 		return originalWorkspaces
 	}
 })
-export const hubScripts = writable<
-	| Array<{
-			path: string
-			summary: string
-			approved: boolean
-			kind: string
-			app: string
-			ask_id: number
-	  }>
-	| undefined
->(undefined)
 export const copilotInfo = writable<{
 	exists_openai_resource_path: boolean
 	code_completion_enabled: boolean

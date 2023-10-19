@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.183.0
+  version: 1.184.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -3495,6 +3495,11 @@ paths:
                                       properties:
                                         schema:
                                           type: object
+                                    user_auth_required:
+                                      type: boolean
+                                    user_groups_required:
+                                      oneOf: *ref_23
+                                      discriminator: *ref_24
                                 retry:
                                   type: object
                                   properties: &ref_173
