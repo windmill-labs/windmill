@@ -1,6 +1,5 @@
 {
   "python.analysis.typeCheckingMode": "basic",
   "rust-analyzer.linkedProjects": ["./windmill-common/Cargo.toml"],
-  "rust-analyzer.cargo.features": ["enterprise"],
   "rust-analyzer.showUnlinkedFileNotification": false
 }
