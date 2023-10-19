@@ -13,6 +13,7 @@
 	export let flowModule: FlowModule
 
 	export let allUserGroups: string[] = []
+	let selectedUserGroups: string[] | undefined
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 
@@ -23,6 +24,18 @@
 	$: {
 		if ($workspaceStore) {
 			loadGroups()
+		}
+		switch (flowModule.suspend?.user_groups_required?.type) {
+			case 'static':
+				if (flowModule.suspend?.user_groups_required.value === undefined) {
+					selectedUserGroups = []
+				} else {
+					selectedUserGroups = flowModule.suspend?.user_groups_required.value
+				}
+				break
+			case 'javascript':
+				console.warn('javascript input transform not supported yet')
+				break
 		}
 	}
 </script>
@@ -87,14 +100,24 @@
 				>(ee only) Require approvers to be members of one of the following user groups (leave empty
 				for any)
 			</span>
-			<Multiselect
-				disabled={emptyString($enterpriseLicense) || !flowModule.suspend.user_auth_required}
-				bind:selected={flowModule.suspend.user_groups_required}
-				options={allUserGroups}
-				selectedOptionsDraggable={false}
-				placeholder="Authorized user groups"
-				ulOptionsClass={'!bg-surface-secondary'}
-			/>
+			{#if allUserGroups.length !== 0}
+				<Multiselect
+					disabled={emptyString($enterpriseLicense) || !flowModule.suspend.user_auth_required}
+					on:change={(e) => {
+						if (flowModule.suspend) {
+							flowModule.suspend.user_groups_required = {
+								value: selectedUserGroups,
+								type: 'static'
+							}
+						}
+					}}
+					bind:selected={selectedUserGroups}
+					options={allUserGroups}
+					selectedOptionsDraggable={false}
+					placeholder="Authorized user groups"
+					ulOptionsClass={'!bg-surface-secondary'}
+				/>
+			{/if}
 		</div>
 	{/if}
 

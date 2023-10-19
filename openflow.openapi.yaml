@@ -122,9 +122,8 @@ components:
             user_auth_required:
               type: boolean
             user_groups_required:
-              type: array
-              items:
-                type: string
+              $ref: "#/components/schemas/InputTransform"
+
         retry:
           $ref: "#/components/schemas/Retry"
       required:

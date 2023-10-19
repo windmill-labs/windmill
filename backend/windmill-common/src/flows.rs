@@ -173,7 +173,7 @@ pub struct Suspend {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_auth_required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_groups_required: Option<Vec<String>>,
+    pub user_groups_required: Option<InputTransform>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

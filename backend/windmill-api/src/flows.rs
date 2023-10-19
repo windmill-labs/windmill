@@ -309,12 +309,11 @@ fn validate_flow_definition_enterprise(flow: &NewFlow) -> Result<()> {
                     .to_string(),
             ));
         }
-        if !suspend_config
+        if suspend_config
             .clone()
             .map(|s| s.user_groups_required)
             .flatten()
-            .unwrap_or(Vec::new())
-            .is_empty()
+            .is_some()
         {
             return Err(Error::BadRequest(
                 "Restricting approvals to certain user groups is only available in enterprise version"

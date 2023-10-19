@@ -41,7 +41,7 @@ use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
-    flows::FlowValue,
+    flows::{FlowValue, InputTransform},
     jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{Script, ScriptHash, ScriptLang},
@@ -1265,16 +1265,28 @@ fn conditionally_require_authed_user(
             .as_ref()
             .map(|s| s.user_groups_required.clone())
             .flatten();
-        let required_groups_or_empty = required_groups.unwrap_or_default();
-        if !required_groups_or_empty.is_empty() {
-            for required_group in required_groups_or_empty.iter() {
-                if authed.as_ref().unwrap().groups.contains(&required_group) {
-                    return Ok(());
+        if required_groups.is_none() {
+            return Ok(());
+        }
+        tracing::warn!("{:?}", required_groups.clone().unwrap());
+        match required_groups.unwrap() {
+            InputTransform::Static { value } => {
+                let required_groups_or_empty = serde_json::from_value::<Vec<String>>(value)
+                    .expect("Unable to deserialize group names");
+                if !required_groups_or_empty.is_empty() {
+                    for required_group in required_groups_or_empty.iter() {
+                        if authed.as_ref().unwrap().groups.contains(&required_group) {
+                            return Ok(());
+                        }
+                    }
+                    let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
+                        required_groups_or_empty.join(", "));
+                    return Err(Error::PermissionDenied(error_msg));
                 }
             }
-            let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
-                required_groups_or_empty.join(", "));
-            return Err(Error::PermissionDenied(error_msg));
+            InputTransform::Javascript { expr: _ } => {
+                return Err(Error::InternalErr("Not yet implemented".to_string()))
+            }
         }
     }
     Ok(())
