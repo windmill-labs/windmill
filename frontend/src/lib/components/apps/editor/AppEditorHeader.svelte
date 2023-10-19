@@ -1,10 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { Alert, Badge, Drawer, DrawerContent, Kbd, UndoRedo } from '$lib/components/common'
+	import {
+		Alert,
+		Badge,
+		Drawer,
+		DrawerContent,
+		Kbd,
+		Tab,
+		Tabs,
+		UndoRedo
+	} from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
-	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
@@ -34,7 +42,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard } from '../../../utils'
+	import { classNames, copyToClipboard, truncateRev } from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -63,6 +71,7 @@
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
+	import AppTimeline from './AppTimeline.svelte'
 
 	async function hash(message) {
 		try {
@@ -91,6 +100,7 @@
 		breakpoint,
 		appPath,
 		jobs,
+		jobsById,
 		staticExporter,
 		errorByComponent,
 		openDebugRun
@@ -105,13 +115,9 @@
 	}
 
 	$: if ($openDebugRun == undefined) {
-		$openDebugRun = (componentId: string) => {
+		$openDebugRun = (jobId: string) => {
 			$jobsDrawerOpen = true
-
-			const job = $jobs.find((job) => job.component === componentId)
-			if (job) {
-				selectedJobId = job.job
-			}
+			selectedJobId = jobId
 		}
 	}
 
@@ -439,6 +445,8 @@
 	export function toggleTutorial() {
 		appEditorTutorial?.toggleTutorial()
 	}
+
+	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -638,23 +646,30 @@
 				<PanelSection title="Past Runs">
 					<div class="flex flex-col gap-2 w-full">
 						{#if $jobs.length > 0}
-							<div class="flex gap-2 flex-col">
-								{#each $jobs ?? [] as { job, component } (job)}
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<!-- svelte-ignore a11y-no-static-element-interactions -->
-									<div
-										class={classNames(
-											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-											$errorByComponent[job] ? 'border border-red-500 bg-red-100' : '',
-											selectedJobId == job && !$errorByComponent[component]
-												? 'bg-blue-100 text-blue-600'
-												: ''
-										)}
-										on:click={() => (selectedJobId = job)}
-									>
-										<span class="text-xs truncate">{job}</span>
-										<Badge color="indigo">{component}</Badge>
-									</div>
+							<div class="flex gap-2 flex-col-reverse">
+								{#each $jobs ?? [] as id}
+									{@const selectedJob = $jobsById[id]}
+									{#if selectedJob}
+										<!-- svelte-ignore a11y-click-events-have-key-events -->
+										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<div
+											class={classNames(
+												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
+												selectedJob.error ? 'border border-red-500 text-primary' : '',
+												selectedJob.error && $errorByComponent[selectedJob.component]?.id == id
+													? 'bg-red-400'
+													: '',
+												selectedJobId == id ? 'bg-surface-secondary text-blue-600' : ''
+											)}
+											on:click={() => {
+												selectedJobId = id
+												rightColumnSelect = 'detail'
+											}}
+										>
+											<span class="text-xs truncate">{truncateRev(selectedJob.job, 20)}</span>
+											<Badge color="indigo">{selectedJob.component}</Badge>
+										</div>
+									{/if}
 								{/each}
 							</div>
 						{:else}
@@ -664,100 +679,99 @@
 				</PanelSection>
 			</Pane>
 			<Pane size={75}>
-				<div class="h-full w-full overflow-auto">
-					{#if selectedJobId}
-						{#if !job}
-							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
-
-							{#if jobResult?.error !== undefined}
-								<Splitpanes horizontal class="grow border w-full">
-									<Pane size={50} minSize={10}>
-										<LogViewer
-											content={`Logs are avaiable in the browser console directly`}
-											isLoading={false}
-										/>
-									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-secondary">
-										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult
-												result={{
-													error: { name: 'Frontend execution error', message: jobResult.error }
-												}}
-											/>
-										</pre>
-									</Pane>
-								</Splitpanes>
-							{:else if jobResult !== undefined}
-								<Splitpanes horizontal class="grow border w-full">
-									<Pane size={50} minSize={10}>
-										<LogViewer
-											content={`Logs are avaiable in the browser console directly`}
-											isLoading={false}
-										/>
-									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-secondary">
-										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={jobResult.result} />
-										</pre>
-									</Pane>
-								</Splitpanes>
-							{:else}
-								<Skeleton layout={[[40]]} />
-							{/if}
-						{:else}
-							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
-							<div class="flex flex-col h-full w-full gap-4 p-2 mb-4">
-								{#if job?.['running']}
-									<div class="flex flex-row-reverse w-full">
-										<Button
-											color="red"
-											variant="border"
-											on:click={() => testJobLoader?.cancelJob()}
-										>
-											<Loader2 size={14} class="animate-spin mr-2" />
-
-											Cancel
-										</Button>
-									</div>
-								{/if}
-								<div class="p-2">
-									<JobArgs args={job?.args} />
-								</div>
-								{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+				<Tabs bind:selected={rightColumnSelect}>
+					<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+					<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+				</Tabs>
+				{#if rightColumnSelect == 'timeline'}
+					<div class="p-2">
+						<AppTimeline />
+					</div>
+				{:else if rightColumnSelect == 'detail'}
+					<div class="h-full flex flex-col w-full overflow-auto">
+						{#if selectedJobId}
+							{#if selectedJobId?.includes('Frontend')}
+								{@const jobResult = $jobsById[selectedJobId]}
+								{#if jobResult?.error !== undefined}
 									<Splitpanes horizontal class="grow border w-full">
-										<Pane size={50} minSize={10}>
-											<LogViewer jobId={job?.id} content={job?.logs} isLoading={testIsLoading} />
+										<Pane size={10} minSize={10}>
+											<LogViewer
+												content={`Logs are avaiable in the browser console directly`}
+												isLoading={false}
+											/>
 										</Pane>
-										<Pane size={50} minSize={10} class="text-sm text-secondary">
-											{#if job != undefined && 'result' in job && job.result != undefined}
-												<pre class="overflow-x-auto break-words relative h-full px-2"
-													><DisplayResult
-														workspaceId={$workspaceStore}
-														jobId={selectedJobId}
-														result={job.result}
-													/></pre
-												>
-											{:else if testIsLoading}
-												<div class="p-2"><Loader2 class="animate-spin" /> </div>
-											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-												<div class="p-2 text-tertiary">Result is undefined</div>
-											{:else}
-												<div class="p-2 text-tertiary">
-													<Loader2 size={14} class="animate-spin mr-2" />
-												</div>
-											{/if}
+										<Pane size={90} minSize={10} class="text-sm text-secondary">
+											<div class="relative h-full px-2">
+												<DisplayResult
+													result={{
+														error: { name: 'Frontend execution error', message: jobResult.error }
+													}}
+												/>
+											</div>
 										</Pane>
-										{#if jobResult?.transformer}
-											<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
-												<div class="font-bold mb-4">Transformer results</div>
+									</Splitpanes>
+								{:else if jobResult !== undefined}
+									<Splitpanes horizontal class="grow border w-full">
+										<Pane size={10} minSize={10}>
+											<LogViewer
+												content={`Logs are avaiable in the browser console directly`}
+												isLoading={false}
+											/>
+										</Pane>
+										<Pane size={90} minSize={10} class="text-sm text-secondary">
+											<div class="relative h-full px-2">
+												<DisplayResult
+													workspaceId={$workspaceStore}
+													jobId={selectedJobId}
+													result={jobResult.result}
+												/>
+											</div>
+										</Pane>
+									</Splitpanes>
+								{:else}
+									<Loader2 class="animate-spin" />
+								{/if}
+							{:else}
+								<div class="flex flex-col h-full w-full gap-4 mb-4">
+									{#if job?.['running']}
+										<div class="flex flex-row-reverse w-full">
+											<Button
+												color="red"
+												variant="border"
+												on:click={() => testJobLoader?.cancelJob()}
+											>
+												<Loader2 size={14} class="animate-spin mr-2" />
+
+												Cancel
+											</Button>
+										</div>
+									{/if}
+									{#if job?.args}
+										<div class="p-2">
+											<JobArgs args={job?.args} />
+										</div>
+									{/if}
+
+									{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+										{@const jobResult = $jobsById[selectedJobId]}
+										<Splitpanes horizontal class="grow border w-full">
+											<Pane size={50} minSize={10}>
+												<LogViewer
+													duration={job?.['duration_ms']}
+													jobId={job?.id}
+													content={job?.logs}
+													isLoading={testIsLoading}
+												/>
+											</Pane>
+											<Pane size={50} minSize={10} class="text-sm text-secondary">
 												{#if job != undefined && 'result' in job && job.result != undefined}
-													<pre class="overflow-x-auto break-words relative h-full px-2">
+													<div class="relative h-full px-2">
 														<DisplayResult
 															workspaceId={$workspaceStore}
 															jobId={selectedJobId}
-															result={jobResult?.transformer}
-														/>
-													</pre>
+															result={job.result}
+														/></div
+													>
 												{:else if testIsLoading}
 													<div class="p-2"><Loader2 class="animate-spin" /> </div>
 												{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
@@ -768,28 +782,67 @@
 													</div>
 												{/if}
 											</Pane>
-										{/if}
-									</Splitpanes>
-								{:else}
-									<div class="mt-10" />
-									<FlowProgressBar {job} class="py-4" />
-									<div class="w-full mt-10 mb-20">
-										<FlowStatusViewer
-											jobId={job.id}
-											on:jobsLoaded={({ detail }) => {
-												job = detail
-											}}
-										/>
-									</div>
-								{/if}
-							</div>
+											{#if jobResult?.transformer}
+												<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
+													<div class="font-bold">Transformer results</div>
+													{#if job != undefined && 'result' in job && job.result != undefined}
+														<div class="relative h-full px-2">
+															<DisplayResult
+																workspaceId={$workspaceStore}
+																jobId={selectedJobId}
+																result={jobResult?.transformer}
+															/>
+														</div>
+													{:else if testIsLoading}
+														<div class="p-2"><Loader2 class="animate-spin" /> </div>
+													{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
+														<div class="p-2 text-tertiary">Result is undefined</div>
+													{:else}
+														<div class="p-2 text-tertiary">
+															<Loader2 size={14} class="animate-spin mr-2" />
+														</div>
+													{/if}
+												</Pane>
+											{/if}
+										</Splitpanes>
+									{:else}
+										<div class="mt-10" />
+										<FlowProgressBar {job} class="py-4" />
+										<div class="w-full mt-10 mb-20">
+											<FlowStatusViewer
+												jobId={job.id}
+												on:jobsLoaded={({ detail }) => {
+													job = detail
+												}}
+											/>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						{:else}
+							<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
 						{/if}
-					{:else}
-						<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</Pane>
 		</Splitpanes>
+		<svelte:fragment slot="actions">
+			<Button
+				size="md"
+				color="light"
+				variant="border"
+				on:click={() => {
+					errorByComponent.set({})
+					jobs.set([])
+				}}
+				>Clear jobs
+			</Button>
+			{#if hasErrors}
+				<Button size="md" color="light" variant="border" on:click={() => errorByComponent.set({})}
+					>Clear Errors &nbsp;<BellOff size={14} />
+				</Button>
+			{/if}
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
 
@@ -878,7 +931,7 @@
 			<Button
 				on:click={() => {
 					if (selectedJobId == undefined && $jobs.length > 0) {
-						selectedJobId = $jobs[0].job
+						selectedJobId = $jobs[$jobs.length - 1]
 					}
 					$jobsDrawerOpen = true
 				}}

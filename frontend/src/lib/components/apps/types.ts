@@ -204,18 +204,20 @@ export type AppViewerContext = {
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean
-	jobs: Writable<
-		{
-			job: string
-			component: string
-			result?: string
-			error?: string
-			transformer?: { result?: string; error?: string }
-		}[]
-	>
+	jobs: Writable<string[]>,
+	// jobByComponent: Writable<Record<string, string>>,
+	jobsById: Writable<Record<string, 		{
+		job: string
+		component: string
+		result?: string
+		error?: any
+		transformer?: { result?: string; error?: string }
+		started_at?: number
+		duration_ms?: number
+	}>>,
 	noBackend: boolean
-	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
-	openDebugRun: Writable<((componentID: string) => void) | undefined>
+	errorByComponent: Writable<Record<string, {id?: string, error: string}>>
+	openDebugRun: Writable<((jobID: string) => void) | undefined>
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>
 	parentWidth: Writable<number>

@@ -649,6 +649,7 @@
 </div>
 {#if initializing}
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		on:mouseover|stopPropagation={() => {
 			if (component.id !== $hoverStore) {

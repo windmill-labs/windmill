@@ -2431,7 +2431,7 @@ paths:
 
   /flows/hub/list:
     get:
-      summary: list all available hub flows
+      summary: list all hub flows
       operationId: listHubFlows
       tags:
         - flow
@@ -2492,7 +2492,7 @@ paths:
 
   /apps/hub/list:
     get:
-      summary: list all available hub apps
+      summary: list all hub apps
       operationId: listHubApps
       tags:
         - app
@@ -2762,7 +2762,7 @@ paths:
 
   /w/{workspace}/scripts/list:
     get:
-      summary: list all available scripts
+      summary: list all scripts
       operationId: listScripts
       tags:
         - script
@@ -2840,7 +2840,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available scripts
+          description: All scripts
           content:
             application/json:
               schema:
@@ -2850,7 +2850,7 @@ paths:
 
   /w/{workspace}/scripts/list_paths:
     get:
-      summary: list all available scripts paths
+      summary: list all scripts paths
       operationId: listScriptPaths
       tags:
         - script
@@ -3411,7 +3411,7 @@ paths:
 
   /w/{workspace}/flows/list_paths:
     get:
-      summary: list all available flow paths
+      summary: list all flow paths
       operationId: listFlowPaths
       tags:
         - flow
@@ -3454,7 +3454,7 @@ paths:
 
   /w/{workspace}/flows/list:
     get:
-      summary: list all available flows
+      summary: list all flows
       operationId: listFlows
       tags:
         - flow
@@ -3492,7 +3492,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available flow
+          description: All flow
           content:
             application/json:
               schema:
@@ -3710,7 +3710,7 @@ paths:
 
   /w/{workspace}/raw_apps/list:
     get:
-      summary: list all available raw apps
+      summary: list all raw apps
       operationId: listRawApps
       tags:
         - raw_app
@@ -3739,7 +3739,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available raw apps
+          description: All raw apps
           content:
             application/json:
               schema:
@@ -3809,7 +3809,7 @@ paths:
 
   /w/{workspace}/apps/list:
     get:
-      summary: list all available apps
+      summary: list all apps
       operationId: listApps
       tags:
         - app
@@ -3838,7 +3838,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available apps
+          description: All apps
           content:
             application/json:
               schema:
@@ -4344,7 +4344,7 @@ paths:
 
   /w/{workspace}/jobs/queue/list:
     get:
-      summary: list all available queued jobs
+      summary: list all queued jobs
       operationId: listQueue
       tags:
         - job
@@ -4368,7 +4368,7 @@ paths:
         - $ref: "#/components/parameters/Tag"
       responses:
         "200":
-          description: All available queued jobs
+          description: All queued jobs
           content:
             application/json:
               schema:
@@ -4438,7 +4438,7 @@ paths:
 
   /w/{workspace}/jobs/completed/list:
     get:
-      summary: list all available completed jobs
+      summary: list all completed jobs
       operationId: listCompletedJobs
       tags:
         - job
@@ -4470,7 +4470,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available completed jobs
+          description: All completed jobs
           content:
             application/json:
               schema:
@@ -4480,7 +4480,7 @@ paths:
 
   /w/{workspace}/jobs/list:
     get:
-      summary: list all available jobs
+      summary: list all jobs
       operationId: listJobs
       tags:
         - job

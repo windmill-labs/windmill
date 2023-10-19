@@ -20,7 +20,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
-	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
+	import { selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 
@@ -58,6 +58,7 @@
 		appPath,
 		isEditor,
 		jobs,
+		jobsById,
 		noBackend,
 		errorByComponent,
 		mode,
@@ -82,7 +83,7 @@
 	export function setArgs(value: any) {
 		args = value
 	}
-	
+
 	let args: Record<string, any> | undefined = undefined
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
@@ -92,7 +93,9 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
-			executeComponent(true)
+			if ((!autoRefresh && !refreshOnStart) || didInitialRun) {
+				executeComponent(true)
+			}
 		}, 200)
 	}
 
@@ -171,20 +174,45 @@
 	function generateNextFrontendJobId() {
 		const prefix = 'Frontend: '
 		let nextJobNumber = 1
-		while ($jobs.find((j) => j.job === `${prefix}#${nextJobNumber}`)) {
+		while ($jobsById[`${prefix}#${nextJobNumber}`]) {
 			nextJobNumber++
 		}
 		return `${prefix}#${nextJobNumber}`
 	}
 
+	function addJob(jobId: string) {
+		$jobsById[jobId] = {
+			component: id,
+			job: jobId,
+			started_at: Date.now()
+		}
+		jobs.update((jobs) => {
+			const njobs = [...jobs, jobId]
+			// Only keep the last 100 jobs
+			if (njobs?.length > 100) {
+				while (njobs?.length > 100) {
+					delete $jobsById[njobs.shift()!]
+				}
+			}
+			return njobs
+		})
+	}
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
 			return
 		}
+
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
+
+			let job: string | undefined
+			if (isEditor) {
+				job = generateNextFrontendJobId()
+				addJob(job)
+			}
+
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
@@ -195,18 +223,16 @@
 					}),
 					false,
 					$state,
-					$mode == 'dnd',
+					isEditor,
 					$componentControl,
 					$worldStore,
 					$runnableComponents
 				)
 
-				const job = generateNextFrontendJobId()
 				await setResult(r, job)
 				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-				const job = generateNextFrontendJobId()
 				await setResult({ error: { message: e.body ?? e.message } }, job)
 			}
 			loading = false
@@ -270,11 +296,15 @@
 					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
 				}
 
-				return AppService.executeComponent({
+				const uuid = await AppService.executeComponent({
 					workspace,
 					path: defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
 					requestBody
 				})
+				if (isEditor) {
+					addJob(uuid)
+				}
+				return uuid
 			})
 		} catch (e) {
 			updateResult({ error: e.body ?? e.message })
@@ -287,17 +317,11 @@
 			if (cancellableRun) {
 				await cancellableRun()
 			} else {
+				console.log('Run component')
 				executeComponent()
 			}
 		} catch (e) {
 			updateResult({ error: e.body ?? e.message })
-		}
-	}
-
-	function recordError(error: string, jobId: string) {
-		$errorByComponent[jobId] = {
-			error: error,
-			componentId: id
 		}
 	}
 
@@ -306,28 +330,29 @@
 	}
 
 	function recordJob(
-		jobId: string,
-		result?: string,
-		error?: string,
+		jobId?: string,
+		result?: any,
+		jobError?: string,
 		transformer?: { result?: string; error?: string }
 	) {
-		const job = {
-			...(result ? { result } : {}),
-			...(error ? { error } : {}),
-			...(transformer ? { transformer } : {}),
-			job: jobId,
-			component: id
+		const error = jobError ?? JSON.stringify(transformer?.error, null, 4)
+
+		if (isEditor && jobId) {
+			const oldJob = $jobsById[jobId]
+
+			const job = {
+				...oldJob,
+				...(result ? { result } : {}),
+				...(transformer ? { transformer } : {}),
+				duration_ms: oldJob?.started_at ? Date.now() - oldJob?.started_at : 1
+			}
+
+			$jobsById[jobId] = job
 		}
 
 		if (error) {
-			recordError(error, jobId)
-		} else if (job?.transformer?.error) {
-			recordError(job.transformer.error, jobId)
+			$errorByComponent[id] = { id, error }
 		}
-
-		const njobs = [job, ...$jobs]
-		// Only keep the last 100 jobs
-		$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
 	}
 
 	function getResultErrors(result: any | any[]): string | undefined {
@@ -357,7 +382,7 @@
 					}),
 					false,
 					$state,
-					$mode == 'dnd',
+					isEditor,
 					$componentControl,
 					$worldStore,
 					$runnableComponents
@@ -383,11 +408,6 @@
 
 	async function setResult(res: any, jobId: string | undefined) {
 		dispatch('done')
-		const hasRes = res !== undefined && res !== null
-
-		if (!jobId && !hasRes) {
-			return
-		}
 
 		const errors = getResultErrors(res)
 
@@ -396,7 +416,7 @@
 				? { error: 'Transformer could not be run because of previous errors' }
 				: undefined
 
-			recordJob(jobId!, undefined, errors, transformerResult)
+			recordJob(jobId, errors, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
 			donePromise?.()
@@ -406,7 +426,7 @@
 		const transformerResult = await runTransformer(res)
 
 		if (transformerResult?.error) {
-			recordJob(jobId!, res, undefined, transformerResult)
+			recordJob(jobId, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
 			donePromise?.()
@@ -414,8 +434,8 @@
 		}
 
 		updateResult(transformerResult ?? res)
-		recordJob(jobId!, result, undefined, transformerResult)
-		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+		recordJob(jobId, result, undefined, transformerResult)
+		delete $errorByComponent[id]
 
 		dispatch('success')
 		donePromise?.()
@@ -429,16 +449,17 @@
 	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =
 		undefined
 
+	let didInitialRun = false
 	onMount(() => {
-		console.log('create', id)
-
+		didInitialRun = false
 		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-
-				executeComponent(true, inlineScript).catch(reject)
+				executeComponent(true, inlineScript)
+					.catch(reject)
+					.finally(() => (didInitialRun = true))
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()
@@ -462,7 +483,7 @@
 
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
-		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+		delete $errorByComponent[id]
 		if ($runnableComponents[id]) {
 			$runnableComponents[id] = {
 				...$runnableComponents[id],
@@ -513,6 +534,13 @@
 		setResult(e.detail.result, e.detail.id)
 		loading = false
 	}}
+	on:cancel={(e) => {
+		let jobId = e.detail
+		let job = $jobsById[jobId]
+		if (job && job.started_at) {
+			$jobsById[jobId] = { ...job, duration_ms: Date.now() - job.started_at }
+		}
+	}}
 	on:doneError={(e) => {
 		setResult({ error: e.detail.error }, e.detail.id)
 		loading = false
@@ -545,8 +573,7 @@
 			<div
 				title="Error"
 				class={classNames(
-					'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-2  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer',
-					'bg-red-100/80'
+					'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-2  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer'
 				)}
 			>
 				<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
@@ -557,8 +584,8 @@
 								<div class="flex flex-col gap-2">
 									An error occured, please contact the app author.
 
-									{#if lastJobId && $errorByComponent[lastJobId]?.error}
-										<div class="font-bold">{$errorByComponent[lastJobId]?.error}</div>
+									{#if lastJobId && $errorByComponent[id].error}
+										<div class="font-bold">{$errorByComponent[id].error}</div>
 									{/if}
 									<a
 										href={`/run/${lastJobId}?workspace=${workspace}`}
@@ -573,7 +600,7 @@
 					</span>
 				</Popover>
 			</div>
-			<div class="block grow w-full max-h-full border border-red-300 bg-red-50 relative">
+			<div class="block grow w-full max-h-full border border-red-30 relative">
 				<slot />
 			</div>
 		{:else}
