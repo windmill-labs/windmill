@@ -10,7 +10,6 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores.js'
 	import { SecondsInput } from '../../common'
 	import Multiselect from 'svelte-multiselect'
-	import { AlertTriangle } from 'lucide-svelte'
 
 	export let flowModule: FlowModule
 
