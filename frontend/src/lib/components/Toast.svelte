@@ -36,7 +36,7 @@
 				{/if}
 			</div>
 			<div class="ml-3 flex-1 w-0">
-				<p class="text-sm text-secondary">{message}</p>
+				<p class="text-sm text-secondary break-words">{message}</p>
 				{#if errorMessage}
 					<p
 						class="text-sm text-secondary border bg-surface-secondary p-2 w-full overflow-auto mt-2"

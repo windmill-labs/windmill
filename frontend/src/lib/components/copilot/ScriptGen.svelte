@@ -16,7 +16,6 @@
 	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
 	import type SimpleEditor from '../SimpleEditor.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -28,6 +27,8 @@
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
+	import { isInitialCode } from '$lib/script_helpers'
 
 	// props
 	export let iconOnly: boolean = false
@@ -42,10 +43,10 @@
 	let genLoading: boolean = false
 	let input: HTMLInputElement | undefined
 	let generatedCode = writable<string>('')
-	let selection: Selection | undefined
-	let isEdit = false
 	let dbSchema: DBSchema | undefined = undefined
 	let abortController: AbortController | undefined = undefined
+	let blockPopupOpen = false
+	let mode: 'gen' | 'edit' = 'gen'
 
 	let button: HTMLButtonElement | undefined
 
@@ -55,23 +56,20 @@
 		}
 		try {
 			genLoading = true
+			blockPopupOpen = true
 			abortController = new AbortController()
-			if (isEdit && selection) {
-				const selectedCode = editor?.getSelectedLines() || ''
-				const originalCode = editor?.getCode() || ''
+			if (mode === 'edit') {
 				await copilot(
 					{
 						language: lang,
 						description: funcDesc,
-						code: selectedCode,
+						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
 						type: 'edit'
 					},
 					generatedCode,
 					abortController
 				)
-				setupDiff()
-				diffEditor?.setModified(originalCode.replace(selectedCode, $generatedCode + '\n'))
 			} else {
 				await copilot(
 					{
@@ -83,9 +81,10 @@
 					generatedCode,
 					abortController
 				)
-				setupDiff()
-				diffEditor?.setModified($generatedCode)
 			}
+			setupDiff()
+			diffEditor?.setModified($generatedCode)
+			blockPopupOpen = false
 			await sleep(500)
 			closePopup()
 			await sleep(300)
@@ -128,12 +127,6 @@
 		diffEditor?.hide()
 	}
 
-	function setSelectionHandler() {
-		editor?.onDidChangeCursorSelection((e) => {
-			selection = e.selection
-		})
-	}
-
 	$: input?.focus()
 
 	function clear() {
@@ -143,17 +136,27 @@
 	$: lang && clear()
 
 	$: !$generatedCode && hideDiff()
-	$: editor && setSelectionHandler()
-	$: selection && (isEdit = !selection.isEmpty())
 
-	function updateSchema(lang, args) {
+	function updateSchema(lang, args, dbSchemas) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
 		if (typeof schemaRes === 'string') {
-			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
+			const schemaPath = schemaRes.replace('$res:', '')
+			if (schemaPath in dbSchemas && dbSchemas[schemaPath].lang === lang) {
+				dbSchema = dbSchemas[schemaPath]
+			} else {
+				dbSchema = undefined
+			}
+		} else {
+			dbSchema = undefined
 		}
 	}
-	$: updateSchema(lang, args)
+
+	$: updateSchema(lang, args, $dbSchemas)
 </script>
+
+{#if genLoading}
+	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
+{/if}
 
 {#if $generatedCode.length > 0 && !genLoading}
 	{#if inlineScript}
@@ -214,6 +217,7 @@
 			]
 		}}
 		let:close
+		blockOpen={blockPopupOpen}
 	>
 		<svelte:fragment slot="button">
 			{#if inlineScript}
@@ -234,13 +238,23 @@
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses="!font-medium"
+					btnClasses={'!font-medium ' + (genLoading ? 'z-[5000]' : '')}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? undefined : { icon: faMagicWandSparkles }}
-					nonCaptureEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : undefined}
+					propagateEvent
+					on:click={genLoading
+						? () => abortController?.abort()
+						: () => {
+								if (editor) {
+									if (isInitialCode(editor.getCode())) {
+										mode = 'gen'
+									} else {
+										mode = 'edit'
+									}
+								}
+						  }}
 					bind:element={button}
 				>
 					{#if genLoading}
@@ -253,7 +267,7 @@
 						/>
 						Stop
 					{:else}
-						{isEdit ? 'AI Edit' : 'AI Gen'}
+						AI
 					{/if}
 				</Button>
 			{/if}
@@ -270,50 +284,59 @@
 					{/if}
 				</div>
 			{:else if $copilotInfo.exists_openai_resource_path}
-				<div class="flex w-96">
-					<input
-						type="text"
-						bind:this={input}
-						bind:value={funcDesc}
-						on:keypress={({ key }) => {
-							if (key === 'Enter' && funcDesc.length > 0) {
+				<div class="flex flex-col gap-4">
+					<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
+						<ToggleButton value={'gen'} label="Generate from scratch" small light />
+						<ToggleButton value={'edit'} label="Edit existing code" small light />
+					</ToggleButtonGroup>
+					<div class="flex w-96">
+						<input
+							type="text"
+							bind:this={input}
+							bind:value={funcDesc}
+							on:keypress={({ key }) => {
+								if (key === 'Enter' && funcDesc.length > 0) {
+									onGenerate(() => close(input || null))
+								}
+							}}
+							placeholder={mode === 'edit'
+								? 'Describe the changes you want'
+								: 'Describe what the script should do'}
+						/>
+						<Button
+							size="xs"
+							color="blue"
+							buttonType="button"
+							btnClasses="!p-1 !w-[38px] !ml-2"
+							aria-label="Generate"
+							on:click={() => {
 								onGenerate(() => close(input || null))
-							}
-						}}
-						placeholder={isEdit
-							? 'Describe the changes you want'
-							: 'Describe what the script should do'}
-					/>
-					<Button
-						size="xs"
-						color="blue"
-						buttonType="button"
-						btnClasses="!p-1 !w-[38px] !ml-2"
-						aria-label="Generate"
-						on:click={() => {
-							onGenerate(() => close(input || null))
-						}}
-						disabled={funcDesc.length <= 0}
-					>
-						<Icon data={faMagicWandSparkles} />
-					</Button>
-				</div>
-				{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(lang) && dbSchema?.lang === lang}
-					<div class="flex flex-row items-center justify-between w-96 mt-2">
-						<p class="text-sm">
-							Will take into account the DB schema
-							<Tooltip>
-								In order to better generate the script, we pass the selected DB schema to GPT-4.
-							</Tooltip>
-						</p>
-						{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
-							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
-								<ToggleButton value={true} label="Public schema" />
-								<ToggleButton value={false} label="All schemas" />
-							</ToggleButtonGroup>
-						{/if}
+							}}
+							disabled={funcDesc.length <= 0}
+						>
+							<Icon data={faMagicWandSparkles} />
+						</Button>
 					</div>
-				{/if}
+
+					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(lang) && dbSchema?.lang === lang}
+						<div class="flex flex-row items-center justify-between gap-2 w-96">
+							<div class="flex flex-row items-center">
+								<p class="text-xs text-secondary">
+									Context: {lang === 'graphql' ? 'GraphQL' : 'DB'} schema
+								</p>
+								<Tooltip>
+									In order to better generate the script, we pass the selected schema to GPT-4.
+								</Tooltip>
+							</div>
+							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
+								<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
+									<ToggleButton value={true} label="Public schema" small light />
+									<ToggleButton value={false} label="All schemas" small light />
+								</ToggleButtonGroup>
+							{/if}
+						</div>
+					{/if}</div
+				>
 			{:else}
 				<p class="text-sm"
 					>Enable Windmill AI in the <a
