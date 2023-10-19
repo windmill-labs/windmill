@@ -108,8 +108,6 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 		throw new Error('Workspace not initialized')
 	}
 
-	const localResourceTypes = await ResourceService.listResourceType({ workspace })
-
 	const elems =
 		scriptOptions.type === 'gen' || scriptOptions.type === 'edit' ? [scriptOptions.description] : []
 
@@ -132,22 +130,9 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 		}
 	}
 
-	const hubResourceTypes = await ResourceService.listHubResourceTypes()
-	const queriedIds = (
-		await ResourceService.queryHubResourceTypes({
-			text: elems.join(';')
-		})
-	).map((rt) => rt.id)
-	const customResourceTypes = localResourceTypes.filter((rt) => rt.name.startsWith('c_'))
-	const resourceTypes = [
-		...hubResourceTypes
-			.filter((rt) => queriedIds.includes(String(rt.id)))
-			.map((rt) => ({
-				...rt,
-				schema: JSON.parse(rt.schema)
-			})),
-		...customResourceTypes
-	]
+	const resourceTypes = await ResourceService.queryResourceTypes({
+		text: elems.join(';')
+	})
 
 	return resourceTypes
 }
