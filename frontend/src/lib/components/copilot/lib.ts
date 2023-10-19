@@ -26,6 +26,35 @@ const openaiConfig: CompletionCreateParamsStreaming = {
 let workspace: string | undefined = undefined
 let openai: OpenAI | undefined = undefined
 
+export async function testKey({
+	apiKey,
+	abortController,
+	messages
+}: {
+	apiKey?: string
+	messages: CreateChatCompletionRequestMessage[]
+	abortController: AbortController
+}) {
+	if (apiKey) {
+		const openai = new OpenAI({
+			apiKey,
+			dangerouslyAllowBrowser: true
+		})
+		await openai.chat.completions.create(
+			{
+				...openaiConfig,
+				messages,
+				stream: false
+			},
+			{
+				signal: abortController.signal
+			}
+		)
+	} else {
+		await getNonStreamingCompletion(messages, abortController)
+	}
+}
+
 workspaceStore.subscribe(async (value) => {
 	workspace = value
 	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`

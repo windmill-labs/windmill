@@ -31,6 +31,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 
 	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
 
@@ -168,7 +169,10 @@
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
-			errorHandlerSelected = emptyString(errorHandlerScriptPath) || errorHandlerScriptPath === slackErrorHandler ? 'slack' : 'custom'
+			errorHandlerSelected =
+				emptyString(errorHandlerScriptPath) || errorHandlerScriptPath === slackErrorHandler
+					? 'slack'
+					: 'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
@@ -184,18 +188,18 @@
 		if (errorHandlerScriptPath) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
-				requestBody: { 
+				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
-					error_handler_extra_args: errorHandlerExtraArgs,
+					error_handler_extra_args: errorHandlerExtraArgs
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
-				requestBody: { 
+				requestBody: {
 					error_handler: undefined,
-					error_handler_extra_args: undefined,
+					error_handler_extra_args: undefined
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
@@ -438,7 +442,7 @@
 			</div>
 		{:else if tab == 'error_handler'}
 			<PageHeader title="Script to run as error handler" primary={false} />
-			
+
 			<ErrorOrRecoveryHandler
 				isEditable={true}
 				handlersOnlyForEe={['slack']}
@@ -458,15 +462,17 @@
 								The following args will be passed to the error handler:
 								<ul class="mt-1 ml-2">
 									<li><b>path</b>: The path of the script or flow that errored.</li>
-									<li><b>email</b>: The email of the user who ran the script or flow that errored.</li>
+									<li>
+										<b>email</b>: The email of the user who ran the script or flow that errored.
+									</li>
 									<li><b>error</b>: The error details.</li>
 									<li><b>job_id</b>: The job id.</li>
 									<li><b>is_flow</b>: Whether the error comes from a flow.</li>
 									<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
 								</ul>
 								<br />
-								The error handler will be executed by the automatically created group g/error_handler. If
-								your error handler requires variables or resources, you need to add them to the group.
+								The error handler will be executed by the automatically created group g/error_handler.
+								If your error handler requires variables or resources, you need to add them to the group.
 							</div>
 						</div>
 					</Tooltip>
@@ -475,14 +481,15 @@
 
 			<div class="flex mt-5 justify-start">
 				<Button
-					disabled={(errorHandlerSelected === 'slack' && !emptyString(errorHandlerScriptPath) && emptyString(errorHandlerExtraArgs['channel']))}
+					disabled={errorHandlerSelected === 'slack' &&
+						!emptyString(errorHandlerScriptPath) &&
+						emptyString(errorHandlerExtraArgs['channel'])}
 					size="sm"
 					on:click={editErrorHandler}
 				>
 					Save
 				</Button>
 			</div>
-
 		{:else if tab == 'openai'}
 			<PageHeader title="Windmill AI" primary={false} />
 			<div class="mt-2">
@@ -491,7 +498,7 @@
 					features.
 				</Alert>
 			</div>
-			<div class="mt-5">
+			<div class="mt-5 flex gap-1">
 				{#key openaiResourceInitialPath}
 					<ResourcePicker
 						resourceType="openai"
@@ -501,6 +508,7 @@
 						}}
 					/>
 				{/key}
+				<TestOpenaiKey disabled={!openaiResourceInitialPath} />
 			</div>
 			<div class="mt-3">
 				<Toggle

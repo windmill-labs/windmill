@@ -12,7 +12,6 @@ use std::{
 };
 
 use serde::{self, Deserialize, Serialize, Serializer};
-use serde_json::value::RawValue;
 
 use crate::{
     more_serde::{
@@ -176,7 +175,7 @@ pub struct Suspend {
 pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub return_value: Option<Box<RawValue>>,
+    pub return_value: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

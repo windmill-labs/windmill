@@ -11,6 +11,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -21,6 +22,7 @@
 	let errorId = ''
 	let errorUser = ''
 	let openAiKey = ''
+	let codeCompletionEnabled = true
 	let checking = false
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
@@ -69,7 +71,7 @@
 			})
 			await WorkspaceService.editCopilotConfig({
 				workspace: id,
-				requestBody: { openai_resource_path: path, code_completion_enabled: false }
+				requestBody: { openai_resource_path: path, code_completion_enabled: codeCompletionEnabled }
 			})
 		}
 
@@ -150,12 +152,29 @@
 		{/if}
 	</label>
 	<label class="block pb-4">
-		<span class="text-secondary text-sm"
-			>OpenAI key for codegen<span class="text-2xs text-tertiary ml-2"
-				>(optional but recommended)</span
-			></span
-		>
-		<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
+		<span class="text-secondary text-sm">
+			OpenAI key for Windmill AI
+			<Tooltip>
+				Find out how it can help you <a
+					href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+					target="_blank"
+					rel="noopener noreferrer">in the docs</a
+				>
+			</Tooltip>
+			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
+		</span>
+		<div class="flex flex-row gap-1">
+			<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
+			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
+		</div>
+		{#if openAiKey}
+			<Toggle
+				disabled={!openAiKey}
+				size="xs"
+				bind:checked={codeCompletionEnabled}
+				options={{ right: 'Enable code completion' }}
+			/>
+		{/if}
 	</label>
 	<Toggle
 		disabled={!isDomainAllowed}

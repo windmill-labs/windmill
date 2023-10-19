@@ -5,7 +5,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 
-	export let is_owner: boolean
+	export let isOwner: boolean
 	export let workspaceId: string | undefined
 	export let job: Job
 
@@ -31,7 +31,7 @@
 <div class="w-full h-full mt-2 text-sm text-tertiary">
 	<p>Waiting to be resumed</p>
 	<div>
-		{#if is_owner}
+		{#if isOwner}
 			<div class="flex flex-row gap-2 mt-2">
 				<div>
 					<Button
