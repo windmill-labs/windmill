@@ -170,6 +170,7 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class={twMerge(
 			'h-full w-full overflow-hidden',
@@ -216,7 +217,9 @@
 		{:else}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				{#if !result || result === ''}
-					<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
+					<div
+						class="text-ternary bg-surface-primary flex justify-center items-center h-full w-full"
+					>
 						No text
 					</div>
 				{:else}

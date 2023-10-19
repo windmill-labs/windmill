@@ -141,11 +141,10 @@
 	}
 </script>
 
-<div class="inline-highlight pt-0.5 relative grow min-h-[200px] h-full">
+<div class="inline-highlight relative grow min-h-[200px] h-full">
 	{#if result != undefined && length != undefined && largeObject != undefined}{#if resultKind && resultKind != 'json'}<div
-				class="flex flex-row w-full justify-between items-center"
-			>
-				<div class="mb-2 text-tertiary text-sm">
+				class="top-0 flex flex-row w-full justify-between items-center"
+				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 				>
 				<slot name="copilot-fix" />

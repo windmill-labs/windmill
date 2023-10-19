@@ -80,10 +80,10 @@ ${Object.entries(args)
 			{:else}
 				<Row>
 					<Cell first>
-						<Skeleton layout={[[3], 0.5, [3]]} />
+						<Skeleton layout={[[1], 0.5, [1]]} />
 					</Cell>
 					<Cell last>
-						<Skeleton layout={[[3], 0.5, [3]]} />
+						<Skeleton layout={[[1], 0.5, [1]]} />
 					</Cell>
 				</Row>
 			{/if}
