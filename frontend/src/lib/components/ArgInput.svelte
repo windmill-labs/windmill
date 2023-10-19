@@ -49,6 +49,7 @@
 				type?: 'string' | 'number' | 'bytes' | 'object'
 				contentEncoding?: 'base64'
 				enum?: string[]
+				multiselect?: string[]
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -293,12 +294,12 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					{#if Array.isArray(itemsType?.enum)}
+					{#if Array.isArray(itemsType?.multiselect)}
 						<div class="items-start">
 							<Multiselect
 								{disabled}
 								bind:selected={value}
-								options={itemsType?.enum ?? []}
+								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
 							/>
 						</div>
@@ -320,6 +321,18 @@
 													/>
 												{:else if itemsType?.type == 'object'}
 													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+												{:else if Array.isArray(itemsType?.enum)}
+													<select
+														on:focus={(e) => {
+															dispatch('focus')
+														}}
+														class="px-6"
+														bind:value={v}
+													>
+														{#each itemsType?.enum ?? [] as e}
+															<option>{e}</option>
+														{/each}
+													</select>
 												{:else}
 													<input type="text" bind:value={v} id="arg-input-array" />
 												{/if}
