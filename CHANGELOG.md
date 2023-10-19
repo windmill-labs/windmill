@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.186.0](https://github.com/windmill-labs/windmill/compare/v1.185.0...v1.186.0) (2023-10-19)
+
+
+### Features
+
+* Approval step optionally require logged-in user ([#2462](https://github.com/windmill-labs/windmill/issues/2462)) ([9442068](https://github.com/windmill-labs/windmill/commit/9442068374f57263bf3be5ecae03c95bd6ac5702))
+* Flow approvers user groups can be JS InputTransforms ([#2468](https://github.com/windmill-labs/windmill/issues/2468)) ([1200add](https://github.com/windmill-labs/windmill/commit/1200add2a7a3cac4f2519db33f9285e38591b19d))
+* local hub embeddings search ([#2463](https://github.com/windmill-labs/windmill/issues/2463)) ([ef3e4b2](https://github.com/windmill-labs/windmill/commit/ef3e4b2623d07e605d0507983f7976ec6656b4f6))
+* test openai key + improve AI UI ([#2465](https://github.com/windmill-labs/windmill/issues/2465)) ([94a52f1](https://github.com/windmill-labs/windmill/commit/94a52f1d2de14e78485a5429e56afaa7b9628199))
+* timeline for apps ([#2470](https://github.com/windmill-labs/windmill/issues/2470)) ([5469321](https://github.com/windmill-labs/windmill/commit/54693210229c01ed27d4ad2c4ca362b78292ad88))
+
+
+### Bug Fixes
+
+* embeddings duplicate id ([#2467](https://github.com/windmill-labs/windmill/issues/2467)) ([666ac56](https://github.com/windmill-labs/windmill/commit/666ac56824dead5dd1e44d7960de3c492096b445))
+* hub scripts search ([#2469](https://github.com/windmill-labs/windmill/issues/2469)) ([3a03eb3](https://github.com/windmill-labs/windmill/commit/3a03eb37606ae569674f5e77a72f638f560c4c60))
+
 ## [1.185.0](https://github.com/windmill-labs/windmill/compare/v1.184.0...v1.185.0) (2023-10-19)
 
 
