@@ -15,7 +15,7 @@
 	import { Unlock } from 'lucide-svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import GridViewer from './GridViewer.svelte'
-	import { Component } from './component'
+	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'

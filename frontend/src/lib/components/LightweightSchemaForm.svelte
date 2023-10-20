@@ -7,7 +7,7 @@
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
-	export let schema: Schema
+	export let schema: Schema | Record<string, any>
 	export let args: Record<string, any> | undefined = undefined
 	export let displayType: boolean = true
 	export let largeGap: boolean = false
