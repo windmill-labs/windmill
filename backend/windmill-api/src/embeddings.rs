@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::{self, Error, Result};
 use axum::{extract::Query, routing::get, Extension, Json, Router};
@@ -110,11 +110,8 @@ pub struct ModelInstance {
 }
 
 impl ModelInstance {
-    pub async fn new() -> Result<Self> {
-        let device = Device::Cpu;
-        let model_id = "thenlper/gte-small".to_string();
-
-        let repo = Repo::model(model_id);
+    pub async fn load_model_files() -> Result<(PathBuf, PathBuf, PathBuf)> {
+        let repo = Repo::model("thenlper/gte-small".to_string());
 
         let cache = Cache::default().repo(repo.clone());
 
@@ -132,9 +129,28 @@ impl ModelInstance {
                 .ok_or(Error::msg("could not get tokenizer.json"))?,
             cache
                 .get("model.safetensors")
-                .or_else(|| api.get("model.safetensors").ok())
+                .and_then(|p| {
+                    tracing::info!("Found embedding model in cache");
+                    Some(p)
+                })
+                .or_else(|| {
+                    tracing::info!("Downloading embedding model...");
+                    api.get("model.safetensors").ok().and_then(|p| {
+                        tracing::info!("Downloaded embedding model");
+                        Some(p)
+                    })
+                })
                 .ok_or(Error::msg("could not get model.safetensors"))?,
         );
+
+        Ok((config_filename, tokenizer_filename, weights_filename))
+    }
+
+    pub async fn new() -> Result<Self> {
+        tracing::info!("Loading embedding model...");
+        let device = Device::Cpu;
+        let (config_filename, tokenizer_filename, weights_filename) =
+            Self::load_model_files().await?;
         let config = std::fs::read_to_string(config_filename)?;
         let config: Config = serde_json::from_str(&config)?;
         let tokenizer = Tokenizer::from(
@@ -149,6 +165,7 @@ impl ModelInstance {
         let vb =
             unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], DTYPE, &device)? };
         let model = BertModel::load(vb, &config)?;
+        tracing::info!("Loaded embedding model");
         Ok(Self { model, tokenizer })
     }
 
@@ -439,6 +456,7 @@ pub fn global_service(db: &Pool<Postgres>) -> Router {
             if let Ok(model_instance) = model_instance {
                 let model_instance = Arc::new(model_instance);
                 loop {
+                    tracing::info!("Creating embeddings DB...");
                     let new_embeddings_db =
                         EmbeddingsDb::new(&db_clone, model_instance.clone()).await;
                     if let Err(e) = new_embeddings_db.as_ref() {
@@ -446,7 +464,7 @@ pub fn global_service(db: &Pool<Postgres>) -> Router {
                     } else {
                         let mut embeddings_db = embeddings_clone.write().await;
                         *embeddings_db = new_embeddings_db.ok();
-                        tracing::info!("Loaded embeddings DB");
+                        tracing::info!("Created embeddings DB");
                     }
 
                     tokio::time::sleep(std::time::Duration::from_secs(3600 * 24)).await;
