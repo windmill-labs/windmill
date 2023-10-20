@@ -192,7 +192,8 @@
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl,
-					ws_error_handler_muted: script.ws_error_handler_muted
+					ws_error_handler_muted: script.ws_error_handler_muted,
+					priority: script.priority
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -236,7 +237,8 @@
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						cache_ttl: script.cache_ttl,
-						ws_error_handler_muted: script.ws_error_handler_muted
+						ws_error_handler_muted: script.ws_error_handler_muted,
+						priority: script.priority
 					}
 				})
 			}
@@ -591,6 +593,29 @@
 										>
 									</svelte:fragment>
 								</Section>
+								{#if !isCloudHosted()}
+									<Section label="Mark as High priority">
+										<Toggle
+											disabled={!$enterpriseLicense || isCloudHosted()}
+											size="sm"
+											checked={script.priority !== undefined && script.priority > 0}
+											on:change={() => {
+												if (script.priority) {
+													script.priority = undefined
+												} else {
+													script.priority = 100
+												}
+											}}
+											options={{
+												right: 'High priority script'
+											}}
+										/>
+
+										<svelte:fragment slot="header">
+											<Tooltip>Only available on enterprise edition.</Tooltip>
+										</svelte:fragment>
+									</Section>
+								{/if}
 								{#if !isCloudHosted()}
 									<Section label="Custom env variables">
 										<svelte:fragment slot="header">

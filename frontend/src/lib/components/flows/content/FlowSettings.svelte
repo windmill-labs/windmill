@@ -13,7 +13,8 @@
 	import type { FlowEditorContext } from '../types'
 	import autosize from 'svelte-autosize'
 	import Slider from '$lib/components/Slider.svelte'
-	import { workerTags, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workerTags, workspaceStore } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
@@ -112,6 +113,21 @@
 									rows="3"
 								/>
 							</Label>
+
+							<Toggle
+								disabled={!$enterpriseLicense || isCloudHosted()}
+								checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
+								on:change={() => {
+									if ($flowStore.value.priority) {
+										$flowStore.value.priority = undefined
+									} else {
+										$flowStore.value.priority = 100
+									}
+								}}
+								options={{
+									right: 'High priority flow'
+								}}
+							/>
 
 							<div class="flex flex-row items-center gap-1">
 								<ErrorHandlerToggleButton

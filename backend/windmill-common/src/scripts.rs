@@ -162,7 +162,10 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
     pub dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
 }
 
 #[derive(Serialize)]
@@ -220,6 +223,7 @@ pub struct NewScript {
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
+    pub priority: Option<i16>,
 }
 
 #[derive(Deserialize)]

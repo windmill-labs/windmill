@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.185.0
+  version: 1.186.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -3114,7 +3114,7 @@ paths:
                     - name
   /flows/hub/list:
     get:
-      summary: list all available hub flows
+      summary: list all hub flows
       operationId: listHubFlows
       tags:
         - flow
@@ -3504,7 +3504,7 @@ paths:
                       - value
   /apps/hub/list:
     get:
-      summary: list all available hub apps
+      summary: list all hub apps
       operationId: listHubApps
       tags:
         - app
@@ -3668,15 +3668,14 @@ paths:
                           type: string
                         app:
                           type: string
-                        approved:
-                          type: boolean
+                        version_id:
+                          type: number
                         kind:
                           type: string
                           enum:
                             - script
                             - failure
                             - trigger
-                            - command
                             - approval
                         votes:
                           type: number
@@ -3687,7 +3686,7 @@ paths:
                         - ask_id
                         - summary
                         - app
-                        - approved
+                        - version_id
                         - kind
                         - views
                         - votes
@@ -3748,7 +3747,6 @@ paths:
                         - script
                         - failure
                         - trigger
-                        - command
                         - approval
                     score:
                       type: number
@@ -3790,7 +3788,7 @@ paths:
                     - content
   /w/{workspace}/scripts/list:
     get:
-      summary: list all available scripts
+      summary: list all scripts
       operationId: listScripts
       tags:
         - script
@@ -3901,7 +3899,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: All available scripts
+          description: All scripts
           content:
             application/json:
               schema:
@@ -3998,6 +3996,8 @@ paths:
                       type: boolean
                     ws_error_handler_muted:
                       type: boolean
+                    priority:
+                      type: integer
                   required: &ref_29
                     - hash
                     - path
@@ -4015,7 +4015,7 @@ paths:
                     - starred
   /w/{workspace}/scripts/list_paths:
     get:
-      summary: list all available scripts paths
+      summary: list all scripts paths
       operationId: listScriptPaths
       tags:
         - script
@@ -4184,6 +4184,8 @@ paths:
                   type: boolean
                 ws_error_handler_muted:
                   type: boolean
+                priority:
+                  type: integer
               required: &ref_32
                 - path
                 - summary
@@ -4918,7 +4920,7 @@ paths:
               schema: {}
   /w/{workspace}/flows/list_paths:
     get:
-      summary: list all available flow paths
+      summary: list all flow paths
       operationId: listFlowPaths
       tags:
         - flow
@@ -4965,7 +4967,7 @@ paths:
                     - value
   /w/{workspace}/flows/list:
     get:
-      summary: list all available flows
+      summary: list all flows
       operationId: listFlows
       tags:
         - flow
@@ -5022,7 +5024,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: All available flow
+          description: All flow
           content:
             application/json:
               schema:
@@ -5058,6 +5060,8 @@ paths:
                               type: string
                             ws_error_handler_muted:
                               type: boolean
+                            priority:
+                              type: integer
                           required: &ref_141
                             - path
                             - edited_by
@@ -5203,6 +5207,8 @@ paths:
                           type: string
                         ws_error_handler_muted:
                           type: boolean
+                        priority:
+                          type: integer
                       required:
                         - path
                 - type: object
@@ -5356,7 +5362,7 @@ paths:
                     - is_public
   /w/{workspace}/raw_apps/list:
     get:
-      summary: list all available raw apps
+      summary: list all raw apps
       operationId: listRawApps
       tags:
         - raw_app
@@ -5400,7 +5406,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: All available raw apps
+          description: All raw apps
           content:
             application/json:
               schema:
@@ -5510,7 +5516,7 @@ paths:
                     - value
   /w/{workspace}/apps/list:
     get:
-      summary: list all available apps
+      summary: list all apps
       operationId: listApps
       tags:
         - app
@@ -5554,7 +5560,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: All available apps
+          description: All apps
           content:
             application/json:
               schema:
@@ -6354,7 +6360,7 @@ paths:
                 format: uuid
   /w/{workspace}/jobs/queue/list:
     get:
-      summary: list all available queued jobs
+      summary: list all queued jobs
       operationId: listQueue
       tags:
         - job
@@ -6452,7 +6458,7 @@ paths:
             type: string
       responses:
         '200':
-          description: All available queued jobs
+          description: All queued jobs
           content:
             application/json:
               schema:
@@ -6727,7 +6733,7 @@ paths:
                   type: string
   /w/{workspace}/jobs/completed/list:
     get:
-      summary: list all available completed jobs
+      summary: list all completed jobs
       operationId: listCompletedJobs
       tags:
         - job
@@ -6812,7 +6818,7 @@ paths:
             type: boolean
       responses:
         '200':
-          description: All available completed jobs
+          description: All completed jobs
           content:
             application/json:
               schema:
@@ -6933,7 +6939,7 @@ paths:
                     - tag
   /w/{workspace}/jobs/list:
     get:
-      summary: list all available jobs
+      summary: list all jobs
       operationId: listJobs
       tags:
         - job

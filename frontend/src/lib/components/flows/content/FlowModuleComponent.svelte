@@ -5,6 +5,7 @@
 	import Editor from '$lib/components/Editor.svelte'
 	import EditorBar from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
 	import { RawScript, type FlowModule, Script } from '$lib/gen'
@@ -41,6 +42,8 @@
 	import s3Scripts from './s3Scripts/lib'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Label from '$lib/components/Label.svelte'
+	import { enterpriseLicense } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -331,6 +334,7 @@
 										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
 										<Tab value="timeout">Timeout</Tab>
+										<Tab value="priority">Priority</Tab>
 										{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
 											<Tab value="s3">S3</Tab>
 										{/if}
@@ -409,6 +413,23 @@
 												Set shared directory in the flow settings
 											</Button>
 										</div>
+									{:else if advancedSelected === 'priority'}
+										<Section label="Priority" class="flex flex-col gap-4">
+											<Toggle
+												disabled={!$enterpriseLicense || isCloudHosted()}
+												checked={flowModule.priority !== undefined && flowModule.priority > 0}
+												on:change={() => {
+													if (flowModule.priority) {
+														flowModule.priority = undefined
+													} else {
+														flowModule.priority = 100
+													}
+												}}
+												options={{
+													right: 'High priority flow step'
+												}}
+											/>
+										</Section>
 									{:else if advancedSelected === 's3'}
 										<div>
 											<h2 class="pb-4">
