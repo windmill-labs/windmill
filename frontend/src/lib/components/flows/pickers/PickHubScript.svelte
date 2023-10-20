@@ -21,9 +21,10 @@
 		path: string
 		summary: string
 		id: number
+		version_id: number
 		ask_id: number
 		app: string
-		kind: 'script' | 'trigger' | 'approval' | 'failure' | 'command'
+		kind: typeof kind
 	}[] = []
 
 	let allApps: string[] = []
@@ -76,12 +77,20 @@
 			if (ts === startTs) {
 				loading = false
 			}
-			const processed = scripts.map((x) => ({
-				...x,
-				path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-				summary: `${x.summary} (${x.app})`
-			}))
-			items = processed
+			items = scripts.map(
+				(x: {
+					summary: string
+					version_id: number
+					id: number
+					ask_id: number
+					app: string
+					kind: typeof kind
+				}) => ({
+					...x,
+					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					summary: `${x.summary} (${x.app})`
+				})
+			)
 		} catch (err) {
 			sendUserToast(err.message, true)
 		}

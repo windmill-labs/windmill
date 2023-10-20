@@ -2603,7 +2603,7 @@ paths:
                 required:
                   - content
                   - language
-  
+
   /scripts/hub/top:
     get:
       summary: get top hub scripts
@@ -2650,11 +2650,11 @@ paths:
                           type: string
                         app:
                           type: string
-                        approved:
-                          type: boolean
+                        version_id:
+                          type: number
                         kind:
                           type: string
-                          enum: [script, failure, trigger, command, approval]
+                          enum: [script, failure, trigger, approval]
                         votes:
                           type: number
                         views:
@@ -2664,7 +2664,7 @@ paths:
                         - ask_id
                         - summary
                         - app
-                        - approved
+                        - version_id
                         - kind
                         - views
                         - votes
@@ -2722,7 +2722,7 @@ paths:
                       type: string
                     kind:
                       type: string
-                      enum: [script, failure, trigger, command, approval]
+                      enum: [script, failure, trigger, approval]
                     score:
                       type: number
                   required:
