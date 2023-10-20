@@ -2758,26 +2758,54 @@ async fn get_completed_job_result(
 
 #[derive(Serialize)]
 struct CompletedJobResult<'c> {
+    started: Option<bool>,
     completed: bool,
     result: Option<&'c JsonRawValue>,
+}
+
+#[derive(Deserialize)]
+struct GetCompletedJobQuery {
+    get_started: Option<bool>,
 }
 
 async fn get_completed_job_result_maybe(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
+    Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
     let result_o =
         sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(id)
-            .bind(w_id)
+            .bind(&w_id)
             .fetch_optional(&db)
             .await?;
 
     if let Some(result) = result_o {
         let res = RawResult::from_row(&result)?;
-        Ok(Json(CompletedJobResult { completed: true, result: Some(res.result) }).into_response())
+        Ok(Json(CompletedJobResult {
+            started: Some(true),
+            completed: true,
+            result: Some(res.result),
+        })
+        .into_response())
+    } else if get_started.is_some_and(|x| x) {
+        let started = sqlx::query_scalar!(
+            "SELECT running FROM queue WHERE id = $1 AND workspace_id = $2",
+            id,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(false);
+        Ok(
+            Json(CompletedJobResult { started: Some(started), completed: false, result: None })
+                .into_response(),
+        )
     } else {
-        Ok(Json(CompletedJobResult { completed: false, result: None }).into_response())
+        Ok(
+            Json(CompletedJobResult { started: None, completed: false, result: None })
+                .into_response(),
+        )
     }
 }
 

@@ -344,14 +344,15 @@
 				...oldJob,
 				...(result ? { result } : {}),
 				...(transformer ? { transformer } : {}),
-				duration_ms: oldJob?.started_at ? Date.now() - oldJob?.started_at : 1
+				error,
+				duration_ms: oldJob?.started_compute_at ? Date.now() - oldJob?.started_compute_at : 1
 			}
 
 			$jobsById[jobId] = job
 		}
 
 		if (error) {
-			$errorByComponent[id] = { id, error }
+			$errorByComponent[id] = { id: jobId, error }
 		}
 	}
 
@@ -449,9 +450,9 @@
 	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =
 		undefined
 
-	let didInitialRun = false
+	let didInitialRun = $initialized.initialized
 	onMount(() => {
-		didInitialRun = false
+		didInitialRun = $initialized.initialized
 		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
@@ -523,7 +524,9 @@
 {/if}
 
 <ResultJobLoader
+	{isEditor}
 	on:started={(e) => {
+		console.log('started', e.detail)
 		loading = true
 		setJobId(e.detail)
 		dispatch('started', e.detail)
@@ -537,8 +540,19 @@
 	on:cancel={(e) => {
 		let jobId = e.detail
 		let job = $jobsById[jobId]
-		if (job && job.started_at) {
-			$jobsById[jobId] = { ...job, duration_ms: Date.now() - job.started_at }
+		if (job && job.started_at && !job.duration_ms) {
+			$jobsById[jobId] = {
+				...job,
+				duration_ms: Date.now() - (job.started_compute_at ?? job.started_at)
+			}
+		}
+	}}
+	on:running={(e) => {
+		console.log('running', e.detail)
+		let jobId = e.detail
+		let job = $jobsById[jobId]
+		if (job && !job.started_compute_at) {
+			$jobsById[jobId] = { ...job, started_compute_at: Date.now() }
 		}
 	}}
 	on:doneError={(e) => {

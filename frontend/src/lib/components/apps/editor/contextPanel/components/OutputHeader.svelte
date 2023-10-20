@@ -77,7 +77,7 @@
 				renameComponent(from, to, item.data)
 			})
 
-			$app.hiddenInlineScripts.forEach((x) => {
+			$app.hiddenInlineScripts?.forEach((x) => {
 				processRunnable(from, to, x)
 			})
 		}
