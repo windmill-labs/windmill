@@ -6655,6 +6655,8 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    priority:
+                      type: integer
                   required: &ref_67
                     - id
                     - running
@@ -6922,6 +6924,8 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    priority:
+                      type: integer
                   required: &ref_65
                     - id
                     - created_by

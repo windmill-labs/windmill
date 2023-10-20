@@ -6754,6 +6754,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - running
@@ -6861,6 +6863,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - created_by

@@ -319,9 +319,10 @@ pub async fn add_completed_job<
                    , visible_to_owner
                    , mem_peak
                    , tag
+                   , priority
                 )
             VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30)
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30, $31)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING duration_ms",
         queued_job.workspace_id,
         queued_job.id,
@@ -353,6 +354,7 @@ pub async fn add_completed_job<
         queued_job.visible_to_owner,
         if mem_peak > 0 { Some(mem_peak) } else { None },
         queued_job.tag,
+        queued_job.priority,
     )
     .fetch_one(&mut tx)
     .await

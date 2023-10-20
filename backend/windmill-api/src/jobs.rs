@@ -354,7 +354,7 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
         id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
         CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
         schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
-        raw_lock, email, visible_to_owner, mem_peak, tag 
+        raw_lock, email, visible_to_owner, mem_peak, tag, priority
         FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(job_id)
             .bind(workspace_id)
@@ -443,6 +443,8 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
     pub tag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
 }
 
 impl CompletedJob {
@@ -495,6 +497,8 @@ pub struct ListableCompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
     pub tag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
 }
 
 impl<'a> IntoResponse for CompletedJob {
@@ -648,6 +652,7 @@ struct ListableQueuedJob {
     pub email: String,
     pub suspend: Option<i32>,
     pub tag: String,
+    pub priority: Option<i16>,
 }
 
 async fn list_queue_jobs(
@@ -791,6 +796,7 @@ async fn list_jobs(
                 "tag",
                 "null as concurrent_limit",
                 "null as concurrency_time_window_s",
+                "priority",
             ],
         ))
     } else {
@@ -851,6 +857,7 @@ async fn list_jobs(
                 "tag",
                 "concurrent_limit",
                 "concurrency_time_window_s",
+                "priority",
             ],
         );
 
@@ -1409,6 +1416,7 @@ struct UnifiedJob {
     tag: String,
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
+    priority: Option<i16>,
 }
 
 impl<'a> From<UnifiedJob> for Job {
@@ -1445,6 +1453,7 @@ impl<'a> From<UnifiedJob> for Job {
                 visible_to_owner: uj.visible_to_owner,
                 mem_peak: uj.mem_peak,
                 tag: uj.tag,
+                priority: uj.priority,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -1486,7 +1495,7 @@ impl<'a> From<UnifiedJob> for Job {
                 timeout: None,
                 flow_step_id: None,
                 cache_ttl: None,
-                priority: None,
+                priority: uj.priority,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -2704,6 +2713,7 @@ async fn list_completed_jobs(
             "visible_to_owner",
             "mem_peak",
             "tag",
+            "priority",
             "'CompletedJob' as type",
         ],
     )
@@ -2721,7 +2731,7 @@ async fn get_completed_job<'a>(
     let job_o = sqlx::query("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
     CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
-    raw_lock, email, visible_to_owner, mem_peak, tag FROM completed_job WHERE id = $1 AND workspace_id = $2")
+    raw_lock, email, visible_to_owner, mem_peak, tag, priority FROM completed_job WHERE id = $1 AND workspace_id = $2")
         .bind(id)
         .bind(w_id)
         .fetch_optional(&db)
