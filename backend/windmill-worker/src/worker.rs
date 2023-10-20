@@ -1414,6 +1414,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
             None,
+            None,
         )
         .await?;
         inner_tx.commit().await?;

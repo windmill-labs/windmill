@@ -90,6 +90,9 @@ pub struct FlowValue {
     pub cache_ttl: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // Priority at the flow level
+    pub priority: Option<i16>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -204,6 +207,9 @@ pub struct FlowModule {
     pub cache_ttl: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // Priority at the flow step level
+    pub priority: Option<i16>,
 }
 
 impl FlowModule {

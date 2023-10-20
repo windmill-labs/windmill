@@ -225,7 +225,7 @@ async fn toggle_workspace_error_handler(
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
     #[cfg(not(feature = "enterprise"))]
-    if true {
+    {
         return Err(Error::BadRequest(
             "Muting the error handler for certain flow is only available in enterprise version"
                 .to_string(),
@@ -373,6 +373,7 @@ async fn create_flow(
         None,
         true,
         nf.tag,
+        None,
         None,
         None,
     )
@@ -577,6 +578,7 @@ async fn update_flow(
         false,
         None,
         true,
+        None,
         None,
         None,
         None,
@@ -805,6 +807,7 @@ mod tests {
                     cache_ttl: None,
                     mock: None,
                     timeout: None,
+                    priority: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -829,6 +832,7 @@ mod tests {
                     cache_ttl: None,
                     mock: None,
                     timeout: None,
+                    priority: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -850,6 +854,7 @@ mod tests {
                     cache_ttl: None,
                     mock: None,
                     timeout: None,
+                    priority: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -870,6 +875,7 @@ mod tests {
                 cache_ttl: None,
                 mock: None,
                 timeout: None,
+                priority: None,
             }),
             same_worker: false,
             concurrent_limit: None,
@@ -877,6 +883,7 @@ mod tests {
             skip_expr: None,
             cache_ttl: None,
             ws_error_handler_muted: None,
+            priority: None,
         };
         let expect = serde_json::json!({
           "modules": [

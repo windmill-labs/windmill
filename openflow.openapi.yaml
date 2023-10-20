@@ -54,6 +54,8 @@ components:
           type: string
         cache_ttl:
           type: number
+        priority:
+          type: number
       required:
         - modules
 
@@ -123,6 +125,8 @@ components:
               type: boolean
             user_groups_required:
               $ref: "#/components/schemas/InputTransform"
+        priority:
+          type: number
 
         retry:
           $ref: "#/components/schemas/Retry"

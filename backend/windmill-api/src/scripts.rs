@@ -614,6 +614,7 @@ async fn create_script(
             ns.tag,
             None,
             None,
+            None,
         )
         .await?;
         tx = PushIsolationLevel::Transaction(new_tx);
@@ -724,7 +725,7 @@ async fn toggle_workspace_error_handler(
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
     #[cfg(not(feature = "enterprise"))]
-    if true {
+    {
         return Err(Error::BadRequest(
             "Muting the error handler for certain script is only available in enterprise version"
                 .to_string(),
