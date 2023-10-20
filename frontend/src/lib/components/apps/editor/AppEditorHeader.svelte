@@ -833,13 +833,15 @@
 		</Splitpanes>
 		<svelte:fragment slot="actions">
 			<Button
+				size="md"
+				color="light"
+				variant="border"
 				on:click={() => {
 					$refreshComponents?.()
 				}}
-				size="xs"
 				title="Refresh App"
 			>
-				Refresh App&nbsp;<RefreshCw size={16} />
+				Refresh app&nbsp;<RefreshCw size={16} />
 			</Button>
 
 			<Button
