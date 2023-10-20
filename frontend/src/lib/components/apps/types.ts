@@ -213,6 +213,7 @@ export type AppViewerContext = {
 		error?: any
 		transformer?: { result?: string; error?: string }
 		started_at?: number
+		started_compute_at?: number
 		duration_ms?: number
 	}>>,
 	noBackend: boolean
@@ -249,6 +250,7 @@ export type AppViewerContext = {
 }
 
 export type AppEditorContext = {
+	refreshComponents: Writable<(() => void) | undefined>
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 	selectedComponentInEditor: Writable<string | undefined>

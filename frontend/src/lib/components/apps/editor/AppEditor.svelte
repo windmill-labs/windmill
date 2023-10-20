@@ -146,6 +146,7 @@
 	let scale = writable(100)
 
 	setContext<AppEditorContext>('AppEditorContext', {
+		refreshComponents: writable(undefined),
 		history,
 		pickVariableCallback,
 		movingcomponents: writable(undefined),

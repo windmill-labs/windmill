@@ -37,6 +37,7 @@
 		Laptop2,
 		Loader2,
 		MoreVertical,
+		RefreshCw,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -106,7 +107,8 @@
 		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, jobsDrawerOpen } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, jobsDrawerOpen, refreshComponents } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
 		publish: false,
@@ -657,9 +659,12 @@
 												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
 												selectedJob.error ? 'border border-red-500 text-primary' : '',
 												selectedJob.error && $errorByComponent[selectedJob.component]?.id == id
-													? 'bg-red-400'
-													: '',
-												selectedJobId == id ? 'bg-surface-secondary text-blue-600' : ''
+													? selectedJobId == id
+														? 'bg-red-600 !border-blue-600'
+														: 'bg-red-400'
+													: selectedJobId == id
+													? 'text-blue-600'
+													: ''
 											)}
 											on:click={() => {
 												selectedJobId = id
@@ -827,6 +832,16 @@
 			</Pane>
 		</Splitpanes>
 		<svelte:fragment slot="actions">
+			<Button
+				on:click={() => {
+					$refreshComponents?.()
+				}}
+				size="xs"
+				title="Refresh App"
+			>
+				Refresh App&nbsp;<RefreshCw size={16} />
+			</Button>
+
 			<Button
 				size="md"
 				color="light"

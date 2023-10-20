@@ -10,6 +10,7 @@
 	export let job: { completed: boolean; result: any; id: string } | undefined = undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
+	export let isEditor = false
 
 	const dispatch = createEventDispatcher()
 
@@ -26,8 +27,10 @@
 
 	$: isLoading = currentId !== undefined
 
+	let running = false
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
+			running = false
 			isLoading = true
 			clearCurrentJob()
 			const startedAt = Date.now()
@@ -106,6 +109,7 @@
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
+			dispatch('cancel', id)
 			currentId = undefined
 			try {
 				await JobService.cancelQueuedJob({
@@ -121,6 +125,7 @@
 
 	export async function clearCurrentJob() {
 		if (currentId) {
+			dispatch('cancel', currentId)
 			job = undefined
 			await cancelJob()
 		}
@@ -145,8 +150,13 @@
 			try {
 				let maybe_job = await JobService.getCompletedJobResultMaybe({
 					workspace: workspace ?? '',
-					id
+					id,
+					getStarted: isEditor
 				})
+				if (maybe_job.started && !running) {
+					running = true
+					dispatch('running', id)
+				}
 				if (maybe_job.completed) {
 					isCompleted = true
 					if (currentId === id) {

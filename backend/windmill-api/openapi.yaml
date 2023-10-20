@@ -4651,6 +4651,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/GetStarted"
       responses:
         "200":
           description: result
@@ -4662,6 +4663,8 @@ paths:
                   completed:
                     type: boolean
                   result: {}
+                  started:
+                    type: boolean
                 required:
                   - completed
                   - result
@@ -6405,6 +6408,11 @@ components:
       required: true
       schema:
         type: string
+    GetStarted:
+      name: get_started
+      in: query
+      schema:
+        type: boolean
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
