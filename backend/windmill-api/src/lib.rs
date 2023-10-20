@@ -48,7 +48,7 @@ mod configs;
 mod db;
 mod drafts;
 pub mod ee;
-mod embeddings;
+pub mod embeddings;
 mod favorite;
 mod flows;
 mod folders;

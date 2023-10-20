@@ -69,6 +69,22 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "flamegraph")]
     let _guard = windmill_common::tracing_init::setup_flamegraph();
 
+    let cli_arg = std::env::args().nth(1).unwrap_or_default();
+
+    match cli_arg.as_str() {
+        "cache" => {
+            tracing::info!("Caching embedding model...");
+            windmill_api::embeddings::ModelInstance::load_model_files().await?;
+            tracing::info!("Cached embedding model");
+            return Ok(());
+        }
+        "-v" | "--version" | "version" => {
+            println!("Windmill {}", GIT_VERSION);
+            return Ok(());
+        }
+        _ => {}
+    }
+
     let mode = std::env::var("MODE")
         .map(|x| x.to_lowercase())
         .map(|x| {
