@@ -191,6 +191,8 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 WORKDIR ${APP}
 
+RUN windmill cache
+
 EXPOSE 8000
 
 CMD ["windmill"]
