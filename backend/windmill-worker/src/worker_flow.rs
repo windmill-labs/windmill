@@ -1653,14 +1653,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         } else {
             None
         };
-        tracing::warn!(
-            "Priority override {:?} applied to job {:?} of flow {:?} with priority {:?} (module prio: {:?})",
-            new_job_priority_override,
-            payload_tag.payload,
-            flow_job.script_hash,
-            flow_job.priority,
-            module.priority,
-        );
 
         let transform_inp;
         let args = match &next_status {

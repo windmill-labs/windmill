@@ -426,7 +426,12 @@
 													}
 												}}
 												options={{
-													right: 'High priority flow step'
+													right: 'High priority flow step',
+													rightTooltip: `Jobs scheduled from this step when the flow is executed are labeled as high priority and take precedence over the other jobs in the jobs queue. ${
+														$enterpriseLicense
+															? 'This is a feature only available on enterprise edition.'
+															: ''
+													}`
 												}}
 											/>
 										</Section>

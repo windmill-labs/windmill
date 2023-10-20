@@ -532,7 +532,7 @@ pub async fn run_error_handler<
         tag,
         None,
         None,
-        None, // TODO: Should we inherit the priority from the failed job?
+        None,
     )
     .await?;
     tx.commit().await?;

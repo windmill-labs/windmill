@@ -594,7 +594,7 @@
 									</svelte:fragment>
 								</Section>
 								{#if !isCloudHosted()}
-									<Section label="Mark as High priority">
+									<Section label="High priority script">
 										<Toggle
 											disabled={!$enterpriseLicense || isCloudHosted()}
 											size="sm"
@@ -607,12 +607,16 @@
 												}
 											}}
 											options={{
-												right: 'High priority script'
+												right: 'Label as high priority'
 											}}
 										/>
-
 										<svelte:fragment slot="header">
-											<Tooltip>Only available on enterprise edition.</Tooltip>
+											<Tooltip>
+												Jobs from script labeled as high priority take precedence over the other
+												jobs when in the jobs queue.
+												{#if $enterpriseLicense}This is a feature only available on enterprise
+													edition.{/if}
+											</Tooltip>
 										</svelte:fragment>
 									</Section>
 								{/if}

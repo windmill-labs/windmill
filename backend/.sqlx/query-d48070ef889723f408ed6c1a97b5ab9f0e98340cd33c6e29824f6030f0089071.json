@@ -1,35 +1,30 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false)",
+  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "hash",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 1,
         "name": "tag",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 2,
+        "ordinal": 1,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -54,26 +49,31 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "dedicated_worker",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority",
+        "type_info": "Int2"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
+        "Int8",
         "Text"
       ]
     },
     "nullable": [
-      false,
       true,
       true,
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "251f18ccdd89255023258a33285757801cabe4e86385e2dea10b666d1c6f2b61"
+  "hash": "d48070ef889723f408ed6c1a97b5ab9f0e98340cd33c6e29824f6030f0089071"
 }

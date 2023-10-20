@@ -908,7 +908,7 @@ impl RunJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        let r: CompletedJob = completed_job(uuid, db).await;
+        let r = completed_job(uuid, db).await;
         r
     }
 }
@@ -2570,6 +2570,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     path: "g/all/flow_lock_all".to_owned(),
                     tag: None,
                     ws_error_handler_muted: None,
+                    priority: None,
                 },
                 draft_only: None,
             },
