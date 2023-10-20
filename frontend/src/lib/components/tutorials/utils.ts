@@ -60,7 +60,7 @@ export function isFlowTainted(flow: Flow) {
 }
 
 export function isAppTainted(app: App) {
-	return !(app.grid.length === 0 && app.hiddenInlineScripts.length === 0)
+	return !(app.grid.length === 0 && app.hiddenInlineScripts?.length === 0)
 }
 
 export function updateFlowModuleById(

@@ -121,14 +121,16 @@
 					>{#if min && total}
 						<div class="flex flex-col gap-2 w-full">
 							{#each items?.[k] ?? [] as b}
-								<TimelineBar
-									id={b?.id}
-									{total}
-									{min}
-									started_at={b.started_at}
-									len={b?.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
-									running={b?.duration_ms == undefined}
-								/>
+								<div class="flex w-full">
+									<TimelineBar
+										id={b?.id}
+										{total}
+										{min}
+										started_at={b.started_at}
+										len={b?.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+										running={b?.duration_ms == undefined}
+									/>
+								</div>
 							{/each}
 						</div>
 					{/if}</div
