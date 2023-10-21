@@ -158,6 +158,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		on:mouseenter|stopPropagation={() => {
 			if (id !== $hoverStore) {
@@ -209,7 +210,7 @@
 					</div>
 				{/if}
 			</button>
-			{#if selectable && renamable && ($selectedComponent?.includes(id) || $hoverStore === id)}
+			{#if selectable && renamable && $selectedComponent?.includes(id)}
 				<div class="h-3">
 					<IdEditor
 						{id}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppEditorContext } from '../types'
 	import { writable } from 'svelte/store'
 
@@ -48,6 +48,35 @@
 	let trans = false
 
 	let anima
+
+	onMount(() => {
+		if (ctx) {
+			ctx.dndItem.update((x) => {
+				x[id] = (moveX, moveY) => {
+					ctx.componentActive.set(true)
+					let gridItem = document.getElementById(divId)
+					let irect = gridItem?.getBoundingClientRect()
+
+					const clientX = (irect?.x ?? 0) + (irect?.width ?? 0)
+					const clientY = irect?.y ?? 0
+					initX = (clientX / $scale) * 100
+					initY = (clientY / $scale) * 100
+
+					window.addEventListener('pointermove', pointermove)
+					window.addEventListener('pointerup', pointerup)
+
+					dispatch('initmove')
+
+					const cordDiff = {
+						x: (moveX / $scale) * 100 - initX,
+						y: (moveY / $scale) * 100 - initY
+					}
+					dispatch('move', { cordDiff, clientY })
+				}
+				return x
+			})
+		}
+	})
 
 	export function inActivate() {
 		if (shadowElement && shadow != undefined) {
@@ -136,6 +165,7 @@
 
 	let dragClosure: (() => void) | undefined = undefined
 	const pointerdown = ({ clientX, clientY }) => {
+		ctx.componentActive.set(true)
 		dragClosure = () => {
 			dragClosure = undefined
 
@@ -239,6 +269,7 @@
 		}
 	}
 	const pointerup = (e) => {
+		ctx.componentActive.set(false)
 		stopAutoscroll()
 
 		window.removeEventListener('pointerdown', pointerdown)
@@ -318,7 +349,7 @@
 	style="width: {active ? newSize.width : width}px; height:{active ? newSize.height : height}px; 
 	{onTop ? 'z-index: 1000;' : ''}
   {active && rect
-		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px);top:${rect.top}px;left:${rect.left}px;`
+		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px);top:${rect.top}px;left:${rect.left}px;z-index:10000;`
 		: trans
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`
 		: `transition: transform 0.1s, opacity 0.1s; transform: translate(${left}px, ${top}px); `} "
@@ -367,7 +398,7 @@
 	}
 
 	.svlt-grid-active {
-		z-index: 3;
+		z-index: 300;
 		cursor: grabbing;
 		position: fixed;
 		opacity: 0.5;
