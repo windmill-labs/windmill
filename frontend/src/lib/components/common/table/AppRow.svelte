@@ -142,6 +142,13 @@
 							},
 							type: 'delete',
 							disabled: !canWrite
+						},
+						{
+							displayName: 'View/Edit JSON',
+							icon: faFileExport,
+							action: () => {
+								loadAppJson()
+							}
 						}
 					]
 				}
