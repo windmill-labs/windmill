@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.188.0](https://github.com/windmill-labs/windmill/compare/v1.187.0...v1.188.0) (2023-10-21)
+
+
+### Features
+
+* enable secret to be read from file ([#2477](https://github.com/windmill-labs/windmill/issues/2477)) ([7905e2c](https://github.com/windmill-labs/windmill/commit/7905e2c853fa519f2ad868c14679c3a3fad17205))
+
+
+### Bug Fixes
+
+* fix app reactivity ([656cb83](https://github.com/windmill-labs/windmill/commit/656cb83d6b86353598a53f9a9071c7e47185f18e))
+
 ## [1.187.0](https://github.com/windmill-labs/windmill/compare/v1.186.0...v1.187.0) (2023-10-21)
 
 
