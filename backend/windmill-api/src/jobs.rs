@@ -1757,12 +1757,17 @@ impl Drop for Guard {
     }
 }
 
+#[derive(Deserialize)]
+pub struct WindmillStatusCode {
+    windmill_status_code: Option<u16>,
+    result: Option<Box<RawValue>>,
+}
 async fn run_wait_result<T>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
-) -> error::JsonResult<serde_json::Value> {
+) -> error::Result<Response> {
     let mut result;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
     let timeout_ms = if timeout <= 0 {
@@ -1781,16 +1786,16 @@ async fn run_wait_result<T>(
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
     let mut accumulated_delay = 0 as u64;
+
     loop {
         let mut tx = user_db.clone().begin(&authed).await?;
-        result = sqlx::query_scalar!(
-            "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-            uuid,
-            &w_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
+        result =
+            sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
+                .bind(uuid)
+                .bind(&w_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+
         drop(tx);
 
         if result.is_some() {
@@ -1810,14 +1815,18 @@ async fn run_wait_result<T>(
     }
     if let Some(result) = result {
         g.done = true;
-        let status_code = result
-            .get("windmill_status_code")
-            .and_then(|x| x.as_i64())
-            .and_then(|x| StatusCode::from_u16(x as u16).ok());
-        if let Some(status_code) = status_code {
-            return Err(Error::CustomStatusCode(status_code, result));
+        let result = RawResult::from_row(&result)?.result;
+
+        let status_code = serde_json::from_str::<WindmillStatusCode>(result.get());
+        match status_code {
+            Ok(WindmillStatusCode { windmill_status_code: Some(status_code), result }) => {
+                Err(Error::CustomStatusCode(
+                    StatusCode::from_u16(status_code).unwrap_or_else(|_| StatusCode::IM_A_TEAPOT),
+                    result,
+                ))
+            }
+            _ => Ok(Json(result).into_response()),
         }
-        Ok(Json(result))
     } else {
         Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
     }
@@ -1870,12 +1879,12 @@ pub async fn run_wait_result_job_by_path_get(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-) -> error::JsonResult<serde_json::Value> {
+) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     if method == http::Method::HEAD {
-        return Ok(Json(serde_json::json!("")));
+        return Ok(Json(serde_json::json!("")).into_response());
     }
     let payload_r = run_query
         .payload
@@ -1935,12 +1944,12 @@ pub async fn run_wait_result_flow_by_path_get(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
 
     Query(run_query): Query<RunJobQuery>,
-) -> error::JsonResult<serde_json::Value> {
+) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     if method == http::Method::HEAD {
-        return Ok(Json(serde_json::json!("")));
+        return Ok(Json(serde_json::json!("")).into_response());
     }
     let payload_r = run_query
         .payload
@@ -1970,7 +1979,7 @@ pub async fn run_wait_result_script_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
-) -> error::JsonResult<serde_json::Value> {
+) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -1996,7 +2005,7 @@ async fn run_wait_result_script_by_path_internal(
     user_db: UserDB,
     w_id: String,
     args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
-) -> Result<Json<serde_json::Value>, Error> {
+) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
@@ -2042,7 +2051,7 @@ pub async fn run_wait_result_script_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
-) -> error::JsonResult<serde_json::Value> {
+) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -2107,7 +2116,7 @@ pub async fn run_wait_result_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
-) -> error::JsonResult<serde_json::Value> {
+) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -2126,7 +2135,7 @@ async fn run_wait_result_flow_by_path_internal(
     user_db: UserDB,
     args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
     w_id: String,
-) -> Result<Json<serde_json::Value>, Error> {
+) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
