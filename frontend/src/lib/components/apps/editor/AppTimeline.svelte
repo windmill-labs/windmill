@@ -139,7 +139,7 @@
 									{min}
 									gray
 									started_at={b.started_at}
-									len={waitingLen < 100 ? 0 : waitingLen}
+									len={waitingLen < 100 ? 0 : waitingLen - 100}
 									running={b?.started_compute_at == undefined}
 								/>
 								{#if b.started_compute_at}
