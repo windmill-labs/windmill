@@ -126,7 +126,6 @@
 				})
 				if (!deepEqual(job, newJob)) {
 					job = newJob
-					console.log('LOAD')
 					job?.flow_status && updateStatus(job?.flow_status)
 					dispatch('jobsLoaded', job)
 				}
@@ -191,7 +190,6 @@
 					parent_module: mod['parent_module']
 				}
 				$durationStatuses[mod.id][job.id] = { started_at }
-				console.log('A', started_at)
 			} else {
 				$flowModuleStates[mod.id] = {
 					args: job.args,
@@ -206,7 +204,6 @@
 					// retries: $flowStateStore?.raw_flow
 				}
 				$durationStatuses[mod.id][job.id] = { started_at, duration_ms: job['duration_ms'] }
-				console.log('B', started_at)
 			}
 		}
 	}
@@ -392,7 +389,6 @@
 										}
 
 										$durationStatuses[modId][job_id] = { started_at }
-										console.log('C', started_at)
 									} else {
 										$flowModuleStates[modId] = {
 											started_at,
@@ -407,7 +403,6 @@
 											duration_ms: e.detail.duration_ms,
 											isListJob: true
 										}
-										console.log('D', started_at)
 										$durationStatuses[modId][job_id] = {
 											started_at,
 											duration_ms: e.detail.duration_ms
@@ -532,6 +527,7 @@
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
 								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}
 								durationStatuses={$durationStatuses}
