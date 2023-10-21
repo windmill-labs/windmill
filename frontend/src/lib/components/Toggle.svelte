@@ -84,5 +84,6 @@
 				{/if}
 			</span>
 		{/if}
+		<slot name="right" />
 	</label>
 </span>

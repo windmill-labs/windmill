@@ -132,7 +132,24 @@
 											: ''
 									}`
 								}}
-							/>
+							>
+								<svelte:fragment slot="right">
+									<input
+										type="number"
+										class="!w-14 ml-4"
+										disabled={$flowStore.value.priority === undefined}
+										bind:value={$flowStore.value.priority}
+										on:focus
+										on:change={() => {
+											if ($flowStore.value.priority && $flowStore.value.priority > 100) {
+												$flowStore.value.priority = 100
+											} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
+												$flowStore.value.priority = 0
+											}
+										}}
+									/>
+								</svelte:fragment>
+							</Toggle>
 
 							<div class="flex flex-row items-center gap-1">
 								<ErrorHandlerToggleButton

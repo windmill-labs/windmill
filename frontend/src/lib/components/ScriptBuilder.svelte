@@ -609,7 +609,24 @@
 											options={{
 												right: 'Label as high priority'
 											}}
-										/>
+										>
+											<svelte:fragment slot="right">
+												<input
+													type="number"
+													class="!w-14 ml-4"
+													disabled={script.priority === undefined}
+													bind:value={script.priority}
+													on:focus
+													on:change={() => {
+														if (script.priority && script.priority > 100) {
+															script.priority = 100
+														} else if (script.priority && script.priority < 0) {
+															script.priority = 0
+														}
+													}}
+												/>
+											</svelte:fragment>
+										</Toggle>
 										<svelte:fragment slot="header">
 											<Tooltip>
 												Jobs from script labeled as high priority take precedence over the other

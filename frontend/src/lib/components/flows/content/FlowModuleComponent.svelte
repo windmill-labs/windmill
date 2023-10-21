@@ -433,7 +433,24 @@
 															: ''
 													}`
 												}}
-											/>
+											>
+												<svelte:fragment slot="right">
+													<input
+														type="number"
+														class="!w-14 ml-4"
+														disabled={flowModule.priority === undefined}
+														bind:value={flowModule.priority}
+														on:focus
+														on:change={() => {
+															if (flowModule.priority && flowModule.priority > 100) {
+																flowModule.priority = 100
+															} else if (flowModule.priority && flowModule.priority < 0) {
+																flowModule.priority = 0
+															}
+														}}
+													/>
+												</svelte:fragment>
+											</Toggle>
 										</Section>
 									{:else if advancedSelected === 's3'}
 										<div>
