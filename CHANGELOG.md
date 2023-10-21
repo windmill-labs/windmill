@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.188.1](https://github.com/windmill-labs/windmill/compare/v1.188.0...v1.188.1) (2023-10-21)
+
+
+### Bug Fixes
+
+* allow superadmin to run inline scripts in repo they are not part of ([cef2949](https://github.com/windmill-labs/windmill/commit/cef2949497e03bd31e4804e820ca7204962ebd23))
+
 ## [1.188.0](https://github.com/windmill-labs/windmill/compare/v1.187.0...v1.188.0) (2023-10-21)
 
 
