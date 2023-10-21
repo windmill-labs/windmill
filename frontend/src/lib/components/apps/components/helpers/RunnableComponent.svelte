@@ -184,7 +184,8 @@
 		$jobsById[jobId] = {
 			component: id,
 			job: jobId,
-			started_at: Date.now()
+			started_at: Date.now(),
+			started_compute_at: jobId.startsWith('Frontend') ? Date.now() : undefined
 		}
 		jobs.update((jobs) => {
 			const njobs = [...jobs, jobId]
