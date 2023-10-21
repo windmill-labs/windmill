@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.187.0](https://github.com/windmill-labs/windmill/compare/v1.186.0...v1.187.0) (2023-10-21)
+
+
+### Features
+
+* timelines for apps ([d0161d2](https://github.com/windmill-labs/windmill/commit/d0161d2772e6bead7917bcfc12e721d0c79bca69))
+* timelines for apps ([2385e18](https://github.com/windmill-labs/windmill/commit/2385e182867a4cc51a268545a9c62e7c9a90aa20))
+
+
+### Bug Fixes
+
+* cache embedding model in docker img ([#2474](https://github.com/windmill-labs/windmill/issues/2474)) ([8fe30ca](https://github.com/windmill-labs/windmill/commit/8fe30ca4caae488c8586d35ec2979ac045f86eb3))
+* **frontend:** Remove monaco as a dependency of AppPreview ([#2475](https://github.com/windmill-labs/windmill/issues/2475)) ([dd1e03d](https://github.com/windmill-labs/windmill/commit/dd1e03de4a965f75a66fda027e993435684d0790))
+* hub scripts search types ([#2471](https://github.com/windmill-labs/windmill/issues/2471)) ([e0edd37](https://github.com/windmill-labs/windmill/commit/e0edd3763704e0e52956043fb20e73fb8380cad1))
+* windmill_status_code script now properly return + script bash default arg ([255dd53](https://github.com/windmill-labs/windmill/commit/255dd53ed38deb116eb09d202f2c615e63239c6c))
+
 ## [1.186.0](https://github.com/windmill-labs/windmill/compare/v1.185.0...v1.186.0) (2023-10-19)
 
 
