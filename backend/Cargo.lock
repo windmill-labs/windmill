@@ -294,7 +294,7 @@ dependencies = [
  "polling",
  "rustix 0.37.26",
  "slab",
- "socket2 0.4.9",
+ "socket2 0.4.10",
  "waker-fn",
 ]
 
@@ -1336,9 +1336,9 @@ checksum = "e496a50fda8aacccc86d7529e2c1e0892dbd0f898a6b5645b5561b89c3210efa"
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.9"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a17b76ff3a4162b0b27f354a0c87015ddad39d35f9c0c36607a3bdd175dde1f1"
+checksum = "3fbc60abd742b35f2492f808e1abbb83d45f72db402e14c55057edc9c7b1e9e4"
 dependencies = [
  "libc",
 ]
@@ -2743,7 +2743,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.9",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3504,7 +3504,7 @@ dependencies = [
  "priority-queue",
  "serde",
  "serde_json",
- "socket2 0.5.4",
+ "socket2 0.5.5",
  "thiserror",
  "tokio",
  "tokio-native-tls",
@@ -4655,7 +4655,7 @@ dependencies = [
  "pin-project-lite",
  "ryu",
  "sha1_smol",
- "socket2 0.4.9",
+ "socket2 0.4.10",
  "tokio",
  "tokio-util",
  "url",
@@ -5694,9 +5694,9 @@ checksum = "d4b756ac662e92a0e5b360349bea5f0b0784d4be4541eff2972049dfdfd7f862"
 
 [[package]]
 name = "socket2"
-version = "0.4.9"
+version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64a4a911eed85daf18834cfaa86a79b7d266ff93ff5ba14005426219480ed662"
+checksum = "9f7916fc008ca5542385b89a3d3ce689953c143e9304a9bf8beec1de48994c0d"
 dependencies = [
  "libc",
  "winapi",
@@ -5704,9 +5704,9 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4031e820eb552adee9295814c0ced9e5cf38ddf1e8b7d566d6de8e2538ea989e"
+checksum = "7b5fac59a5cb5dd637972e5fca70daf0523c9067fcdc4842f053dae04a18f8e9"
 dependencies = [
  "libc",
  "windows-sys 0.48.0",
@@ -6728,7 +6728,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.5.4",
+ "socket2 0.5.5",
  "tokio-macros",
  "tracing",
  "windows-sys 0.48.0",
@@ -6786,7 +6786,7 @@ dependencies = [
  "postgres-protocol",
  "postgres-types",
  "rand 0.8.5",
- "socket2 0.5.4",
+ "socket2 0.5.5",
  "tokio",
  "tokio-util",
  "whoami",
@@ -7691,7 +7691,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7725,7 +7725,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7792,7 +7792,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "base64 0.21.4",
  "chrono",
@@ -7810,7 +7810,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7823,7 +7823,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7851,7 +7851,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7859,7 +7859,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7870,7 +7870,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7882,7 +7882,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7893,7 +7893,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7904,7 +7904,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7921,7 +7921,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7932,7 +7932,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7949,7 +7949,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7967,7 +7967,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7998,7 +7998,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.186.0"
+version = "1.187.0"
 dependencies = [
  "anyhow",
  "async-recursion",
