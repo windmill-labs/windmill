@@ -93,9 +93,7 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
-			if ((!autoRefresh && !refreshOnStart) || didInitialRun) {
-				executeComponent(true)
-			}
+			executeComponent(true)
 		}, 200)
 	}
 
@@ -451,17 +449,13 @@
 	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =
 		undefined
 
-	let didInitialRun = $initialized.initialized
 	onMount(() => {
-		didInitialRun = $initialized.initialized
 		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-				executeComponent(true, inlineScript)
-					.catch(reject)
-					.finally(() => (didInitialRun = true))
+				executeComponent(true, inlineScript).catch(reject)
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()
