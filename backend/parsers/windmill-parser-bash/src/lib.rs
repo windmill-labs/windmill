@@ -57,7 +57,7 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 typ: Typ::Str(None),
                 default: default.clone().map(|x| json!(x)),
                 otyp: None,
-                has_default: false,
+                has_default: default.is_some(),
             });
         } else {
             break;
@@ -113,6 +113,8 @@ token="$1"
 image="$2"
 digest="${3:-latest with spaces}"
 text="$4" # with comment
+non_required="${5:-}"
+
 
 "#;
         //println!("{}", serde_json::to_string()?);
@@ -141,7 +143,7 @@ text="$4" # with comment
                         name: "digest".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("latest with spaces")),
-                        has_default: false
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
@@ -149,6 +151,13 @@ text="$4" # with comment
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "non_required".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("")),
+                        has_default: true
                     }
                 ]
             }
