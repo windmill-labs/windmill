@@ -245,7 +245,7 @@ pub async fn handle_python_job(
         .take(script_path_splitted.clone().count() - 1)
         .join("/")
         .replace("-", "_")
-        .replace('@', '.');
+        .replace("@", ".");
     let dirs = if dirs_full.len() > 0 {
         dirs_full
             .strip_prefix("/")
