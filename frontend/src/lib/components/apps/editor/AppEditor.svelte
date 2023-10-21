@@ -145,7 +145,11 @@
 
 	let scale = writable(100)
 
+	const componentActive = writable(false)
+
 	setContext<AppEditorContext>('AppEditorContext', {
+		componentActive,
+		dndItem: writable({}),
 		refreshComponents: writable(undefined),
 		history,
 		pickVariableCallback,
@@ -287,6 +291,16 @@
 	// Animation logic for cssInput
 	$: animateCssInput($cssEditorOpen)
 	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
+
+	$: setGridPanelSize($componentActive)
+
+	function setGridPanelSize(x: boolean) {
+		if (x) {
+			gridPanelSize = 100
+		} else {
+			gridPanelSize = 100 - runnablePanelSize
+		}
+	}
 
 	function animateCssInput(cssEditorOpen: boolean) {
 		if (cssEditorOpen && !cssToggled) {
@@ -451,7 +465,7 @@
 			</SplitPanesWrapper>
 		{:else}
 			<SplitPanesWrapper>
-				<Splitpanes class="max-w-full overflow-hidden">
+				<Splitpanes id="o1" class="max-w-full !overflow-visible">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div
 							class={twMerge(
@@ -463,9 +477,9 @@
 							<ContextPanel />
 						</div>
 					</Pane>
-					<Pane bind:size={centerPanelSize}>
-						<Splitpanes horizontal class="overflow-hidden">
-							<Pane bind:size={gridPanelSize}>
+					<Pane bind:size={centerPanelSize} class="ovisible">
+						<Splitpanes id="o2" horizontal class="!overflow-visible">
+							<Pane bind:size={gridPanelSize} class="ovisible">
 								<div
 									on:pointerdown={(e) => {
 										$selectedComponent = undefined
@@ -474,7 +488,7 @@
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer'
+										'wm-app-viewer z-[100]  h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
@@ -510,23 +524,28 @@
 									<div
 										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
 									/>
+
 									<div
 										class={classNames(
-											'relative mx-auto w-full h-full overflow-auto',
-											$appStore.fullscreen ? '' : 'max-w-7xl border-x'
+											'mx-auto w-full h-full z-50',
+											$appStore.fullscreen ? '' : 'max-w-7xl border-x',
+											'overflow-auto'
 										)}
 									>
 										{#if $appStore.grid}
 											<ComponentNavigation />
 
-											<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
+											<div
+												on:pointerdown|stopPropagation
+												class={twMerge(width, 'mx-auto', 'z-[10000] overflow-visible')}
+											>
 												<GridEditor {policy} />
 											</div>
 										{/if}
 									</div>
 								</div>
 							</Pane>
-							{#if $connectingInput?.opened == false}
+							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
 									<div class="relative h-full w-full">
 										<InlineScriptsPanel />
@@ -661,3 +680,12 @@
 </ItemPicker>
 
 <VariableEditor bind:this={variableEditor} />
+
+<style global>
+	#o1 > .splitpanes__pane {
+		overflow: visible !important;
+	}
+	#o2 > .splitpanes__pane {
+		overflow: visible !important;
+	}
+</style>
