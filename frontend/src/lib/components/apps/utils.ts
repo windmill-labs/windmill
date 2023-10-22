@@ -217,6 +217,25 @@ declare function open(id: string): void;
   * @param id component's id
  */
 declare function close(id: string): void;
+
+
+/** validate form field property 'key'
+ * @param id component's id
+ * @param key property's key to validate
+ */
+declare function validate(id: string, key: number): void;
+
+/** validate form field property 'key'
+ * @param id component's id
+ * @param key property's key to validate
+ */
+declare function invalidate(id: string, key: number, error: string): void;
+
+/** validate all form's properties
+ * @param id component's id
+ */
+declare function validateAll(id: string, key: number): void;
+
 `
 		: ''
 }

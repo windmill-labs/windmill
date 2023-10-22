@@ -46,6 +46,15 @@
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			wrapper?.setArgs(nvalue)
+		},
+		invalidate(key: string, error: string) {
+			runnableComponent?.invalidate(key, error)
+		},
+		validateAll() {
+			runnableComponent?.validateAll()
+		},
+		validate(key: string) {
+			runnableComponent?.validate(key)
 		}
 	}
 
