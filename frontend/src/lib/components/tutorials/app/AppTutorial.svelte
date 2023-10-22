@@ -87,7 +87,9 @@
 					description:
 						'Click on a component to add it to your app. Here we will add a display component.',
 					onNextClick: () => {
-						addComponent('displaycomponent')
+						if (!$selectedComponent?.includes('b')) {
+							addComponent('displaycomponent')
+						}
 
 						setTimeout(() => {
 							driver.moveNext()

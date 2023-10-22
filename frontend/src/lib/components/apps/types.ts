@@ -251,8 +251,9 @@ export type AppViewerContext = {
 }
 
 export type AppEditorContext = {
+	yTop: Writable<number>
 	componentActive: Writable<boolean>,
-	dndItem: Writable<Record<string, (x: number, y:number) => void>>
+	dndItem: Writable<Record<string, (x: number, y:number, topY: number) => void>>
 	refreshComponents: Writable<(() => void) | undefined>
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
