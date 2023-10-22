@@ -131,6 +131,20 @@
 		}
 	}
 
+	let schemaForm: LightweightSchemaForm
+
+	export function invalidate(key: string, error: string) {
+		schemaForm?.invalidate(key, error)
+	}
+
+	export function validate(key: string) {
+		schemaForm?.validate(key)
+	}
+
+	export function validateAll() {
+		schemaForm?.validateAll()
+	}
+
 	// Test job internal state
 	let resultJobLoader: ResultJobLoader | undefined = undefined
 
@@ -568,6 +582,7 @@
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
+					bind:this={schemaForm}
 					bind:args
 					on:inputClicked={handleInputClick}
 				/>

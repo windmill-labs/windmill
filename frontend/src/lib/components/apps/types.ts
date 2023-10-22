@@ -240,6 +240,9 @@ export type AppViewerContext = {
 				closeModal?: () => void
 				open?: () => void
 				close?: () => void
+				validate?: (key: string) => void
+				invalidate?: (key: string, error: string) => void
+				validateAll?: () => void
 			}
 		>
 	>
