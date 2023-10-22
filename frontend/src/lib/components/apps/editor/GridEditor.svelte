@@ -46,7 +46,7 @@
 <div class="w-full z-[1000] overflow-visible h-full">
 	<div
 		class="w-full sticky top-0 flex justify-between border-b {$componentActive
-			? ''
+			? 'invisible'
 			: 'z-50'} {$connectingInput?.opened ? '' : 'bg-surface'} px-4 py-1 items-center gap-4"
 	>
 		<h3 class="truncate">{$summary}</h3>

@@ -52,7 +52,7 @@
 	onMount(() => {
 		if (ctx) {
 			ctx.dndItem.update((x) => {
-				x[id] = (moveX, moveY) => {
+				x[id] = (moveX, moveY, topY) => {
 					ctx.componentActive.set(true)
 					let gridItem = document.getElementById(divId)
 					let irect = gridItem?.getBoundingClientRect()
@@ -71,7 +71,7 @@
 						x: (moveX / $scale) * 100 - initX,
 						y: (moveY / $scale) * 100 - initY
 					}
-					dispatch('move', { cordDiff, clientY })
+					dispatch('move', { cordDiff, clientY: clientY })
 				}
 				return x
 			})
@@ -165,9 +165,9 @@
 
 	let dragClosure: (() => void) | undefined = undefined
 	const pointerdown = ({ clientX, clientY }) => {
-		ctx.componentActive.set(true)
 		dragClosure = () => {
 			dragClosure = undefined
+			ctx.componentActive.set(true)
 
 			initX = (clientX / $scale) * 100
 			initY = (clientY / $scale) * 100

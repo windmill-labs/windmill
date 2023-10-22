@@ -19,7 +19,7 @@
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, dndItem } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, dndItem, yTop } = getContext<AppEditorContext>('AppEditorContext')
 
 	let groups: Array<{
 		name: string
@@ -102,6 +102,8 @@
 	onMount(() => {
 		fetchGroups()
 	})
+
+	let dndTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <section class="p-2 sticky w-full z-10 top-0 bg-surface border-b">
@@ -126,8 +128,15 @@
 											id={item}
 											on:pointerdown={async (e) => {
 												const id = addComponent(item)
-												await tick()
-												$dndItem[id]?.(e.clientX, e.clientY)
+												dndTimeout && clearTimeout(dndTimeout)
+												dndTimeout = setTimeout(async () => {
+													await tick()
+													$dndItem[id]?.(e.clientX, e.clientY, $yTop)
+												}, 50)
+												window.addEventListener('pointerup', (e) => {
+													dndTimeout && clearTimeout(dndTimeout)
+													dndTimeout = undefined
+												})
 											}}
 											title={componentsRecord[item].name}
 											class="cursor-move transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center

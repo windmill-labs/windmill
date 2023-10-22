@@ -53,6 +53,9 @@ export function dfs(
 	id: string,
 	subgrids: Record<string, GridItem[]>
 ): string[] | undefined {
+	if (!grid) {
+		return undefined
+	}
 	for (const item of grid) {
 		if (item.id === id) {
 			return [id]
