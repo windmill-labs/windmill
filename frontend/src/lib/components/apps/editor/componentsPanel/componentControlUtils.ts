@@ -108,11 +108,11 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'quillcomponent':
 		case 'textcomponent':
 		case 'textareainputcomponent':
+			return [setValue]
 		case 'formcomponent':
 		case 'schemaformcomponent':
 		case 'formbuttoncomponent':
 			return [setValue, validate, validateAll, invalidate]
-
 		case 'tablecomponent':
 			return [setSelectedIndex]
 		default:
