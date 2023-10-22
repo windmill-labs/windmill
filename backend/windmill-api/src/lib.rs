@@ -11,6 +11,7 @@ use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
+use crate::utils::reporting_stats;
 use crate::{
     oauth2::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
@@ -21,11 +22,14 @@ use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
+use chrono::Utc;
+use cron::Schedule;
 use db::DB;
 use git_version::git_version;
 use hyper::{http, Method};
 use reqwest::Client;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
@@ -256,6 +260,8 @@ pub async fn run_server(
 
     let instance_name = rd_string(5);
 
+    schedule_reporting(&db, instance_name.clone());
+
     let server = axum::Server::bind(&addr).serve(app.into_make_service());
 
     let port = server.local_addr().port();
@@ -277,6 +283,42 @@ pub async fn run_server(
 
     server.await?;
     Ok(())
+}
+
+fn schedule_reporting(db: &DB, instance_name: String) -> () {
+    let db = db.clone();
+    tokio::spawn(async move {
+        loop {
+            tracing::info!("Reporting stats");
+            let result = reporting_stats(&instance_name, &HTTP_CLIENT, &db).await;
+            if result.is_err() {
+                tracing::error!("Error reporting stats: {}", result.err().unwrap());
+            } else {
+                tracing::info!("Stats reported");
+            }
+
+            let s = "0 0 */24 * * * *"; // Every 24 hours
+            let s = Schedule::from_str(&s);
+            if s.is_err() {
+                tracing::error!("Invalid schedule for reporting");
+                return;
+            }
+            let s = s.unwrap();
+
+            let next_time = s.upcoming(Utc).next();
+            if next_time.is_none() {
+                tracing::error!("Invalid schedule for reporting");
+                return;
+            }
+            let next_time = next_time.unwrap();
+            let duration_to_next = next_time - Utc::now();
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(
+                duration_to_next.num_milliseconds() as u64,
+            ))
+            .await;
+        }
+    });
 }
 
 async fn is_up_to_date() -> Result<String, AppError> {

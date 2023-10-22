@@ -6,11 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::error::{Error, Result};
+use crate::error::{to_anyhow, Error, Result};
+use crate::DB;
 use hyper::{HeaderMap, StatusCode};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::{Pool, Postgres};
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -78,10 +80,10 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
 pub async fn query_elems_from_hub(
     http_client: &reqwest::Client,
     url: &str,
-    email: &str,
     query_params: Option<Vec<(&str, String)>>,
+    db: &DB,
 ) -> Result<(StatusCode, HeaderMap, reqwest::Response)> {
-    let response = http_get_from_hub(http_client, url, email, false, query_params).await?;
+    let response = http_get_from_hub(http_client, url, false, query_params, db).await?;
 
     let status = response.status();
 
@@ -92,21 +94,31 @@ pub async fn query_elems_from_hub(
 pub async fn http_get_from_hub(
     http_client: &reqwest::Client,
     url: &str,
-    email: &str,
     plain: bool,
     query_params: Option<Vec<(&str, String)>>,
+    db: &Pool<Postgres>,
 ) -> Result<reqwest::Response> {
-    let mut request = http_client
-        .get(url)
-        .header(
-            "Accept",
-            if plain {
-                "text/plain"
-            } else {
-                "application/json"
-            },
-        )
-        .header("X-email", email);
+    let uid = sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'uid'")
+        .fetch_optional(db)
+        .await?
+        .map(|v| serde_json::from_value::<String>(v));
+
+    let mut request = http_client.get(url).header(
+        "Accept",
+        if plain {
+            "text/plain"
+        } else {
+            "application/json"
+        },
+    );
+
+    if let Some(uid) = uid {
+        if let Ok(uid) = uid {
+            request = request.header("X-uid", uid);
+        } else {
+            tracing::info!("Invalid uid in global settings: {}", uid.err().unwrap())
+        }
+    }
 
     if let Some(query_params) = query_params {
         for (key, value) in query_params {
@@ -114,7 +126,7 @@ pub async fn http_get_from_hub(
         }
     }
 
-    let response = request.send().await.map_err(crate::error::to_anyhow)?;
+    let response = request.send().await.map_err(to_anyhow)?;
 
     Ok(response)
 }

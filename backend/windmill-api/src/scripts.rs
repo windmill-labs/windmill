@@ -256,8 +256,8 @@ struct TopHubScriptsQuery {
 }
 
 async fn get_top_hub_scripts(
-    ApiAuthed { email, .. }: ApiAuthed,
     Query(query): Query<TopHubScriptsQuery>,
+    Extension(db): Extension<DB>,
 ) -> impl IntoResponse {
     let mut query_params = vec![];
     if let Some(query_limit) = query.limit {
@@ -273,8 +273,8 @@ async fn get_top_hub_scripts(
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/scripts/top",
-        &email,
         Some(query_params),
+        &db,
     )
     .await?;
     Ok::<_, Error>((
@@ -632,18 +632,18 @@ async fn create_script(
 }
 
 pub async fn get_hub_script_by_path(
-    authed: ApiAuthed,
     Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
 ) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(&authed.email, path, &HTTP_CLIENT).await
+    windmill_common::scripts::get_hub_script_by_path(path, &HTTP_CLIENT, &db).await
 }
 
 pub async fn get_full_hub_script_by_path(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(&email, path, &HTTP_CLIENT).await?,
+        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, &db).await?,
     ))
 }
 

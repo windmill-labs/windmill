@@ -163,12 +163,12 @@ async fn list_flows(
     Ok(Json(rows))
 }
 
-async fn list_hub_flows(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchFlowData?approved=true",
-        &email,
         None,
+        &db,
     )
     .await?;
     Ok::<_, Error>((
@@ -197,15 +197,15 @@ async fn list_paths(
 }
 
 pub async fn get_hub_flow_by_id(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("https://hub.windmill.dev/flows/{id}/json"),
-        &email,
         false,
         None,
+        &db,
     )
     .await?
     .json()

@@ -6,11 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use serde_json::json;
 use windmill_common::{
-    error::{self, Error},
+    error::{self, to_anyhow, Error, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     DB,
 };
+
+use crate::GIT_VERSION;
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     if email == SUPERADMIN_SECRET_EMAIL {
@@ -29,4 +32,36 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub async fn reporting_stats(
+    instance_name: &String,
+    http_client: &reqwest::Client,
+    db: &DB,
+) -> Result<()> {
+    let uid = sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'uid'")
+        .fetch_one(db)
+        .await?;
+
+    let uid = serde_json::from_value::<String>(uid).map_err(to_anyhow)?;
+
+    let payload = json!({
+        "uid": uid,
+        "version": GIT_VERSION,
+        "instance_name": instance_name,
+    });
+
+    let request = http_client
+        .post("https://hub.windmill.dev/stats")
+        .body(serde_json::to_string(&payload).map_err(to_anyhow)?)
+        .header("content-type", "application/json");
+
+    request
+        .send()
+        .await
+        .map_err(to_anyhow)?
+        .error_for_status()
+        .map_err(to_anyhow)?;
+
+    Ok(())
 }
