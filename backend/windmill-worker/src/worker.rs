@@ -684,7 +684,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
-    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(100);
+    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(3);
 
     let db2 = db.clone();
     let base_internal_url2 = base_internal_url.to_string();

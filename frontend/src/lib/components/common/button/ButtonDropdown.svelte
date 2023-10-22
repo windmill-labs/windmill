@@ -39,7 +39,7 @@
 	</span>
 
 	<Portal>
-		<div use:popperContent={popperOptions} class="z-[2000]">
+		<div use:popperContent={popperOptions} class="z-[6000]">
 			<Transition
 				show={open}
 				enter="transition ease-out duration-[25ms]"

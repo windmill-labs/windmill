@@ -134,9 +134,23 @@ async fn metrics() -> Result<String, Error> {
 #[cfg(feature = "sqlx")]
 pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
+    use std::env::var;
+    use tokio::fs::File;
+    use tokio::io::AsyncReadExt;
 
-    let database_url = std::env::var("DATABASE_URL")
-        .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
+    let database_url = match var("DATABASE_URL_FILE") {
+        Ok(file_path) => {
+            let mut file = File::open(file_path).await?;
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).await?;
+            contents.trim().to_string()
+        }
+        Err(_) => var("DATABASE_URL").map_err(|_| {
+            Error::BadConfig(
+                "Either DATABASE_URL_FILE or DATABASE_URL env var is missing".to_string(),
+            )
+        })?,
+    };
 
     let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
         Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,

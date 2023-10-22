@@ -52,7 +52,7 @@
 
 	function setDefaultValue() {
 		if (resolvedConfig.defaultValue === undefined) {
-			selected = resolvedConfig.items[0].value
+			selected = resolvedConfig.items?.[0]?.value
 		} else if (resolvedConfig.defaultValue) {
 			selected = resolvedConfig.defaultValue
 		}

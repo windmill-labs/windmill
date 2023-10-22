@@ -26,7 +26,6 @@ const gridHelp = {
 
 	findSpace(item, items, cols) {
 		let matrix = makeMatrixFromItems(items, getRowsCount(items, cols), cols)
-
 		let position = findFreeSpaceForItem(matrix, item[cols])
 		return position
 	}

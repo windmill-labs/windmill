@@ -195,7 +195,7 @@
 			class={twMerge(
 				'p-2 overflow-visible',
 				app.css?.['app']?.['grid']?.class ?? '',
-				'wm-app-grid subgrid'
+				'wm-app-grid  subgrid'
 			)}
 			bind:clientWidth={$parentWidth}
 		>

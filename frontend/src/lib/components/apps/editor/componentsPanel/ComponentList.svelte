@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AppEditorContext, AppViewerContext } from '../../types'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, tick } from 'svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import {
 		components as componentsRecord,
@@ -19,7 +19,7 @@
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, dndItem, yTop } = getContext<AppEditorContext>('AppEditorContext')
 
 	let groups: Array<{
 		name: string
@@ -32,7 +32,7 @@
 		}
 	}
 
-	function addComponent(appComponentType: TypedComponent['type']): void {
+	function addComponent(appComponentType: TypedComponent['type']): string {
 		push(history, $app)
 
 		$dirtyStore = true
@@ -45,6 +45,7 @@
 
 		$selectedComponent = [id]
 		$app = $app
+		return id
 	}
 
 	async function addGroup(group: { name: string; path: string }) {
@@ -101,6 +102,8 @@
 	onMount(() => {
 		fetchGroups()
 	})
+
+	let dndTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <section class="p-2 sticky w-full z-10 top-0 bg-surface border-b">
@@ -123,9 +126,20 @@
 									<div class="w-20">
 										<button
 											id={item}
-											on:click={() => addComponent(item)}
+											on:pointerdown={async (e) => {
+												const id = addComponent(item)
+												dndTimeout && clearTimeout(dndTimeout)
+												dndTimeout = setTimeout(async () => {
+													await tick()
+													$dndItem[id]?.(e.clientX, e.clientY, $yTop)
+												}, 150)
+												window.addEventListener('pointerup', (e) => {
+													dndTimeout && clearTimeout(dndTimeout)
+													dndTimeout = undefined
+												})
+											}}
 											title={componentsRecord[item].name}
-											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+											class="cursor-move transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 											justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 										>
 											<svelte:component this={componentsRecord[item].icon} class="text-primary" />

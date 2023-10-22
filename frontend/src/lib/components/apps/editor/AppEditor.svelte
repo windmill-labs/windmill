@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { setContext } from 'svelte'
+	import { afterUpdate, onMount, setContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -145,7 +145,14 @@
 
 	let scale = writable(100)
 
+	const componentActive = writable(false)
+
+	let yTop = writable(0)
+
 	setContext<AppEditorContext>('AppEditorContext', {
+		yTop,
+		componentActive,
+		dndItem: writable({}),
 		refreshComponents: writable(undefined),
 		history,
 		pickVariableCallback,
@@ -416,6 +423,39 @@
 	export function triggerTutorial() {
 		appEditorHeader?.toggleTutorial()
 	}
+
+	let box
+	function parseScroll() {
+		$yTop = box?.scrollTop
+	}
+
+	let mounted = false
+	onMount(() => {
+		mounted = true
+
+		parseScroll()
+	})
+
+	$: setGridPanelSize($componentActive)
+
+	let lastComponentActive = false
+
+	afterUpdate(() => {
+		if ($componentActive != lastComponentActive) {
+			box.scrollTop = $yTop
+			lastComponentActive = $componentActive
+		}
+	})
+
+	function setGridPanelSize(x: boolean) {
+		if (mounted) {
+			if (x) {
+				gridPanelSize = 100
+			} else {
+				gridPanelSize = 100 - runnablePanelSize
+			}
+		}
+	}
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -425,7 +465,6 @@
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader on:restore {versions} {policy} {fromHub} bind:this={appEditorHeader} />
-
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
@@ -450,8 +489,14 @@
 				</div>
 			</SplitPanesWrapper>
 		{:else}
+			{#if $componentActive}
+				<div
+					class="absolute z-50 inset-0 h-full w-full bg-surface-secondary [background-size:16px_16px]"
+				/>
+			{/if}
+
 			<SplitPanesWrapper>
-				<Splitpanes class="max-w-full overflow-hidden">
+				<Splitpanes id="o1" class="max-w-full">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div
 							class={twMerge(
@@ -459,13 +504,15 @@
 								$secondaryMenuLeftStore.isOpen ? 'overflow-hidden' : ''
 							)}
 						>
+							<!-- {yTop} -->
+
 							<SecondaryMenu right={false} />
 							<ContextPanel />
 						</div>
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
-						<Splitpanes horizontal class="overflow-hidden">
-							<Pane bind:size={gridPanelSize}>
+						<Splitpanes id="o2" horizontal class="!overflow-visible">
+							<Pane bind:size={gridPanelSize} class="ovisible">
 								<div
 									on:pointerdown={(e) => {
 										$selectedComponent = undefined
@@ -474,7 +521,7 @@
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer'
+										'wm-app-viewer z-[100]  h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
@@ -510,23 +557,32 @@
 									<div
 										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
 									/>
+
+									<!-- svelte-ignore a11y-no-static-element-interactions -->
 									<div
+										bind:this={box}
+										on:scroll={parseScroll}
 										class={classNames(
-											'relative mx-auto w-full h-full overflow-auto',
-											$appStore.fullscreen ? '' : 'max-w-7xl border-x'
+											'mx-auto w-full h-full z-50',
+											$appStore.fullscreen ? '' : 'max-w-7xl border-x',
+											$componentActive ? 'absolute' : 'overflow-auto'
 										)}
+										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>
 										{#if $appStore.grid}
 											<ComponentNavigation />
 
-											<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
+											<div
+												on:pointerdown|stopPropagation
+												class={twMerge(width, 'mx-auto', 'z-10000')}
+											>
 												<GridEditor {policy} />
 											</div>
 										{/if}
 									</div>
 								</div>
 							</Pane>
-							{#if $connectingInput?.opened == false}
+							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
 									<div class="relative h-full w-full">
 										<InlineScriptsPanel />
@@ -661,3 +717,12 @@
 </ItemPicker>
 
 <VariableEditor bind:this={variableEditor} />
+
+<style global>
+	#o1 > .splitpanes__pane {
+		overflow: visible !important;
+	}
+	#o2 > .splitpanes__pane {
+		overflow: visible !important;
+	}
+</style>

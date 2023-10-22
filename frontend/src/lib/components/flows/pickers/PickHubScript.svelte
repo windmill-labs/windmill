@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { Badge, Skeleton } from '$lib/components/common'
-	import { capitalize, classNames, sendUserToast } from '$lib/utils'
+	import { Alert, Badge, Skeleton } from '$lib/components/common'
+	import { capitalize, classNames } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
@@ -13,6 +13,7 @@
 	export let syncQuery = false
 
 	let loading = false
+	let hubNotAvailable = false
 
 	const dispatch = createEventDispatcher()
 
@@ -37,13 +38,16 @@
 
 	async function getAllApps(filterKind: typeof kind) {
 		try {
+			hubNotAvailable = false
 			allApps = (
 				await IntegrationService.listHubIntegrations({
 					kind: filterKind
 				})
 			).map((x) => x.name)
 		} catch (err) {
-			sendUserToast(err.message, true)
+			console.error('Hub is not available')
+			allApps = []
+			hubNotAvailable = true
 		}
 	}
 
@@ -55,6 +59,7 @@
 	) {
 		try {
 			loading = true
+			hubNotAvailable = false
 			const ts = Date.now()
 			startTs = ts
 			await new Promise((r) => setTimeout(r, 100))
@@ -92,7 +97,9 @@
 				})
 			)
 		} catch (err) {
-			sendUserToast(err.message, true)
+			hubNotAvailable = true
+			console.error('Hub not available')
+			loading = false
 		}
 	}
 </script>
@@ -112,7 +119,10 @@
 	</div>
 </div>
 
-{#if items.length > 0 && apps.length > 0}
+{#if hubNotAvailable}
+	<div class="mt-2" />
+	<Alert type="error" title="Hub not available" />
+{:else if items.length > 0 && apps.length > 0}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 	{#if items.length == 0}
 		<NoItemFound />
