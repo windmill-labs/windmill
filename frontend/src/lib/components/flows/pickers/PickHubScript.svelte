@@ -5,10 +5,10 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
-	import { IntegrationService, ScriptService } from '$lib/gen'
+	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let kind: HubScriptKind & string = 'script'
 	export let filter = ''
 	export let syncQuery = false
 
@@ -25,7 +25,7 @@
 		version_id: number
 		ask_id: number
 		app: string
-		kind: typeof kind
+		kind: HubScriptKind
 	}[] = []
 
 	let allApps: string[] = []
@@ -89,7 +89,7 @@
 					id: number
 					ask_id: number
 					app: string
-					kind: typeof kind
+					kind: HubScriptKind
 				}) => ({
 					...x,
 					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,

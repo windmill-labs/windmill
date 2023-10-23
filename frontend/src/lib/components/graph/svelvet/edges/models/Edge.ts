@@ -1,4 +1,4 @@
-import { findStore } from '../../store/controllers/storeApi'
+import { findStore } from '../../store/models/store'
 import type { UserEdgeType } from '../../types/types'
 import type { EdgeType } from '../../store/types/types'
 

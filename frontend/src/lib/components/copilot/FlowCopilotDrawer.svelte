@@ -129,7 +129,7 @@
 								</div>
 								{#if copilotModule.source === 'hub' && copilotModule.selectedCompletion && copilotModule.selectedCompletion?.kind !== 'script'}
 									<Badge color="gray" baseClass="border"
-										>{capitalize(copilotModule.selectedCompletion.kind)}</Badge
+										>{capitalize(copilotModule.selectedCompletion.kind.toString())}</Badge
 									>
 								{/if}
 
@@ -254,7 +254,9 @@
 													</div>
 												</div>
 												{#if item.kind !== 'script'}
-													<Badge color="gray" baseClass="border">{capitalize(item.kind)}</Badge>
+													<Badge color="gray" baseClass="border"
+														>{capitalize(item.kind.toString())}</Badge
+													>
 												{/if}
 											</button>
 										</li>
