@@ -1655,7 +1655,6 @@ pub fn build_extra(
         .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
         .unwrap_or_default();
 
-    tracing::error!("{:?}", whitelist);
     whitelist
         .iter()
         .chain(INCLUDE_HEADERS.iter())
