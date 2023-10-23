@@ -5,7 +5,6 @@
 	import { Button, Drawer, Kbd } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { dfs } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -16,6 +15,7 @@
 	import { getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
+	import { dfs } from './flows/dfs'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
