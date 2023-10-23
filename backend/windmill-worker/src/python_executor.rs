@@ -780,7 +780,6 @@ pub async fn start_worker(
 ) -> error::Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
-    let _ = write_file(job_dir, "main.py", inner_content).await?;
     let context = variables::get_reserved_variables(
         w_id,
         &token,
@@ -851,7 +850,7 @@ replace_nan = re.compile(r'\bNaN\b')
 sys.stdout.write('start\n')
 
 for line in sys.stdin:
-    kwargs = json.load(line, strict=False)
+    kwargs = json.loads(line, strict=False)
     args = {{}}
     {transforms}
     {spread}
@@ -874,12 +873,12 @@ for line in sys.stdin:
                 if type(v).__name__ == 'bytes':
                     res[k] = to_b_64(v)
         res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
-        sys.stdout.write(res_json)
+        sys.stdout.write(res_json + "\n")
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         tb = traceback.format_tb(exc_traceback)
         err_json = json.dumps({{ "error": {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }} }}, separators=(',', ':'), default=str).replace('\n', '')
-        sys.stdout.write(err_json)
+        sys.stdout.write(err_json + "\n")
     sys.stdout.flush()
 "#,
         );

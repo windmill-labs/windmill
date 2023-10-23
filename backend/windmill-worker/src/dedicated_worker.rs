@@ -56,9 +56,8 @@ pub async fn handle_dedicated_process(
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
     let mut child = {
-        let mut bun_cmd = Command::new(command_path);
-        bun_cmd
-            .current_dir(job_dir)
+        let mut cmd = Command::new(command_path);
+        cmd.current_dir(job_dir)
             .env_clear()
             .envs(context_envs)
             .envs(envs)
@@ -73,7 +72,7 @@ pub async fn handle_dedicated_process(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bun_cmd, command_path).await?
+        start_child_process(cmd, command_path).await?
     };
 
     let stdout = child
