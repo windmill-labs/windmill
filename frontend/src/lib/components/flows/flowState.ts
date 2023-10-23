@@ -2,8 +2,15 @@ import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils'
-import { emptyFlowModuleState } from './utils'
+import { emptySchema } from '$lib/utils'
+import { NEVER_TESTED_THIS_FAR } from './models'
 
+export function emptyFlowModuleState(): FlowModuleState {
+	return {
+		schema: emptySchema(),
+		previewResult: NEVER_TESTED_THIS_FAR
+	}
+}
 export type FlowModuleState = {
 	schema: Schema
 	previewResult?: any
@@ -17,7 +24,6 @@ export type FlowState = Record<string, FlowModuleState>
  * It contains data loaded that are not contained in a Flow object i.e. schemas.
  * We also hold the data of the results of a test job, ran by the user.
  */
-
 
 export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowState>) {
 	const modulesState: FlowState = {}
@@ -63,7 +69,6 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 		const flowModuleState = await loadFlowModuleState(flowModule)
 		modulesState[flowModule.id] = flowModuleState
 	}
-
 }
 
 async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {

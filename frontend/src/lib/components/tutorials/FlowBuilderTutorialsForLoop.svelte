@@ -9,8 +9,8 @@
 		updateFlowModuleById
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
-	import { nextId } from '../flows/flowStateUtils'
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { nextId } from '../flows/flowModuleNextId'
 
 	const dispatch = createEventDispatcher()
 	const { flowStore, selectedId, flowStateStore } =
