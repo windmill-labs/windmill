@@ -13,7 +13,8 @@
 	import type { FlowEditorContext } from '../types'
 	import autosize from 'svelte-autosize'
 	import Slider from '$lib/components/Slider.svelte'
-	import { workerTags, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workerTags, workspaceStore } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
@@ -112,6 +113,44 @@
 									rows="3"
 								/>
 							</Label>
+
+							<!-- TODO: Add EE-only badge when we have it -->
+							<Toggle
+								disabled={!$enterpriseLicense || isCloudHosted()}
+								checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
+								on:change={() => {
+									if ($flowStore.value.priority) {
+										$flowStore.value.priority = undefined
+									} else {
+										$flowStore.value.priority = 100
+									}
+								}}
+								options={{
+									right: `Label as high priority`,
+									rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
+										!$enterpriseLicense
+											? 'This is a feature only available on enterprise edition.'
+											: ''
+									}`
+								}}
+							>
+								<svelte:fragment slot="right">
+									<input
+										type="number"
+										class="!w-14 ml-4"
+										disabled={$flowStore.value.priority === undefined}
+										bind:value={$flowStore.value.priority}
+										on:focus
+										on:change={() => {
+											if ($flowStore.value.priority && $flowStore.value.priority > 100) {
+												$flowStore.value.priority = 100
+											} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
+												$flowStore.value.priority = 0
+											}
+										}}
+									/>
+								</svelte:fragment>
+							</Toggle>
 
 							<div class="flex flex-row items-center gap-1">
 								<ErrorHandlerToggleButton
