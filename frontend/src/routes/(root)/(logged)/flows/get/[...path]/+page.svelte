@@ -7,7 +7,7 @@
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Alert, Skeleton } from '$lib/components/common'
+	import { Alert, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -255,7 +255,22 @@
 				bind:errorHandlerMuted={flow.ws_error_handler_muted}
 				scriptOrFlowPath={flow.path}
 				errorHandlerKind="flow"
-			/>
+			>
+				{#if flow?.value?.priority != undefined}
+					<div class="hidden md:block">
+						<HeaderBadge color="red" variant="outlined" size="xs">
+							{`Priority: ${flow?.value?.priority}`}
+						</HeaderBadge>
+					</div>
+				{/if}
+				{#if flow?.value?.concurrent_limit != undefined && flow?.value?.concurrency_time_window_s != undefined}
+					<div class="hidden md:block">
+						<HeaderBadge color="gray" variant="outlined" size="xs">
+							{`Concurrency limit: ${flow?.value?.concurrent_limit} runs every ${flow?.value?.concurrency_time_window_s}s`}
+						</HeaderBadge>
+					</div>
+				{/if}
+			</DetailPageHeader>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<SplitPanesWrapper>

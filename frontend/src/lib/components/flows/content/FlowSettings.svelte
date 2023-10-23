@@ -114,6 +114,7 @@
 								/>
 							</Label>
 
+							<!-- TODO: Add EE-only badge when we have it -->
 							<Toggle
 								disabled={!$enterpriseLicense || isCloudHosted()}
 								checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
@@ -127,7 +128,7 @@
 								options={{
 									right: `Label as high priority`,
 									rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
-										$enterpriseLicense
+										!$enterpriseLicense
 											? 'This is a feature only available on enterprise edition.'
 											: ''
 									}`

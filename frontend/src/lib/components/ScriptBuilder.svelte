@@ -628,10 +628,11 @@
 											</svelte:fragment>
 										</Toggle>
 										<svelte:fragment slot="header">
+											<!-- TODO: Add EE-only badge when we have it -->
 											<Tooltip>
 												Jobs from script labeled as high priority take precedence over the other
 												jobs when in the jobs queue.
-												{#if $enterpriseLicense}This is a feature only available on enterprise
+												{#if !$enterpriseLicense}This is a feature only available on enterprise
 													edition.{/if}
 											</Tooltip>
 										</svelte:fragment>

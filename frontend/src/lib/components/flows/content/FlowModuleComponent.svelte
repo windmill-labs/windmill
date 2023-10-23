@@ -415,6 +415,7 @@
 										</div>
 									{:else if advancedSelected === 'priority'}
 										<Section label="Priority" class="flex flex-col gap-4">
+											<!-- TODO: Add EE-only badge when we have it -->
 											<Toggle
 												disabled={!$enterpriseLicense || isCloudHosted()}
 												checked={flowModule.priority !== undefined && flowModule.priority > 0}
@@ -428,7 +429,7 @@
 												options={{
 													right: 'High priority flow step',
 													rightTooltip: `Jobs scheduled from this step when the flow is executed are labeled as high priority and take precedence over the other jobs in the jobs queue. ${
-														$enterpriseLicense
+														!$enterpriseLicense
 															? 'This is a feature only available on enterprise edition.'
 															: ''
 													}`
