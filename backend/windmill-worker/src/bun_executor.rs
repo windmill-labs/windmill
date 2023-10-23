@@ -1,11 +1,5 @@
 use std::{collections::HashMap, process::Stdio};
 
-#[cfg(feature = "enterprise")]
-use std::collections::VecDeque;
-
-#[cfg(feature = "enterprise")]
-use anyhow::Context;
-
 use base64::Engine;
 use itertools::Itertools;
 use regex::Regex;
@@ -24,16 +18,10 @@ use crate::{
     NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
-#[cfg(feature = "enterprise")]
-use crate::MAX_BUFFERED_DEDICATED_JOBS;
-
 use tokio::{
     fs::{remove_dir_all, File},
     process::Command,
 };
-
-#[cfg(feature = "enterprise")]
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use tokio::io::AsyncReadExt;
 
@@ -554,12 +542,10 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: Sender<JobCompleted>,
-    mut jobs_rx: Receiver<Arc<QueuedJob>>,
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    jobs_rx: Receiver<Arc<QueuedJob>>,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
-    use std::task::Poll;
-
-    use futures::{future, Future};
+    use crate::dedicated_worker::handle_dedicated_process;
 
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
@@ -579,9 +565,8 @@ pub async fn start_worker(
         None,
         None,
     )
-    .await
-    .to_vec();
-    let context_envs = build_envs_map(context);
+    .await;
+    let context_envs = build_envs_map(context.to_vec());
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -694,21 +679,6 @@ for await (const chunk of Bun.stdin.stream()) {{
         write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
     }
 
-    let reserved_variables = windmill_common::variables::get_reserved_variables(
-        w_id,
-        token,
-        "dedicated_worker",
-        "dedicated_worker",
-        Uuid::nil().to_string().as_str(),
-        "dedicted_worker",
-        Some(script_path.to_string()),
-        None,
-        None,
-        None,
-        None,
-    )
-    .await;
-
     let _ = write_file(
         &job_dir,
         "loader.bun.ts",
@@ -729,136 +699,25 @@ plugin(p)
     )
     .await?;
 
-    //do not cache local dependencies
-    let mut child = {
-        let script_path = format!("{job_dir}/wrapper.ts");
-        let args = vec![
+    handle_dedicated_process(
+        &*BUN_PATH,
+        job_dir,
+        context_envs,
+        envs,
+        context,
+        common_bun_proc_envs,
+        vec![
             "run",
             "-i",
             "--prefer-offline",
             "-r",
             "./loader.bun.ts",
-            &script_path,
-        ];
-        let mut bun_cmd = Command::new(&*BUN_PATH);
-        bun_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(context_envs)
-            .envs(envs)
-            .envs(
-                reserved_variables
-                    .iter()
-                    .map(|x| (x.name.clone(), x.value.clone()))
-                    .collect::<Vec<_>>(),
-            )
-            .envs(common_bun_proc_envs)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        start_child_process(bun_cmd, &*BUN_PATH).await?
-    };
-
-    let stdout = child
-        .stdout
-        .take()
-        .expect("child did not have a handle to stdout");
-
-    let mut reader = BufReader::new(stdout).lines();
-
-    let mut stdin = child
-        .stdin
-        .take()
-        .expect("child did not have a handle to stdin");
-
-    // Ensure the child process is spawned in the runtime so it can
-    // make progress on its own while we await for any output.
-    let child = tokio::spawn(async move {
-        let status = child
-            .wait()
-            .await
-            .expect("child process encountered an error");
-
-        println!("child status was: {}", status);
-    });
-
-    let mut jobs = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
-    // let mut i = 0;
-    // let mut j = 0;
-    let mut alive = true;
-
-    fn conditional_polling<T>(
-        fut: impl Future<Output = T>,
-        predicate: bool,
-    ) -> impl Future<Output = T> {
-        let mut fut = Box::pin(fut);
-        future::poll_fn(move |cx| {
-            if predicate {
-                fut.as_mut().poll(cx)
-            } else {
-                Poll::Pending
-            }
-        })
-    }
-
-    loop {
-        tokio::select! {
-            biased;
-            _ = killpill_rx.recv(), if alive => {
-                println!("received killpill for dedicated worker");
-                alive = false;
-                if let Err(e) = write_stdin(&mut stdin, "end").await {
-                    tracing::info!("Could not write end message to stdin: {e:?}")
-                }
-            },
-            line = reader.next_line() => {
-                // j += 1;
-
-                if let Some(line) = line.expect("line is ok") {
-                    if line == "start" {
-                        tracing::info!("dedicated worker process started");
-                        continue;
-                    }
-                    tracing::debug!("processed job");
-
-                    let result = serde_json::from_str(&line).expect("json is ok");
-                    let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
-                    job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap();
-                } else {
-                    tracing::info!("dedicated worker process exited");
-                    break;
-                }
-            },
-            job = conditional_polling(jobs_rx.recv(), alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS) => {
-                // i += 1;
-                if let Some(job) = job {
-                    tracing::debug!("received job");
-                    jobs.push_back(job.clone());
-                    // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
-                    write_stdin(&mut stdin, &serde_json::to_string(&job.args).expect("serialize")).await?;
-                    stdin.flush().await.context("stdin flush")?;
-                } else {
-                    tracing::debug!("job channel closed");
-                    alive = false;
-                    if let Err(e) = write_stdin(&mut stdin, "end").await {
-                        tracing::error!("Could not write end message to stdin: {e:?}")
-                    }
-                }
-            }
-        }
-    }
-
-    child
-        .await
-        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e}"))?;
-    tracing::info!("dedicated worker child process exited successfully");
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn write_stdin(stdin: &mut tokio::process::ChildStdin, s: &str) -> error::Result<()> {
-    let _ = &stdin.write_all(format!("{s}\n").as_bytes()).await?;
-    stdin.flush().await.context("stdin flush")?;
-    Ok(())
+            &format!("{job_dir}/wrapper.ts"),
+        ],
+        killpill_rx,
+        job_completed_tx,
+        token,
+        jobs_rx,
+    )
+    .await
 }

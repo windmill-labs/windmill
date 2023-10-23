@@ -298,7 +298,7 @@
 						{/if}
 						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql', 'nativets', 'bash', 'powershell', 'other', 'dependency'].includes(job.tag)}
 							<div>
-								<Badge color="indigo">Worker group: {job.tag}</Badge>
+								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
 						{/if}
 						{#if !job.visible_to_owner}<Badge color="red"

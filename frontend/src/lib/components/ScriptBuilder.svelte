@@ -570,7 +570,8 @@
 									<Toggle
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
-											script.language != Script.language.BUN}
+											(script.language != Script.language.BUN &&
+												script.language != Script.language.PYTHON3)}
 										size="sm"
 										checked={Boolean(script.dedicated_worker)}
 										on:change={() => {

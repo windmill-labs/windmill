@@ -144,6 +144,7 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
 }
 
 pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
+    tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
     let mut config: WorkerConfigOpt = sqlx::query_scalar!(
         "SELECT config FROM config WHERE name = $1",
         format!("worker__{}", *WORKER_GROUP)
@@ -155,7 +156,19 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
     .flatten()
     .unwrap_or_default();
     if config.dedicated_worker.is_none() {
-        config.dedicated_worker = std::env::var("DEDICATED_WORKER").ok();
+        let dw = std::env::var("DEDICATED_WORKER").ok();
+        if dw.is_some() {
+            tracing::info!(
+                "DEDICATED_WORKER set from env variable: {}",
+                dw.as_ref().unwrap()
+            );
+            config.dedicated_worker = dw;
+        }
+    } else {
+        tracing::info!(
+            "DEDICATED_WORKER set from config: {}",
+            config.dedicated_worker.as_ref().unwrap()
+        );
     }
     let dedicated_worker = config.dedicated_worker.map(|x| {
         let splitted = x.split(':').to_owned().collect_vec();
