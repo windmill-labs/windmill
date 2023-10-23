@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { dfs } from '$lib/components/flows/flowStore'
+	import { dfs } from '$lib/components/flows/dfs'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'

@@ -13,7 +13,7 @@
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
-	import { dfs } from '../flowStore'
+	import { dfs } from '../dfs'
 	import { FlowGraph } from '$lib/components/graph'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
