@@ -160,6 +160,11 @@ pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Po
                 DEFAULT_MAX_CONNECTIONS_SERVER
             } else {
                 DEFAULT_MAX_CONNECTIONS_WORKER
+                    * std::env::var("NUM_WORKERS")
+                        .ok()
+                        .map(|x| x.parse().ok())
+                        .flatten()
+                        .unwrap_or(1)
             }
         }
     };

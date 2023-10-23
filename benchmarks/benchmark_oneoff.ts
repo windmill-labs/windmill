@@ -147,9 +147,22 @@ export async function main({
       kind: "flow",
       flow_value: payload.value,
     });
+  } else if (kind.startsWith("flow:")) {
+    console.log("Detected custom flow ")
+    body = JSON.stringify({
+      kind: "flow",
+      path: kind.substr(5)
+    });
+  } else if (kind.startsWith("script:")) {
+    console.log("Detected custom script")
+    body = JSON.stringify({
+      kind: "script",
+      path: kind.substr(6)
+    });
   } else {
     throw new Error("Unknown script pattern " + kind);
   }
+
 
   const response = await fetch(
     config.server +
@@ -194,7 +207,7 @@ export async function main({
     } else {
       const elapsed = start ? Date.now() - start : 0;
       completedJobs = await getCompletedJobsCount();
-      if (kind === "2steps") {
+      if (kind === "2steps" || kind.startsWith("flow:")) {
         completedJobs = Math.floor(completedJobs / 3);
       }
       const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
@@ -234,7 +247,7 @@ export async function main({
   console.log("completed jobs", completedJobs);
   console.log("queue length:", await getQueueCount());
 
-  if (!noVerify && kind !== "noop" && kind !== 'nativets') {
+  if (!noVerify && kind !== "noop" && kind !== 'nativets' && !kind.startsWith("flow:") && !kind.startsWith("script:")) {
     await verifyOutputs(uuids, config.workspace_id);
   }
 
