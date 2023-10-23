@@ -20,12 +20,14 @@ use tokio::{
     fs::{metadata, DirBuilder},
     sync::RwLock,
 };
+use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, EXTRA_PIP_INDEX_URL_SETTING,
-        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
+        EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
+    stats::schedule_stats,
     utils::rd_string,
     worker::{reload_custom_tags_setting, WORKER_GROUP},
     DB, METRICS_ADDR,
@@ -318,7 +320,8 @@ Windmill Community Edition {GIT_VERSION}
                                                     if let Err(e) = tx.send(()) {
                                                         tracing::error!(error = %e, "Could not send killpill to server");
                                                     }
-                                                }
+                                                },
+                                                DISABLE_STATS_SETTING => {},
                                                 a @_ => {
                                                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                 }
@@ -361,6 +364,11 @@ Windmill Community Edition {GIT_VERSION}
             }
             Ok(()) as anyhow::Result<()>
         };
+
+        if mode == Mode::Server || mode == Mode::Standalone {
+            let instance_name = rd_string(8);
+            schedule_stats(&db, instance_name, &HTTP_CLIENT).await;
+        }
 
         futures::try_join!(shutdown_signal, server_f, metrics_f, workers_f, monitor_f)?;
     } else {

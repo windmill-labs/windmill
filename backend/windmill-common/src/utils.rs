@@ -7,7 +7,9 @@
  */
 
 use crate::error::{to_anyhow, Error, Result};
+use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
+use git_version::git_version;
 use hyper::{HeaderMap, StatusCode};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -16,6 +18,9 @@ use sqlx::{Pool, Postgres};
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
+
+pub const GIT_VERSION: &str =
+    git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 #[derive(Deserialize)]
 pub struct Pagination {
@@ -98,10 +103,13 @@ pub async fn http_get_from_hub(
     query_params: Option<Vec<(&str, String)>>,
     db: &Pool<Postgres>,
 ) -> Result<reqwest::Response> {
-    let uid = sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'uid'")
-        .fetch_optional(db)
-        .await?
-        .map(|v| serde_json::from_value::<String>(v));
+    let uid = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        UNIQUE_ID_SETTING
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|v| serde_json::from_value::<String>(v));
 
     let mut request = http_client.get(url).header(
         "Accept",

@@ -127,6 +127,14 @@
 				fieldType: 'boolean',
 				storage: 'config'
 			}
+		],
+		Telemetry: [
+			{
+				label: 'Disable telemetry',
+				key: 'disable_stats',
+				fieldType: 'boolean',
+				storage: 'setting'
+			}
 		]
 	}
 
