@@ -11,6 +11,11 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+use crate::{
+    error::{to_anyhow, Error},
+    utils::http_get_from_hub,
+    DB,
+};
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 use serde_json::to_string_pretty;
@@ -263,15 +268,10 @@ pub fn to_hex_string(i: &i64) -> String {
 
 #[cfg(feature = "reqwest")]
 pub async fn get_hub_script_by_path(
-    email: &str,
     path: StripPath,
     http_client: &reqwest::Client,
+    db: &DB,
 ) -> crate::error::Result<String> {
-    use crate::{
-        error::{to_anyhow, Error},
-        utils::http_get_from_hub,
-    };
-
     let path = path
         .to_path()
         .strip_prefix("hub/")
@@ -280,9 +280,9 @@ pub async fn get_hub_script_by_path(
     let content = http_get_from_hub(
         http_client,
         &format!("https://hub.windmill.dev/raw/{path}.ts"),
-        email,
         true,
         None,
+        db,
     )
     .await?
     .text()
@@ -293,15 +293,10 @@ pub async fn get_hub_script_by_path(
 
 #[cfg(feature = "reqwest")]
 pub async fn get_full_hub_script_by_path(
-    email: &str,
     path: StripPath,
     http_client: &reqwest::Client,
+    db: &DB,
 ) -> crate::error::Result<HubScript> {
-    use crate::{
-        error::{to_anyhow, Error},
-        utils::http_get_from_hub,
-    };
-
     let path = path
         .to_path()
         .strip_prefix("hub/")
@@ -310,9 +305,9 @@ pub async fn get_full_hub_script_by_path(
     let value = http_get_from_hub(
         http_client,
         &format!("https://hub.windmill.dev/raw2/{path}"),
-        email,
         true,
         None,
+        db,
     )
     .await?
     .json::<HubScript>()

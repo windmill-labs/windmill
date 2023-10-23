@@ -228,9 +228,9 @@ impl EmbeddingsDb {
         let response = http_get_from_hub(
             &HTTP_CLIENT,
             "https://hub.windmill.dev/scripts/embeddings",
-            "todo@windmill.dev",
             false,
             None,
+            pg_db,
         )
         .await?;
         let hub_scripts = response.json::<Vec<HubScript>>().await?;
@@ -257,9 +257,9 @@ impl EmbeddingsDb {
         let response = http_get_from_hub(
             &HTTP_CLIENT,
             "https://hub.windmill.dev/resource_types/embeddings",
-            "todo@windmill.dev",
             false,
             None,
+            pg_db,
         )
         .await?;
         let hub_resource_types = response.json::<Vec<HubResourceType>>().await?;

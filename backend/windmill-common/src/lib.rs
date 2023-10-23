@@ -25,6 +25,7 @@ pub mod oauth2;
 pub mod schedule;
 pub mod scripts;
 pub mod server;
+pub mod stats;
 pub mod users;
 pub mod utils;
 pub mod variables;

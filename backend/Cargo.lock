@@ -7828,6 +7828,8 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "cron",
+ "git-version",
  "hex",
  "hmac",
  "hyper",
