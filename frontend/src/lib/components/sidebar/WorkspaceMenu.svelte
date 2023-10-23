@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { switchWorkspace, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { classNames } from '$lib/utils'
 	import { Building } from 'lucide-svelte'
 
@@ -9,6 +9,7 @@
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '../common/confirmationModal/dirtyStore'
 	import { page } from '$app/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	export let isCollapsed: boolean = false
 
 	function waitForNextUpdate(store) {

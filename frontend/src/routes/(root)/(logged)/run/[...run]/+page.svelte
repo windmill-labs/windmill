@@ -291,6 +291,11 @@
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
 						{/if}
+						{#if job && 'priority' in job}
+							<div>
+								<Badge color="red">priority: {job.priority}</Badge>
+							</div>
+						{/if}
 						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql', 'nativets', 'bash', 'powershell', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>

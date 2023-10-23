@@ -1,5 +1,9 @@
 import type { StoreType } from '../types/types';
 
+
+export function findStore(canvasId: string): StoreType {
+	return stores[canvasId]
+}
 /**
   `store` is a dictionary of Svelvet stores.
     * The reason why we have multiple Svelvet stores is to handle multiple canvases on the same page.

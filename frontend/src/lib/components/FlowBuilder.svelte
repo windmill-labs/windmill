@@ -7,7 +7,8 @@
 		DraftService,
 		type PathScript,
 		ScriptService,
-		Script
+		Script,
+		type HubScriptKind
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -30,7 +31,7 @@
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
-	import { dfs as dfsApply } from './flows/flowStore'
+	import { dfs as dfsApply } from './flows/dfs'
 	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
@@ -413,7 +414,7 @@
 			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
-				kind: string
+				kind: HubScriptKind
 				app: string
 				ask_id: number
 			}[]

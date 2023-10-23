@@ -4,7 +4,7 @@
 	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
-	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { classNames, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -14,6 +14,7 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import { clearStores } from '$lib/storeUtils'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''

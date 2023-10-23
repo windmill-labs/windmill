@@ -534,6 +534,7 @@ async fn create_app(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -546,12 +547,12 @@ async fn create_app(
     Ok((StatusCode::CREATED, app.path))
 }
 
-async fn list_hub_apps(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchUiData?approved=true",
-        &email,
         None,
+        &db,
     )
     .await?;
     Ok::<_, Error>((
@@ -562,15 +563,15 @@ async fn list_hub_apps(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse 
 }
 
 pub async fn get_hub_app_by_id(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("https://hub.windmill.dev/apps/{id}/json"),
-        &email,
         false,
         None,
+        &db,
     )
     .await?
     .json()
@@ -777,6 +778,7 @@ async fn update_app(
             None,
             None,
             None,
+            None,
         )
         .await?;
         tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -936,6 +938,7 @@ async fn execute_component(
         None,
         true,
         tag,
+        None,
         None,
         None,
     )

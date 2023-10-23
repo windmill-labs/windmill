@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.188.1
+  version: 1.189.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -53,6 +53,8 @@ components:
         skip_expr:
           type: string
         cache_ttl:
+          type: number
+        priority:
           type: number
       required:
         - modules
@@ -123,6 +125,8 @@ components:
               type: boolean
             user_groups_required:
               $ref: "#/components/schemas/InputTransform"
+        priority:
+          type: number
 
         retry:
           $ref: "#/components/schemas/Retry"

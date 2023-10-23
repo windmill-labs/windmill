@@ -28,7 +28,7 @@
 </script>
 
 {#if connecting}
-	<div class="absolute z-50 left-6 -top-[11px]">
+	<div class="absolute z-50 left-6 -top-[11px] overflow-auto">
 		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button">
 				<button

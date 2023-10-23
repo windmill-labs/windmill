@@ -555,7 +555,8 @@ async fn run_slack_message_test_job(
         Some(json!(extra_args)),
         authed.username.as_str(), 
         authed.email.as_str(), 
-        username_to_permissioned_as(authed.username.as_str())
+        username_to_permissioned_as(authed.username.as_str()),
+        None, // Note: we could mark it as high priority to return result quickly to the user
     ).await?;
     tx.commit().await?;
 

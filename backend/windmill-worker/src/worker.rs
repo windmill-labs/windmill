@@ -1436,6 +1436,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
             None,
+            None,
         )
         .await?;
         inner_tx.commit().await?;
@@ -1512,9 +1513,9 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             &job,
             logs.to_string(),
             mem_peak.to_owned(),
-            serde_json::from_str(result.get()).unwrap_or_else(
-                |_| json!({"message": format!("Non serializable error: {}", result.get())}),
-            ),
+            serde_json::from_str(result.get()).unwrap_or_else(|_| {
+                json!({ "message": format!("Non serializable error: {}", result.get()) })
+            }),
             metrics.clone(),
             rsmq.clone(),
         )
@@ -2078,7 +2079,7 @@ async fn handle_code_execution_job(
             let cache_path = format!("{HUB_CACHE_DIR}/{version}");
             let script;
             if tokio::fs::metadata(&cache_path).await.is_err() {
-                script =  get_full_hub_script_by_path(&job.email, StripPath(script_path.clone()), &HTTP_CLIENT).await?;
+                script = get_full_hub_script_by_path(StripPath(script_path.clone()), &HTTP_CLIENT, db).await?;
                 write_file(HUB_CACHE_DIR, &version, &serde_json::to_string(&script).map_err(to_anyhow)?).await?;
                 tracing::info!("wrote hub script {script_path} to cache");
             } else {

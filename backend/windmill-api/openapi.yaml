@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.188.1
+  version: 1.189.0
   title: Windmill API
 
   contact:
@@ -2653,8 +2653,7 @@ paths:
                         version_id:
                           type: number
                         kind:
-                          type: string
-                          enum: [script, failure, trigger, approval]
+                          $ref: "#/components/schemas/HubScriptKind"
                         votes:
                           type: number
                         views:
@@ -2721,8 +2720,7 @@ paths:
                     app:
                       type: string
                     kind:
-                      type: string
-                      enum: [script, failure, trigger, approval]
+                      $ref: "#/components/schemas/HubScriptKind"
                     score:
                       type: number
                   required:
@@ -6505,6 +6503,8 @@ components:
           type: boolean
         ws_error_handler_muted:
           type: boolean
+        priority:
+          type: integer
       required:
         - hash
         - path
@@ -6584,6 +6584,8 @@ components:
           type: boolean
         ws_error_handler_muted:
           type: boolean
+        priority:
+          type: integer
       required:
         - path
         - summary
@@ -6758,6 +6760,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - running
@@ -6865,6 +6869,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - created_by
@@ -7831,6 +7837,8 @@ components:
           type: string
         ws_error_handler_muted:
           type: boolean
+        priority:
+          type: integer
       required:
         - path
         - edited_by
@@ -7849,6 +7857,8 @@ components:
               type: string
             ws_error_handler_muted:
               type: boolean
+            priority:
+              type: integer
           required:
             - path
 
@@ -8035,3 +8045,9 @@ components:
 
       required:
         - access_token
+
+    HubScriptKind:
+      name: kind
+      schema:
+        type: string
+        enum: [script, failure, trigger, approval]

@@ -192,7 +192,8 @@
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl,
-					ws_error_handler_muted: script.ws_error_handler_muted
+					ws_error_handler_muted: script.ws_error_handler_muted,
+					priority: script.priority
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -236,7 +237,8 @@
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						cache_ttl: script.cache_ttl,
-						ws_error_handler_muted: script.ws_error_handler_muted
+						ws_error_handler_muted: script.ws_error_handler_muted,
+						priority: script.priority
 					}
 				})
 			}
@@ -592,6 +594,51 @@
 										>
 									</svelte:fragment>
 								</Section>
+								{#if !isCloudHosted()}
+									<Section label="High priority script">
+										<Toggle
+											disabled={!$enterpriseLicense || isCloudHosted()}
+											size="sm"
+											checked={script.priority !== undefined && script.priority > 0}
+											on:change={() => {
+												if (script.priority) {
+													script.priority = undefined
+												} else {
+													script.priority = 100
+												}
+											}}
+											options={{
+												right: 'Label as high priority'
+											}}
+										>
+											<svelte:fragment slot="right">
+												<input
+													type="number"
+													class="!w-14 ml-4"
+													disabled={script.priority === undefined}
+													bind:value={script.priority}
+													on:focus
+													on:change={() => {
+														if (script.priority && script.priority > 100) {
+															script.priority = 100
+														} else if (script.priority && script.priority < 0) {
+															script.priority = 0
+														}
+													}}
+												/>
+											</svelte:fragment>
+										</Toggle>
+										<svelte:fragment slot="header">
+											<!-- TODO: Add EE-only badge when we have it -->
+											<Tooltip>
+												Jobs from script labeled as high priority take precedence over the other
+												jobs when in the jobs queue.
+												{#if !$enterpriseLicense}This is a feature only available on enterprise
+													edition.{/if}
+											</Tooltip>
+										</svelte:fragment>
+									</Section>
+								{/if}
 								{#if !isCloudHosted()}
 									<Section label="Custom env variables">
 										<svelte:fragment slot="header">

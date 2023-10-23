@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where hash = $1 AND workspace_id = $2",
+  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -37,7 +37,6 @@
                 "bash",
                 "postgresql",
                 "nativets",
-                "Nativets",
                 "bun",
                 "mysql",
                 "bigquery",
@@ -53,6 +52,11 @@
         "ordinal": 5,
         "name": "dedicated_worker",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority",
+        "type_info": "Int2"
       }
     ],
     "parameters": {
@@ -67,8 +71,9 @@
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "901c430cba96e5cab1a186207ea708f3d34a04c8ab03b385f8f2e9c662d3e724"
+  "hash": "d48070ef889723f408ed6c1a97b5ab9f0e98340cd33c6e29824f6030f0089071"
 }

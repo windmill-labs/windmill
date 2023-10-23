@@ -82,6 +82,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             cache_ttl,
             language,
             dedicated_worker,
+            priority,
         ) = windmill_common::get_latest_hash_for_path(
             tx.transaction_mut(),
             &schedule.workspace_id,
@@ -97,6 +98,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 cache_ttl: cache_ttl,
                 dedicated_worker,
                 language,
+                priority,
             },
             tag,
         )
@@ -129,6 +131,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         None,
         true,
         tag,
+        None,
         None,
         None,
     )

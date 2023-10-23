@@ -8,7 +8,7 @@
 	} from '../../store/controllers/storeApi'
 	import { afterUpdate, onMount, getContext } from 'svelte'
 	import GraphView from './GraphView.svelte'
-	import { sanitizeCanvasOptions, sanitizeUserNodesAndEdges } from '../controllers/middleware'
+	import { sanitizeUserNodesAndEdges } from '../controllers/middleware'
 	import { SVELVET_CONTEXT_KEY, type SvelvetSettingsContext } from '../models'
 
 	const settings = getContext<SvelvetSettingsContext | undefined>(SVELVET_CONTEXT_KEY)
@@ -24,7 +24,6 @@
 	export let snapTo: number = 30
 	export let nodeCreate: boolean = false
 	export let boundary = false
-	export let collapsible = false
 	export let locked: boolean = false // if true, node movement is disabled
 	export let editable: boolean = false
 	export let highlightEdges: boolean = true
@@ -58,13 +57,10 @@
 			store.options.set(optionsObj) //
 			store.nodeCreate.set(nodeCreate)
 			store.boundary.set(boundary)
-			store.collapsibleOption.set(collapsible)
 			store.lockedOption.set(locked)
 			store.editableOption.set(editable)
 			store.highlightEdgesOption.set(highlightEdges)
 
-			// make sure that all canvas options are compatible
-			sanitizeCanvasOptions(store)
 			// set node/edge related stores
 			populateSvelvetStoreFromUserInput(canvasId, userNodes, userEdges)
 			error = ''
@@ -92,13 +88,10 @@
 			store.options.set(optionsObj) //
 			store.nodeCreate.set(nodeCreate)
 			store.boundary.set(boundary)
-			store.collapsibleOption.set(collapsible)
 			store.lockedOption.set(locked)
 			store.editableOption.set(editable)
 			store.highlightEdgesOption.set(highlightEdges)
 
-			// make sure that all canvas options are compatible
-			sanitizeCanvasOptions(store)
 			// set node/edge related stores
 			populateSvelvetStoreFromUserInput(canvasId, userNodes, userEdges)
 			error = ''

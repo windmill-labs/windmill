@@ -3,7 +3,7 @@
 
 	const Position = { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' }
 
-	import { findStore } from '../../../store/controllers/storeApi'
+	import { findStore } from '../../../store/models/store'
 	import { getAnchorFromEdge } from '../../../edges/controllers/util'
 
 	function calculateControlOffset(distance, curvature) {

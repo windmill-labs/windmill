@@ -12,7 +12,7 @@ use anyhow::Context;
 use async_recursion::async_recursion;
 use axum::{
     body::Bytes,
-    extract::FromRequest,
+    extract::{FromRequest, Query},
     http::Request,
     response::{IntoResponse, Response},
     Form, RequestExt,
@@ -24,7 +24,7 @@ use reqwest::{
     Client, StatusCode,
 };
 use rsmq_async::RsmqConnection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
@@ -319,9 +319,10 @@ pub async fn add_completed_job<
                    , visible_to_owner
                    , mem_peak
                    , tag
+                   , priority
                 )
             VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30)
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30, $31)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING duration_ms",
         queued_job.workspace_id,
         queued_job.id,
@@ -353,6 +354,7 @@ pub async fn add_completed_job<
         queued_job.visible_to_owner,
         if mem_peak > 0 { Some(mem_peak) } else { None },
         queued_job.tag,
+        queued_job.priority,
     )
     .fetch_one(&mut tx)
     .await
@@ -377,6 +379,7 @@ pub async fn add_completed_job<
             result,
             job_id,
             queued_job.started_at.unwrap_or(chrono::Utc::now()),
+            queued_job.priority,
         )
         .await?;
     }
@@ -529,6 +532,7 @@ pub async fn run_error_handler<
         None,
         true,
         tag,
+        None,
         None,
         None,
     )
@@ -720,6 +724,7 @@ async fn apply_schedule_handlers<
     result: Json<&'a T>,
     job_id: Uuid,
     started_at: DateTime<Utc>,
+    job_priority: Option<i16>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
@@ -776,6 +781,7 @@ async fn apply_schedule_handlers<
                 &schedule.email,
                 &schedule_to_user(&schedule.path),
                 username_to_permissioned_as(&schedule.edited_by),
+                job_priority,
             )
             .await;
 
@@ -894,6 +900,7 @@ pub async fn handle_on_failure<
     username: &str,
     email: &str,
     permissioned_as: String,
+    priority: Option<i16>,
 ) -> windmill_common::error::Result<(Uuid, QueueTransaction<'c, R>)> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
@@ -938,6 +945,7 @@ pub async fn handle_on_failure<
         tag,
         None,
         None,
+        priority,
     )
     .await?;
     tracing::info!(
@@ -1029,6 +1037,7 @@ async fn handle_on_recovery<
         None,
         true,
         tag,
+        None,
         None,
         None,
     )
@@ -1311,7 +1320,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 SELECT id
                 FROM queue
                 WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag = ANY($1)
-                ORDER BY created_at
+                ORDER BY priority DESC NULLS LAST, created_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
@@ -1343,7 +1352,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 SELECT id
                 FROM queue
                 WHERE running = false AND scheduled_for <= now() AND tag = ANY($1)
-                ORDER BY scheduled_for, created_at
+                ORDER BY priority DESC NULLS LAST, scheduled_for, created_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
@@ -1557,6 +1566,12 @@ pub struct PushArgs<T> {
     pub args: Json<T>,
 }
 
+#[derive(Deserialize)]
+pub struct RequestQuery {
+    pub raw: Option<bool>,
+    pub include_header: Option<String>,
+}
+
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for PushArgs<HashMap<String, Box<RawValue>>>
 where
@@ -1572,10 +1587,12 @@ where
             let headers_map = req.headers();
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
+            let query = Query::<RequestQuery>::try_from_uri(req.uri()).unwrap().0;
+            let raw = query.raw.as_ref().is_some_and(|x| *x);
             (
                 content_type,
-                build_extra(&headers_map),
-                req.uri().query().is_some_and(|x| x.contains("raw=true")),
+                build_extra(&headers_map, query.include_header),
+                raw,
             )
         };
 
@@ -1629,19 +1646,16 @@ lazy_static::lazy_static! {
         .collect()).unwrap_or_default();
 }
 
-pub fn build_extra(headers: &HeaderMap) -> HashMap<String, Box<RawValue>> {
+pub fn build_extra(
+    headers: &HeaderMap,
+    include_header: Option<String>,
+) -> HashMap<String, Box<RawValue>> {
     let mut args = HashMap::new();
-    let whitelist = headers
-        .get("include_header")
-        .map(|s| {
-            s.to_str()
-                .unwrap_or_default()
-                .split(",")
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        })
+    let whitelist = include_header
+        .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
         .unwrap_or_default();
 
+    tracing::error!("{:?}", whitelist);
     whitelist
         .iter()
         .chain(INCLUDE_HEADERS.iter())
@@ -1700,6 +1714,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     mut tag: Option<String>,
     custom_timeout: Option<i32>,
     flow_step_id: Option<String>,
+    priority_override: Option<i16>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     #[cfg(feature = "enterprise")]
     {
@@ -1801,6 +1816,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         concurrency_time_window_s,
         cache_ttl,
         dedicated_worker,
+        low_level_priority,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -1810,6 +1826,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             cache_ttl,
             language,
             dedicated_worker,
+            priority,
         } => (
             Some(hash.0),
             Some(path),
@@ -1821,6 +1838,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
+            priority,
         ),
         JobPayload::ScriptHub { path } => {
             (
@@ -1829,6 +1847,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 // Some((script.content, script.lockfile)),
                 JobKind::Script_Hub,
+                None,
                 None,
                 None,
                 None,
@@ -1856,6 +1875,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             concurrency_time_window_s,
             cache_ttl,
             None,
+            None,
         ),
         JobPayload::Dependencies { hash, dependencies, language, path } => (
             Some(hash.0),
@@ -1864,6 +1884,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             JobKind::Dependencies,
             None,
             Some(language),
+            None,
             None,
             None,
             None,
@@ -1895,6 +1916,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 None,
                 None,
+                None,
             )
         }
         JobPayload::AppDependencies { path, version } => (
@@ -1902,6 +1924,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some(path),
             None,
             JobKind::AppDependencies,
+            None,
             None,
             None,
             None,
@@ -1920,6 +1943,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             value.concurrency_time_window_s,
             value.cache_ttl.map(|x| x as i32),
             None,
+            value.priority,
         ),
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
@@ -1947,6 +1971,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
                 None,
+                value.priority,
             )
         }
         JobPayload::Identity => (
@@ -1954,6 +1979,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             JobKind::Identity,
+            None,
             None,
             None,
             None,
@@ -1972,8 +1998,28 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
         ),
     };
+
+    let final_priority: Option<i16>;
+    #[cfg(not(feature = "enterprise"))]
+    {
+        // priority is only available on EE. Do not compute it on CE
+        final_priority = None;
+    }
+    #[cfg(feature = "enterprise")]
+    {
+        final_priority = if *CLOUD_HOSTED {
+            // for cloud hosted instance, priority queues is disabled
+            None
+        } else if priority_override.is_some() {
+            priority_override
+        } else {
+            // else it takes the priority defined at the script/flow level, if it's a script or flow
+            low_level_priority
+        }; // else it remains empty, i.e. no priority
+    }
 
     let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
@@ -2015,6 +2061,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 suspend: None,
                 cache_ttl: None,
                 timeout: None,
+                priority: None,
             });
             raw_flow = Some(FlowValue { modules, ..flow.clone() });
         }
@@ -2092,8 +2139,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
                 flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
-                flow_step_id, cache_ttl)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29) \
+                flow_step_id, cache_ttl, priority)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -2124,10 +2171,12 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         custom_timeout,
         flow_step_id,
         cache_ttl,
+        final_priority,
     )
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
+
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
     if *METRICS_ENABLED {
         QUEUE_PUSH_COUNT.inc();

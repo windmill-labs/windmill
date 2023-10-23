@@ -1,4 +1,4 @@
-import { findStore } from './storeApi';
+import { findStore } from '../models/store';
 import { get } from 'svelte/store';
 export function getD3PositionX(canvasId) {
   const store = findStore(canvasId);

@@ -4,13 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
-	import {
-		superadmin,
-		switchWorkspace,
-		usersWorkspaceStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -21,6 +15,7 @@
 	import { onMount } from 'svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import { switchWorkspace } from '$lib/storeUtils'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false

@@ -77,7 +77,10 @@ pub struct ScriptWDraft {
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
 }
 
 pub fn global_service() -> Router {
@@ -256,8 +259,8 @@ struct TopHubScriptsQuery {
 }
 
 async fn get_top_hub_scripts(
-    ApiAuthed { email, .. }: ApiAuthed,
     Query(query): Query<TopHubScriptsQuery>,
+    Extension(db): Extension<DB>,
 ) -> impl IntoResponse {
     let mut query_params = vec![];
     if let Some(query_limit) = query.limit {
@@ -273,8 +276,8 @@ async fn get_top_hub_scripts(
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/scripts/top",
-        &email,
         Some(query_params),
+        &db,
     )
     .await?;
     Ok::<_, Error>((
@@ -459,8 +462,9 @@ async fn create_script(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, dedicated_worker, ws_error_handler_muted) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
+         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+         dedicated_worker, ws_error_handler_muted, priority) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
         &w_id,
         &hash.0,
         ns.path,
@@ -483,6 +487,7 @@ async fn create_script(
         ns.cache_ttl,
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
+        ns.priority,
     )
     .execute(&mut tx)
     .await?;
@@ -614,6 +619,7 @@ async fn create_script(
             ns.tag,
             None,
             None,
+            None,
         )
         .await?;
         tx = PushIsolationLevel::Transaction(new_tx);
@@ -632,18 +638,18 @@ async fn create_script(
 }
 
 pub async fn get_hub_script_by_path(
-    authed: ApiAuthed,
     Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
 ) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(&authed.email, path, &HTTP_CLIENT).await
+    windmill_common::scripts::get_hub_script_by_path(path, &HTTP_CLIENT, &db).await
 }
 
 pub async fn get_full_hub_script_by_path(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(&email, path, &HTTP_CLIENT).await?,
+        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, &db).await?,
     ))
 }
 
@@ -679,7 +685,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -724,7 +730,7 @@ async fn toggle_workspace_error_handler(
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
     #[cfg(not(feature = "enterprise"))]
-    if true {
+    {
         return Err(Error::BadRequest(
             "Muting the error handler for certain script is only available in enterprise version"
                 .to_string(),

@@ -1,4 +1,3 @@
-import type { CollapsibleType } from '../../collapsible/types/types'
 import type { Writable } from 'svelte/store'
 import type { AnchorType } from '../../edges/types/types'
 
@@ -35,8 +34,6 @@ export interface StoreType {
 	nodeCreate: Writable<boolean> // this option sets whether the "nodeEdit" feature is enabled
 	boundary: Writable<boolean | PositionType>
 	edgeEditModal: Writable<null | string> // this options is used to place the edgeEdit modal when an edge is right-clicked. null is no modal, positionType if modal should be placed at position defined by postionType.x, positionType.y
-	collapsibleStore: Writable<CollapsibleType[]>
-	collapsibleOption: Writable<boolean>
 	lockedOption: Writable<boolean>
 	editableOption: Writable<boolean>
 	d3ZoomParameters: Writable<{
