@@ -132,7 +132,7 @@
 												dndTimeout = setTimeout(async () => {
 													await tick()
 													$dndItem[id]?.(e.clientX, e.clientY, $yTop)
-												}, 150)
+												}, 75)
 												window.addEventListener('pointerup', (e) => {
 													dndTimeout && clearTimeout(dndTimeout)
 													dndTimeout = undefined

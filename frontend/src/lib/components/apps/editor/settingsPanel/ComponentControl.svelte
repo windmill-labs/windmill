@@ -47,20 +47,21 @@
 				<div class="text-xs">
 					{control.description}
 				</div>
-				<div class="p-1 border w-full">
+				<div class="p-1 border w-full overflow-x-auto">
 					<Highlight language={typescript} code={control.example} />
 				</div>
-
-				<a
-					href={control.documentation}
-					target="_blank"
-					class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
-				>
-					<div class="flex flex-row gap-2">
-						See documentation
-						<ExternalLink size="16" />
-					</div>
-				</a>
+				{#if control.documentation}
+					<a
+						href={control.documentation}
+						target="_blank"
+						class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
+					>
+						<div class="flex flex-row gap-2">
+							See documentation
+							<ExternalLink size="16" />
+						</div>
+					</a>
+				{/if}
 			{/each}
 		{/if}
 	</PanelSection>
