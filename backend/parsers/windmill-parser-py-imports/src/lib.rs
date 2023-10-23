@@ -40,10 +40,9 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "playhouse" => "peewee",
     "dns" => "dnspython",
     "msoffcrypto" => "msoffcrypto-tool",
-    "tabula" => "tabula-py"
+    "tabula" => "tabula-py",
     "shapefile" => "pyshp"
 };
-
 
 fn replace_import(x: String) -> String {
     PYTHON_IMPORTS_REPLACEMENT
