@@ -30,23 +30,13 @@ populateSvelvetStoreFromUserInput(canvasId, nodes, edges)
 - edges: same as nodes, this is an array of objects containing edge info THAT IS DIFFERENT FROM THE EDGE CLASS.
 - Returns: store
 */
-import { stores } from '../models/store'
-import { writable, get } from 'svelte/store'
+import { findStore, stores } from '../models/store'
+import { writable } from 'svelte/store'
 
 import type { StoreType } from '../types/types'
 import type { UserNodeType, UserEdgeType } from '../../types/types'
 import { populateAnchorsStore, populateNodesStore, populateEdgesStore } from './util'
-import { populateCollapsibleStore } from '../../collapsible/controllers/util'
 
-/**
- * findStore is going to return the target Svelvet store with the canvasId provided as argument.
- * There can be multiple Svelvet canvases on the same page, and each has their own store with a unique canvasId.
- * @param canvasId The canvasId of a Svelvet component
- * @returns The store of a Svelvet component that matches the canvasId
- */
-export function findStore(canvasId: string): StoreType {
-	return stores[canvasId]
-}
 
 /**
  * createStoreEmpty will initialize a new Svelvet store with a unique canvasId.
@@ -80,8 +70,6 @@ export function createStoreEmpty(canvasId: string): StoreType {
 		nodeCreate: writable(false), // this option sets whether the "nodeEdit" feature is enabled
 		boundary: writable(false),
 		edgeEditModal: writable(null), // this is used for edgeEditModal feature. When an edge is right clicked, store.edgeEditModal is set to the edgeId string. This causes a modal to be rendered
-		collapsibleStore: writable([]), // this is used for the collaspsible node feature. If the feature is enabled, store.collapsible will be populated with Collapsible objects which will track whether the node should be displayed or not
-		collapsibleOption: writable(false),
 		lockedOption: writable(false),
 		editableOption: writable(false), // true if you want nodes/edges to be editable. See feature editEdges
 		d3ZoomParameters: writable({}), // this stores d3 parameters x, y, and zoom. This isn't used for anything other than giving users a way to access d3 zoom parameters if they want to build on top of Svelvet
@@ -112,6 +100,4 @@ export function populateSvelvetStoreFromUserInput(
 	// populate edges
 	populateEdgesStore(store, edges, canvasId)
 
-	// populatate collapsible objects if "collapsible" feature is turned on
-	if (get(store.collapsibleOption)) populateCollapsibleStore(store, nodes, edges, canvasId)
 }

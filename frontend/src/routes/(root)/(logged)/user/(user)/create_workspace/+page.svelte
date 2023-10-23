@@ -4,7 +4,7 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { switchWorkspace, usersWorkspaceStore } from '$lib/stores'
+	import { usersWorkspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -12,6 +12,7 @@
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import { switchWorkspace } from '$lib/storeUtils'
 
 	const rd = $page.url.searchParams.get('rd')
 

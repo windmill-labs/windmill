@@ -1,4 +1,4 @@
-import type { Script, FlowModule } from '$lib/gen'
+import type { Script, FlowModule, HubScriptKind } from '$lib/gen'
 import { addResourceTypes, deltaCodeCompletion, getNonStreamingCompletion } from './lib'
 import type { Writable } from 'svelte/store'
 import type Editor from '../Editor.svelte'
@@ -15,7 +15,7 @@ export type FlowCopilotModule = {
 	hubCompletions: {
 		path: string
 		summary: string
-		kind: string
+		kind: HubScriptKind,
 		app: string
 		ask_id: number
 	}[]
@@ -23,7 +23,7 @@ export type FlowCopilotModule = {
 		| {
 				path: string
 				summary: string
-				kind: string
+				kind: HubScriptKind
 				app: string
 				ask_id: number
 		  }
