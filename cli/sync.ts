@@ -306,7 +306,7 @@ async function elementsToMap(
     if (json && entry.path.endsWith(".yaml")) continue;
     if (!json && entry.path.endsWith(".json")) continue;
     if (
-      !["json", "yaml", "go", "sh", "ts", "py", "sql", "gql"].includes(
+      !["json", "yaml", "go", "sh", "ts", "py", "sql", "gql", "ps1"].includes(
         entry.path.split(".").pop() ?? ""
       )
     )
