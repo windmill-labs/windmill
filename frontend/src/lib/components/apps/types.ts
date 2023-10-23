@@ -25,7 +25,6 @@ import type {
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
-import type MoveResize from './svelte-grid/MoveResize.svelte'
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
