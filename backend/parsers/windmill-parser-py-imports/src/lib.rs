@@ -41,6 +41,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "dns" => "dnspython",
     "msoffcrypto" => "msoffcrypto-tool",
     "tabula" => "tabula-py"
+    "shapefile" => "pyshp"
 };
 
 
