@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.189.0](https://github.com/windmill-labs/windmill/compare/v1.188.1...v1.189.0) (2023-10-23)
+
+
+### Features
+
+* add form validation for apps ([8ac0562](https://github.com/windmill-labs/windmill/commit/8ac0562a3625546ec9e16db12d310e65fb9e867f))
+* add unique id ([#2483](https://github.com/windmill-labs/windmill/issues/2483)) ([7037d70](https://github.com/windmill-labs/windmill/commit/7037d70ca235aa85c0f550e2c6c03cf457fe6eeb))
+* dragndrop component on creation ([2b70184](https://github.com/windmill-labs/windmill/commit/2b7018413a90274164a4c5743ddf1631b1b62f9f))
+* improve dragndrop experience on editor ([6951331](https://github.com/windmill-labs/windmill/commit/69513319e783b800e857270e03f180b078156afd))
+* Priority queue ([#2476](https://github.com/windmill-labs/windmill/issues/2476)) ([3f4af48](https://github.com/windmill-labs/windmill/commit/3f4af48b0b584096f5753a618ac3de11d89063b6))
+
+
+### Bug Fixes
+
+* fix drawer escape order ([8a8feb3](https://github.com/windmill-labs/windmill/commit/8a8feb378ee086357e71d6f0eb4c4a37d35db066))
+* fix include_header ([44c3c96](https://github.com/windmill-labs/windmill/commit/44c3c96d3eb72d2c2fc75e83b3490f5edffeb88b))
+* graphql local sync ([#2488](https://github.com/windmill-labs/windmill/issues/2488)) ([2e8dba9](https://github.com/windmill-labs/windmill/commit/2e8dba94425cf5b14ecfe58023f394a10256bdf0))
+* powershell local sync ([#2489](https://github.com/windmill-labs/windmill/issues/2489)) ([3c6186d](https://github.com/windmill-labs/windmill/commit/3c6186dc50891a68aefc44424cb412075c00f880))
+* Update openapi definition to be compatible with oapi-codegen ([#2487](https://github.com/windmill-labs/windmill/issues/2487)) ([af45ef0](https://github.com/windmill-labs/windmill/commit/af45ef06f2edfba671043274e69f6b53cc1e31f5))
+
 ## [1.188.1](https://github.com/windmill-labs/windmill/compare/v1.188.0...v1.188.1) (2023-10-21)
 
 
