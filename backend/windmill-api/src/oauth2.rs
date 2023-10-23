@@ -287,7 +287,7 @@ pub fn build_oauth_clients(
         })
         .flatten();
     let all_clients = AllClients { logins, connects, slack };
-    tracing::info!("Final oauth config: {all_clients:#?}");
+    tracing::debug!("Final oauth config: {all_clients:#?}");
     Ok(all_clients)
 }
 
