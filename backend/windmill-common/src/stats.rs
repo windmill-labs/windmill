@@ -50,7 +50,7 @@ pub async fn schedule_stats(db: &DB, instance_name: String, http_client: &reqwes
                 }
             }
 
-            let s = "0 */1 * * * * *"; // Every 24 hours
+            let s = "0 0 */24 * * * *"; // Every 24 hours
             let s = Schedule::from_str(&s);
             if s.is_err() {
                 tracing::error!("Invalid schedule for stats");
