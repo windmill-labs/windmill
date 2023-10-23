@@ -18,7 +18,7 @@
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
-	import { dfs } from './flows/flowStore'
+	import { dfs } from './flows/dfs'
 
 	const dispatch = createEventDispatcher()
 

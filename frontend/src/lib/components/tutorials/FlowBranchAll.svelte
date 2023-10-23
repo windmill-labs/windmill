@@ -3,8 +3,8 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import { triggerAddFlowStep, selectFlowStepKind } from './utils'
 	import Tutorial from './Tutorial.svelte'
-	import { nextId } from '../flows/flowStateUtils'
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { nextId } from '../flows/flowModuleNextId'
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 

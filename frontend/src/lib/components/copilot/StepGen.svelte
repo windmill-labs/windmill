@@ -5,10 +5,10 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
-	import { nextId } from '../flows/flowStateUtils'
 	import { ScriptService, type FlowModule } from '$lib/gen'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { sendUserToast } from '$lib/toast'
+	import { nextId } from '../flows/flowModuleNextId'
 	export let index: number
 	export let open: boolean | undefined
 	export let close: () => void
