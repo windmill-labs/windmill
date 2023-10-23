@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.190.0](https://github.com/windmill-labs/windmill/compare/v1.189.0...v1.190.0) (2023-10-23)
+
+
+### Features
+
+* dedicated worker for python ([#2492](https://github.com/windmill-labs/windmill/issues/2492)) ([39f3078](https://github.com/windmill-labs/windmill/commit/39f30785a04a54c651e532d7ede3b8c17cdec7ea))
+
+
+### Bug Fixes
+
+* stats nits ([#2490](https://github.com/windmill-labs/windmill/issues/2490)) ([ec65fa8](https://github.com/windmill-labs/windmill/commit/ec65fa84cc233789b0335a558edfe7e2db6b729d))
+
 ## [1.189.0](https://github.com/windmill-labs/windmill/compare/v1.188.1...v1.189.0) (2023-10-23)
 
 
