@@ -2306,20 +2306,23 @@ async fn add_batch_jobs(
             let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
             let mut uuids: Vec<Uuid> = Vec::new();
-            if batch_info.flow_value.is_none() {
-                return Err(error::Error::BadRequest(
-                    "Flow value is required for batch flow".to_string(),
-                ));
-            }
+            let payload = if let Some(ref fv) = batch_info.flow_value {
+                JobPayload::RawFlow { value: fv.clone(), path: None }
+            } else {
+                if let Some(path) = batch_info.path.as_ref() {
+                    JobPayload::Flow(path.to_string())
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Path is required if no value is not provided"
+                    ))?
+                }
+            };
             for _ in 0..n {
                 let (uuid, ntx) = push(
                     &db,
                     tx,
                     &w_id,
-                    JobPayload::RawFlow {
-                        value: batch_info.flow_value.clone().unwrap(),
-                        path: None,
-                    },
+                    payload.clone(),
                     PushArgs::empty(),
                     &authed.username,
                     &authed.email,
