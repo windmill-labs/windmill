@@ -44,7 +44,7 @@ pub async fn schedule_stats(db: &DB, instance_name: String, http_client: &reqwes
                 tracing::info!("Sending stats");
                 let result = send_stats(&instance_name, &http_client, &db).await;
                 if result.is_err() {
-                    tracing::error!("Error sending stats: {}", result.err().unwrap());
+                    tracing::info!("Error sending stats: {}", result.err().unwrap());
                 } else {
                     tracing::info!("Stats sent");
                 }
