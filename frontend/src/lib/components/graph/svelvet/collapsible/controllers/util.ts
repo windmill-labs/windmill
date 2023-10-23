@@ -1,30 +1,12 @@
 import type { EdgeType, NodeType, ResizeNodeType, StoreType } from '../../store/types/types'
-import type { UserEdgeType, UserNodeType } from '../../types/types'
-import { Collapsible } from '../models/Collapsible'
 import type { CollapsibleType } from '../types/types'
 import { get } from 'svelte/store'
 import type { AnchorType } from '../../edges/types/types'
 import { getAnchorById } from '../../edges/controllers/util'
 import { getAnchors } from '../../edges/controllers/util'
 
-const pkStringGenerator = () => (Math.random() + 1).toString(36).substring(7)
 
-/*
-Initializes store with array of Collapsible objects. You shoould only use this if you want the collapsible feature enabled.
-*/
-export function populateCollapsibleStore(
-	store: StoreType,
-	userNodes: UserNodeType[],
-	userEdges: UserEdgeType[],
-	canvasId: string
-) {
-	const newCollapsibleStore: CollapsibleType[] = []
-	for (let userNode of userNodes) {
-		const collapsible = new Collapsible(pkStringGenerator(), userNode.id, 0, 'expanded')
-		newCollapsibleStore.push(collapsible)
-	}
-	store.collapsibleStore.set(newCollapsibleStore)
-}
+
 
 // Given a nodeId, find ids of all connecting target nodes
 function findTargets(store: StoreType, nodeId: string): string[] {
