@@ -39,11 +39,16 @@
 
 <div class="p-4 flex flex-col gap-2 items-start">
 	<div class="flex gap-2">
-		<Badge color="blue">
-			{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+		{#if job?.['priority']}
+			<Badge color="red">
+				priority: {job?.['priority']}
+			</Badge>
+		{/if}
+		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+			<Badge color="blue">
 				Ran in ({msToSec(job.duration_ms)}s)
-			{/if}
-		</Badge>
+			</Badge>
+		{/if}
 		{#if job?.['mem_peak']}
 			<Badge color="blue">
 				Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}

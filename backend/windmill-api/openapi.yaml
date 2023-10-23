@@ -6503,6 +6503,8 @@ components:
           type: boolean
         ws_error_handler_muted:
           type: boolean
+        priority:
+          type: integer
       required:
         - hash
         - path
@@ -6582,6 +6584,8 @@ components:
           type: boolean
         ws_error_handler_muted:
           type: boolean
+        priority:
+          type: integer
       required:
         - path
         - summary
@@ -6756,6 +6760,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - running
@@ -6863,6 +6869,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - created_by
@@ -7829,6 +7837,8 @@ components:
           type: string
         ws_error_handler_muted:
           type: boolean
+        priority:
+          type: integer
       required:
         - path
         - edited_by
@@ -7847,6 +7857,8 @@ components:
               type: string
             ws_error_handler_muted:
               type: boolean
+            priority:
+              type: integer
           required:
             - path
 

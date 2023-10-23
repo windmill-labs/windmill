@@ -3457,6 +3457,8 @@ paths:
                                     user_groups_required:
                                       oneOf: *ref_23
                                       discriminator: *ref_24
+                                priority:
+                                  type: number
                                 retry:
                                   type: object
                                   properties: &ref_175
@@ -3490,6 +3492,8 @@ paths:
                           skip_expr:
                             type: string
                           cache_ttl:
+                            type: number
+                          priority:
                             type: number
                         required: &ref_48
                           - modules
@@ -3990,6 +3994,8 @@ paths:
                       type: boolean
                     ws_error_handler_muted:
                       type: boolean
+                    priority:
+                      type: integer
                   required: &ref_30
                     - hash
                     - path
@@ -4176,6 +4182,8 @@ paths:
                   type: boolean
                 ws_error_handler_muted:
                   type: boolean
+                priority:
+                  type: integer
               required: &ref_33
                 - path
                 - summary
@@ -5050,6 +5058,8 @@ paths:
                               type: string
                             ws_error_handler_muted:
                               type: boolean
+                            priority:
+                              type: integer
                           required: &ref_143
                             - path
                             - edited_by
@@ -5195,6 +5205,8 @@ paths:
                           type: string
                         ws_error_handler_muted:
                           type: boolean
+                        priority:
+                          type: integer
                       required:
                         - path
                 - type: object
@@ -6641,6 +6653,8 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    priority:
+                      type: integer
                   required: &ref_68
                     - id
                     - running
@@ -6908,6 +6922,8 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    priority:
+                      type: integer
                   required: &ref_66
                     - id
                     - created_by

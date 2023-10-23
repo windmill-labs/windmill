@@ -1642,6 +1642,18 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             ContinuePayload::ForloopJobs { payload, .. } => payload.clone(),
         };
 
+        // compute job-to-be-pushed priority
+        // The job definition itself might have its own priority, but as we're running
+        // it from a flow here, it inherits first the flow step priority and second the
+        // flow priority.
+        let new_job_priority_override = if module.priority.is_some() {
+            module.priority
+        } else if flow_job.priority.is_some() {
+            flow_job.priority
+        } else {
+            None
+        };
+
         let transform_inp;
         let args = match &next_status {
             NextStatus::AllFlowJobs {
@@ -1742,6 +1754,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             },
             module.timeout,
             Some(module.id.clone()),
+            new_job_priority_override,
         )
         .await?;
 
@@ -2176,6 +2189,7 @@ async fn compute_next_flow_transform(
                                 skip_expr: None,
                                 cache_ttl: None,
                                 ws_error_handler_muted: None,
+                                priority: None,
                             },
                             path: inner_path,
                         },
@@ -2234,6 +2248,7 @@ async fn compute_next_flow_transform(
                                         skip_expr: None,
                                         cache_ttl: None,
                                         ws_error_handler_muted: None,
+                                        priority: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                 },
@@ -2326,6 +2341,7 @@ async fn compute_next_flow_transform(
                             skip_expr: None,
                             cache_ttl: None,
                             ws_error_handler_muted: None,
+                            priority: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2371,6 +2387,7 @@ async fn compute_next_flow_transform(
                                                     skip_expr: None,
                                                     cache_ttl: None,
                                                     ws_error_handler_muted: None,
+                                                    priority: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2433,6 +2450,7 @@ async fn compute_next_flow_transform(
                             skip_expr: None,
                             cache_ttl: None,
                             ws_error_handler_muted: None,
+                            priority: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",
@@ -2496,6 +2514,7 @@ async fn script_to_payload(
             cache_ttl,
             language,
             dedicated_worker,
+            priority,
         ) = script_hash_to_tag_and_limits(&hash, &mut tx, &flow_job.workspace_id).await?;
         (
             JobPayload::ScriptHash {
@@ -2506,6 +2525,7 @@ async fn script_to_payload(
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,
+                priority,
             },
             tag,
         )

@@ -415,6 +415,13 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script.path}
 			>
+				{#if script?.priority != undefined}
+					<div class="hidden md:block">
+						<Badge color="red" variant="outlined" size="xs">
+							{`Priority: ${script.priority}`}
+						</Badge>
+					</div>
+				{/if}
 				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
 					<div class="hidden md:block">
 						<Badge color="gray" variant="outlined" size="xs">
