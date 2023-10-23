@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill:1.190.0",
+        image: "ghcr.io/windmill-labs/windmill-ee:main",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -272,7 +272,8 @@ db.address.apply((address) => {
           },
         ],
         environment: [
-          { name: "DISABLE_SERVER", value: "true" },
+          { name: "MODE", value: "worker" },
+          { name: "NUM_WORKERS", value: "10" },
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
@@ -311,12 +312,12 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill:1.165.0",
+        image: "ghcr.io/windmill-labs/windmill-ee:main",
         cpu: 1024,
         memory: 1024,
         essential: true,
         environment: [
-          { name: "NUM_WORKERS", value: "0" },
+          { name: "MODE", value: "server" },
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
@@ -371,7 +372,7 @@ db.address.apply((address) => {
   const service_worker = new aws.ecs.Service("service-worker", {
     cluster: cluster.id,
     taskDefinition: worker_td.arn,
-    desiredCount: 30,
+    desiredCount: 10,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {

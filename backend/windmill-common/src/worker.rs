@@ -180,7 +180,7 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
             WorkspacedPath { workspace_id: workspace.to_string(), path: script_path.to_string() }
         }
     });
-    if *WORKER_GROUP == "default" {
+    if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
             .unwrap_or_default()
