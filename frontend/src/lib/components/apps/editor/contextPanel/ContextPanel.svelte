@@ -20,7 +20,7 @@
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
 	<div
 		class={classNames(
-			'bg-surface w-full h-full z-30',
+			'bg-surface w-full h-full z-30 overflow-auto',
 			$connectingInput.opened
 				? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 dark:bg-frost-900/50 z-50'
 				: ''
