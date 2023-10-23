@@ -46,3 +46,5 @@ lazy_static.workspace = true
 tracing-flame = { version = "^0", optional = true }
 itertools.workspace = true
 regex.workspace = true
+git-version.workspace = true
+cron.workspace = true
