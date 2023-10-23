@@ -1,6 +1,6 @@
 import { goto } from '$app/navigation'
 import { UserService } from '$lib/gen'
-import { clearStores } from './stores.js'
+import { clearStores } from './storeUtils'
 import { sendUserToast } from './toast'
 
 export async function logoutWithRedirect(rd?: string): Promise<void> {

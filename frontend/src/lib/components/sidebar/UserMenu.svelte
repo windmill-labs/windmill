@@ -7,7 +7,6 @@
 		superadmin,
 		usageStore,
 		premiumStore,
-		switchWorkspace,
 		workspaceStore
 	} from '$lib/stores'
 	import { classNames } from '$lib/utils'
@@ -16,6 +15,7 @@
 	import Menu from '../common/menu/Menu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
+	import { switchWorkspace } from '$lib/storeUtils'
 
 	export let isCollapsed: boolean = false
 </script>

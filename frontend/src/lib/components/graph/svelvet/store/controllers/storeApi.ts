@@ -31,12 +31,11 @@ populateSvelvetStoreFromUserInput(canvasId, nodes, edges)
 - Returns: store
 */
 import { stores } from '../models/store'
-import { writable, get } from 'svelte/store'
+import { writable } from 'svelte/store'
 
 import type { StoreType } from '../types/types'
 import type { UserNodeType, UserEdgeType } from '../../types/types'
 import { populateAnchorsStore, populateNodesStore, populateEdgesStore } from './util'
-import { populateCollapsibleStore } from '../../collapsible/controllers/util'
 
 /**
  * findStore is going to return the target Svelvet store with the canvasId provided as argument.
@@ -112,6 +111,4 @@ export function populateSvelvetStoreFromUserInput(
 	// populate edges
 	populateEdgesStore(store, edges, canvasId)
 
-	// populatate collapsible objects if "collapsible" feature is turned on
-	if (get(store.collapsibleOption)) populateCollapsibleStore(store, nodes, edges, canvasId)
 }
