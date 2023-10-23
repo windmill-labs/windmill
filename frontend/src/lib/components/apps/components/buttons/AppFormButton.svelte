@@ -35,6 +35,15 @@
 	$componentControl[id] = {
 		onDelete: () => {
 			modal?.close()
+		},
+		invalidate(key: string, error: string) {
+			runnableComponent?.invalidate(key, error)
+		},
+		validateAll() {
+			runnableComponent?.validateAll()
+		},
+		validate(key: string) {
+			runnableComponent?.validate(key)
 		}
 	}
 

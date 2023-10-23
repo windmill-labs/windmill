@@ -25,6 +25,7 @@ import type {
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
+import type MoveResize from './svelte-grid/MoveResize.svelte'
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
@@ -239,6 +240,9 @@ export type AppViewerContext = {
 				closeModal?: () => void
 				open?: () => void
 				close?: () => void
+				validate?: (key: string) => void
+				invalidate?: (key: string, error: string) => void
+				validateAll?: () => void
 			}
 		>
 	>
@@ -250,6 +254,9 @@ export type AppViewerContext = {
 }
 
 export type AppEditorContext = {
+	yTop: Writable<number>
+	componentActive: Writable<boolean>,
+	dndItem: Writable<Record<string, (x: number, y:number, topY: number) => void>>
 	refreshComponents: Writable<(() => void) | undefined>
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>

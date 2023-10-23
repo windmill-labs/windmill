@@ -55,9 +55,20 @@
 		}
 	}
 
+	let schemaForm: LightweightSchemaForm
+
 	$componentControl[id] = {
 		setValue(nvalue: any) {
 			args = nvalue
+		},
+		invalidate(key: string, error: string) {
+			schemaForm?.invalidate(key, error)
+		},
+		validateAll() {
+			schemaForm?.validateAll()
+		},
+		validate(key: string) {
+			schemaForm?.validate(key)
 		}
 	}
 
@@ -106,6 +117,7 @@
 				schema={result}
 				bind:isValid={valid}
 				bind:args
+				bind:this={schemaForm}
 				displayType={Boolean(resolvedConfig.displayType)}
 				largeGap={Boolean(resolvedConfig.largeGap)}
 				{css}

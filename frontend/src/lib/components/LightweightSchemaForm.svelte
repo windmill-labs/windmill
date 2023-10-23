@@ -14,6 +14,8 @@
 	export let isValid: boolean = true
 
 	let inputCheck: { [id: string]: boolean } = {}
+	let errors: { [id: string]: string } = {}
+
 	$: isValid = allTrue(inputCheck) ?? false
 
 	$: if (args === undefined) {
@@ -21,6 +23,21 @@
 	}
 
 	reorder()
+
+	export function invalidate(key: string, error: string) {
+		inputCheck[key] = false
+		errors[key] = error
+	}
+
+	export function validate(key: string) {
+		inputCheck[key] = true
+		errors[key] = ''
+	}
+
+	export function validateAll() {
+		inputCheck = Object.fromEntries(Object.entries(inputCheck).map((x) => [x[0], true]))
+		errors = Object.fromEntries(Object.entries(errors).map((x) => [x[0], '']))
+	}
 
 	function reorder() {
 		if (schema.order && Array.isArray(schema.order)) {
@@ -50,6 +67,7 @@
 				description={schema.properties[argName].description}
 				bind:value={args[argName]}
 				bind:valid={inputCheck[argName]}
+				bind:error={errors[argName]}
 				type={schema.properties[argName].type}
 				required={schema.required?.includes(argName) ?? false}
 				pattern={schema.properties[argName].pattern}

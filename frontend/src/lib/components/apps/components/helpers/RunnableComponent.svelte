@@ -93,9 +93,7 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
-			if ((!autoRefresh && !refreshOnStart) || didInitialRun) {
-				executeComponent(true)
-			}
+			executeComponent(true)
 		}, 200)
 	}
 
@@ -131,6 +129,20 @@
 			// console.debug(`Refreshing ${id} because ${_src} (enabled)`)
 			setDebouncedExecute()
 		}
+	}
+
+	let schemaForm: LightweightSchemaForm
+
+	export function invalidate(key: string, error: string) {
+		schemaForm?.invalidate(key, error)
+	}
+
+	export function validate(key: string) {
+		schemaForm?.validate(key)
+	}
+
+	export function validateAll() {
+		schemaForm?.validateAll()
 	}
 
 	// Test job internal state
@@ -184,7 +196,8 @@
 		$jobsById[jobId] = {
 			component: id,
 			job: jobId,
-			started_at: Date.now()
+			started_at: Date.now(),
+			started_compute_at: jobId.startsWith('Frontend') ? Date.now() : undefined
 		}
 		jobs.update((jobs) => {
 			const njobs = [...jobs, jobId]
@@ -450,17 +463,13 @@
 	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =
 		undefined
 
-	let didInitialRun = $initialized.initialized
 	onMount(() => {
-		didInitialRun = $initialized.initialized
 		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-				executeComponent(true, inlineScript)
-					.catch(reject)
-					.finally(() => (didInitialRun = true))
+				executeComponent(true, inlineScript).catch(reject)
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()
@@ -573,6 +582,7 @@
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
+					bind:this={schemaForm}
 					bind:args
 					on:inputClicked={handleInputClick}
 				/>

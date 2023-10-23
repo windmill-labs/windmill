@@ -10,6 +10,7 @@
 		string,
 		Record<string, { started_at?: number; duration_ms?: number }>
 	>
+	export let flowDone = false
 
 	let min: undefined | number = undefined
 	let max: undefined | number = undefined
@@ -20,7 +21,7 @@
 		| undefined = undefined
 
 	let debounced = debounce(() => computeItems(durationStatuses), 30)
-	$: durationStatuses && debounced()
+	$: flowDone != undefined && durationStatuses && debounced()
 
 	export function reset() {
 		min = undefined
@@ -48,9 +49,10 @@
 						nmin = Math.min(nmin, v.started_at)
 					}
 				}
-				if (v.duration_ms == undefined) {
+				if (!flowDone && v.duration_ms == undefined) {
 					isStillRunning = true
 				}
+
 				if (!isStillRunning) {
 					if (v.started_at && v.duration_ms) {
 						let lmax = v.started_at + v.duration_ms
@@ -77,9 +79,10 @@
 		})
 		items = nitems
 		min = nmin
-		max = isStillRunning || cnt < flowModules.length ? undefined : nmax
+		max = isStillRunning || (cnt < flowModules.length && !flowDone) ? undefined : nmax
 		if (max && min) {
 			total = max - min
+			total = Math.max(total, 2000)
 		}
 	}
 
