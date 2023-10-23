@@ -12,7 +12,7 @@ use anyhow::Context;
 use async_recursion::async_recursion;
 use axum::{
     body::Bytes,
-    extract::FromRequest,
+    extract::{FromRequest, Query},
     http::Request,
     response::{IntoResponse, Response},
     Form, RequestExt,
@@ -24,7 +24,7 @@ use reqwest::{
     Client, StatusCode,
 };
 use rsmq_async::RsmqConnection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
@@ -1566,6 +1566,12 @@ pub struct PushArgs<T> {
     pub args: Json<T>,
 }
 
+#[derive(Deserialize)]
+pub struct RequestQuery {
+    pub raw: Option<bool>,
+    pub include_header: Option<String>,
+}
+
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for PushArgs<HashMap<String, Box<RawValue>>>
 where
@@ -1581,10 +1587,12 @@ where
             let headers_map = req.headers();
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
+            let query = Query::<RequestQuery>::try_from_uri(req.uri()).unwrap().0;
+            let raw = query.raw.as_ref().is_some_and(|x| *x);
             (
                 content_type,
-                build_extra(&headers_map),
-                req.uri().query().is_some_and(|x| x.contains("raw=true")),
+                build_extra(&headers_map, query.include_header),
+                raw,
             )
         };
 
@@ -1638,19 +1646,16 @@ lazy_static::lazy_static! {
         .collect()).unwrap_or_default();
 }
 
-pub fn build_extra(headers: &HeaderMap) -> HashMap<String, Box<RawValue>> {
+pub fn build_extra(
+    headers: &HeaderMap,
+    include_header: Option<String>,
+) -> HashMap<String, Box<RawValue>> {
     let mut args = HashMap::new();
-    let whitelist = headers
-        .get("include_header")
-        .map(|s| {
-            s.to_str()
-                .unwrap_or_default()
-                .split(",")
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        })
+    let whitelist = include_header
+        .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
         .unwrap_or_default();
 
+    tracing::error!("{:?}", whitelist);
     whitelist
         .iter()
         .chain(INCLUDE_HEADERS.iter())
