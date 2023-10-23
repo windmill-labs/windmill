@@ -2653,8 +2653,7 @@ paths:
                         version_id:
                           type: number
                         kind:
-                          type: string
-                          enum: [script, failure, trigger, approval]
+                          $ref: "#/components/schemas/HubScriptKind"
                         votes:
                           type: number
                         views:
@@ -2721,8 +2720,7 @@ paths:
                     app:
                       type: string
                     kind:
-                      type: string
-                      enum: [script, failure, trigger, approval]
+                      $ref: "#/components/schemas/HubScriptKind"
                     score:
                       type: number
                   required:
@@ -8035,3 +8033,9 @@ components:
 
       required:
         - access_token
+
+    HubScriptKind:
+      name: kind
+      schema:
+        type: string
+        enum: [script, failure, trigger, approval]
