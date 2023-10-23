@@ -194,7 +194,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         let deleted_jobs = sqlx::query_scalar!(
-                "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
+                "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id",
                 job_retention_secs
             )
             .fetch_all(db)

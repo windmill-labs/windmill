@@ -415,7 +415,7 @@ pub async fn add_completed_job<
     tx.commit().await?;
 
     #[cfg(feature = "enterprise")]
-    if !is_flow && _duration > 1000 {
+    if *CLOUD_HOSTED && !is_flow && _duration > 1000 {
         let additional_usage = _duration / 1000;
         let w_id = &queued_job.workspace_id;
         let premium_workspace = *windmill_common::worker::CLOUD_HOSTED
@@ -1716,7 +1716,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     priority_override: Option<i16>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     #[cfg(feature = "enterprise")]
-    {
+    if *CLOUD_HOSTED {
         let premium_workspace = *CLOUD_HOSTED
             && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(_db)
