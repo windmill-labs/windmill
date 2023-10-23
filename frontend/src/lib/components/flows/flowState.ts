@@ -2,15 +2,8 @@ import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils'
-import { emptySchema } from '$lib/utils'
-import { NEVER_TESTED_THIS_FAR } from './models'
+import { emptyFlowModuleState } from './utils'
 
-export function emptyFlowModuleState(): FlowModuleState {
-	return {
-		schema: emptySchema(),
-		previewResult: NEVER_TESTED_THIS_FAR
-	}
-}
 export type FlowModuleState = {
 	schema: Schema
 	previewResult?: any
