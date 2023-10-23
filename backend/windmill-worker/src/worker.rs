@@ -30,7 +30,9 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{rd_string, StripPath},
-    worker::{to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG},
+    worker::{
+        to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG, WORKER_GROUP,
+    },
     DB, IS_READY, METRICS_ENABLED,
 };
 use windmill_queue::{
@@ -61,9 +63,6 @@ use crate::global_cache::{
     cache_global, copy_all_piptars_from_bucket, copy_cache_to_tmp_cache,
     copy_denogo_cache_from_bucket_as_tar, copy_tmp_cache_to_cache,
 };
-
-#[cfg(feature = "enterprise")]
-use crate::bun_executor::start_worker;
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -873,7 +872,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(worker = %worker_name, "listening for jobs, config: {:?}", WORKER_CONFIG.read().await);
+    tracing::info!(worker = %worker_name, "listening for jobs, WORKER_GROUP: {}, config: {:?}", *WORKER_GROUP, WORKER_CONFIG.read().await);
 
     let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
         WORKER_CONFIG.read().await.dedicated_worker.clone()
@@ -917,7 +916,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     killpill_tx.send(()).expect("send");
                 };
 
-                let (content, lock, _language, envs) = {
+                let (content, lock, language, envs) = {
                     let r;
                     loop {
                         let q = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
@@ -961,23 +960,46 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 };
 
                 let worker_envs = build_envs(envs).expect("failed to build envs");
-                if let Err(e) = start_worker(
-                    lock,
-                    &db,
-                    &content,
-                    &base_internal_url,
-                    &job_dir,
-                    &worker_name,
-                    worker_envs,
-                    &_wp.workspace_id,
-                    &_wp.path,
-                    &token,
-                    job_completed_tx,
-                    dedicated_worker_rx,
-                    killpill_rx,
-                )
-                .await
-                {
+
+                if let Err(e) = match language {
+                    Some(ScriptLang::Python3) => {
+                        crate::python_executor::start_worker(
+                            lock,
+                            &db,
+                            &content,
+                            &base_internal_url,
+                            &job_dir,
+                            &worker_name,
+                            worker_envs,
+                            &_wp.workspace_id,
+                            &_wp.path,
+                            &token,
+                            job_completed_tx,
+                            dedicated_worker_rx,
+                            killpill_rx,
+                        )
+                        .await
+                    }
+                    Some(ScriptLang::Bun) => {
+                        crate::bun_executor::start_worker(
+                            lock,
+                            &db,
+                            &content,
+                            &base_internal_url,
+                            &job_dir,
+                            &worker_name,
+                            worker_envs,
+                            &_wp.workspace_id,
+                            &_wp.path,
+                            &token,
+                            job_completed_tx,
+                            dedicated_worker_rx,
+                            killpill_rx,
+                        )
+                        .await
+                    }
+                    _ => unreachable!("Non supported language for dedicated worker"),
+                } {
                     tracing::error!("error in dedicated worker: {:?}", e)
                 }
             });
