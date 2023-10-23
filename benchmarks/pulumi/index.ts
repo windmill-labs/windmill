@@ -273,7 +273,59 @@ db.address.apply((address) => {
         ],
         environment: [
           { name: "MODE", value: "worker" },
+          { name: "NUM_WORKERS", value: "1" },
+          // { name: "METRICS_ADDR", value: "true" },
+          { name: "RUST_LOG", value: "info" },
+          {
+            name: "DATABASE_URL",
+            value: `postgres://postgres:postgres@${address}/windmill?sslmode=disable`,
+          },
+        ],
+
+        logConfiguration: {
+          logDriver: "awslogs",
+          options: {
+            "awslogs-group": "windmill-worker",
+            "awslogs-region": "us-east-2",
+            "awslogs-create-group": "true",
+            "awslogs-stream-prefix": "windmill-worker",
+          },
+        },
+        dockerLabels: {
+          PROMETHEUS_EXPORTER_PORT: "8001",
+        },
+      },
+    ]),
+    volumes: [
+      {
+        name: "dependency_cache",
+        dockerVolumeConfiguration: {
+          scope: "shared",
+          autoprovision: true,
+        },
+      },
+    ],
+  });
+
+  const worker_td2 = new aws.ecs.TaskDefinition("worker-3", {
+    family: "windmill-worker-2",
+    containerDefinitions: JSON.stringify([
+      {
+        name: "windmill-worker",
+        image: "ghcr.io/windmill-labs/windmill-ee:main",
+        cpu: 1024,
+        memory: 1800,
+        essential: true,
+        mountPaths: [
+          {
+            containerPath: "/tmp/windmill/cache",
+            sourceVolume: "dependency_cache",
+          },
+        ],
+        environment: [
+          { name: "WORKER_GROUP", value: "dedicated" },
           { name: "NUM_WORKERS", value: "10" },
+          { name: "MODE", value: "worker" },
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
@@ -373,6 +425,19 @@ db.address.apply((address) => {
     cluster: cluster.id,
     taskDefinition: worker_td.arn,
     desiredCount: 10,
+    forceNewDeployment: true,
+    orderedPlacementStrategies: [
+      {
+        type: "binpack",
+        field: "cpu",
+      },
+    ],
+  });
+
+  const service_worker2 = new aws.ecs.Service("service-worker-2", {
+    cluster: cluster.id,
+    taskDefinition: worker_td2.arn,
+    desiredCount: 5,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {
