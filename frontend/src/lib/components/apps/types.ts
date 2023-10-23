@@ -204,20 +204,25 @@ export type AppViewerContext = {
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean
-	jobs: Writable<string[]>,
+	jobs: Writable<string[]>
 	// jobByComponent: Writable<Record<string, string>>,
-	jobsById: Writable<Record<string, 		{
-		job: string
-		component: string
-		result?: string
-		error?: any
-		transformer?: { result?: string; error?: string }
-		started_at?: number
-		started_compute_at?: number
-		duration_ms?: number
-	}>>,
+	jobsById: Writable<
+		Record<
+			string,
+			{
+				job: string
+				component: string
+				result?: string
+				error?: any
+				transformer?: { result?: string; error?: string }
+				started_at?: number
+				started_compute_at?: number
+				duration_ms?: number
+			}
+		>
+	>
 	noBackend: boolean
-	errorByComponent: Writable<Record<string, {id?: string, error: string}>>
+	errorByComponent: Writable<Record<string, { id?: string; error: string }>>
 	openDebugRun: Writable<((jobID: string) => void) | undefined>
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>
@@ -254,8 +259,8 @@ export type AppViewerContext = {
 
 export type AppEditorContext = {
 	yTop: Writable<number>
-	componentActive: Writable<boolean>,
-	dndItem: Writable<Record<string, (x: number, y:number, topY: number) => void>>
+	componentActive: Writable<boolean>
+	dndItem: Writable<Record<string, (x: number, y: number, topY: number) => void>>
 	refreshComponents: Writable<(() => void) | undefined>
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>

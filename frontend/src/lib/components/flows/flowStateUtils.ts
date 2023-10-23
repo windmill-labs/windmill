@@ -13,10 +13,10 @@ import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
-import { charsToNumber, numberToChars } from './idUtils'
-import { emptyFlowModuleState, findNextAvailablePath, loadSchemaFromModule } from './utils'
+import { emptyFlowModuleState, findNextAvailablePath } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
-import { dfs } from './flowStore'
+import { loadSchemaFromModule } from './flowInfers'
+import { nextId } from './flowModuleNextId'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -34,20 +34,6 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		console.debug(e)
 		return emptyFlowModuleState()
 	}
-}
-
-// Computes the next available id
-export function nextId(flowState: FlowState, fullFlow: Flow): string {
-	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
-	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
-		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
-			return acc
-		} else {
-			const num = charsToNumber(key)
-			return Math.max(acc, num + 1)
-		}
-	}, 0)
-	return numberToChars(max)
 }
 
 export async function pickScript(

@@ -15,7 +15,6 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { loadSchemaFromModule } from '../utils'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -44,6 +43,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
+	import { loadSchemaFromModule } from '../flowInfers'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
