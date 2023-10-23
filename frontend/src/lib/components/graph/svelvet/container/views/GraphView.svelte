@@ -9,7 +9,7 @@
 	import Node from '../../nodes/views/Node.svelte'
 
 	import { determineD3Instance } from '../..//d3/controllers/d3'
-	import { findStore } from '../../store/controllers/storeApi'
+	import { findStore } from '../../store/models/store'
 
 	import { Expand, Minus, Plus } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'

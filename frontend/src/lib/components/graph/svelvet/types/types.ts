@@ -40,7 +40,7 @@ export interface UserEdgeType {
 	offset?: number
 }
 
-import { findStore } from '../store/controllers/storeApi'
+import { findStore } from '../store/models/store'
 import { get } from 'svelte/store'
 export function getD3PositionX(canvasId: string) {
 	const store = findStore(canvasId)

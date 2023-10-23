@@ -7,7 +7,8 @@
 		DraftService,
 		type PathScript,
 		ScriptService,
-		Script
+		Script,
+		type HubScriptKind
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -413,7 +414,7 @@
 			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
-				kind: string
+				kind: HubScriptKind
 				app: string
 				ask_id: number
 			}[]
