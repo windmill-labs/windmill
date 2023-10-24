@@ -681,6 +681,7 @@ async fn list_queue_jobs(
             "email",
             "suspend",
             "tag",
+            "priority",
         ],
     )
     .sql()?;
