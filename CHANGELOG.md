@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.191.0](https://github.com/windmill-labs/windmill/compare/v1.190.3...v1.191.0) (2023-10-24)
+
+
+### Features
+
+* Priority worker tags ([#2504](https://github.com/windmill-labs/windmill/issues/2504)) ([51f2198](https://github.com/windmill-labs/windmill/commit/51f2198c3403a424787b8dee51bc7eddc13c31b8))
+
+
+### Bug Fixes
+
+* concurrency limit EE feature warning ([#2505](https://github.com/windmill-labs/windmill/issues/2505)) ([927cbbe](https://github.com/windmill-labs/windmill/commit/927cbbe23090b212b13c106b65ad65668baf2f04))
+* improve concurrency limit lock ([d44b078](https://github.com/windmill-labs/windmill/commit/d44b078e70a5782f1a1c88a4546d369a547e966a))
+* improve runs to display flow informations ([9eaffa5](https://github.com/windmill-labs/windmill/commit/9eaffa5b5fe59ed9e0e7e2cea0721eea75b3d1b3))
+
 ## [1.190.3](https://github.com/windmill-labs/windmill/compare/v1.190.2...v1.190.3) (2023-10-24)
 
 
