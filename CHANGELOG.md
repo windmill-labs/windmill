@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.190.2](https://github.com/windmill-labs/windmill/compare/v1.190.1...v1.190.2) (2023-10-24)
+
+
+### Bug Fixes
+
+* ListableQueuedJob were missing the priority field ([#2500](https://github.com/windmill-labs/windmill/issues/2500)) ([96f3854](https://github.com/windmill-labs/windmill/commit/96f38541459195ed70bd24b62b7d1f081be4cb95))
+
 ## [1.190.1](https://github.com/windmill-labs/windmill/compare/v1.190.0...v1.190.1) (2023-10-24)
 
 
