@@ -1132,9 +1132,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.4.6"
+version = "4.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d04704f56c2cde07f43e8e2c154b43f216dc5c92fc98ada720177362f953b956"
+checksum = "ac495e00dcec98c83465d5ad66c5c4fabd652fd6686e7c6269b117e729a6f17b"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1142,9 +1142,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.4.6"
+version = "4.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e231faeaca65ebd1ea3c737966bf858971cd38c3849107aa3ea7de90a804e45"
+checksum = "c77ed9a32a62e6ca27175d00d29d05ca32e396ea1eb5fb01d8256b669cec7663"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1154,9 +1154,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.4.2"
+version = "4.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0862016ff20d69b84ef8247369fabf5c008a7417002411897d40ee1f4532b873"
+checksum = "cf9804afaaf59a91e75b022a30fb7229a7901f60c755489cc61c9b423b836442"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1166,9 +1166,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd7cc57abe963c6d3b9d8be5b06ba7c8957a930305ca90304f24ef040aa6f961"
+checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 
 [[package]]
 name = "cmake"
@@ -5040,12 +5040,12 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd8d6c9f025a446bc4d18ad9632e69aec8f287aa84499ee335599fabd20c3fd8"
+checksum = "446e14c5cda4f3f30fe71863c34ec70f5ac79d6087097ad0bb433e1be5edf04c"
 dependencies = [
  "log",
- "ring 0.16.20",
+ "ring 0.17.5",
  "rustls-webpki",
  "sct",
 ]
@@ -5073,12 +5073,12 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.101.6"
+version = "0.101.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c7d5dece342910d9ba34d259310cae3e0154b873b35408b787b59bce53d34fe"
+checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
 dependencies = [
- "ring 0.16.20",
- "untrusted 0.7.1",
+ "ring 0.17.5",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -5251,12 +5251,12 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sct"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d53dcdb7c9f8158937a7981b48accfd39a43af418591a5d008c7b22b5e1b7ca4"
+checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
 dependencies = [
- "ring 0.16.20",
- "untrusted 0.7.1",
+ "ring 0.17.5",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -7677,7 +7677,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7711,7 +7711,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7778,7 +7778,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -7796,7 +7796,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7809,7 +7809,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7839,7 +7839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7847,7 +7847,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7858,7 +7858,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7870,7 +7870,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7881,7 +7881,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7892,7 +7892,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7909,7 +7909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7920,7 +7920,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7937,7 +7937,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7955,7 +7955,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7986,7 +7986,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.190.3"
+version = "1.191.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -8256,18 +8256,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.7.11"
+version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c19fae0c8a9efc6a8281f2e623db8af1db9e57852e04cde3e754dd2dc29340f"
+checksum = "9ffc046c9f849405a42c87e82e2f2f861d1f0a06b855910c76c2bd1e87be900c"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.7.11"
+version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc56589e9ddd1f1c28d4b4b5c773ce232910a6bb67a70133d61c9e347585efe9"
+checksum = "246c000cfc5f942bac7ff99fde24a9ebb589d92e024bc758c6c733c15a02a73e"
 dependencies = [
  "proc-macro2",
  "quote",
