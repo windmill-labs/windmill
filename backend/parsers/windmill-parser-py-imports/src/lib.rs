@@ -13,8 +13,8 @@ use phf::phf_map;
 use regex::Regex;
 
 use rustpython_parser::{
-    ast::{Stmt, StmtImport, StmtImportFrom},
-    parse_program,
+    ast::{Stmt, StmtImport, StmtImportFrom, Suite},
+    Parse,
 };
 use sqlx::{Pool, Postgres};
 use windmill_common::error;
@@ -124,7 +124,7 @@ pub async fn parse_python_imports(
         }
 
         let code = code.split(DEF_MAIN).next().unwrap_or("");
-        let ast = parse_program(code, "main.py").map_err(|e| {
+        let ast = Suite::parse(code, "main.py").map_err(|e| {
             error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
         })?;
         let nimports: Vec<String> = ast

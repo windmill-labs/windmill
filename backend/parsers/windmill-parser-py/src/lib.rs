@@ -14,8 +14,10 @@ use serde_json::json;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
 
 use rustpython_parser::{
-    ast::{Constant, Expr, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtFunctionDef},
-    parse_program,
+    ast::{
+        Constant, Expr, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtFunctionDef, Suite,
+    },
+    Parse,
 };
 
 const DEF_MAIN: &str = "def main(";
@@ -60,7 +62,7 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     if filtered_code.is_empty() {
         return Err(anyhow::anyhow!("No main function found".to_string(),));
     }
-    let ast = parse_program(&filtered_code, "main.py")
+    let ast = Suite::parse(&filtered_code, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
     let param = ast.into_iter().find_map(|x| match x {
         Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == "main" => Some(*args),
