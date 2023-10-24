@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.190.1](https://github.com/windmill-labs/windmill/compare/v1.190.0...v1.190.1) (2023-10-24)
+
+
+### Bug Fixes
+
+* add shapefile to python remapping ([2bd629e](https://github.com/windmill-labs/windmill/commit/2bd629ecabaded79df9e504fea4136bc8c365e03))
+* improve flow performance at high-throughput ([1ec56c0](https://github.com/windmill-labs/windmill/commit/1ec56c0e237eedd6f13b86e077c3b90f6862a414))
+* Track job UUIDs in concurrency table instead of a simple counter ([#2498](https://github.com/windmill-labs/windmill/issues/2498)) ([f428581](https://github.com/windmill-labs/windmill/commit/f4285812696a80e3a92a0e5d79e5c19ca78d58fb))
+
 ## [1.190.0](https://github.com/windmill-labs/windmill/compare/v1.189.0...v1.190.0) (2023-10-23)
 
 
