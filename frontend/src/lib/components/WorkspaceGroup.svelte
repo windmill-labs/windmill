@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { X } from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
+	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService } from '$lib/gen'
@@ -12,6 +13,7 @@
 	import Editor from './Editor.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
+	import Label from './Label.svelte'
 
 	export let name: string
 	export let config:
@@ -19,6 +21,7 @@
 		| {
 				dedicated_worker?: string
 				worker_tags?: string[]
+				priority_tags?: Map<string, number>
 				cache_clear?: number
 				init_bash?: string
 		  }
@@ -32,6 +35,7 @@
 		: {
 				worker_tags: []
 		  }
+	let selectedPriorityTags: string[] = []
 
 	const defaultTags = [
 		'deno',
@@ -49,6 +53,14 @@
 
 	let newTag: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
+	$: {
+		selectedPriorityTags = []
+		if (nconfig?.priority_tags !== undefined) {
+			for (const [tag, _] of Object.entries(nconfig?.priority_tags)) {
+				selectedPriorityTags.push(tag)
+			}
+		}
+	}
 
 	const dispatch = createEventDispatcher()
 
@@ -160,6 +172,8 @@
 										if (nconfig != undefined) {
 											dirty = true
 											nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
+											delete nconfig.priority_tags[tag]
+											selectedPriorityTags = selectedPriorityTags.filter((t) => t != tag) ?? []
 										}
 									}}
 								>
@@ -230,6 +244,42 @@
 						>
 							Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
 						</Button>
+					</div>
+					<div class="max-w-md mt-2 items-center gap-1 pt-2">
+						{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
+							<Label label="High-priority tags">
+								<svelte:fragment slot="header">
+									<Tooltip>
+										Jobs with the following high-priority tags will be picked up in priority by this
+										worker.
+										{#if !enterpriseLicense}
+											This is a feature only available in enterprise edition.
+										{/if}
+									</Tooltip>
+								</svelte:fragment>
+								<Multiselect
+									outerDivClass="text-secondary"
+									disabled={!$enterpriseLicense}
+									bind:selected={selectedPriorityTags}
+									on:change={(e) => {
+										if (e.detail.type === 'add') {
+											nconfig.priority_tags[e.detail.option] = 100
+											dirty = true
+										} else if (e.detail.type === 'remove') {
+											delete nconfig.priority_tags[e.detail.option]
+											dirty = true
+										} else {
+											console.error(
+												`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+											)
+										}
+									}}
+									options={nconfig?.worker_tags}
+									selectedOptionsDraggable={false}
+									placeholder="High priority tags"
+								/>
+							</Label>
+						{/if}
 					</div>
 				{/if}
 			</Section>

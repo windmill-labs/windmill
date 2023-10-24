@@ -33,6 +33,8 @@ use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
+#[cfg(not(feature = "enterprise"))]
+use windmill_common::worker::PriorityTags;
 use windmill_common::{
     db::{Authed, UserDB},
     error::{self, Error},
@@ -1319,6 +1321,10 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   or suspend_until <= now() if it has timed out */
         let config = WORKER_CONFIG.read().await.clone();
         let tags = config.worker_tags.clone();
+        #[cfg(not(feature = "enterprise"))]
+        let priority_tags_sorted = vec![PriorityTags { priority: 0, tags: tags.clone() }];
+        #[cfg(feature = "enterprise")]
+        let priority_tags_sorted = config.priority_tags_sorted.clone();
         drop(config);
         let r = if suspend_first {
             sqlx::query("UPDATE queue
@@ -1335,7 +1341,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 LIMIT 1
             )
             RETURNING *")
-                .bind(tags)
+                .bind(tags.clone())
                 .fetch_optional(db)
                 .await?
         } else {
@@ -1349,36 +1355,46 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         if r.is_none() {
             // #[cfg(feature = "benchmark")]
             // let instant = Instant::now();
+            let mut highest_priority_job: Option<QueuedJob> = None;
 
-            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
+            for priority_tags in priority_tags_sorted {
+                let r = sqlx::query(
+                    "UPDATE queue
+                    SET running = true
+                    , started_at = coalesce(started_at, now())
+                    , last_ping = now()
+                    , suspend_until = null
+                    WHERE id = (
+                        SELECT id
+                        FROM queue
+                        WHERE running = false AND scheduled_for <= now() AND tag = ANY($1)
+                        ORDER BY priority DESC NULLS LAST, scheduled_for, created_at
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT 1
+                    )
+                    RETURNING *",
+                )
+                .bind(priority_tags.tags.clone())
+                .fetch_optional(db)
+                .await?;
 
-            let r = sqlx::query(
-                "UPDATE queue
-            SET running = true
-              , started_at = coalesce(started_at, now())
-              , last_ping = now()
-              , suspend_until = null
-            WHERE id = (
-                SELECT id
-                FROM queue
-                WHERE running = false AND scheduled_for <= now() AND tag = ANY($1)
-                ORDER BY priority DESC NULLS LAST, scheduled_for, created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING *",
-            )
-            .bind(tags)
-            .fetch_optional(db)
-            .await?;
+                if let Some(pulled_row) = r {
+                    let pulled_job = QueuedJob::from_row(&pulled_row)?;
+                    highest_priority_job = Some(pulled_job.clone());
+                    tracing::debug!(
+                        "Pulling for job {} with tags {:?} with priority {}",
+                        pulled_job.id,
+                        priority_tags.tags,
+                        priority_tags.priority
+                    );
+                    break;
+                }
+                // else continue pulling for lower priority tags
+            }
+
             // #[cfg(feature = "benchmark")]
             // println!("pull query: {:?}", instant.elapsed());
-
-            if let Some(row) = r {
-                Some(QueuedJob::from_row(&row)?)
-            } else {
-                None
-            }
+            highest_priority_job
         } else {
             r
         }
