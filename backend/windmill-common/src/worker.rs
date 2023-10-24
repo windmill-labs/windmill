@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -33,6 +37,7 @@ lazy_static::lazy_static! {
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
         worker_tags: Default::default(),
+        priority_tags_sorted: Default::default(),
         dedicated_worker: Default::default(),
         cache_clear: Default::default(),
         init_bash: Default::default(),
@@ -155,6 +160,7 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
     .map(|x| serde_json::from_value(x).ok())
     .flatten()
     .unwrap_or_default();
+
     if config.dedicated_worker.is_none() {
         let dw = std::env::var("DEDICATED_WORKER").ok();
         if dw.is_some() {
@@ -196,22 +202,62 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
         all_tags.dedup();
         config.worker_tags = Some(all_tags);
     }
-    Ok(WorkerConfig {
-        worker_tags: config
-            .worker_tags
-            .or_else(|| {
-                if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
-                    Some(vec![format!(
-                        "{}:{}",
-                        dedicated_worker.workspace_id, dedicated_worker.path
-                    )])
-                } else {
-                    std::env::var("WORKER_TAGS")
-                        .ok()
-                        .map(|x| x.split(',').map(|x| x.to_string()).collect())
+
+    // set worker_tags using default if none. If priority tags is set, compute the sorted priority tags as well
+    let worker_tags = config
+        .worker_tags
+        .or_else(|| {
+            if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
+                Some(vec![format!(
+                    "{}:{}",
+                    dedicated_worker.workspace_id, dedicated_worker.path
+                )])
+            } else {
+                std::env::var("WORKER_TAGS")
+                    .ok()
+                    .map(|x| x.split(',').map(|x| x.to_string()).collect())
+            }
+        })
+        .unwrap_or_else(|| DEFAULT_TAGS.clone());
+    let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
+    let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);
+    if priority_tags_map.len() > 0 {
+        let mut all_tags_set: HashSet<String> = HashSet::from_iter(worker_tags.clone());
+
+        let mut tags_by_priority: HashMap<u8, Vec<String>> = HashMap::new();
+
+        for (tag, priority) in priority_tags_map.iter() {
+            if *priority == 0 {
+                // ignore tags with no priority as they will be added at the end from the `all_tags` set
+                continue;
+            }
+            match tags_by_priority.get_mut(priority) {
+                Some(tags) => {
+                    tags.push(tag.clone());
                 }
-            })
-            .unwrap_or_else(|| DEFAULT_TAGS.clone()),
+                None => {
+                    let mut t: Vec<String> = Vec::new();
+                    t.push(tag.clone());
+                    tags_by_priority.insert(*priority, t);
+                }
+            };
+            all_tags_set.remove(tag);
+        }
+        priority_tags_sorted = tags_by_priority
+            .iter()
+            .map(|(priority, tags)| PriorityTags { priority: priority.clone(), tags: tags.clone() })
+            .collect();
+        priority_tags_sorted.push(PriorityTags { priority: 0, tags: Vec::from_iter(all_tags_set) }); // push the tags that were not listed as high priority with a priority = 0
+        priority_tags_sorted.sort_by_key(|elt| Reverse(elt.priority)); // sort by priority DESC
+    } else {
+        // if no priority is used, push all tags with a priority to 0
+        priority_tags_sorted.push(PriorityTags { priority: 0, tags: worker_tags.clone() });
+    }
+    tracing::debug!("Custom tags priority set: {:?}", priority_tags_sorted);
+
+    Ok(WorkerConfig {
+        worker_tags,
+        priority_tags_sorted,
         dedicated_worker,
         init_bash: config
             .init_bash
@@ -245,6 +291,7 @@ pub struct WorkspacedPath {
 #[derive(Serialize, Deserialize)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
+    pub priority_tags: Option<HashMap<String, u8>>,
     pub dedicated_worker: Option<String>,
     pub init_bash: Option<String>,
     pub cache_clear: Option<u32>,
@@ -256,6 +303,7 @@ impl Default for WorkerConfigOpt {
     fn default() -> Self {
         Self {
             worker_tags: Default::default(),
+            priority_tags: Default::default(),
             dedicated_worker: Default::default(),
             init_bash: Default::default(),
             cache_clear: Default::default(),
@@ -268,11 +316,18 @@ impl Default for WorkerConfigOpt {
 #[derive(PartialEq, Debug, Clone)]
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
+    pub priority_tags_sorted: Vec<PriorityTags>,
     pub dedicated_worker: Option<WorkspacedPath>,
     pub init_bash: Option<String>,
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct PriorityTags {
+    pub priority: u8,
+    pub tags: Vec<String>,
 }
 
 pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
