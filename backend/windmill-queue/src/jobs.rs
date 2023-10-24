@@ -401,8 +401,9 @@ pub async fn add_completed_job<
     }
     if queued_job.concurrent_limit.is_some() {
         if let Err(e) = sqlx::query_scalar!(
-            "UPDATE concurrency_counter SET counter = counter - 1 WHERE concurrency_id = $1",
-            queued_job.full_path()
+            "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+            queued_job.full_path(),
+            queued_job.id.hyphenated().to_string(),
         )
         .execute(&mut tx)
         .await
@@ -1096,12 +1097,18 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             job_custom_concurrency_time_window_s
         );
 
+        let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
+            format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
+        )
+        .expect("Unable to serialize job_uuids column to proper JSON");
         let running_job = sqlx::query_scalar!(
-            "INSERT INTO concurrency_counter VALUES ($1, 1)
+            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) VALUES ($1, $2)
         ON CONFLICT (concurrency_id) 
-        DO UPDATE SET counter = concurrency_counter.counter + 1
-        RETURNING concurrency_counter.counter",
+        DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')
+        RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
             pulled_job.full_path(),
+            jobs_uuids_init_json_value,
+            pulled_job.id.hyphenated().to_string(),
         )
         .fetch_one(&mut tx)
         .await
@@ -1110,7 +1117,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "Error getting concurrency count for script path {job_script_path}: {e}"
             ))
         })?;
-        tracing::debug!("running_job: {}", running_job);
+        tracing::debug!("running_job: {}", running_job.unwrap_or(0));
 
         let script_path_live_stats = sqlx::query!(
             "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) AS completed_count
@@ -1138,7 +1145,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         })?;
 
         let concurrent_jobs_for_this_script =
-            script_path_live_stats.completed_count.unwrap_or_default() as i32 + running_job;
+            script_path_live_stats.completed_count.unwrap_or_default() as i32
+                + running_job.unwrap_or(0) as i32;
         tracing::debug!(
             "Current concurrent jobs for this script: {}",
             concurrent_jobs_for_this_script
@@ -1151,8 +1159,10 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             return Ok(Option::Some(pulled_job));
         }
         let x = sqlx::query_scalar!(
-            "UPDATE concurrency_counter SET counter = counter - 1 WHERE concurrency_id = $1 RETURNING counter",
-            pulled_job.full_path()
+            "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
+            pulled_job.full_path(),
+            pulled_job.id.hyphenated().to_string(),
+
         )
         .fetch_one(&mut tx)
         .await
@@ -1161,7 +1171,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "Error decreasing concurrency count for script path {job_script_path}: {e}"
             ))
         })?;
-        tracing::debug!("running_job after decrease: {}", x);
+        tracing::debug!("running_job after decrease: {}", x.unwrap_or(0));
 
         let job_uuid: Uuid = pulled_job.id;
         let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
