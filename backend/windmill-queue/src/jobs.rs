@@ -1098,7 +1098,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         );
 
         let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
-            format!("{{\"{}\": {{}}}}", pulled_job.id).as_str(),
+            format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
         )
         .expect("Unable to serialize job_uuids column to proper JSON");
         let running_job = sqlx::query_scalar!(
@@ -1117,7 +1117,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "Error getting concurrency count for script path {job_script_path}: {e}"
             ))
         })?;
-        tracing::debug!("running_job: {:?}", running_job);
+        tracing::debug!("running_job: {}", running_job.unwrap_or(0));
 
         let script_path_live_stats = sqlx::query!(
             "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) AS completed_count
@@ -1171,7 +1171,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "Error decreasing concurrency count for script path {job_script_path}: {e}"
             ))
         })?;
-        tracing::debug!("running_job after decrease: {:?}", x);
+        tracing::debug!("running_job after decrease: {}", x.unwrap_or(0));
 
         let job_uuid: Uuid = pulled_job.id;
         let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
