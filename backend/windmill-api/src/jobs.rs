@@ -36,7 +36,6 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::worker::{CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
-use windmill_common::BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -44,10 +43,11 @@ use windmill_common::{
     flows::FlowValue,
     jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
-    scripts::{Script, ScriptHash, ScriptLang},
+    scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
+use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{empty_args, job_is_complete, push, PushArgs, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
@@ -2285,23 +2285,29 @@ async fn add_batch_jobs(
 
     let (hash, path, job_kind, language, dedicated_worker) = match batch_info.kind.as_str() {
         "script" => {
-            let script = sqlx::query_as::<_, Script>(
-                "select * from script where path = $1 and workspace_id = $2",
-            )
-            .bind(&batch_info.path)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?
-            .ok_or_else(|| {
-                error::Error::BadRequest(format!("Script not found: {:?}", batch_info.path))
-            })?;
-            (
-                Some(script.hash),
-                batch_info.path,
-                JobKind::Script,
-                Some(script.language),
-                script.dedicated_worker,
-            )
+            if let Some(path) = batch_info.path {
+                let (
+                    script_hash,
+                    _tag,
+                    _concurrent_limit,
+                    _concurrency_time_window_s,
+                    _cache_ttl,
+                    language,
+                    dedicated_worker,
+                    _priority,
+                ) = get_latest_deployed_hash_for_path(&db, &w_id, &path).await?;
+                (
+                    Some(script_hash),
+                    Some(path),
+                    JobKind::Script,
+                    Some(language),
+                    dedicated_worker,
+                )
+            } else {
+                Err(anyhow::anyhow!(
+                    "Path is required if no value is not provided"
+                ))?
+            }
         }
         "flow" => {
             let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
