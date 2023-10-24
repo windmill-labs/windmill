@@ -166,6 +166,16 @@ async fn main() -> anyhow::Result<()> {
     let db = windmill_common::connect_db(server_mode).await?;
     tracing::info!("Database connected");
 
+    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
+
+    tracing::info!(
+        "PostgreSQL version: {} (windmill require PG >= 14)",
+        num_version
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "UNKNOWN".to_string())
+    );
+
     let rsmq = if let Some(config) = rsmq_config {
         tracing::info!("Redis config set: {:?}", config);
         Some(rsmq_async::MultiplexedRsmq::new(config).await.unwrap())
