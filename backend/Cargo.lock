@@ -41,9 +41,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.7.6"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcb51a0695d8f838b1ee009b3fbf66bda078cd64590202a864a8f3e8c4315c47"
+checksum = "5a824f2aa7e75a0c98c5a504fceb80649e9c35265d44525b5f94de4771a395cd"
 dependencies = [
  "getrandom 0.2.10",
  "once_cell",
@@ -52,9 +52,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72832d73be48bac96a5d7944568f305d829ed55b0ce3b483647089dfaf6cf704"
+checksum = "cd7d5a2cecb58716e47d67d5703a249964b14c7be1ec3cad3affc295b2d1c35d"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.10",
@@ -2502,7 +2502,7 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 dependencies = [
- "ahash 0.7.6",
+ "ahash 0.7.7",
 ]
 
 [[package]]
@@ -2511,7 +2511,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
 dependencies = [
- "ahash 0.8.4",
+ "ahash 0.8.5",
 ]
 
 [[package]]
@@ -2520,7 +2520,7 @@ version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f93e7192158dbcda357bdec5fb5788eebf8bbac027f3f33e719d29135ae84156"
 dependencies = [
- "ahash 0.8.4",
+ "ahash 0.8.5",
  "allocator-api2",
 ]
 
@@ -2972,9 +2972,9 @@ dependencies = [
 
 [[package]]
 name = "lalrpop-util"
-version = "0.20.1"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "365d88f9d803538a06641e6736f21d95ecf9226dc1693421212e62c405cdd199"
+checksum = "3f35c735096c0293d313e8f2a641627472b83d01b937177fe76e5e2708d31e0d"
 
 [[package]]
 name = "lazy-regex"
@@ -3931,17 +3931,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b2a4787296e9989611394c33f193f676704af1686e70b8f8033ab5ba9a35a94"
 
 [[package]]
-name = "pest"
-version = "2.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c022f1e7b65d6a24c0dbbd5fb344c66881bc01f3e5ae74a1c8100f2f985d98a4"
-dependencies = [
- "memchr",
- "thiserror",
- "ucd-trie",
-]
-
-[[package]]
 name = "phf"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4298,7 +4287,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f4c021e1093a56626774e81216a4ce732a735e5bad4868a03f3ed65ca0c3919"
 dependencies = [
  "once_cell",
- "toml_edit",
+ "toml_edit 0.19.15",
 ]
 
 [[package]]
@@ -4477,7 +4466,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f69f8d22fa3f34f3083d9a4375c038732c7a7e964de1beb81c544da92dfc40b8"
 dependencies = [
- "ahash 0.8.4",
+ "ahash 0.8.5",
  "equivalent",
  "hashbrown 0.14.2",
  "parking_lot",
@@ -5011,14 +5000,14 @@ dependencies = [
 
 [[package]]
 name = "rustfmt-wrapper"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed729e3bee08ec2befd593c27e90ca9fdd25efdc83c94c3b82eaef16e4f7406e"
+checksum = "f1adc9dfed5cc999077978cc7163b9282c5751c8d39827c4ea8c8c220ca5a440"
 dependencies = [
  "serde",
  "tempfile",
  "thiserror",
- "toml 0.5.11",
+ "toml 0.8.4",
  "toolchain_find",
 ]
 
@@ -5305,16 +5294,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
 dependencies = [
- "semver-parser 0.7.0",
-]
-
-[[package]]
-name = "semver"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f301af10236f6df4160f7c3f04eec6dbc70ace82d23326abad5edee88801c6b6"
-dependencies = [
- "semver-parser 0.10.2",
+ "semver-parser",
 ]
 
 [[package]]
@@ -5331,15 +5311,6 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
-
-[[package]]
-name = "semver-parser"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b0bef5b7f9e0df16536d3961cfb6e84331c065b4066afb39768d0e319411f7"
-dependencies = [
- "pest",
-]
 
 [[package]]
 name = "seq-macro"
@@ -5822,7 +5793,7 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d6753e460c998bbd4cd8c6f0ed9a64346fcca0723d6e75e52fdc351c5d2169d"
 dependencies = [
- "ahash 0.8.4",
+ "ahash 0.8.5",
  "atoi",
  "bigdecimal 0.3.1",
  "byteorder",
@@ -6868,7 +6839,19 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit",
+ "toml_edit 0.19.15",
+]
+
+[[package]]
+name = "toml"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ef75d881185fd2df4a040793927c153d863651108a93c7e17a9e591baa95cc6"
+dependencies = [
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_edit 0.20.4",
 ]
 
 [[package]]
@@ -6894,15 +6877,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "toolchain_find"
-version = "0.2.0"
+name = "toml_edit"
+version = "0.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e85654a10e7a07a47c6f19d93818f3f343e22927f2fa280c84f7c8042743413"
+checksum = "380f9e8120405471f7c9ad1860a713ef5ece6a670c7eae39225e477340f32fc4"
+dependencies = [
+ "indexmap 2.0.2",
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "winnow",
+]
+
+[[package]]
+name = "toolchain_find"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc8c9a7f0a2966e1acdaf0461023d0b01471eeead645370cf4c3f5cff153f2a"
 dependencies = [
  "home",
- "lazy_static",
+ "once_cell",
  "regex",
- "semver 0.11.0",
+ "semver 1.0.20",
  "walkdir",
 ]
 
@@ -7148,12 +7144,6 @@ dependencies = [
  "syn 2.0.38",
  "typify-impl",
 ]
-
-[[package]]
-name = "ucd-trie"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed646292ffc8188ef8ea4d1e0e0150fb15a5c2e12ad9b8fc191ae7a8a7f3c4b9"
 
 [[package]]
 name = "ulid"
@@ -7687,7 +7677,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7721,7 +7711,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7788,7 +7778,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -7806,7 +7796,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "chrono",
  "serde",
@@ -7819,7 +7809,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7849,7 +7839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -7857,7 +7847,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7868,7 +7858,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7880,7 +7870,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7891,7 +7881,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7902,7 +7892,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7919,7 +7909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7930,7 +7920,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7947,7 +7937,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7965,7 +7955,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7996,7 +7986,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.190.0"
+version = "1.190.1"
 dependencies = [
  "anyhow",
  "async-recursion",
