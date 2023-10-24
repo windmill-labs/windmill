@@ -118,7 +118,7 @@ const db = new aws.rds.Instance("bench", {
   dbName: "windmill",
   engine: "postgres",
   engineVersion: "14.8",
-  instanceClass: "db.m5d.large",
+  instanceClass: "db.t4g.2xlarge",
   password: "postgres",
   skipFinalSnapshot: true,
   username: "postgres",
@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:latest",
+        image: "ghcr.io/windmill-labs/windmill-ee:190.2",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -312,7 +312,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:latest",
+        image: "ghcr.io/windmill-labs/windmill-ee:1.190.2",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -364,7 +364,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill-ee:latest",
+        image: "ghcr.io/windmill-labs/windmill-ee:1.190.2",
         cpu: 1024,
         memory: 1024,
         essential: true,
@@ -437,7 +437,7 @@ db.address.apply((address) => {
   const service_worker2 = new aws.ecs.Service("service-worker-2", {
     cluster: cluster.id,
     taskDefinition: worker_td2.arn,
-    desiredCount: 20,
+    desiredCount: 3,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {

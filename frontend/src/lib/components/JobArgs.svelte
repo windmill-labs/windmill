@@ -69,7 +69,7 @@ ${Object.entries(args)
 
 		<tbody class="divide-y">
 			{#if args && Object.keys(args).length > 0}
-				{#each Object.entries(args) as [arg, value]}
+				{#each Object.entries(args).sort((a, b) => a[0].localeCompare(b[0])) as [arg, value]}
 					<Row>
 						<Cell first>{arg}</Cell>
 						<Cell last><ArgInfo {value} /></Cell>
