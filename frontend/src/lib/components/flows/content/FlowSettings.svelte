@@ -406,6 +406,12 @@
 							<svelte:fragment slot="header">
 								<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 							</svelte:fragment>
+							{#if !$enterpriseLicense}
+								<Alert
+									title="Concurrency limits are going to become an Enterprise Edition feature"
+									type="warning"
+								/>
+							{/if}
 							<div class="flex flex-col gap-4">
 								<Label label="Max number of executions within the time window">
 									<div class="flex flex-row gap-2 max-w-sm">
