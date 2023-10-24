@@ -118,7 +118,7 @@ rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = "0.2.0"
+rustpython-parser = "0.3.0"
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
@@ -190,11 +190,11 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 samael = { version = "0.0.12", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
-rust_decimal = { version = "1.31.0", features = ["db-postgres"]}
+rust_decimal = { version = "^1", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
-tinyvector = { git = "https://github.com/windmill-labs/tinyvector" }
+tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
 hf-hub = "0.3.2"
 tokenizers = "0.14.1"
 candle-core = "0.3.0"
