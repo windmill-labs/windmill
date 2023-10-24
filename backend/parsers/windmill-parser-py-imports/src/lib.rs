@@ -12,11 +12,12 @@ use lazy_static::lazy_static;
 use phf::phf_map;
 use regex::Regex;
 
+use rustpython_parser::{
+    ast::{Stmt, StmtImport, StmtImportFrom},
+    parse_program,
+};
 use sqlx::{Pool, Postgres};
 use windmill_common::error;
-
-use rustpython_parser::ast::{Located, StmtKind};
-use rustpython_parser::parser::parse_program;
 
 const DEF_MAIN: &str = "def main(";
 
@@ -129,25 +130,29 @@ pub async fn parse_python_imports(
         let nimports: Vec<String> = ast
             .into_iter()
             .filter_map(|x| match x {
-                Located { node, .. } => match node {
-                    StmtKind::Import { names } => Some(
-                        names
-                            .into_iter()
-                            .map(|x| {
-                                let name = x.node.name;
-                                process_import(Some(name), path, 0)
-                            })
-                            .flatten()
-                            .collect::<Vec<String>>(),
-                    ),
-                    StmtKind::ImportFrom { level: Some(i), module, .. } if i > 0 => {
-                        Some(process_import(module, path, i))
-                    }
-                    StmtKind::ImportFrom { level: _, module, names: _ } => {
-                        Some(process_import(module, path, 0))
-                    }
-                    _ => None,
-                },
+                Stmt::Import(StmtImport { names, .. }) => Some(
+                    names
+                        .into_iter()
+                        .map(|x| {
+                            let name = x.name.to_string();
+                            process_import(Some(name), path, 0)
+                        })
+                        .flatten()
+                        .collect::<Vec<String>>(),
+                ),
+                Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. })
+                    if i.to_u32() > 0 =>
+                {
+                    Some(process_import(
+                        module.map(|x| x.to_string()),
+                        path,
+                        i.to_usize(),
+                    ))
+                }
+                Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
+                    Some(process_import(module.map(|x| x.to_string()), path, 0))
+                }
+                _ => None,
             })
             .flatten()
             .filter(|x| !STDIMPORTS.contains(&x.as_str()))
