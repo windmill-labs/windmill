@@ -6,13 +6,16 @@
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
 	import { msToSec } from '$lib/utils'
-	import { Badge, Button, Skeleton, Tab, Tabs } from '../common'
+	import { Badge, Skeleton, Tab, Tabs } from '../common'
 	import { onMount } from 'svelte'
 	import HighlightCode from '../HighlightCode.svelte'
-	import { goto } from '$app/navigation'
 	import { forLater } from '$lib/forLater'
+	import FlowProgressBar from '../flows/FlowProgressBar.svelte'
+	import FlowStatusViewer from '../FlowStatusViewer.svelte'
 
 	export let id: string
+	export let blankLink = false
+
 	let job: Job | undefined = undefined
 	let timeout: NodeJS.Timeout | undefined
 	let watchJob: (id: string) => Promise<void>
@@ -55,15 +58,14 @@
 			</Badge>
 		{/if}
 	</div>
-	<Button
+	<a
+		href="/run/{job?.id}?workspace={job?.workspace_id}"
 		class="flex flex-row gap-1 items-center"
-		on:click={() => {
-			goto(`/run/${job?.id}?workspace=${job?.workspace_id}`)
-		}}
+		target={blankLink ? '_blank' : undefined}
 	>
-		<span class="font-semibold text-xs leading-6">ID:</span>
-		<span class="text-xs">{job?.id}</span>
-	</Button>
+		<span class="font-semibold text-sm leading-6">ID:</span>
+		<span class="text-sm">{job?.id}</span>
+	</a>
 
 	<span class="font-semibold text-xs leading-6">Arguments</span>
 
@@ -94,43 +96,63 @@
 
 			<Skeleton loading={!job} layout={[[5]]} />
 			{#if job}
-				<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
-					{#if viewTab == 'logs'}
-						<div class="w-full">
-							<LogViewer
-								jobId={job.id}
-								duration={job?.['duration_ms']}
-								mem={job?.['mem_peak']}
-								isLoading={!(job && 'logs' in job && job.logs)}
-								content={job?.logs}
-							/>
+				{#if viewTab == 'result' && (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview')}
+					<div class="flex flex-col gap-2">
+						<div class="w-full mt-10 mb-20">
+							<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
 						</div>
-					{:else if viewTab == 'code'}
-						{#if job && 'raw_code' in job && job.raw_code}
-							<div class="text-xs">
-								<HighlightCode lines language={job.language} code={job.raw_code} />
+					</div>
+				{:else}
+					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
+						{#if viewTab == 'logs'}
+							<div class="w-full">
+								<LogViewer
+									jobId={job.id}
+									duration={job?.['duration_ms']}
+									mem={job?.['mem_peak']}
+									isLoading={!(job && 'logs' in job && job.logs)}
+									content={job?.logs}
+								/>
 							</div>
+						{:else if viewTab == 'code'}
+							{#if job && 'raw_code' in job && job.raw_code}
+								<div class="text-xs">
+									<HighlightCode lines language={job.language} code={job.raw_code} />
+								</div>
+							{:else if job}
+								No code is available
+							{:else}
+								<Skeleton layout={[[5]]} />
+							{/if}
+						{:else if job !== undefined && 'result' in job && job.result !== undefined}
+							<DisplayResult
+								workspaceId={job?.workspace_id}
+								jobId={job?.id}
+								{result}
+								disableExpand
+							/>
 						{:else if job}
-							No code is available
-						{:else}
-							<Skeleton layout={[[5]]} />
+							No output is available yet
 						{/if}
-					{:else if job !== undefined && 'result' in job && job.result !== undefined}
-						<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
-					{:else if job}
-						No output is available yet
-					{/if}
-				</div>
+					</div>
+				{/if}
 			{/if}
 		{:else if job && `running` in job ? job.running : false}
-			<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
-			<LogViewer
-				jobId={job?.id}
-				duration={job?.['duration_ms']}
-				mem={job?.['mem_peak']}
-				content={job?.logs}
-				isLoading
-			/>
+			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+				<div class="flex flex-col gap-2 w-full">
+					<FlowProgressBar {job} class="py-4" />
+					<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
+				</div>
+			{:else}
+				<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
+				<LogViewer
+					jobId={job?.id}
+					duration={job?.['duration_ms']}
+					mem={job?.['mem_peak']}
+					content={job?.logs}
+					isLoading
+				/>
+			{/if}
 		{/if}
 	</div>
 </div>
