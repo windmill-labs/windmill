@@ -1513,9 +1513,9 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             &job,
             logs.to_string(),
             mem_peak.to_owned(),
-            serde_json::from_str(result.get()).unwrap_or_else(|_| {
-                json!({ "message": format!("Non serializable error: {}", result.get()) })
-            }),
+            serde_json::from_str(result.get()).unwrap_or_else(
+                |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
+            ),
             metrics.clone(),
             rsmq.clone(),
         )
@@ -1855,6 +1855,13 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 "job {} on worker {} (tag: {})\n",
                 &job.id, &worker_name, &job.tag
             ));
+
+            #[cfg(not(feature = "enterprise"))]
+            if job.concurrent_limit.is_some() {
+                logs.push_str("---\n");
+                logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
+                logs.push_str("---\n");
+            }
 
             tracing::debug!(
                 worker = %worker_name,

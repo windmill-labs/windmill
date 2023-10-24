@@ -480,13 +480,30 @@
 						</TabContent>
 						<TabContent value="runtime">
 							<div class="flex flex-col gap-8">
-								<Section label="Concurency limits">
-									<div class="flex gap-4 shrink">
-										<Label label="Maximum number of runs">
-											<input type="number" bind:value={script.concurrent_limit} />
+								<Section label="Concurrency limits">
+									{#if !$enterpriseLicense}
+										<Alert
+											title="Concurrency limits are going to become an Enterprise Edition feature"
+											type="warning"
+										/>
+									{/if}
+									<div class="flex flex-col gap-4">
+										<Label label="Max number of executions within the time window">
+											<div class="flex flex-row gap-2 max-w-sm">
+												<input bind:value={script.concurrent_limit} type="number" />
+												<Button
+													size="sm"
+													color="light"
+													on:click={() => {
+														script.concurrent_limit = undefined
+														script.concurrency_time_window_s = undefined
+													}}
+													variant="border">Remove Limits</Button
+												>
+											</div>
 										</Label>
-										<Label label="Per time window (seconds)">
-											<input type="number" bind:value={script.concurrency_time_window_s} />
+										<Label label="Time window in seconds">
+											<SecondsInput bind:seconds={script.concurrency_time_window_s} />
 										</Label>
 									</div>
 								</Section>
