@@ -157,7 +157,7 @@ export async function main({
     console.log("Detected custom script")
     body = JSON.stringify({
       kind: "script",
-      path: kind.substr(6)
+      path: kind.substr(7)
     });
   } else {
     throw new Error("Unknown script pattern " + kind);
