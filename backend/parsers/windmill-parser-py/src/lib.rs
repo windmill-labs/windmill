@@ -13,8 +13,10 @@ use itertools::Itertools;
 use serde_json::json;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
 
-use rustpython_parser::ast::{Constant, ExprKind, Located, StmtKind};
-use rustpython_parser::parser::parse_program;
+use rustpython_parser::{
+    ast::{Constant, Expr, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtFunctionDef},
+    parse_program,
+};
 
 const DEF_MAIN: &str = "def main(";
 const FUNCTION_CALL: &str = "<function call>";
@@ -61,45 +63,50 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     let ast = parse_program(&filtered_code, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
     let param = ast.into_iter().find_map(|x| match x {
-        Located { node: StmtKind::FunctionDef { name, args, .. }, .. } if &name == "main" => {
-            Some(*args)
-        }
+        Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == "main" => Some(*args),
         _ => None,
     });
     if let Some(params) = param {
         //println!("{:?}", params);
-        let def_arg_start = params.args.len() - params.defaults.len();
+        let def_arg_start = params.args.len() - params.defaults().count();
         Ok(MainArgSignature {
             star_args: params.vararg.is_some(),
             star_kwargs: params.kwarg.is_some(),
             args: params
                 .args
-                .into_iter()
+                .iter()
                 .enumerate()
                 .map(|(i, x)| {
-                    let x = x.node;
                     let default = if i >= def_arg_start {
-                        to_value(&params.defaults[i - def_arg_start].node)
+                        params
+                            .defaults()
+                            .nth(i - def_arg_start)
+                            .map(to_value)
+                            .flatten()
                     } else {
                         None
                     };
 
-                    let mut typ = x.annotation.map_or(Typ::Unknown, |e| match *e {
-                        Located { node: ExprKind::Name { id, .. }, .. } => match id.as_ref() {
-                            "str" => Typ::Str(None),
-                            "float" => Typ::Float,
-                            "int" => Typ::Int,
-                            "bool" => Typ::Bool,
-                            "dict" => Typ::Object(vec![]),
-                            "list" => Typ::List(Box::new(Typ::Str(None))),
-                            "bytes" => Typ::Bytes,
-                            "datetime" => Typ::Datetime,
-                            "datetime.datetime" => Typ::Datetime,
-                            "Sql" | "sql" => Typ::Sql,
-                            _ => Typ::Resource(id),
-                        },
-                        _ => Typ::Unknown,
-                    });
+                    let mut typ = x
+                        .as_arg()
+                        .annotation
+                        .as_ref()
+                        .map_or(Typ::Unknown, |e| match e.as_ref() {
+                            Expr::Name(ExprName { id, .. }) => match id.as_ref() {
+                                "str" => Typ::Str(None),
+                                "float" => Typ::Float,
+                                "int" => Typ::Int,
+                                "bool" => Typ::Bool,
+                                "dict" => Typ::Object(vec![]),
+                                "list" => Typ::List(Box::new(Typ::Str(None))),
+                                "bytes" => Typ::Bytes,
+                                "datetime" => Typ::Datetime,
+                                "datetime.datetime" => Typ::Datetime,
+                                "Sql" | "sql" => Typ::Sql,
+                                _ => Typ::Resource(id.to_string()),
+                            },
+                            _ => Typ::Unknown,
+                        });
 
                     if typ == Typ::Unknown
                         && default.is_some()
@@ -108,7 +115,13 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
                         typ = json_to_typ(default.as_ref().unwrap());
                     }
 
-                    Arg { otyp: None, name: x.arg, typ, has_default: default.is_some(), default }
+                    Arg {
+                        otyp: None,
+                        name: x.as_arg().arg.to_string(),
+                        typ,
+                        has_default: default.is_some(),
+                        default,
+                    }
                 })
                 .collect(),
         })
@@ -119,33 +132,33 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
-fn to_value(et: &ExprKind) -> Option<serde_json::Value> {
+fn to_value<R>(et: &Expr<R>) -> Option<serde_json::Value> {
     match et {
-        ExprKind::Constant { value, .. } => Some(constant_to_value(value)),
-        ExprKind::Dict { keys, values } => {
+        Expr::Constant(ExprConstant { value, .. }) => Some(constant_to_value(value)),
+        Expr::Dict(ExprDict { keys, values, .. }) => {
             let v = keys
                 .into_iter()
                 .zip(values)
                 .map(|(k, v)| {
-                    let key = to_value(&k.node)
+                    let key = k
+                        .as_ref()
+                        .map(to_value)
+                        .flatten()
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
                         })
                         .unwrap_or_else(|| "no_key".to_string());
-                    (key, to_value(&v.node))
+                    (key, to_value(&v))
                 })
                 .collect::<HashMap<String, _>>();
             Some(json!(v))
         }
-        ExprKind::List { elts, .. } => {
-            let v = elts
-                .into_iter()
-                .map(|x| to_value(&x.node))
-                .collect::<Vec<_>>();
+        Expr::List(ExprList { elts, .. }) => {
+            let v = elts.into_iter().map(|x| to_value(&x)).collect::<Vec<_>>();
             Some(json!(v))
         }
-        ExprKind::Call { .. } => Some(json!(FUNCTION_CALL)),
+        Expr::Call { .. } => Some(json!(FUNCTION_CALL)),
         _ => None,
     }
 }
