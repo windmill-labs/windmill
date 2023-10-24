@@ -2283,14 +2283,22 @@ async fn add_batch_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_super_admin(&db, &authed.email).await?;
 
-    let (hash, path, job_kind, language, dedicated_worker) = match batch_info.kind.as_str() {
+    let (
+        hash,
+        path,
+        job_kind,
+        language,
+        dedicated_worker,
+        concurrent_limit,
+        concurrent_time_window_s,
+    ) = match batch_info.kind.as_str() {
         "script" => {
             if let Some(path) = batch_info.path {
                 let (
                     script_hash,
                     _tag,
-                    _concurrent_limit,
-                    _concurrency_time_window_s,
+                    concurrent_limit,
+                    concurrency_time_window_s,
                     _cache_ttl,
                     language,
                     dedicated_worker,
@@ -2302,6 +2310,8 @@ async fn add_batch_jobs(
                     JobKind::Script,
                     Some(language),
                     dedicated_worker,
+                    concurrent_limit,
+                    concurrency_time_window_s,
                 )
             } else {
                 Err(anyhow::anyhow!(
@@ -2360,7 +2370,7 @@ async fn add_batch_jobs(
             }
             return Ok(Json(uuids));
         }
-        "noop" => (None, None, JobKind::Noop, None, None),
+        "noop" => (None, None, JobKind::Noop, None, None, None, None),
         _ => {
             return Err(error::Error::BadRequest(format!(
                 "Invalid batch kind: {}",
@@ -2386,8 +2396,8 @@ async fn add_batch_jobs(
             select gen_random_uuid() as uuid from generate_series(1, $11)
         )
         INSERT INTO queue 
-            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id)
-            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10 FROM uuid_table) 
+            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s)
+            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13 FROM uuid_table) 
         RETURNING id"#,
             hash.map(|h| h.0),
             path,
@@ -2399,7 +2409,9 @@ async fn add_batch_jobs(
             authed.email,
             Utc::now(),
             w_id,
-            n
+            n,
+            concurrent_limit,
+            concurrent_time_window_s
         )
         .fetch_all(&db)
         .await?;

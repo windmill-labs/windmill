@@ -198,7 +198,7 @@ const asg = new aws.autoscaling.Group("asg3", {
     version: "$Latest",
   },
   minSize: 0,
-  maxSize: 15,
+  maxSize: 30,
   vpcZoneIdentifiers: [subnetA.id],
   tags: [
     {
@@ -274,6 +274,8 @@ db.address.apply((address) => {
         environment: [
           { name: "MODE", value: "worker" },
           { name: "NUM_WORKERS", value: "1" },
+          { name: "DATABASE_CONNECTIONS", value: "5"},
+          { name: "SLEEP_QUEUE", value: "300"},
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
@@ -325,6 +327,8 @@ db.address.apply((address) => {
         environment: [
           { name: "WORKER_GROUP", value: "dedicated" },
           { name: "NUM_WORKERS", value: "10" },
+          { name: "DATABASE_CONNECTIONS", value: "15"},
+          { name: "SLEEP_QUEUE", value: "300"},
           { name: "MODE", value: "worker" },
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
@@ -372,6 +376,7 @@ db.address.apply((address) => {
           { name: "MODE", value: "server" },
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
+          { name: "DATABASE_CONNECTIONS", value: "5"},
           {
             name: "DATABASE_URL",
             value: `postgres://postgres:postgres@${address}/windmill?sslmode=disable`,
@@ -404,7 +409,7 @@ db.address.apply((address) => {
   const service_server = new aws.ecs.Service("service-server", {
     cluster: cluster.id,
     taskDefinition: server_td.arn,
-    desiredCount: 2,
+    desiredCount: 4,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {
@@ -424,7 +429,7 @@ db.address.apply((address) => {
   const service_worker = new aws.ecs.Service("service-worker", {
     cluster: cluster.id,
     taskDefinition: worker_td.arn,
-    desiredCount: 10,
+    desiredCount: 20,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {
@@ -437,7 +442,7 @@ db.address.apply((address) => {
   const service_worker2 = new aws.ecs.Service("service-worker-2", {
     cluster: cluster.id,
     taskDefinition: worker_td2.arn,
-    desiredCount: 3,
+    desiredCount: 30,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {

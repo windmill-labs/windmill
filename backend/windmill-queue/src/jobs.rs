@@ -1099,6 +1099,14 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             job_custom_concurrency_time_window_s
         );
 
+        sqlx::query_scalar!(
+            "SELECT null FROM queue WHERE id = $1 FOR UPDATE",
+            pulled_job.id
+        )
+        .fetch_one(&mut tx)
+        .await
+        .context("lock job in queue")?;
+
         let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
             format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
         )
