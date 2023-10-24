@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.190.3](https://github.com/windmill-labs/windmill/compare/v1.190.2...v1.190.3) (2023-10-24)
+
+
+### Bug Fixes
+
+* sort arg infos on the client-side ([8025a27](https://github.com/windmill-labs/windmill/commit/8025a27b8ce36b9c9b8d1d17d72075819f58c607))
+
 ## [1.190.2](https://github.com/windmill-labs/windmill/compare/v1.190.1...v1.190.2) (2023-10-24)
 
 
