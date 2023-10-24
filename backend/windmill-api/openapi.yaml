@@ -6490,13 +6490,9 @@ components:
           items:
             type: string
         concurrent_limit:
-          type: array
-          items:
-            type: integer
+          type: integer
         concurrency_time_window_s:
-          type: array
-          items:
-            type: integer
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -6571,13 +6567,9 @@ components:
           items:
             type: string
         concurrent_limit:
-          type: array
-          items:
-            type: integer
+          type: integer
         concurrency_time_window_s:
-          type: array
-          items:
-            type: integer
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
