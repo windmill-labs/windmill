@@ -137,17 +137,15 @@
 	/>
 {/each}
 
-{#each Object.keys(css ?? {}) as key (key + 'css')}
-	{#if css}
-		<ResolveStyle
-			{id}
-			{customCss}
-			{extraKey}
-			{key}
-			bind:css={css[key]}
-			componentStyle={$app.css?.buttoncomponent}
-		/>
-	{/if}
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{extraKey}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.buttoncomponent}
+	/>
 {/each}
 
 <!-- gotoNewTab={resolvedConfig.onSuccess.selected == 'goto'} -->
