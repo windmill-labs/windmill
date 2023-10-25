@@ -74,7 +74,7 @@
 				let keys = Object.keys(result)
 
 				// Check if the result is an image
-				if (['png', 'svg', 'jpeg'].includes(keys[0])) {
+				if (['png', 'svg', 'jpeg'].includes(keys[0]) && keys.length == 1) {
 					// Check if the image is too large (10mb)
 					largeObject = roughSizeOfObject(result) > 10000000
 
