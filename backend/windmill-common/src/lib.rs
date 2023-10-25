@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use error::Error;
 use scripts::ScriptLang;
@@ -38,17 +41,24 @@ pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 
 lazy_static::lazy_static! {
-    pub static ref METRICS_ADDR: Option<SocketAddr> = std::env::var("METRICS_ADDR")
+    pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")
+    .ok()
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(8001);
+
+    pub static ref METRICS_ADDR: SocketAddr = std::env::var("METRICS_ADDR")
     .ok()
     .map(|s| {
         s.parse::<bool>()
-            .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
+            .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT))))
             .or_else(|_| s.parse::<SocketAddr>().map(Some))
     })
     .transpose().ok()
     .flatten()
-    .flatten();
-    pub static ref METRICS_ENABLED: bool = METRICS_ADDR.is_some();
+    .flatten()
+    .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT)));
+
+    pub static ref METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("METRICS_PORT").is_ok() || std::env::var("METRICS_ADDR").is_ok());
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
@@ -92,9 +102,14 @@ pub async fn serve_metrics(
 ) -> JoinHandle<()> {
     use std::sync::atomic::Ordering;
 
-    use axum::{routing::get, Router};
+    use axum::{
+        routing::{get, post},
+        Router,
+    };
     use hyper::StatusCode;
-    let router = Router::new().route("/metrics", get(metrics));
+    let router = Router::new()
+        .route("/metrics", get(metrics))
+        .route("/reset", post(reset));
 
     let router = if ready_worker_endpoint {
         router.route(
@@ -112,6 +127,7 @@ pub async fn serve_metrics(
     };
 
     tokio::spawn(async move {
+        tracing::info!("Serving metrics at: {addr}");
         if let Err(e) = axum::Server::bind(&addr)
             .serve(router.into_make_service())
             .with_graceful_shutdown(async {
@@ -130,6 +146,10 @@ async fn metrics() -> Result<String, Error> {
     Ok(prometheus::TextEncoder::new()
         .encode_to_string(&metric_families)
         .map_err(anyhow::Error::from)?)
+}
+
+async fn reset() -> () {
+    todo!()
 }
 
 #[cfg(feature = "sqlx")]

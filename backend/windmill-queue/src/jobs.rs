@@ -195,7 +195,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     metrics: Option<Metrics>,
     rsmq: Option<R>,
 ) -> Result<WrappedError, Error> {
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = WrappedError { error: e };
@@ -1076,7 +1076,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             || pulled_job.concurrent_limit.is_none()
             || pulled_job.canceled
         {
-            if *METRICS_ENABLED {
+            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
             return Ok(Option::Some(pulled_job));
@@ -1162,7 +1162,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             concurrent_jobs_for_this_script
         );
         if concurrent_jobs_for_this_script <= job_custom_concurrent_limit {
-            if *METRICS_ENABLED {
+            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
@@ -1503,7 +1503,7 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     w_id: &str,
     job_id: Uuid,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
     let job_removed = sqlx::query_scalar!(
@@ -2211,7 +2211,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_PUSH_COUNT.inc();
     }
 
