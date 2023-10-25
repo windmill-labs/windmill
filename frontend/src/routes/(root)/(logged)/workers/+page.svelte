@@ -372,6 +372,7 @@
 				}}
 				name={worker_group[0]}
 				config={worker_group[1]}
+				activeWorkers={0}
 			/>
 			<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
 		{/each}
