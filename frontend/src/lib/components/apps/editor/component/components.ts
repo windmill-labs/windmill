@@ -1504,6 +1504,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1550,6 +1555,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1896,6 +1906,11 @@ This is a paragraph.
 					type: 'static',
 					value: 'Password',
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1921,6 +1936,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
