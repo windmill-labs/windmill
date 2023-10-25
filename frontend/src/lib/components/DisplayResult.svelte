@@ -61,37 +61,40 @@
 		return keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
 	}
 
-	let largeObject: undefined | boolean = undefined
+	let largeObject: boolean | undefined = undefined
 
 	function inferResultKind(result: any) {
-		largeObject = undefined
-
 		if (result == 'WINDMILL_TOO_BIG') {
 			largeObject = true
-			return 'json'
-		}
-		let length = roughSizeOfObject(result)
-		largeObject = length > 10000
-
-		if (largeObject) {
 			return 'json'
 		}
 
 		if (result) {
 			try {
 				let keys = Object.keys(result)
+
+				// Check if the result is an image
+				if (['png', 'svg', 'jpeg'].includes(keys[0])) {
+					// Check if the image is too large (10mb)
+					largeObject = roughSizeOfObject(result) > 10000000
+
+					return keys[0] as 'png' | 'svg' | 'jpeg'
+				}
+
+				let length = roughSizeOfObject(result)
+				// Otherwise, check if the result is too large (10kb) for json
+				largeObject = length > 10000
+
+				if (largeObject) {
+					return 'json'
+				}
+
 				if (isRectangularArray(result)) {
 					return 'table-row'
 				} else if (isObjectOfArray(result, keys)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'html') {
 					return 'html'
-				} else if (keys.length == 1 && keys[0] == 'png') {
-					return 'png'
-				} else if (keys.length == 1 && keys[0] == 'svg') {
-					return 'svg'
-				} else if (keys.length == 1 && keys[0] == 'jpeg') {
-					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
 				} else if (keys.length == 1 && keys[0] == 'error') {
@@ -142,8 +145,9 @@
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
-	{#if result != undefined && length != undefined && largeObject != undefined}{#if resultKind && resultKind != 'json'}<div
-				class="top-0 flex flex-row w-full justify-between items-center"
+	{#if result != undefined && length != undefined && largeObject != undefined}
+		{#if resultKind && resultKind != 'json'}
+			<div class="top-0 flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 				>
