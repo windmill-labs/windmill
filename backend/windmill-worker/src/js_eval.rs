@@ -173,7 +173,14 @@ pub async fn eval_timeout(
             {
                 let op_state = js_runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
-                op_state.put(OptAuthedClient(authed_client.clone()));
+                let mut client = authed_client.clone();
+                if let Some(client) = client.as_mut() {
+                    client.force_client = Some(reqwest::ClientBuilder::new()
+                    .user_agent("windmill/beta")
+                    .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+                    .build().unwrap());
+                }
+                op_state.put(OptAuthedClient(client));
                 op_state.put(TransformContext {
                     flow_input: if has_flow_input { flow_input } else { None },
                     envs: transform_context
