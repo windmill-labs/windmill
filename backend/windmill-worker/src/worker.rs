@@ -300,6 +300,7 @@ impl AuthedClientBackgroundTask {
             base_internal_url: self.base_internal_url.clone(),
             workspace: self.workspace.clone(),
             token: self.get_token().await,
+            force_client: None,
         };
     }
     pub async fn get_token(&self) -> String {
@@ -311,11 +312,15 @@ pub struct AuthedClient {
     pub base_internal_url: String,
     pub workspace: String,
     pub token: String,
+    pub force_client: Option<reqwest::Client>,
 }
 
 impl AuthedClient {
     pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
-        Ok(HTTP_CLIENT
+        Ok(self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
             .get(url)
             .query(&query)
             .header(
@@ -450,8 +455,12 @@ async fn handle_receive_completed_job<
     let metrics = build_language_metrics(&worker_execution_failed.clone(), &jc.job.language);
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
-    let client =
-        AuthedClient { base_internal_url: base_internal_url.to_string(), workspace, token };
+    let client = AuthedClient {
+        base_internal_url: base_internal_url.to_string(),
+        workspace,
+        token,
+        force_client: None,
+    };
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
     if let Err(err) = process_completed_job(

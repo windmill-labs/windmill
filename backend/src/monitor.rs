@@ -638,6 +638,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             base_internal_url: base_internal_url.to_string(),
             token,
             workspace: job.workspace_id.to_string(),
+            force_client: None,
         };
 
         let last_ping = job.last_ping.clone();
