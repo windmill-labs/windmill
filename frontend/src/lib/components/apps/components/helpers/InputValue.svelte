@@ -167,10 +167,13 @@
 				const { path, componentId } = lastInput.connection
 				const [p] = path ? path.split('.')[0].split('[') : [undefined]
 				if (p) {
+					const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
+						iterContext ? $iterContext.index : 0
+					}`
 					$worldStore?.connect<any>(
 						{ componentId: componentId, id: p },
 						onValueChange,
-						`${id}-${key}`,
+						skey,
 						previousConnectedValue
 					)
 				} else {
