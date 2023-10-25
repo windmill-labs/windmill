@@ -52,9 +52,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd7d5a2cecb58716e47d67d5703a249964b14c7be1ec3cad3affc295b2d1c35d"
+checksum = "91429305e9f0a25f6205c5b8e0d2db09e0708a7a6df0f42212bb56c32c8ac97a"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.10",
@@ -2511,7 +2511,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
 dependencies = [
- "ahash 0.8.5",
+ "ahash 0.8.6",
 ]
 
 [[package]]
@@ -2520,7 +2520,7 @@ version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f93e7192158dbcda357bdec5fb5788eebf8bbac027f3f33e719d29135ae84156"
 dependencies = [
- "ahash 0.8.5",
+ "ahash 0.8.6",
  "allocator-api2",
 ]
 
@@ -4466,7 +4466,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f69f8d22fa3f34f3083d9a4375c038732c7a7e964de1beb81c544da92dfc40b8"
 dependencies = [
- "ahash 0.8.5",
+ "ahash 0.8.6",
  "equivalent",
  "hashbrown 0.14.2",
  "parking_lot",
@@ -5793,7 +5793,7 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d6753e460c998bbd4cd8c6f0ed9a64346fcca0723d6e75e52fdc351c5d2169d"
 dependencies = [
- "ahash 0.8.5",
+ "ahash 0.8.6",
  "atoi",
  "bigdecimal 0.3.1",
  "byteorder",
@@ -7677,7 +7677,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7711,7 +7711,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7778,7 +7778,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -7796,7 +7796,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7809,7 +7809,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7839,7 +7839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7847,7 +7847,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7858,7 +7858,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7870,7 +7870,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7881,7 +7881,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7892,7 +7892,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7909,7 +7909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7920,7 +7920,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7937,7 +7937,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7955,7 +7955,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7986,7 +7986,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.191.0"
+version = "1.192.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -8256,18 +8256,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.7.13"
+version = "0.7.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ffc046c9f849405a42c87e82e2f2f861d1f0a06b855910c76c2bd1e87be900c"
+checksum = "69c48d63854f77746c68a5fbb4aa17f3997ece1cb301689a257af8cb80610d21"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.7.13"
+version = "0.7.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "246c000cfc5f942bac7ff99fde24a9ebb589d92e024bc758c6c733c15a02a73e"
+checksum = "c258c1040279e4f88763a113de72ce32dde2d50e2a94573f15dd534cea36a16d"
 dependencies = [
  "proc-macro2",
  "quote",
