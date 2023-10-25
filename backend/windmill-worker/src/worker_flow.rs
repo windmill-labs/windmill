@@ -689,7 +689,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             &flow_job,
             db,
             client,
-            nresult.to_owned(),
+            Some(nresult.to_owned()),
             same_worker_tx.clone(),
             worker_dir,
             rsmq.clone(),
@@ -833,7 +833,7 @@ async fn compute_bool_from_expr(
 ) -> error::Result<bool> {
     let mut context = HashMap::with_capacity(if resumes.is_some() { 7 } else { 3 });
     context.insert("result".to_string(), result.clone());
-    context.insert("previous_result".to_string(), result);
+    context.insert("previous_result".to_string(), result.clone());
 
     if let Some(resumes) = resumes {
         context.insert("resume".to_string(), resumes.1);
@@ -982,24 +982,18 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
-    last_result: Box<RawValue>,
+    last_result: Option<Box<RawValue>>,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-    let value = flow_job
-        .raw_flow
-        .as_ref()
-        .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
-        .to_owned();
-    let flow = serde_json::from_str::<FlowValue>((*value.0).get())?;
+    let flow = flow_job
+        .parse_raw_flow()
+        .with_context(|| "Unable to parse flow definition")?;
+    let status = flow_job
+        .parse_flow_status()
+        .with_context(|| "Unable to parse flow status")?;
 
-    let status: FlowStatus = serde_json::from_str::<FlowStatus>(
-        (*flow_job.flow_status.clone().unwrap_or_default().0).get(),
-    )
-    .with_context(|| format!("parse flow status {}", flow_job.id))?;
-
-    tracing::debug!("handle_flow: {:#?}", flow_job.flow_status);
     push_next_flow_job(
         flow_job,
         status,
@@ -1050,7 +1044,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     flow: FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
-    last_result: Box<RawValue>,
+    last_job_result: Option<Box<RawValue>>,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     rsmq: Option<R>,
@@ -1100,14 +1094,13 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     }
 
     let arc_flow_job_args = Arc::new(flow_job_args.clone());
-    let mut arc_result = Arc::new(last_result);
 
     if i == 0 {
         if let Some(skip_expr) = &flow.skip_expr {
             let skip = compute_bool_from_expr(
                 skip_expr.to_string(),
                 arc_flow_job_args.clone(),
-                arc_result.clone(),
+                Arc::new(to_raw_value(&json!("{}"))),
                 None,
                 Some(client),
                 None,
@@ -1133,6 +1126,22 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             }
         }
     }
+
+    // There are several cases where the last_job_result might be missing although it's not step 0 of the flow
+    // - for example if the flow was suspended and it's being revived
+    // - or if the flow is restarted at an arbitrary step from a previous flow
+    // In those cases we need to get the result from the previous step by fetching it in the DB
+    // When it's the first step of the flow, we default to the flow args if last_job_result is not set
+    let arc_last_job_result = if i == 0 && last_job_result.is_none() {
+        Arc::new(to_raw_value(&flow_job.args))
+    } else if last_job_result.is_some() {
+        Arc::new(last_job_result.unwrap_or(to_raw_value(&json!("{}"))))
+    } else {
+        match get_previous_job_result_if_any(db, &status).await? {
+            None => Arc::new(to_raw_value(&json!("{}"))), // last job wasn't a success => it has no result
+            Some(previous_job_result) => Arc::new(previous_job_result),
+        }
+    };
 
     let mut resume_messages: Vec<Box<RawValue>> = vec![];
     let mut approvers: Vec<String> = vec![];
@@ -1197,8 +1206,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         }
                         InputTransform::Javascript { expr } => {
                             let mut context = HashMap::with_capacity(2);
-                            context.insert("result".to_string(), arc_result.clone());
-                            context.insert("previous_result".to_string(), arc_result.clone());
+                            context.insert("result".to_string(), arc_last_job_result.clone());
+                            context
+                                .insert("previous_result".to_string(), arc_last_job_result.clone());
 
                             let eval_result = serde_json::from_str::<Vec<String>>(
                                 eval_timeout(
@@ -1269,20 +1279,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .bind(flow_job.id)
                 .execute(&mut *tx)
                 .await?;
-
-                /* If we are woken up after suspending, last_result will be the flow args, but we
-                 * should use the result from the last job */
-                if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
-                    arc_result = Arc::new(
-                        sqlx::query_scalar::<_, Json<Box<RawValue>>>(
-                            "SELECT result FROM completed_job WHERE id = $1",
-                        )
-                        .bind(last)
-                        .fetch_one(&mut *tx)
-                        .await?
-                        .0,
-                    )
-                }
 
                 // Remove the approval conditions from the flow status
                 sqlx::query(
@@ -1381,8 +1377,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     InputTransform::Static { value } => Ok(value),
                     InputTransform::Javascript { expr } => {
                         let mut context = HashMap::with_capacity(2);
-                        context.insert("result".to_string(), arc_result.clone());
-                        context.insert("previous_result".to_string(), arc_result.clone());
+                        context.insert("result".to_string(), arc_last_job_result.clone());
+                        context.insert("previous_result".to_string(), arc_last_job_result.clone());
 
                         serde_json::from_str(
                             eval_timeout(
@@ -1557,7 +1553,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let by_id = transform_context.as_ref().unwrap();
                 transform_input(
                     arc_flow_job_args.clone(),
-                    arc_result.clone(),
+                    arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
                     resume.clone(),
@@ -1568,8 +1564,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .await
             }
             FlowModuleValue::Identity => serde_json::from_str(
-                &serde_json::to_string(&PreviousResult { previous_result: Some(&arc_result) })
-                    .unwrap(),
+                &serde_json::to_string(&PreviousResult {
+                    previous_result: Some(&arc_last_job_result),
+                })
+                .unwrap(),
             )
             .map_err(|e| error::Error::InternalErr(format!("identity: {e}"))),
 
@@ -1579,7 +1577,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
-        arc_result.clone(),
+        arc_last_job_result.clone(),
         flow_job,
         &flow,
         transform_context,
@@ -1696,7 +1694,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
                         transform_inp = transform_input(
                             Arc::new(hm),
-                            arc_result.clone(),
+                            arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
                             resume.clone(),
@@ -2008,7 +2006,7 @@ enum NextFlowTransform {
 
 async fn compute_next_flow_transform(
     arc_flow_job_args: Arc<HashMap<String, Box<RawValue>>>,
-    arc_result: Arc<Box<RawValue>>,
+    arc_last_job_result: Arc<Box<RawValue>>,
     flow_job: &QueuedJob,
     flow: &FlowValue,
     by_id: Option<IdContext>,
@@ -2101,8 +2099,8 @@ async fn compute_next_flow_transform(
                         InputTransform::Static { value } => to_raw_value(value),
                         InputTransform::Javascript { expr } => {
                             let mut context = HashMap::with_capacity(3);
-                            context.insert("result".to_string(), arc_result.clone());
-                            context.insert("previous_result".to_string(), arc_result);
+                            context.insert("result".to_string(), arc_last_job_result.clone());
+                            context.insert("previous_result".to_string(), arc_last_job_result);
                             context.insert("resumes".to_string(), resumes);
                             context.insert("resume".to_string(), resume);
                             context.insert("approvers".to_string(), approvers);
@@ -2293,7 +2291,7 @@ async fn compute_next_flow_transform(
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
                             arc_flow_job_args.clone(),
-                            arc_result.clone(),
+                            arc_last_job_result.clone(),
                             Some(idcontext.clone()),
                             Some(client),
                             Some((resumes.clone(), resume.clone(), approvers.clone())),
@@ -2569,8 +2567,15 @@ fn from_now(duration: Duration) -> chrono::DateTime<chrono::Utc> {
         .unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC)
 }
 
-/// returns previous module non-zero suspend count and job
+/// returns previous module non-zero suspend count and job, if relevant
 fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)> {
+    // for a restarted job, if the restarted step is just after a suspend, don't run the suspend
+    if status.restarted_from.is_some() {
+        let current_step_id = flow.modules.get(status.step as usize)?.id.clone();
+        if status.restarted_from.as_ref().unwrap().step_id == current_step_id {
+            return None;
+        }
+    }
     let prev = usize::try_from(status.step)
         .ok()
         .and_then(|s| s.checked_sub(1))?;
@@ -2589,5 +2594,29 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
         Some((suspend.unwrap(), job))
     } else {
         None
+    }
+}
+
+// returns the result of the previous step of a running flow (if the job was successful)
+async fn get_previous_job_result_if_any(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    flow_status: &FlowStatus,
+) -> error::Result<Option<Box<RawValue>>> {
+    let prev = usize::try_from(flow_status.step)
+        .ok()
+        .and_then(|s| s.checked_sub(1))
+        .with_context(|| "No step preceding the current one")?;
+
+    match flow_status.modules.get(prev) {
+        Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
+            sqlx::query_scalar::<_, Json<Box<RawValue>>>(
+                "SELECT result FROM completed_job WHERE id = $1",
+            )
+            .bind(job)
+            .fetch_one(db)
+            .await?
+            .0,
+        )),
+        _ => Ok(None),
     }
 }

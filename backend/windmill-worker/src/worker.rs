@@ -1830,12 +1830,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     };
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
-            let args = job.get_args();
             handle_flow(
                 &job,
                 db,
                 &client.get_authed().await,
-                to_raw_value(&args),
+                None,
                 same_worker_tx,
                 worker_dir,
                 rsmq,

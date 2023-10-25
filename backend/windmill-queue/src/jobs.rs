@@ -39,12 +39,13 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, Error},
     flow_status::{
-        FlowStatus, FlowStatusModule, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        FlowStatus, FlowStatusModule, FlowStatusModuleWParent, JobResult, RestartedFrom,
+        RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{
-        get_payload_tag_from_prefixed_path, script_path_to_payload, JobKind, JobPayload, Metrics,
-        QueuedJob, RawCode,
+        get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
+        JobPayload, Metrics, QueuedJob, RawCode,
     },
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
@@ -1836,6 +1837,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         raw_code_tuple,
         job_kind,
         mut raw_flow,
+        flow_status,
         language,
         concurrent_limit,
         concurrency_time_window_s,
@@ -1858,6 +1860,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             JobKind::Script,
             None,
+            None,
             Some(language),
             concurrent_limit,
             concurrency_time_window_s,
@@ -1872,6 +1875,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 // Some((script.content, script.lockfile)),
                 JobKind::Script_Hub,
+                None,
                 None,
                 None,
                 None,
@@ -1895,6 +1899,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some((content, lock)),
             JobKind::Preview,
             None,
+            None,
             Some(language),
             concurrent_limit,
             concurrency_time_window_s,
@@ -1907,6 +1912,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some(path),
             Some((dependencies, None)),
             JobKind::Dependencies,
+            None,
             None,
             Some(language),
             None,
@@ -1935,7 +1941,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
-                Some(value),
+                Some(value.clone()),
+                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
                 None,
                 None,
@@ -1956,6 +1963,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
         ),
         JobPayload::RawFlow { value, path } => (
             None,
@@ -1963,6 +1971,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             JobKind::FlowPreview,
             Some(value.clone()),
+            Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
             None,
             value.concurrent_limit.clone(),
             value.concurrency_time_window_s,
@@ -1991,12 +2000,131 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 JobKind::Flow,
                 Some(value.clone()),
+                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
                 None,
                 value.priority,
+            )
+        }
+        JobPayload::RestartedFlow { completed_job_id, step_id } => {
+            let completed_job = sqlx::query_as::<_, CompletedJob>(
+                "SELECT * FROM completed_job WHERE id = $1 and workspace_id = $2",
+            )
+            .bind(completed_job_id)
+            .bind(workspace_id)
+            .fetch_one(_db) // TODO: should we try to use the passed-in `tx` here?
+            .await
+            .map_err(|err| {
+                Error::InternalErr(format!(
+                    "completed job not found for UUID {} in workspace {}: {}",
+                    completed_job_id, workspace_id, err
+                ))
+            })?;
+
+            let raw_flow = completed_job
+                .parse_raw_flow()
+                .ok_or(Error::InternalErr(format!(
+                    "Unable to parse raw definition for job {} in workspace {}",
+                    completed_job_id, workspace_id,
+                )))?;
+            let flow_status =
+                completed_job
+                    .parse_flow_status()
+                    .ok_or(Error::InternalErr(format!(
+                        "Unable to parse flow status for job {} in workspace {}",
+                        completed_job_id, workspace_id,
+                    )))?;
+
+            // TODO: For now we restrict the restart feature to "simple" sequential flows. Implementation for more complex flow to follow
+            for step in raw_flow.clone().modules {
+                if match step.value {
+                    FlowModuleValue::BranchOne { .. }
+                    | FlowModuleValue::BranchAll { .. }
+                    | FlowModuleValue::ForloopFlow { .. }
+                    | FlowModuleValue::Flow { .. } => true,
+                    _ => false,
+                } {
+                    return Err(Error::InternalErr("Flow cannot be restarted as it contains at least one for loop or one branch. Only sequential flows can be restarted for now.".to_string()));
+                }
+                if step
+                    .suspend
+                    .map(|suspend| {
+                        suspend.user_auth_required.unwrap_or(false)
+                            || suspend.user_groups_required.is_some()
+                    })
+                    .unwrap_or(false)
+                {
+                    return Err(Error::InternalErr("Flow cannot be restarted as it contains on complex suspend conditions. This is not supported for now.".to_string()));
+                }
+            }
+            let mut step_n = 0;
+            let mut dependent_module = false;
+            let mut truncated_modules: Vec<FlowStatusModule> = vec![];
+            for module in flow_status.modules {
+                if module.id() == step_id.clone() || dependent_module {
+                    // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                    // set the module as WaitingForPriorSteps as it needs to be re-run
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+                    dependent_module = true;
+                } else {
+                    // else we simply "transfer" the module from the completed flow to the new one if it's a success
+                    step_n = step_n + 1;
+                    match module.clone() {
+                        FlowStatusModule::Success {
+                            id: _,
+                            job: _,
+                            flow_jobs: _,
+                            branch_chosen: _,
+                            approvers: _,
+                        } => Ok(truncated_modules.push(module)),
+                        _ => Err(Error::InternalErr(format!(
+                            "Flow cannot be restarted from a non successful module",
+                        ))),
+                    }?;
+                }
+            }
+            if !dependent_module {
+                // step not found in flow.
+                return Err(Error::InternalErr(format!(
+                    "Flow cannot be restarted from step {} as it could not be found.",
+                    step_id
+                )));
+            }
+
+            let restarted_flow_status = FlowStatus {
+                step: step_n,
+                modules: truncated_modules,
+                // failure_module is reset
+                failure_module: FlowStatusModuleWParent {
+                    parent_module: None,
+                    module_status: FlowStatusModule::WaitingForPriorSteps {
+                        id: "failure".to_string(),
+                    },
+                },
+                // retry status is reset
+                retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
+                // TODO: for now, flows with approval conditions aren't supported for restart
+                approval_conditions: None,
+                restarted_from: Some(RestartedFrom { flow_job_id: completed_job_id, step_id }),
+            };
+
+            (
+                None,
+                completed_job.script_path,
+                None,
+                JobKind::Flow,
+                Some(raw_flow.clone()),
+                Some(restarted_flow_status),
+                None,
+                raw_flow.concurrent_limit,
+                raw_flow.concurrency_time_window_s,
+                raw_flow.cache_ttl.map(|x| x as i32),
+                None,
+                completed_job.priority,
             )
         }
         JobPayload::Identity => (
@@ -2011,12 +2139,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
         ),
         JobPayload::Noop => (
             None,
             None,
             None,
             JobKind::Noop,
+            None,
             None,
             None,
             None,
@@ -2095,8 +2225,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     let (raw_code, raw_lock) = raw_code_tuple
         .map(|e| (Some(e.0), e.1))
         .unwrap_or_else(|| (None, None));
-
-    let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(

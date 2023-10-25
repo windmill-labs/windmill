@@ -18,7 +18,15 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { runFormStore, superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { capitalize } from '$lib/utils'
+	import {
+		enterpriseLicense,
+		runFormStore,
+		superadmin,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -40,6 +48,7 @@
 	const iconScale = 1
 
 	let viewTab: 'result' | 'logs' | 'code' = 'result'
+	let selectedJobStep: string | undefined = undefined
 
 	// Test
 	let testIsLoading = false
@@ -65,6 +74,19 @@
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
 		}
+	}
+
+	async function restartFlow(id: string | undefined, stepId: string | undefined) {
+		if (id === undefined || stepId === undefined) {
+			return
+		}
+		let run = await JobService.restartFlowAtStep({
+			workspace: $workspaceStore!,
+			id,
+			stepId,
+			requestBody: {}
+		})
+		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
 	// If we get results, focus on that tab. Else, focus on logs
@@ -198,6 +220,17 @@
 						Force Cancel
 					</Button>
 				{/if}
+			{/if}
+			{#if job?.job_kind === 'flow' && selectedJobStep !== undefined}
+				<Button
+					disabled={!$enterpriseLicense}
+					on:click|once={() => {
+						restartFlow(job?.id, selectedJobStep)
+					}}
+					color="blue"
+					size="md"
+					startIcon={{ icon: faRefresh }}>Re-start from step {capitalize(selectedJobStep)}</Button
+				>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button
@@ -391,6 +424,7 @@
 						job = detail
 					}}
 					workspaceId={$workspaceStore}
+					bind:selectedJobStep
 				/>
 			</div>
 		{/if}

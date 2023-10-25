@@ -4229,6 +4229,58 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/restart/f/{id}/from/{step_id}:
+    post:
+      summary: restart a completed flow at a given step
+      operationId: restartFlowAtStep
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: step_id
+          description: step id to restart the flow from
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: scheduled_for
+          description: when to schedule this job (leave empty for immediate run)
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_in_secs
+          description: schedule the script to execute in the number of seconds starting now
+          in: query
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - name: invisible_to_owner
+          description: make the run invisible to the the flow owner (default false)
+          in: query
+          schema:
+            type: boolean
+
+      requestBody:
+        description: flow args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run/h/{hash}:
     post:
       summary: run script by hash
