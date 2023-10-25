@@ -84,6 +84,14 @@
 				storage: 'setting',
 				ee_only:
 					'You can still set this setting by using NPM_CONFIG_REGISTRY as env variable to the worker containers'
+			},
+			{
+				label: 'Expose metrics',
+				description: 'Expose prometheus metrics for workers and servers on port 8001 at /metrics',
+				key: 'expose_metrics',
+				fieldType: 'boolean',
+				storage: 'setting',
+				ee_only: 'No workaround around this'
 			}
 		],
 		SMTP: [

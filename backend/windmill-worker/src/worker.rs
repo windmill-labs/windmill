@@ -656,7 +656,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let mut jobs_executed = 0;
 
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         WORKER_STARTED.inc();
     }
 
@@ -1035,7 +1035,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         #[cfg(feature = "benchmark")]
         let mut timing = vec![];
 
-        if *METRICS_ENABLED {
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             worker_busy.set(0);
             uptime_metric.inc_by(
                 ((start_time.elapsed().as_millis() as f64) / 1000.0 - uptime_metric.get())
@@ -1169,7 +1169,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
                 },
                 (job, timer) = {
-                    let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None };
+                    let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(worker_pull_duration.start_timer()) } else { None };
                     let suspend_first = if last_checked_suspended.elapsed().as_secs() > 3 {
                         last_checked_suspended = Instant::now();
                         true
@@ -1188,7 +1188,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         };
 
-        if *METRICS_ENABLED {
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             worker_busy.set(1);
         }
 
@@ -1244,7 +1244,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .expect("no timer found")
                         .start_timer();
 
-                    if *METRICS_ENABLED {
+                    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                         worker_execution_count
                             .get(&language)
                             .expect("no timer found")
@@ -1363,7 +1363,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         last_executed_job = Some(Instant::now());
                     }
                 }
-                let _timer = if *METRICS_ENABLED {
+                let _timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                     Some(Instant::now())
                 } else {
                     None
@@ -1560,7 +1560,7 @@ fn build_language_metrics(
     >,
     language: &Option<ScriptLang>,
 ) -> Option<Metrics> {
-    let metrics = if *METRICS_ENABLED {
+    let metrics = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         Some(Metrics {
             worker_execution_failed: worker_execution_failed
                 .get(language)

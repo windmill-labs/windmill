@@ -23,14 +23,14 @@ use tokio::{
 use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS, EXPOSE_METRICS,
         EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     stats::schedule_stats,
     utils::rd_string,
     worker::{reload_custom_tags_setting, WORKER_GROUP},
-    DB, METRICS_ADDR,
+    DB, METRICS_ADDR, METRICS_ENABLED,
 };
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
@@ -64,6 +64,10 @@ pub enum Mode {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
+
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info")
+    }
 
     #[cfg(not(feature = "flamegraph"))]
     windmill_common::tracing_init::initialize_tracing();
@@ -124,7 +128,6 @@ async fn main() -> anyhow::Result<()> {
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
         );
     }
-    let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
@@ -338,13 +341,24 @@ Windmill Community Edition {GIT_VERSION}
                                                 NPM_CONFIG_REGISTRY_SETTING => {
                                                     reload_npm_config_registry_setting(&db).await
                                                 },
-                                                REQUEST_SIZE_LIMIT_SETTING => {
-                                                    tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                                                    // we wait a bit randomly to avoid having all servers shutdown at same time
+                                                EXPOSE_METRICS => {
+                                                    tracing::info!("Metrics setting changed, restarting");
+                                                    // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
                                                     let rd_delay = rand::thread_rng().gen_range(0..4);
                                                     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                     if let Err(e) = tx.send(()) {
                                                         tracing::error!(error = %e, "Could not send killpill to server");
+                                                    }
+                                                },
+                                                REQUEST_SIZE_LIMIT_SETTING => {
+                                                    if server_mode {
+                                                        tracing::info!("Request limit size change detected, killing server expecting to be restarted");
+                                                        // we wait a bit randomly to avoid having all servers shutdown at same time
+                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                        if let Err(e) = tx.send(()) {
+                                                            tracing::error!(error = %e, "Could not send killpill to server");
+                                                        }
                                                     }
                                                 },
                                                 DISABLE_STATS_SETTING => {},
@@ -381,12 +395,13 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if let Some(_addr) = metrics_addr {
+            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 #[cfg(not(feature = "enterprise"))]
-                panic!("Metrics are only available in the Enterprise Edition");
+                tracing::error!("Metrics are only available in the EE, ignoring...");
 
                 #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(_addr, rx.resubscribe(), num_workers > 0).await;
+                windmill_common::serve_metrics(*METRICS_ADDR, rx.resubscribe(), num_workers > 0)
+                    .await;
             }
             Ok(()) as anyhow::Result<()>
         };

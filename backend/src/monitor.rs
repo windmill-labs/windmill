@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fmt::Display, ops::Mul, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    ops::Mul,
+    str::FromStr,
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
 
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
@@ -14,7 +21,7 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING,
+        BASE_URL_SETTING, EXPOSE_METRICS, EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         RETENTION_PERIOD_SECS_SETTING,
     },
@@ -76,6 +83,9 @@ pub async fn initial_load(
     worker_mode: bool,
     server_mode: bool,
 ) {
+    if let Err(e) = load_metrics_enabled(db).await {
+        tracing::error!("Error reloading loading metrics: {e}");
+    }
     let reload_worker_config_f = async {
         if worker_mode {
             reload_worker_config(&db, tx, false).await;
@@ -142,6 +152,20 @@ pub async fn initial_load(
         reload_extra_pip_index_url_f,
         reload_npm_config_registry_f
     );
+}
+
+pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        EXPOSE_METRICS
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => METRICS_ENABLED.store(t, Ordering::Relaxed),
+        _ => (),
+    };
+    Ok(())
 }
 
 pub async fn delete_expired_items(db: &DB) -> () {
@@ -413,7 +437,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     };
 
     let expose_queue_metrics_f = async {
-        if *METRICS_ENABLED && server_mode {
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) && server_mode {
             expose_queue_metrics(&db).await;
         }
     };
@@ -587,7 +611,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .ok()
             .unwrap_or_else(|| vec![]);
 
-        if *METRICS_ENABLED {
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
         for r in restarted {
@@ -613,7 +637,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .ok()
         .unwrap_or_else(|| vec![]);
 
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
 

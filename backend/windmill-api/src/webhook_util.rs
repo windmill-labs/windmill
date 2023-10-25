@@ -109,13 +109,13 @@ impl WebhookShared {
                                 }
                             };
                             if let Some(url) = webhook_opt {
-                                let timer = if *METRICS_ENABLED { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                                let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 let _ = client.post(url).json(&message).send().await;
                                 timer.map(|x| x.stop_and_record());
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
-                            if *METRICS_ENABLED { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                             let r = client.post(INSTANCE_EVENTS_WEBHOOK.as_ref().unwrap()).json(&event).send().await;
                             if let Err(e) = r {
                                 tracing::error!("Error sending instance event: {}", e);
