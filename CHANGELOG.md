@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.192.0](https://github.com/windmill-labs/windmill/compare/v1.191.0...v1.192.0) (2023-10-25)
+
+
+### Features
+
+* **frontend:** add display borders configuration to list component ([#2508](https://github.com/windmill-labs/windmill/issues/2508)) ([dc54829](https://github.com/windmill-labs/windmill/commit/dc548292ac05f92116d2d65863da3a52e0cfe027))
+
+
+### Bug Fixes
+
+* do not share http_client in js_eval runtime ([402193c](https://github.com/windmill-labs/windmill/commit/402193cef9eff0ca03f5bd854d29f95774c4b73e))
+* fix global instance dynamic css ([8efe0ca](https://github.com/windmill-labs/windmill/commit/8efe0cadacaae894cf93a3a569e3d0b8e79c7d14))
+
 ## [1.191.0](https://github.com/windmill-labs/windmill/compare/v1.190.3...v1.191.0) (2023-10-24)
 
 
