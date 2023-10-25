@@ -211,7 +211,9 @@ pub async fn transform_json_value(
                 .get_variable_value(path)
                 .await
                 .map(|x| json!(x))
-                .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
+                .map_err(|e| {
+                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e}"))
+                })
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -226,7 +228,9 @@ pub async fn transform_json_value(
                     Some(job.id.to_string()),
                 )
                 .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))
+                .map_err(|e| {
+                    Error::NotFound(format!("Resource {path} not found for `{name}`: {e}"))
+                })
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {
