@@ -749,7 +749,13 @@ export const components = {
 							}
 						}
 					}
-				} as const
+				} as const,
+				displayBorders: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					tooltip: 'Display borders between items'
+				}
 			},
 			componentInput: {
 				type: 'static',
