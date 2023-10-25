@@ -18,7 +18,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'listcomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined
 
@@ -143,7 +143,11 @@
 		style={css?.container?.style}
 	>
 		<div
-			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
+			class="w-full flex flex-wrap overflow-auto {isCard
+				? 'h-full gap-2'
+				: resolvedConfig?.displayBorders
+				? 'divide-y max-h-full'
+				: 'max-h-full'}"
 		>
 			{#if $app.subgrids?.[`${id}-0`]}
 				{#if Array.isArray(pagination.data) && pagination.data.length > 0}
@@ -154,7 +158,11 @@
 									? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
 									: ''
 							} max-height: ${resolvedConfig.heightPx}px;`}
-							class="overflow-auto {!isCard ? 'w-full' : 'border'}"
+							class="overflow-auto {!isCard
+								? 'w-full'
+								: resolvedConfig?.displayBorders
+								? 'border'
+								: ''}"
 						>
 							<ListWrapper
 								onInputsChange={() => {
