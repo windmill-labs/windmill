@@ -68,7 +68,7 @@
 	let css = initCss($app.css?.[appCssKey], customCss)
 
 	$: classInput = twMerge(
-		'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2',
+		'windmillapp w-full  py-1.5 text-sm focus:ring-indigo-100 px-2',
 		css?.input?.class ?? '',
 		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
 		'wm-text-input'
@@ -98,7 +98,7 @@
 {#if render}
 	{#if inputType === 'textarea'}
 		<textarea
-			class={classInput}
+			class={twMerge(classInput, 'h-full')}
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
