@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
@@ -715,7 +716,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     };
 
     if done {
-        if flow_job.same_worker && !*KEEP_JOB_DIR {
+        if flow_job.same_worker && !KEEP_JOB_DIR.load(Ordering::Relaxed) {
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
 

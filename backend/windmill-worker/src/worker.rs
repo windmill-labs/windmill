@@ -16,7 +16,7 @@ use sqlx::{types::Json, Pool, Postgres};
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
@@ -205,10 +205,10 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
-    pub static ref KEEP_JOB_DIR: bool = std::env::var("KEEP_JOB_DIR")
-    .ok()
-    .and_then(|x| x.parse::<bool>().ok())
-    .unwrap_or(false);
+    pub static ref KEEP_JOB_DIR: AtomicBool = AtomicBool::new(std::env::var("KEEP_JOB_DIR")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false));
 
     pub static ref NO_PROXY: Option<String> = std::env::var("no_proxy").ok().or(std::env::var("NO_PROXY").ok());
     pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
@@ -1339,7 +1339,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .expect("no timer found")
                         .inc_by(duration);
 
-                    if !*KEEP_JOB_DIR && !(arc_job.is_flow() && same_worker) {
+                    if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(arc_job.is_flow() && same_worker)
+                    {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }

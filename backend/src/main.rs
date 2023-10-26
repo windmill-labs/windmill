@@ -23,9 +23,10 @@ use tokio::{
 use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS, EXPOSE_METRICS,
-        EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     stats::schedule_stats,
     utils::rd_string,
@@ -40,9 +41,9 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, monitor_db, reload_base_url_setting, reload_extra_pip_index_url_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_retention_period_setting,
-    reload_server_config, reload_worker_config,
+    initial_load, load_keep_job_dir, monitor_db, reload_base_url_setting,
+    reload_extra_pip_index_url_setting, reload_license_key, reload_npm_config_registry_setting,
+    reload_retention_period_setting, reload_server_config, reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -341,7 +342,10 @@ Windmill Community Edition {GIT_VERSION}
                                                 NPM_CONFIG_REGISTRY_SETTING => {
                                                     reload_npm_config_registry_setting(&db).await
                                                 },
-                                                EXPOSE_METRICS => {
+                                                KEEP_JOB_DIR_SETTING => {
+                                                    load_keep_job_dir(&db).await;
+                                                }
+                                                EXPOSE_METRICS_SETTING | EXPOSE_DEBUG_METRICS_SETTING => {
                                                     tracing::info!("Metrics setting changed, restarting");
                                                     // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
                                                     let rd_delay = rand::thread_rng().gen_range(0..4);

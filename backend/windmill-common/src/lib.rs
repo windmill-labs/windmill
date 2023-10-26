@@ -59,6 +59,8 @@ lazy_static::lazy_static! {
     .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT)));
 
     pub static ref METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("METRICS_PORT").is_ok() || std::env::var("METRICS_ADDR").is_ok());
+    pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
