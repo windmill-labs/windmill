@@ -137,6 +137,22 @@
 			}
 		],
 		'SSO/OAuth': [],
+		Debug: [
+			{
+				label: 'Keep Job Directories',
+				key: 'keep_job_dir',
+				fieldType: 'boolean',
+				tooltip: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
+				storage: 'setting'
+			},
+			{
+				label: 'Expose Debug Metrics',
+				key: 'expose_debug_metrics',
+				fieldType: 'boolean',
+				tooltip: 'Expose additional metrics (require metrics to be enabled)',
+				storage: 'setting'
+			}
+		],
 		Telemetry: [
 			{
 				label: 'Disable telemetry',

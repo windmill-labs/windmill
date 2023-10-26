@@ -483,7 +483,7 @@ pub async fn handle_child(
                     if current_mem > *mem_peak {
                         *mem_peak = current_mem
                     }
-                    tracing::info!("{job_id} in {_w_id} still running. mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                    tracing::info!("{worker_name}/{job_id} in {_w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
                     if sqlx::query_scalar!("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled", *mem_peak, job_id)
                         .fetch_optional(&db)
                         .await
@@ -693,7 +693,7 @@ pub async fn handle_child(
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
-    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms, mem_peak: {:?}", start.elapsed().as_millis(), mem_peak);
+    tracing::info!(%job_id, "child process '{child_name}' for {worker_name}/{job_id} took {}ms, mem_peak: {:?}", start.elapsed().as_millis(), mem_peak);
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
