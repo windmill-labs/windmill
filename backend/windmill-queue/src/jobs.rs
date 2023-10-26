@@ -2039,27 +2039,27 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     )))?;
 
             // TODO: For now we restrict the restart feature to "simple" sequential flows. Implementation for more complex flow to follow
-            for step in raw_flow.clone().modules {
-                if match step.value {
-                    FlowModuleValue::BranchOne { .. }
-                    | FlowModuleValue::BranchAll { .. }
-                    | FlowModuleValue::ForloopFlow { .. }
-                    | FlowModuleValue::Flow { .. } => true,
-                    _ => false,
-                } {
-                    return Err(Error::InternalErr("Flow cannot be restarted as it contains at least one for loop or one branch. Only sequential flows can be restarted for now.".to_string()));
-                }
-                if step
-                    .suspend
-                    .map(|suspend| {
-                        suspend.user_auth_required.unwrap_or(false)
-                            || suspend.user_groups_required.is_some()
-                    })
-                    .unwrap_or(false)
-                {
-                    return Err(Error::InternalErr("Flow cannot be restarted as it contains on complex suspend conditions. This is not supported for now.".to_string()));
-                }
-            }
+            // for step in raw_flow.clone().modules {
+            //     if match step.value {
+            //         FlowModuleValue::BranchOne { .. }
+            //         | FlowModuleValue::BranchAll { .. }
+            //         | FlowModuleValue::ForloopFlow { .. }
+            //         | FlowModuleValue::Flow { .. } => true,
+            //         _ => false,
+            //     } {
+            //         return Err(Error::InternalErr("Flow cannot be restarted as it contains at least one for loop or one branch. Only sequential flows can be restarted for now.".to_string()));
+            //     }
+            //     if step
+            //         .suspend
+            //         .map(|suspend| {
+            //             suspend.user_auth_required.unwrap_or(false)
+            //                 || suspend.user_groups_required.is_some()
+            //         })
+            //         .unwrap_or(false)
+            //     {
+            //         return Err(Error::InternalErr("Flow cannot be restarted as it contains on complex suspend conditions. This is not supported for now.".to_string()));
+            //     }
+            // }
             let mut step_n = 0;
             let mut dependent_module = false;
             let mut truncated_modules: Vec<FlowStatusModule> = vec![];

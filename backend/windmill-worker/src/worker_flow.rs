@@ -1058,6 +1058,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
+    tracing::error!("flow: {:?}", status);
     let mut status_module: FlowStatusModule = status
         .modules
         .get(i)
@@ -1127,19 +1128,35 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
     }
 
-    // There are several cases where the last_job_result might be missing although it's not step 0 of the flow
-    // - for example if the flow was suspended and it's being revived
-    // - or if the flow is restarted at an arbitrary step from a previous flow
-    // In those cases we need to get the result from the previous step by fetching it in the DB
-    // When it's the first step of the flow, we default to the flow args if last_job_result is not set
-    let arc_last_job_result = if i == 0 && last_job_result.is_none() {
-        Arc::new(to_raw_value(&flow_job.args))
-    } else if last_job_result.is_some() {
+    // Compute and initialize last_job_result
+    let module_has_already_failed_once = match status_module {
+        FlowStatusModule::Failure { .. } => true,
+        _ => false,
+    };
+    tracing::error!(
+        "step {} - args {:?} - last_job_result {:?} - last_is_failure {}",
+        i,
+        flow_job.args,
+        last_job_result,
+        module_has_already_failed_once
+    );
+    let arc_last_job_result = if module_has_already_failed_once {
+        // if job is being retried, pass the result of its previous failure
         Arc::new(last_job_result.unwrap_or(to_raw_value(&json!("{}"))))
+    } else if i == 0 {
+        // if it's the first job executed in the flow, pass the flow args
+        Arc::new(to_raw_value(&flow_job.args))
     } else {
-        match get_previous_job_result_if_any(db, &status).await? {
-            None => Arc::new(to_raw_value(&json!("{}"))), // last job wasn't a success => it has no result
-            Some(previous_job_result) => Arc::new(previous_job_result),
+        // else pass the last job result. Either from the function arg if it's set, or manually fetch it from the previous job
+        // having last_job_result empty can happen either when the job was suspended and is being restarted, or if it's a
+        // flow restart from a specific step
+        if last_job_result.is_some() {
+            Arc::new(last_job_result.unwrap())
+        } else {
+            match get_previous_job_result(db, &status).await? {
+                None => Arc::new(to_raw_value(&json!("{}"))),
+                Some(previous_job_result) => Arc::new(previous_job_result),
+            }
         }
     };
 
@@ -2598,7 +2615,7 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
 }
 
 // returns the result of the previous step of a running flow (if the job was successful)
-async fn get_previous_job_result_if_any(
+async fn get_previous_job_result(
     db: &sqlx::Pool<sqlx::Postgres>,
     flow_status: &FlowStatus,
 ) -> error::Result<Option<Box<RawValue>>> {
