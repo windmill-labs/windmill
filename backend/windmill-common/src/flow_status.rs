@@ -188,6 +188,13 @@ impl FlowStatusModule {
             FlowStatusModule::Failure { id, .. } => id.clone(),
         }
     }
+
+    pub fn is_failure(&self) -> bool {
+        match self {
+            FlowStatusModule::Failure { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 impl FlowStatus {
