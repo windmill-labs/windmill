@@ -2203,6 +2203,7 @@ async fn compute_next_flow_transform(
                                 priority: None,
                             },
                             path: inner_path,
+                            restarted_from: None,
                         },
                         tag: None,
                     });
@@ -2262,6 +2263,7 @@ async fn compute_next_flow_transform(
                                         priority: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
+                                    restarted_from: None,
                                 },
                                 tag: None,
                             }
@@ -2359,6 +2361,7 @@ async fn compute_next_flow_transform(
                             flow_job.script_path(),
                             status.step
                         )),
+                        restarted_from: None,
                     },
                     tag: None,
                 }),
@@ -2405,6 +2408,7 @@ async fn compute_next_flow_transform(
                                                     flow_job.script_path(),
                                                     i
                                                 )),
+                                                restarted_from: None,
                                             },
                                             tag: None,
                                         }
@@ -2468,6 +2472,7 @@ async fn compute_next_flow_transform(
                             flow_job.script_path(),
                             branch_status.branch
                         )),
+                        restarted_from: None,
                     },
                     tag: None,
                 }),

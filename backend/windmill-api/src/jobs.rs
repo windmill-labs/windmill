@@ -8,6 +8,7 @@
 
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use windmill_common::flow_status::RestartedFrom;
 
 use crate::db::ApiAuthed;
 
@@ -1471,6 +1472,7 @@ struct PreviewFlow {
     path: Option<String>,
     args: Option<Box<JsonRawValue>>,
     tag: Option<String>,
+    restarted_from: Option<RestartedFrom>,
 }
 
 pub struct QueryOrBody<D>(pub Option<D>);
@@ -2321,7 +2323,7 @@ async fn add_batch_jobs(
 
             let mut uuids: Vec<Uuid> = Vec::new();
             let payload = if let Some(ref fv) = batch_info.flow_value {
-                JobPayload::RawFlow { value: fv.clone(), path: None }
+                JobPayload::RawFlow { value: fv.clone(), path: None, restarted_from: None }
             } else {
                 if let Some(path) = batch_info.path.as_ref() {
                     JobPayload::Flow(path.to_string())
@@ -2437,7 +2439,11 @@ async fn run_preview_flow_job(
         &db,
         tx,
         &w_id,
-        JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
+        JobPayload::RawFlow {
+            value: raw_flow.value,
+            path: raw_flow.path,
+            restarted_from: raw_flow.restarted_from,
+        },
         raw_flow.args.unwrap_or_default(),
         &authed.username,
         &authed.email,

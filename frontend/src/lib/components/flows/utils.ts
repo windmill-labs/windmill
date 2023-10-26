@@ -4,7 +4,8 @@ import {
 	type Flow,
 	type FlowModule,
 	type InputTransform,
-	type Job
+	type Job,
+	type RestartedFrom
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -108,7 +109,7 @@ export function jobsToResults(jobs: Job[]) {
 	})
 }
 
-export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
+export async function runFlowPreview(args: Record<string, any>, flow: Flow, restartedFrom: RestartedFrom | undefined) {
 	const newFlow = flow
 	return await JobService.runFlowPreview({
 		workspace: get(workspaceStore) ?? '',
@@ -116,7 +117,8 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 			args,
 			value: newFlow.value,
 			path: newFlow.path,
-			tag: newFlow.tag
+			tag: newFlow.tag,
+			restarted_from: restartedFrom,
 		}
 	})
 }

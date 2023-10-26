@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{self, Error},
-    flow_status::FlowStatus,
+    flow_status::{FlowStatus, RestartedFrom},
     flows::FlowValue,
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
@@ -293,6 +293,7 @@ pub enum JobPayload {
     RawFlow {
         value: FlowValue,
         path: Option<String>,
+        restarted_from: Option<RestartedFrom>,
     },
     Identity,
     Noop,

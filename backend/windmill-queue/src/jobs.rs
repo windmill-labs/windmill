@@ -1965,20 +1965,53 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
         ),
-        JobPayload::RawFlow { value, path } => (
-            None,
-            path,
-            None,
-            JobKind::FlowPreview,
-            Some(value.clone()),
-            Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
-            None,
-            value.concurrent_limit.clone(),
-            value.concurrency_time_window_s,
-            value.cache_ttl.map(|x| x as i32),
-            None,
-            value.priority,
-        ),
+        JobPayload::RawFlow { value, path, restarted_from } => {
+            let flow_status: FlowStatus = match restarted_from {
+                Some(restarted_from_val) => {
+                    let (_, _, step_n, truncated_modules, _) = restarted_flows_resolution(
+                        _db,
+                        workspace_id,
+                        restarted_from_val.flow_job_id,
+                        restarted_from_val.step_id.as_str(),
+                    )
+                    .await?;
+                    FlowStatus {
+                        step: step_n,
+                        modules: truncated_modules,
+                        // failure_module is reset
+                        failure_module: FlowStatusModuleWParent {
+                            parent_module: None,
+                            module_status: FlowStatusModule::WaitingForPriorSteps {
+                                id: "failure".to_string(),
+                            },
+                        },
+                        // retry status is reset
+                        retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
+                        // TODO: for now, flows with approval conditions aren't supported for restart
+                        approval_conditions: None,
+                        restarted_from: Some(RestartedFrom {
+                            flow_job_id: restarted_from_val.flow_job_id,
+                            step_id: restarted_from_val.step_id,
+                        }),
+                    }
+                }
+                _ => FlowStatus::new(&value), // this is a new flow being pushed, flow_status is set to flow_value
+            };
+            (
+                None,
+                path,
+                None,
+                JobKind::FlowPreview,
+                Some(value.clone()),
+                Some(flow_status),
+                None,
+                value.concurrent_limit.clone(),
+                value.concurrency_time_window_s,
+                value.cache_ttl.map(|x| x as i32),
+                None,
+                value.priority,
+            )
+        }
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
@@ -2010,91 +2043,9 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             )
         }
         JobPayload::RestartedFlow { completed_job_id, step_id } => {
-            let completed_job = sqlx::query_as::<_, CompletedJob>(
-                "SELECT * FROM completed_job WHERE id = $1 and workspace_id = $2",
-            )
-            .bind(completed_job_id)
-            .bind(workspace_id)
-            .fetch_one(_db) // TODO: should we try to use the passed-in `tx` here?
-            .await
-            .map_err(|err| {
-                Error::InternalErr(format!(
-                    "completed job not found for UUID {} in workspace {}: {}",
-                    completed_job_id, workspace_id, err
-                ))
-            })?;
-
-            let raw_flow = completed_job
-                .parse_raw_flow()
-                .ok_or(Error::InternalErr(format!(
-                    "Unable to parse raw definition for job {} in workspace {}",
-                    completed_job_id, workspace_id,
-                )))?;
-            let flow_status =
-                completed_job
-                    .parse_flow_status()
-                    .ok_or(Error::InternalErr(format!(
-                        "Unable to parse flow status for job {} in workspace {}",
-                        completed_job_id, workspace_id,
-                    )))?;
-
-            // TODO: For now we restrict the restart feature to "simple" sequential flows. Implementation for more complex flow to follow
-            // for step in raw_flow.clone().modules {
-            //     if match step.value {
-            //         FlowModuleValue::BranchOne { .. }
-            //         | FlowModuleValue::BranchAll { .. }
-            //         | FlowModuleValue::ForloopFlow { .. }
-            //         | FlowModuleValue::Flow { .. } => true,
-            //         _ => false,
-            //     } {
-            //         return Err(Error::InternalErr("Flow cannot be restarted as it contains at least one for loop or one branch. Only sequential flows can be restarted for now.".to_string()));
-            //     }
-            //     if step
-            //         .suspend
-            //         .map(|suspend| {
-            //             suspend.user_auth_required.unwrap_or(false)
-            //                 || suspend.user_groups_required.is_some()
-            //         })
-            //         .unwrap_or(false)
-            //     {
-            //         return Err(Error::InternalErr("Flow cannot be restarted as it contains on complex suspend conditions. This is not supported for now.".to_string()));
-            //     }
-            // }
-            let mut step_n = 0;
-            let mut dependent_module = false;
-            let mut truncated_modules: Vec<FlowStatusModule> = vec![];
-            for module in flow_status.modules {
-                if module.id() == step_id.clone() || dependent_module {
-                    // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-                    // set the module as WaitingForPriorSteps as it needs to be re-run
-                    truncated_modules
-                        .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
-                    dependent_module = true;
-                } else {
-                    // else we simply "transfer" the module from the completed flow to the new one if it's a success
-                    step_n = step_n + 1;
-                    match module.clone() {
-                        FlowStatusModule::Success {
-                            id: _,
-                            job: _,
-                            flow_jobs: _,
-                            branch_chosen: _,
-                            approvers: _,
-                        } => Ok(truncated_modules.push(module)),
-                        _ => Err(Error::InternalErr(format!(
-                            "Flow cannot be restarted from a non successful module",
-                        ))),
-                    }?;
-                }
-            }
-            if !dependent_module {
-                // step not found in flow.
-                return Err(Error::InternalErr(format!(
-                    "Flow cannot be restarted from step {} as it could not be found.",
-                    step_id
-                )));
-            }
-
+            let (flow_path, raw_flow, step_n, truncated_modules, priority) =
+                restarted_flows_resolution(_db, workspace_id, completed_job_id, step_id.as_str())
+                    .await?;
             let restarted_flow_status = FlowStatus {
                 step: step_n,
                 modules: truncated_modules,
@@ -2111,10 +2062,9 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 approval_conditions: None,
                 restarted_from: Some(RestartedFrom { flow_job_id: completed_job_id, step_id }),
             };
-
             (
                 None,
-                completed_job.script_path,
+                flow_path,
                 None,
                 JobKind::Flow,
                 Some(raw_flow.clone()),
@@ -2124,7 +2074,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 raw_flow.concurrency_time_window_s,
                 raw_flow.cache_ttl.map(|x| x as i32),
                 None,
-                completed_job.priority,
+                priority,
             )
         }
         JobPayload::Identity => (
@@ -2384,4 +2334,111 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
         .unwrap_or_else(|| "no reason given");
     let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
+}
+
+async fn restarted_flows_resolution(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    completed_flow_id: Uuid,
+    restart_step_id: &str,
+) -> Result<
+    (
+        Option<String>,
+        FlowValue,
+        i32,
+        Vec<FlowStatusModule>,
+        Option<i16>,
+    ),
+    Error,
+> {
+    let completed_job = sqlx::query_as::<_, CompletedJob>(
+        "SELECT * FROM completed_job WHERE id = $1 and workspace_id = $2",
+    )
+    .bind(completed_flow_id)
+    .bind(workspace_id)
+    .fetch_one(db) // TODO: should we try to use the passed-in `tx` here?
+    .await
+    .map_err(|err| {
+        Error::InternalErr(format!(
+            "completed job not found for UUID {} in workspace {}: {}",
+            completed_flow_id, workspace_id, err
+        ))
+    })?;
+
+    let raw_flow = completed_job
+        .parse_raw_flow()
+        .ok_or(Error::InternalErr(format!(
+            "Unable to parse raw definition for job {} in workspace {}",
+            completed_flow_id, workspace_id,
+        )))?;
+    let flow_status = completed_job
+        .parse_flow_status()
+        .ok_or(Error::InternalErr(format!(
+            "Unable to parse flow status for job {} in workspace {}",
+            completed_flow_id, workspace_id,
+        )))?;
+
+    // TODO: For now we restrict the restart feature to "simple" sequential flows. Implementation for more complex flow to follow
+    // for step in raw_flow.clone().modules {
+    //     if match step.value {
+    //         FlowModuleValue::BranchOne { .. }
+    //         | FlowModuleValue::BranchAll { .. }
+    //         | FlowModuleValue::ForloopFlow { .. }
+    //         | FlowModuleValue::Flow { .. } => true,
+    //         _ => false,
+    //     } {
+    //         return Err(Error::InternalErr("Flow cannot be restarted as it contains at least one for loop or one branch. Only sequential flows can be restarted for now.".to_string()));
+    //     }
+    //     if step
+    //         .suspend
+    //         .map(|suspend| {
+    //             suspend.user_auth_required.unwrap_or(false)
+    //                 || suspend.user_groups_required.is_some()
+    //         })
+    //         .unwrap_or(false)
+    //     {
+    //         return Err(Error::InternalErr("Flow cannot be restarted as it contains on complex suspend conditions. This is not supported for now.".to_string()));
+    //     }
+    // }
+    let mut step_n = 0;
+    let mut dependent_module = false;
+    let mut truncated_modules: Vec<FlowStatusModule> = vec![];
+    for module in flow_status.modules {
+        if module.id() == restart_step_id || dependent_module {
+            // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+            // set the module as WaitingForPriorSteps as it needs to be re-run
+            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            dependent_module = true;
+        } else {
+            // else we simply "transfer" the module from the completed flow to the new one if it's a success
+            step_n = step_n + 1;
+            match module.clone() {
+                FlowStatusModule::Success {
+                    id: _,
+                    job: _,
+                    flow_jobs: _,
+                    branch_chosen: _,
+                    approvers: _,
+                } => Ok(truncated_modules.push(module)),
+                _ => Err(Error::InternalErr(format!(
+                    "Flow cannot be restarted from a non successful module",
+                ))),
+            }?;
+        }
+    }
+    if !dependent_module {
+        // step not found in flow.
+        return Err(Error::InternalErr(format!(
+            "Flow cannot be restarted from step {} as it could not be found.",
+            restart_step_id
+        )));
+    }
+
+    return Ok((
+        completed_job.script_path,
+        raw_flow,
+        step_n,
+        truncated_modules,
+        completed_job.priority,
+    ));
 }

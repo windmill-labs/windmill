@@ -7917,11 +7917,19 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         tag:
           type: string
+        restarted_from:
+          $ref: "#/components/schemas/RestartedFrom"
 
       required:
         - value
         - content
         - args
+
+    RestartedFrom:
+      type: object
+      properties:
+        flow_job_id: uuid
+        step_id: string
 
     Policy:
       type: object

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService, type Flow, type FlowModule } from '$lib/gen'
+	import { Job, JobService, type Flow, type FlowModule, type RestartedFrom } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, Kbd } from './common'
@@ -23,6 +23,7 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
+	let selectedJobStep: string | undefined = undefined
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
@@ -70,10 +71,13 @@
 		}
 	}
 
-	export async function runPreview(args: Record<string, any>) {
+	export async function runPreview(
+		args: Record<string, any>,
+		restartedFrom: RestartedFrom | undefined
+	) {
 		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
-		jobId = await runFlowPreview(args, newFlow)
+		jobId = await runFlowPreview(args, newFlow, restartedFrom)
 		isRunning = true
 	}
 
@@ -83,7 +87,7 @@
 				case 'Enter':
 					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
-						runPreview($previewArgs)
+						runPreview($previewArgs, undefined)
 					}
 					break
 			}
@@ -156,12 +160,30 @@
 				color="dark"
 				size="sm"
 				btnClasses="w-full max-w-lg"
-				on:click={() => runPreview($previewArgs)}
+				on:click={() => runPreview($previewArgs, undefined)}
 				id="flow-editor-test-flow-drawer"
 			>
 				Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 			</Button>
+			{#if jobId !== undefined && selectedJobStep !== undefined}
+				<Button
+					variant="contained"
+					startIcon={{ icon: isRunning ? faRefresh : faPlay }}
+					color="dark"
+					size="sm"
+					btnClasses="w-full max-w-lg"
+					on:click={() => {
+						runPreview($previewArgs, {
+							flow_job_id: jobId,
+							step_id: selectedJobStep
+						})
+					}}
+					id="flow-editor-test-flow-drawer"
+				>
+					Test from {selectedJobStep}
+				</Button>
+			{/if}
 		{/if}
 		<div class="flex gap-2">
 			{#if initialPath != ''}
@@ -205,6 +227,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					bind:selectedJobStep
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
