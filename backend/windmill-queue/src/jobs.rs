@@ -237,8 +237,8 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         &queued_job.tag,
         |s| {
             let counter = prometheus::register_int_counter!(prometheus::Opts::new(
-                "worker_execution_count",
-                "Number of executed jobs"
+                "worker_execution_failed",
+                "Number of jobs having failed"
             )
             .const_label("name", worker_name)
             .const_label("tag", s))
