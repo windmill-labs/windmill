@@ -7,8 +7,8 @@
  */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
@@ -28,7 +28,7 @@ use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
 use windmill_common::jobs::{
-    script_hash_to_tag_and_limits, script_path_to_payload, JobPayload, Metrics, QueuedJob, RawCode,
+    script_hash_to_tag_and_limits, script_path_to_payload, JobPayload, QueuedJob, RawCode,
 };
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
@@ -60,12 +60,12 @@ pub async fn update_flow_status_after_job_completion<
     w_id: &str,
     success: bool,
     result: &'a RawValue,
-    metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     rsmq: Option<R>,
+    worker_name: &str,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
     let mut rec = update_flow_status_after_job_completion_internal(
@@ -76,13 +76,13 @@ pub async fn update_flow_status_after_job_completion<
         w_id,
         success,
         result,
-        metrics.clone(),
         unrecoverable,
         same_worker_tx.clone(),
         worker_dir,
         stop_early_override,
         false,
         rsmq.clone(),
+        worker_name,
     )
     .await?;
     while let Some(nrec) = rec {
@@ -94,13 +94,13 @@ pub async fn update_flow_status_after_job_completion<
             w_id,
             nrec.success,
             nrec.result.as_ref(),
-            metrics.clone(),
             false,
             same_worker_tx.clone(),
             worker_dir,
             nrec.stop_early_override,
             nrec.skip_error_handler,
             rsmq.clone(),
+            worker_name,
         )
         .await
         {
@@ -114,13 +114,13 @@ pub async fn update_flow_status_after_job_completion<
                     w_id,
                     false,
                     &to_raw_value(&Json(&WrappedError { error: json!(e.to_string()) })),
-                    metrics.clone(),
                     true,
                     same_worker_tx.clone(),
                     worker_dir,
                     nrec.stop_early_override,
                     nrec.skip_error_handler,
                     rsmq.clone(),
+                    worker_name,
                 )
                 .await?
             }
@@ -162,13 +162,13 @@ pub async fn update_flow_status_after_job_completion_internal<
     w_id: &str,
     mut success: bool,
     result: &'a RawValue,
-    metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
     rsmq: Option<R>,
+    worker_name: &str,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult, is_failure_step) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
@@ -639,8 +639,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                 logs,
                 0,
                 canceled_job_to_result(&flow_job),
-                metrics.clone(),
                 rsmq.clone(),
+                worker_name,
             )
             .await?;
         } else {
@@ -694,6 +694,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             same_worker_tx.clone(),
             worker_dir,
             rsmq.clone(),
+            worker_name,
         )
         .await
         {
@@ -705,8 +706,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                     "Unexpected error during flow chaining:\n".to_string(),
                     0,
                     e,
-                    metrics.clone(),
                     rsmq.clone(),
+                    worker_name,
                 )
                 .await;
                 true
@@ -987,6 +988,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     rsmq: Option<R>,
+    worker_name: &str,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -1011,6 +1013,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         same_worker_tx,
         worker_dir,
         rsmq,
+        worker_name,
     )
     .await?;
     Ok(())
@@ -1055,6 +1058,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     rsmq: Option<R>,
+    worker_name: &str,
 ) -> error::Result<()> {
     let job_root = flow_job
         .root_job
@@ -1090,12 +1094,12 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 // it has to be an empty for loop event
                 serde_json::from_str("[]").unwrap()
             },
-            None,
             true,
             same_worker_tx,
             worker_dir,
             None,
             rsmq,
+            worker_name,
         )
         .await;
     }
@@ -1123,12 +1127,12 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     flow_job.workspace_id.as_str(),
                     true,
                     serde_json::from_str("\"stopped early\"").unwrap(),
-                    None,
                     true,
                     same_worker_tx,
                     worker_dir,
                     Some(true),
                     rsmq,
+                    worker_name,
                 )
                 .await;
             }
