@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -19,6 +19,7 @@ use axum::{
 };
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
+use prometheus::IntCounter;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Client, StatusCode,
@@ -29,6 +30,7 @@ use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
+use tokio::sync::RwLock;
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -43,8 +45,8 @@ use windmill_common::{
     },
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{
-        get_payload_tag_from_prefixed_path, script_path_to_payload, JobKind, JobPayload, Metrics,
-        QueuedJob, RawCode,
+        get_payload_tag_from_prefixed_path, script_path_to_payload, JobKind, JobPayload, QueuedJob,
+        RawCode,
     },
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
@@ -72,16 +74,21 @@ lazy_static::lazy_static! {
         "Total number of jobs pushed to the queue."
     )
     .unwrap();
+
     static ref QUEUE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_delete_count",
         "Total number of jobs deleted from the queue."
     )
     .unwrap();
+
     static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_pull_count",
         "Total number of jobs pulled from the queue."
     )
     .unwrap();
+
+    pub static ref WORKER_EXECUTION_FAILED: Arc<RwLock<HashMap<String, IntCounter>>> = Arc::new(RwLock::new(HashMap::new()));
+
 
 }
 
@@ -135,8 +142,8 @@ pub async fn cancel_job<'c: 'async_recursion>(
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             job_running.mem_peak.unwrap_or(0),
             e,
-            None,
             rsmq.clone(),
+            "server",
         )
         .await;
         if let Err(e) = add_job {
@@ -185,6 +192,36 @@ pub struct WrappedError {
     pub error: serde_json::Value,
 }
 
+pub async fn register_metric<T, F, F2, R>(
+    l: &Arc<RwLock<HashMap<String, T>>>,
+    s: &str,
+    fnew: F2,
+    f: F,
+) -> Option<R>
+where
+    F: FnOnce(&T) -> R,
+    F2: FnOnce(&str) -> (T, R),
+{
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let lock = l.read().await;
+
+        let counter = lock.get(s);
+        if let Some(counter) = counter {
+            let r = f(counter);
+            drop(lock);
+            Some(r)
+        } else {
+            drop(lock);
+            let (metric, r) = fnew(s);
+            let mut m = l.write().await;
+            (*m).insert(s.to_string(), metric);
+            Some(r)
+        }
+    } else {
+        None
+    }
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
@@ -192,12 +229,27 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     logs: String,
     mem_peak: i32,
     e: serde_json::Value,
-    metrics: Option<Metrics>,
     rsmq: Option<R>,
+    worker_name: &str,
 ) -> Result<WrappedError, Error> {
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        metrics.map(|m| m.worker_execution_failed.inc());
-    }
+    register_metric(
+        &WORKER_EXECUTION_FAILED,
+        &queued_job.tag,
+        |s| {
+            let counter = prometheus::register_int_counter!(prometheus::Opts::new(
+                "worker_execution_count",
+                "Number of executed jobs"
+            )
+            .const_label("name", worker_name)
+            .const_label("tag", s))
+            .expect("register prometheus metric");
+            counter.inc();
+            (counter, ())
+        },
+        |c| c.inc(),
+    )
+    .await;
+
     let result = WrappedError { error: e };
     tracing::error!(
         "job {} did not succeed: {}",
