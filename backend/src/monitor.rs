@@ -21,7 +21,8 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, EXPOSE_METRICS, EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING,
+        BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         RETENTION_PERIOD_SECS_SETTING,
     },
@@ -29,10 +30,10 @@ use windmill_common::{
     server::load_server_config,
     users::truncate_token,
     worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
-    BASE_URL, DB, METRICS_ENABLED,
+    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, NPM_CONFIG_REGISTRY,
+    create_token_for_owner, handle_job_error, AuthedClient, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
     PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
@@ -84,80 +85,60 @@ pub async fn initial_load(
     server_mode: bool,
 ) {
     if let Err(e) = load_metrics_enabled(db).await {
-        tracing::error!("Error reloading loading metrics: {e}");
+        tracing::error!("Error loading expose metrics: {e}");
     }
-    let reload_worker_config_f = async {
-        if worker_mode {
-            reload_worker_config(&db, tx, false).await;
-        }
-    };
-    let reload_custom_tags_f = async {
-        if server_mode {
-            if let Err(e) = reload_custom_tags_setting(db).await {
-                tracing::error!("Error reloading custom tags: {:?}", e)
-            }
-        }
-    };
 
-    let reload_base_url_f = async {
-        if let Err(e) = reload_base_url_setting(db).await {
-            tracing::error!("Error reloading base url: {:?}", e)
-        }
-    };
+    if let Err(e) = load_metrics_debug_enabled(db).await {
+        tracing::error!("Error loading expose debug metrics: {e}");
+    }
 
-    let reload_server_config_f = async {
-        if server_mode {
-            reload_server_config(&db).await;
-        }
-    };
-    let reload_retention_period_f = async {
-        if server_mode {
-            reload_retention_period_setting(&db).await;
-        }
-    };
+    if worker_mode {
+        load_keep_job_dir(db).await;
+    }
 
-    let reload_request_size_f = async {
-        if server_mode {
-            reload_request_size(&db).await;
-        }
-    };
+    if worker_mode {
+        reload_worker_config(&db, tx, false).await;
+    }
 
-    let reload_license_key_f = async {
-        #[cfg(feature = "enterprise")]
-        if let Err(e) = reload_license_key(&db).await {
-            tracing::error!("Error reloading license key: {:?}", e)
+    if server_mode {
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!("Error reloading custom tags: {:?}", e)
         }
-    };
+    }
 
-    let reload_extra_pip_index_url_f = async {
-        if worker_mode {
-            reload_extra_pip_index_url_setting(&db).await;
-        }
-    };
+    if let Err(e) = reload_base_url_setting(db).await {
+        tracing::error!("Error reloading base url: {:?}", e)
+    }
 
-    let reload_npm_config_registry_f = async {
-        if worker_mode {
-            reload_npm_config_registry_setting(&db).await;
-        }
-    };
+    if server_mode {
+        reload_server_config(&db).await;
+    }
 
-    join!(
-        reload_worker_config_f,
-        reload_server_config_f,
-        reload_custom_tags_f,
-        reload_request_size_f,
-        reload_base_url_f,
-        reload_retention_period_f,
-        reload_license_key_f,
-        reload_extra_pip_index_url_f,
-        reload_npm_config_registry_f
-    );
+    if server_mode {
+        reload_retention_period_setting(&db).await;
+    }
+    if server_mode {
+        reload_request_size(&db).await;
+    }
+
+    #[cfg(feature = "enterprise")]
+    if let Err(e) = reload_license_key(&db).await {
+        tracing::error!("Error reloading license key: {:?}", e)
+    }
+
+    if worker_mode {
+        reload_extra_pip_index_url_setting(&db).await;
+    }
+
+    if worker_mode {
+        reload_npm_config_registry_setting(&db).await;
+    }
 }
 
 pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
     let metrics_enabled = sqlx::query_scalar!(
         "SELECT value FROM global_settings WHERE name = $1",
-        EXPOSE_METRICS
+        EXPOSE_METRICS_SETTING
     )
     .fetch_optional(db)
     .await;
@@ -166,6 +147,35 @@ pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
         _ => (),
     };
     Ok(())
+}
+
+pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        EXPOSE_DEBUG_METRICS_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed),
+        _ => (),
+    };
+    Ok(())
+}
+pub async fn load_keep_job_dir(db: &DB) {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        KEEP_JOB_DIR_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
+        Err(e) => {
+            tracing::error!("Error loading keep job dir metrics: {e}");
+        }
+        _ => (),
+    };
 }
 
 pub async fn delete_expired_items(db: &DB) -> () {
@@ -412,7 +422,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 ) {
     let zombie_jobs_f = async {
         if server_mode {
-            handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
+            handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
         }
     };
     let expired_items_f = async {
@@ -598,6 +608,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     db: &Pool<Postgres>,
     base_internal_url: &str,
     rsmq: Option<R>,
+    worker_name: &str,
 ) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
@@ -678,11 +689,11 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .unwrap_or_else(|| "no ping".to_string()),
                 *ZOMBIE_JOB_TIMEOUT
             )),
-            None,
             true,
             same_worker_tx_never_used,
             "",
             rsmq.clone(),
+            worker_name,
         )
         .await;
     }

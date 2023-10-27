@@ -330,8 +330,3 @@ pub async fn get_payload_tag_from_prefixed_path(
     };
     Ok((payload, tag))
 }
-
-#[derive(Clone)]
-pub struct Metrics {
-    pub worker_execution_failed: prometheus::IntCounter,
-}

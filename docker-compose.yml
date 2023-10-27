@@ -48,7 +48,6 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
-      - KEEP_JOB_DIR=false
       - WORKER_GROUP=default
     depends_on:
       db:
