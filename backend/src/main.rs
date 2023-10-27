@@ -41,7 +41,7 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, monitor_db, reload_base_url_setting,
+    initial_load, load_keep_job_dir, monitor_db, monitor_pool, reload_base_url_setting,
     reload_extra_pip_index_url_setting, reload_license_key, reload_npm_config_registry_setting,
     reload_retention_period_setting, reload_server_config, reload_worker_config,
 };
@@ -229,6 +229,8 @@ Windmill Community Edition {GIT_VERSION}
 
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
 
+        monitor_pool(&db).await;
+
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
         }
@@ -346,12 +348,14 @@ Windmill Community Edition {GIT_VERSION}
                                                     load_keep_job_dir(&db).await;
                                                 }
                                                 EXPOSE_METRICS_SETTING | EXPOSE_DEBUG_METRICS_SETTING => {
-                                                    tracing::info!("Metrics setting changed, restarting");
-                                                    // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
-                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill to server");
+                                                    if n.payload() != EXPOSE_DEBUG_METRICS_SETTING || worker_mode {
+                                                        tracing::info!("Metrics setting changed, restarting");
+                                                        // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
+                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                        if let Err(e) = tx.send(()) {
+                                                            tracing::error!(error = %e, "Could not send killpill to server");
+                                                        }
                                                     }
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
