@@ -1408,12 +1408,59 @@ struct ResultR {
     result: Option<Json<Box<RawValue>>>,
 }
 
-#[async_recursion]
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
     flow_id: Uuid,
     node_id: String,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    match get_result_by_id_from_running_flow(
+        &db,
+        w_id.as_str(),
+        &flow_id,
+        node_id.as_str(),
+        json_path.clone(),
+    )
+    .await
+    {
+        Ok(res) => Ok(res),
+        Err(_) => {
+            let running_flow_job = sqlx::query_as::<_, QueuedJob>(
+                "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
+            ).bind(flow_id)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?;
+
+            let restarted_from = windmill_common::utils::not_found_if_none(
+                running_flow_job
+                    .map(|fj| fj.parse_flow_status())
+                    .flatten()
+                    .map(|status| status.restarted_from)
+                    .flatten(),
+                "Flow result by id in leaf jobs",
+                format!("{}, {}", flow_id, node_id),
+            )?;
+
+            get_result_by_id_from_original_flow(
+                &db,
+                w_id.as_str(),
+                &restarted_from.flow_job_id,
+                node_id.as_str(),
+                json_path.clone(),
+            )
+            .await
+        }
+    }
+}
+
+#[async_recursion]
+pub async fn get_result_by_id_from_running_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: &Uuid,
+    node_id: &str,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     let flow_job_result = sqlx::query!(
@@ -1422,7 +1469,7 @@ pub async fn get_result_by_id(
         flow_id,
         w_id,
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
 
     let flow_job_result = windmill_common::utils::not_found_if_none(
@@ -1439,11 +1486,11 @@ pub async fn get_result_by_id(
     if job_result.is_none() && flow_job_result.parent_job.is_some() {
         let parent_job = flow_job_result.parent_job.unwrap();
         let root_job = sqlx::query_scalar!("SELECT root_job FROM queue WHERE id = $1", parent_job)
-            .fetch_optional(&db)
+            .fetch_optional(db)
             .await?
             .flatten()
             .unwrap_or(parent_job);
-        return get_result_by_id(db, w_id, root_job, node_id, json_path).await;
+        return get_result_by_id_from_running_flow(db, w_id, &root_job, node_id, json_path).await;
     }
 
     let result_id = windmill_common::utils::not_found_if_none(
@@ -1459,7 +1506,7 @@ pub async fn get_result_by_id(
             )
             .bind(x.as_slice())
             .bind(w_id)
-            .fetch_all(&db)
+            .fetch_all(db)
             .await?
             .into_iter()
             .filter_map(|x| ResultR::from_row(&x).ok().and_then(|x| x.result))
@@ -1476,7 +1523,7 @@ pub async fn get_result_by_id(
                 .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
                 .unwrap_or_default(),
         )
-        .fetch_optional(&db)
+        .fetch_optional(db)
         .await?
         .map(|r| {
             ResultR::from_row(&r)
@@ -1488,6 +1535,155 @@ pub async fn get_result_by_id(
     };
 
     Ok(value)
+}
+
+#[async_recursion]
+pub async fn get_result_by_id_from_original_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    completed_flow_id: &Uuid,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let flow_job = sqlx::query_as::<_, CompletedJob>(
+        "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(completed_flow_id)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?;
+
+    let flow_job = windmill_common::utils::not_found_if_none(
+        flow_job,
+        "Flow result by id in leaf jobs",
+        format!("{}", completed_flow_id),
+    )?;
+
+    let mut leaf_jobs_for_flow = HashMap::<String, Uuid>::new();
+    compute_leaf_jobs_for_completed_flow(
+        db,
+        w_id,
+        flow_job.id,
+        Some(flow_job.clone()),
+        &mut leaf_jobs_for_flow,
+    )
+    .await?;
+
+    tracing::debug!(
+        "Fetching leaf jobs for flow {} : {:?}",
+        flow_job.id,
+        leaf_jobs_for_flow
+    );
+    if !leaf_jobs_for_flow.contains_key(&node_id.to_string()) {
+        // if the flow is itself a restart flow, the step job might be from the upstream flow
+        let restarted_from = windmill_common::utils::not_found_if_none(
+            flow_job
+                .parse_flow_status()
+                .map(|status| status.restarted_from)
+                .flatten(),
+            "Flow result by id in leaf jobs",
+            format!("{}", completed_flow_id),
+        )?;
+        return get_result_by_id_from_original_flow(
+            db,
+            w_id,
+            &restarted_from.flow_job_id,
+            node_id,
+            json_path,
+        )
+        .await;
+    }
+
+    // if the job is in the leaf_jobs map, then fetch its result and return
+    let leaf_job_uuid = leaf_jobs_for_flow.get(&node_id.to_string());
+    let leaf_job_result = sqlx::query(
+        "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(leaf_job_uuid)
+    .bind(w_id)
+    .bind(
+        json_path
+            .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default(),
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|r| {
+        ResultR::from_row(&r)
+            .ok()
+            .and_then(|x| x.result.map(|x| x.0))
+    })
+    .flatten()
+    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+    return Ok(leaf_job_result);
+}
+
+#[async_recursion]
+async fn compute_leaf_jobs_for_completed_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    completed_flow_id: Uuid,
+    completed_flow_row: Option<CompletedJob>, // if provided, will be used, otherwise completed_flow_id must be set and the job definition will be pulled from DB
+    recursive_result: &mut HashMap<String, Uuid>,
+) -> error::Result<()> {
+    let flow_status = match completed_flow_row {
+        Some(job) => job.parse_flow_status(),
+        None => {
+            let job_status_raw = sqlx::query_scalar!(
+                "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                completed_flow_id,
+                w_id,
+            )
+            .fetch_one(db)
+            .await?;
+            job_status_raw
+                .map(|raw| serde_json::from_value::<FlowStatus>(raw).ok())
+                .flatten()
+        }
+    };
+
+    let flow_job_status_modules = windmill_common::utils::not_found_if_none(
+        flow_status.map(|fs| fs.modules),
+        "Flow result by id in leaf jobs",
+        format!("{}", completed_flow_id),
+    )?;
+
+    let children_jobs = sqlx::query_as::<_, (Uuid, JobKind)>(
+        "SELECT id, job_kind FROM completed_job WHERE parent_job = $1 AND workspace_id = $2",
+    )
+    .bind(completed_flow_id)
+    .bind(w_id)
+    .fetch_all(db)
+    .await?;
+
+    for child_job in children_jobs {
+        let child_job_id = child_job.0;
+        let child_job_kind = child_job.1;
+        match child_job_kind {
+            JobKind::Script | JobKind::Preview | JobKind::Script_Hub => {
+                // if is potentially a leaf job. Get its step_id from the initial flow definition and add it to the result map
+                for module in &flow_job_status_modules {
+                    if module.job().map(|id| id == child_job_id).unwrap_or(false) {
+                        recursive_result.insert(module.id(), child_job_id);
+                    }
+                }
+            }
+            JobKind::Flow | JobKind::FlowPreview => {
+                // Extract the leaf job for this flow and add them to the result map
+                // TODO: we should exclude forloops nested flow here as it's non-sense to reference a result of a module inside a forloop from outside this forloop
+                compute_leaf_jobs_for_completed_flow(
+                    db,
+                    w_id,
+                    child_job_id,
+                    None,
+                    recursive_result,
+                )
+                .await?;
+            }
+            _ => {} // do nothing
+        }
+    }
+    Ok(())
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -2378,28 +2574,6 @@ async fn restarted_flows_resolution(
             completed_flow_id, workspace_id,
         )))?;
 
-    // TODO: For now we restrict the restart feature to "simple" sequential flows. Implementation for more complex flow to follow
-    // for step in raw_flow.clone().modules {
-    //     if match step.value {
-    //         FlowModuleValue::BranchOne { .. }
-    //         | FlowModuleValue::BranchAll { .. }
-    //         | FlowModuleValue::ForloopFlow { .. }
-    //         | FlowModuleValue::Flow { .. } => true,
-    //         _ => false,
-    //     } {
-    //         return Err(Error::InternalErr("Flow cannot be restarted as it contains at least one for loop or one branch. Only sequential flows can be restarted for now.".to_string()));
-    //     }
-    //     if step
-    //         .suspend
-    //         .map(|suspend| {
-    //             suspend.user_auth_required.unwrap_or(false)
-    //                 || suspend.user_groups_required.is_some()
-    //         })
-    //         .unwrap_or(false)
-    //     {
-    //         return Err(Error::InternalErr("Flow cannot be restarted as it contains on complex suspend conditions. This is not supported for now.".to_string()));
-    //     }
-    // }
     let mut step_n = 0;
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];

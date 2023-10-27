@@ -186,7 +186,7 @@ impl Default for QueuedJob {
     }
 }
 
-#[derive(Debug, sqlx::FromRow, Serialize)]
+#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
 pub struct CompletedJob {
     pub workspace_id: String,
     pub id: Uuid,
@@ -254,6 +254,12 @@ impl CompletedJob {
             .as_ref()
             .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
     }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct BranchResults<'a> {
+    pub result: &'a RawValue,
+    pub id: Uuid,
 }
 
 #[derive(Debug, Clone)]

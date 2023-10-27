@@ -27,7 +27,8 @@ use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
 use windmill_common::jobs::{
-    script_hash_to_tag_and_limits, script_path_to_payload, JobPayload, Metrics, QueuedJob, RawCode,
+    script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, Metrics,
+    QueuedJob, RawCode,
 };
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
@@ -134,12 +135,6 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     result: Box<RawValue>,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
-}
-
-#[derive(FromRow)]
-pub struct BranchResults<'a> {
-    pub result: &'a RawValue,
-    pub id: Uuid,
 }
 
 #[derive(FromRow)]
