@@ -49,8 +49,6 @@
 		shouldeUpdate++
 	})
 
-	$: console.log(resolvedDatasets)
-
 	$: Plotly &&
 		render &&
 		result &&
@@ -66,12 +64,10 @@
 
 	let error = ''
 	function plot() {
-		console.log('plotting')
-
 		const data = resolvedDatasets.map((d, index) => ({
 			type: d.type,
 			color: d.color,
-			tooltip: d.tooltip,
+			text: d.tooltip,
 			x: resolvedXData,
 			y: resolvedDatasetsValues[index],
 			marker: {
@@ -80,13 +76,13 @@
 			transforms: [
 				{
 					type: 'aggregate',
-
-					aggregations: [{ target: 'y', func: 'avg', enabled: true }]
+					groups: resolvedXData,
+					aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
 				}
-			]
+			],
+			...(d?.extraOptions ?? {})
 		}))
 
-		console.log(data)
 		try {
 			Plotly.newPlot(
 				divEl,
@@ -123,6 +119,7 @@
 		tooltip: string
 		color: string
 		type: 'bar' | 'line' | 'scatter' | 'pie'
+		extraOptions?: { mode: 'markers' | 'lines' | 'lines+markers' } | undefined
 	}
 
 	let resolvedDatasets: Dataset[]

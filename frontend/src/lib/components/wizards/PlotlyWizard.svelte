@@ -1,12 +1,14 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Popup } from '../common'
 	import Label from '../Label.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ColorInput from '../apps/editor/settingsPanel/inputEditor/ColorInput.svelte'
 	import Button from '../common/button/Button.svelte'
 	import InputsSpecEditor from '../apps/editor/settingsPanel/InputsSpecEditor.svelte'
-	import type { RichConfiguration } from '../apps/types'
+	import type { AppViewerContext, RichConfiguration } from '../apps/types'
+
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	type Dataset = {
 		value: RichConfiguration
@@ -15,10 +17,10 @@
 		tooltip: string
 		color: string
 		type: 'bar' | 'line' | 'scatter' | 'pie'
+		extraOptions?: { mode: 'markers' | 'lines' | 'lines+markers' } | undefined
 	}
 
 	export let value: Dataset | undefined = undefined
-	export let id: string
 
 	const dispatch = createEventDispatcher()
 
@@ -48,10 +50,29 @@
 				<select bind:value={value.type}>
 					<option value="bar">Bar</option>
 					<option value="line">Line</option>
-					<option value="scatter">Scatter</option>
+					<option
+						value="scatter"
+						on:click={() => {
+							if (value && value?.extraOptions === undefined) {
+								value.extraOptions = { mode: 'markers' }
+							}
+						}}
+					>
+						Scatter
+					</option>
 					<option value="pie">Pie</option>
 				</select>
 			</Label>
+
+			{#if value.type === 'scatter' && value.extraOptions}
+				<Label label="Mode">
+					<select bind:value={value.extraOptions.mode}>
+						<option value="markers">Markers</option>
+						<option value="lines">Lines</option>
+						<option value="lines+markers">Lines + Markers</option>
+					</select>
+				</Label>
+			{/if}
 
 			<Label label="Aggregation method">
 				<select bind:value={value.aggregation_method}>
@@ -74,7 +95,7 @@
 			<InputsSpecEditor
 				key={'Data'}
 				bind:componentInput={value.value}
-				{id}
+				id={$selectedComponent?.[0] ?? ''}
 				userInputEnabled={false}
 				shouldCapitalize={true}
 				resourceOnly={false}

@@ -50,6 +50,20 @@
 				value.push({ field: 'newField', editable: true, flex: 1 })
 			} else if (subFieldType === 'table-column') {
 				value.push({ field: 'newColumn', headerName: 'New column', type: 'text' })
+			} else if (subFieldType === 'plotly') {
+				value.push({
+					value: {
+						type: 'static',
+						fieldType: 'array',
+						subFieldType: 'number',
+						value: [2, 4, 5, 6]
+					},
+					name: 'New dataset',
+					aggregation_method: 'sum',
+					type: 'bar',
+					toolip: 'This is an example',
+					color: '#225cb2'
+				})
 			}
 		} else {
 			value.push('')

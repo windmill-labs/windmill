@@ -171,7 +171,7 @@
 					placeholder="Dataset name"
 				/>
 				<div class="absolute top-1 right-1">
-					<PlotlyWizard bind:value={componentInput.value} id="a">
+					<PlotlyWizard bind:value={componentInput.value}>
 						<svelte:fragment slot="trigger">
 							<Button color="light" size="xs2" nonCaptureEvent={true}>
 								<div class="flex flex-row items-center gap-2 text-xs font-normal">
