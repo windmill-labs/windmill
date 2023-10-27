@@ -337,9 +337,9 @@ export function insertNewGridItem(
 		? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}`
 		: undefined
 
-	if (focusedGrid && app.subgrids[key!] === undefined) {
+	if (key && app.subgrids[key] === undefined) {
 		// If ever the subgrid is undefined, we want to make sure it is defined
-		app.subgrids[key!] = []
+		app.subgrids[key] = []
 	}
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
