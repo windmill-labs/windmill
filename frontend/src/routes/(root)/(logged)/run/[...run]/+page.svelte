@@ -225,6 +225,9 @@
 					.map((m) => m.id)
 					.indexOf(selectedJobStep) >= 0}
 				<Button
+					title={`Re-start this flow from step ${selectedJobStep} (included). ${
+						!$enterpriseLicense ? ' This is a feature only available in enterprise edition.' : ''
+					}`}
 					variant="border"
 					color="blue"
 					disabled={!$enterpriseLicense}
@@ -233,7 +236,7 @@
 					}}
 					startIcon={{ icon: faRefresh }}
 				>
-					Re-start step
+					Re-start from
 					<Badge baseClass="ml-1" color="indigo">
 						{selectedJobStep}
 					</Badge>

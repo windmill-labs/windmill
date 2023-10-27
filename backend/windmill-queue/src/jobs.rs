@@ -2167,6 +2167,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     let (_, _, step_n, truncated_modules, _) = restarted_flows_resolution(
                         _db,
                         workspace_id,
+                        Some(value.clone()),
                         restarted_from_val.flow_job_id,
                         restarted_from_val.step_id.as_str(),
                     )
@@ -2240,8 +2241,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         }
         JobPayload::RestartedFlow { completed_job_id, step_id } => {
             let (flow_path, raw_flow, step_n, truncated_modules, priority) =
-                restarted_flows_resolution(_db, workspace_id, completed_job_id, step_id.as_str())
-                    .await?;
+                restarted_flows_resolution(
+                    _db,
+                    workspace_id,
+                    None,
+                    completed_job_id,
+                    step_id.as_str(),
+                )
+                .await?;
             let restarted_flow_status = FlowStatus {
                 step: step_n,
                 modules: truncated_modules,
@@ -2535,6 +2542,7 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
+    flow_value_if_any: Option<FlowValue>,
     completed_flow_id: Uuid,
     restart_step_id: &str,
 ) -> Result<
@@ -2578,6 +2586,19 @@ async fn restarted_flows_resolution(
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
     for module in flow_status.modules {
+        if flow_value_if_any
+            .clone()
+            .map(|fv| {
+                fv.modules
+                    .iter()
+                    .find(|flow_value_module| flow_value_module.id == module.id())
+                    .is_none()
+            })
+            .unwrap_or(false)
+        {
+            // skip module as it doesn't appear in the flow_value anymore
+            continue;
+        }
         if module.id() == restart_step_id || dependent_module {
             // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
             // set the module as WaitingForPriorSteps as it needs to be re-run

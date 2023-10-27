@@ -162,6 +162,7 @@
 						size="xs"
 						color="light"
 						variant="border"
+						title={`Re-start this flow from step ${selectedJobStep} (included).`}
 						on:click={() => {
 							runPreview($previewArgs, {
 								flow_job_id: jobId,
