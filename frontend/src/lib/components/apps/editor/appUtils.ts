@@ -336,6 +336,12 @@ export function insertNewGridItem(
 	const key = focusedGrid
 		? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}`
 		: undefined
+
+	if (key && app.subgrids[key] === undefined) {
+		// If ever the subgrid is undefined, we want to make sure it is defined
+		app.subgrids[key] = []
+	}
+
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
 	const newItem = createNewGridItem(grid, id, data, columns)
@@ -745,4 +751,3 @@ export function recursivelyFilterKeyInJSON(
 	})
 	return filteredJSON
 }
-
