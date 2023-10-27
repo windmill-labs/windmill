@@ -221,16 +221,23 @@
 					</Button>
 				{/if}
 			{/if}
-			{#if job?.job_kind === 'flow' && selectedJobStep !== undefined}
+			{#if job?.job_kind === 'flow' && selectedJobStep !== undefined && job?.flow_status?.modules !== undefined && job?.flow_status?.modules
+					.map((m) => m.id)
+					.indexOf(selectedJobStep) >= 0}
 				<Button
+					variant="border"
+					color="blue"
 					disabled={!$enterpriseLicense}
 					on:click|once={() => {
 						restartFlow(job?.id, selectedJobStep)
 					}}
-					color="blue"
-					size="md"
-					startIcon={{ icon: faRefresh }}>Re-start from step {capitalize(selectedJobStep)}</Button
+					startIcon={{ icon: faRefresh }}
 				>
+					Re-start step
+					<Badge baseClass="ml-1" color="indigo">
+						{selectedJobStep}
+					</Badge>
+				</Button>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button

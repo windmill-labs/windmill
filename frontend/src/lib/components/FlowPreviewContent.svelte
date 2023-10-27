@@ -2,7 +2,7 @@
 	import { Job, JobService, type Flow, type FlowModule, type RestartedFrom } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, Kbd } from './common'
+	import { Badge, Button, Drawer, Kbd } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
@@ -154,36 +154,41 @@
 				Cancel
 			</Button>
 		{:else}
-			<Button
-				variant="contained"
-				startIcon={{ icon: isRunning ? faRefresh : faPlay }}
-				color="dark"
-				size="sm"
-				btnClasses="w-full max-w-lg"
-				on:click={() => runPreview($previewArgs, undefined)}
-				id="flow-editor-test-flow-drawer"
-			>
-				Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
-			</Button>
-			{#if jobId !== undefined && selectedJobStep !== undefined}
+			<div class="flex flex-row gap-4">
+				{#if jobId !== undefined && selectedJobStep !== undefined && job?.flow_status?.modules !== undefined && job?.flow_status?.modules
+						.map((m) => m.id)
+						.indexOf(selectedJobStep) >= 0}
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						on:click={() => {
+							runPreview($previewArgs, {
+								flow_job_id: jobId,
+								step_id: selectedJobStep
+							})
+						}}
+						startIcon={{ icon: faPlay }}
+					>
+						Re-start from
+						<Badge baseClass="ml-1" color="indigo">
+							{selectedJobStep}
+						</Badge>
+					</Button>
+				{/if}
 				<Button
 					variant="contained"
 					startIcon={{ icon: isRunning ? faRefresh : faPlay }}
 					color="dark"
 					size="sm"
 					btnClasses="w-full max-w-lg"
-					on:click={() => {
-						runPreview($previewArgs, {
-							flow_job_id: jobId,
-							step_id: selectedJobStep
-						})
-					}}
+					on:click={() => runPreview($previewArgs, undefined)}
 					id="flow-editor-test-flow-drawer"
 				>
-					Test from {selectedJobStep}
+					Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
+					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 				</Button>
-			{/if}
+			</div>
 		{/if}
 		<div class="flex gap-2">
 			{#if initialPath != ''}
