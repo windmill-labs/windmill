@@ -32,7 +32,12 @@ function compile(schema: Schema) {
 		res += '\n}'
 		return res
 	}
-	return rec(schema.properties, true)
+
+	if (typeof schema === 'string') {
+		return '{}'
+	} else {
+		return rec(schema.properties, true)
+	}
 }
 
 export function pythonCompile(schema: Schema) {
