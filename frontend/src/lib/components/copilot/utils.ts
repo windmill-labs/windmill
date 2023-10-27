@@ -33,11 +33,7 @@ function compile(schema: Schema) {
 		return res
 	}
 
-	if (typeof schema === 'string') {
-		return '{}'
-	} else {
-		return rec(schema.properties, true)
-	}
+	return rec(schema.properties, true)
 }
 
 export function pythonCompile(schema: Schema) {
@@ -76,9 +72,13 @@ export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python
 		})
 		return '\n' + result.join('\n\n')
 	} else {
-		const result = resourceTypes.map((resourceType) => {
-			return `type ${toCamel(capitalize(resourceType.name))} = ${compile(resourceType.schema)}`
-		})
+		const result = resourceTypes
+			.filter(
+				(resourceType) => Boolean(resourceType.schema) && typeof resourceType.schema === 'object'
+			)
+			.map((resourceType) => {
+				return `type ${toCamel(capitalize(resourceType.name))} = ${compile(resourceType.schema)}`
+			})
 		return '\n' + result.join('\n\n')
 	}
 }
