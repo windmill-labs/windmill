@@ -41,6 +41,15 @@ pub fn initialize_tracing() {
 
     let ts_base = tracing_subscriber::registry().with(env_filter);
 
+    #[cfg(feature = "loki")]
+    let ts_base = {
+        let (layer, task) = tracing_loki::builder()
+            .build_url(reqwest::Url::parse("http://127.0.0.1:3100").unwrap())
+            .expect("build loki url");
+        tokio::spawn(task);
+        ts_base.with(layer)
+    };
+
     match json_fmt {
         true => ts_base.with(json_layer().flatten_event(true)).init(),
         false => ts_base
