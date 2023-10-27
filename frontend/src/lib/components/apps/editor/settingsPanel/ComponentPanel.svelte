@@ -185,7 +185,7 @@
 	</div>
 
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
-		<ComponentPanelDataSource {component}>
+		<ComponentPanelDataSource bind:component={componentSettings.item.data}>
 			{#if component.componentInput}
 				<PanelSection
 					title={componentSettings?.item.data.type == 'steppercomponent'
