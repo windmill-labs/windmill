@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * from resource_type ORDER BY name",
+  "query": "SELECT * from resource_type WHERE workspace_id = 'admins' ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       true
     ]
   },
-  "hash": "eb1f7f01461f5a7540c273b37e5d578c31cf151ab3ef813f7aada76533761e12"
+  "hash": "0dea3bec53f58698191c25b11f55196f83ec317f01828127bf7ebcd191494cf6"
 }
