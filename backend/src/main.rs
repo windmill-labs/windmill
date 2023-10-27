@@ -41,7 +41,7 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, monitor_db, reload_base_url_setting,
+    initial_load, load_keep_job_dir, monitor_db, monitor_pool, reload_base_url_setting,
     reload_extra_pip_index_url_setting, reload_license_key, reload_npm_config_registry_setting,
     reload_retention_period_setting, reload_server_config, reload_worker_config,
 };
@@ -228,6 +228,8 @@ Windmill Community Edition {GIT_VERSION}
         initial_load(&db, tx.clone(), worker_mode, server_mode).await;
 
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
+
+        monitor_pool(&db).await;
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");

@@ -7,7 +7,7 @@ use serde_json::value::RawValue;
 use uuid::Uuid;
 
 #[cfg(feature = "enterprise")]
-use crate::{common::build_envs_map, JobCompleted};
+use crate::common::build_envs_map;
 
 use crate::{
     common::{
@@ -26,7 +26,7 @@ use tokio::{
 use tokio::io::AsyncReadExt;
 
 #[cfg(feature = "enterprise")]
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::variables;
@@ -527,6 +527,8 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
 }
 
 #[cfg(feature = "enterprise")]
+use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
+#[cfg(feature = "enterprise")]
 use std::sync::Arc;
 
 #[cfg(feature = "enterprise")]
@@ -541,12 +543,10 @@ pub async fn start_worker(
     w_id: &str,
     script_path: &str,
     token: &str,
-    job_completed_tx: Sender<JobCompleted>,
+    job_completed_tx: JobCompletedSender,
     jobs_rx: Receiver<Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
-    use crate::dedicated_worker::handle_dedicated_process;
-
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
