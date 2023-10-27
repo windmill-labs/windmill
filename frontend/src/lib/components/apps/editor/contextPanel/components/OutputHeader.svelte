@@ -234,7 +234,7 @@
 		</div>
 	</div>
 	<div
-		class="border-b {open ? 'h-full' : 'h-0 overflow-hidden'} {$connectingInput.hoveredComponent ===
+		class="border-b {open ? 'h-full' : 'h-0 overflow-hidden invisible'} {$connectingInput.hoveredComponent ===
 			id && !$selectedComponent?.includes(id)
 			? '  bg-orange-100/40'
 			: ''}"
