@@ -79,8 +79,8 @@ export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type PlotlyComponentV2 = BaseComponent<'plotlycomponentv2'> & {
-	xData: RichConfiguration
-	datasets: RichConfiguration
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
 }
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
@@ -1275,17 +1275,19 @@ This is a paragraph.
 			componentInput: {
 				type: 'static',
 				fieldType: 'object',
-				value: {
-					type: 'bar',
-					x: [1, 2, 3, 4],
-					y: [5, 10, 2, 8],
-					marker: {
-						color: '#C8A2C8',
-						line: {
-							width: 2.5
+				value: [
+					{
+						type: 'bar',
+						x: [1, 2, 3, 4],
+						y: [5, 10, 2, 8],
+						marker: {
+							color: '#C8A2C8',
+							line: {
+								width: 2.5
+							}
 						}
 					}
-				}
+				]
 			},
 			configuration: {
 				layout: {

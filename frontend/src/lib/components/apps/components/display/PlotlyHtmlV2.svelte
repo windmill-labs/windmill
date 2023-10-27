@@ -49,40 +49,32 @@
 		shouldeUpdate++
 	})
 
-	$: Plotly &&
-		render &&
-		result &&
-		resolvedConfig.layout &&
-		resolvedDatasets &&
-		resolvedXData &&
-		resolvedDatasetsValues &&
-		divEl &&
-		h &&
-		w &&
-		shouldeUpdate &&
-		plot()
+	$: Plotly && render && resolvedConfig.layout && divEl && h && w && shouldeUpdate && plot(data)
+
+	$: data =
+		datasets && xData && resolvedDatasets
+			? resolvedDatasets.map((d, index) => ({
+					type: d.type,
+					color: d.color,
+					text: d.tooltip,
+					x: resolvedXData,
+					y: resolvedDatasetsValues[index],
+					marker: {
+						color: d.color
+					},
+					transforms: [
+						{
+							type: 'aggregate',
+							groups: resolvedXData,
+							aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
+						}
+					],
+					...(d?.extraOptions ?? {})
+			  }))
+			: result
 
 	let error = ''
-	function plot() {
-		const data = resolvedDatasets.map((d, index) => ({
-			type: d.type,
-			color: d.color,
-			text: d.tooltip,
-			x: resolvedXData,
-			y: resolvedDatasetsValues[index],
-			marker: {
-				color: d.color
-			},
-			transforms: [
-				{
-					type: 'aggregate',
-					groups: resolvedXData,
-					aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
-				}
-			],
-			...(d?.extraOptions ?? {})
-		}))
-
+	function plot(data) {
 		try {
 			Plotly.newPlot(
 				divEl,

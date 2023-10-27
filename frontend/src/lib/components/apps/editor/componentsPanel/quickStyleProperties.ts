@@ -622,6 +622,7 @@ export const quickStyleProperties: Record<
 		container: containerDefaultProps
 	},
 	plotlycomponent: {},
+	plotlycomponentv2: {},
 	selectcomponent: {
 		input: inputDefaultProps
 	},

@@ -4,49 +4,8 @@
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let datasets: RichConfiguration | undefined = undefined
-	export let kind: RichConfiguration | undefined = undefined
 	export let xData: RichConfiguration | undefined = undefined
 	export let id: string
-
-	$: if (datasets == undefined) {
-		datasets = {
-			type: 'static',
-			fieldType: 'array',
-			subFieldType: 'plotly',
-			value: [
-				{
-					value: {
-						type: 'static',
-						fieldType: 'array',
-						subFieldType: 'number',
-						value: [1, 2, 3, 4]
-					},
-					name: 'Dataset 1',
-					aggregation_method: 'sum',
-					type: 'bar',
-					toolip: 'This is an example',
-					color: '#FF0000'
-				}
-			]
-		}
-	}
-
-	$: if (kind == undefined) {
-		kind = {
-			type: 'static',
-			fieldType: 'select',
-			value: 'bar',
-			selectOptions: ['bar', 'line', 'scatter', 'pie']
-		}
-	}
-
-	$: if (xData == undefined) {
-		xData = {
-			type: 'static',
-			fieldType: 'array',
-			value: [1, 2, 3, 4]
-		}
-	}
 </script>
 
 <PanelSection title={`Plotly configuration`} tooltip="s">
