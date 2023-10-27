@@ -78,6 +78,10 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
+export type PlotlyComponentV2 = BaseComponent<'plotlycomponentv2'> & {
+	xData: RichConfiguration
+	datasets: RichConfiguration
+}
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
 export type DownloadComponent = BaseComponent<'downloadcomponent'>
@@ -203,6 +207,7 @@ export type TypedComponent =
 	| DownloadComponent
 	| ChartJsComponent
 	| CarouselListComponent
+	| PlotlyComponentV2
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1119,7 +1124,6 @@ export const components = {
 			configuration: {
 				theme: {
 					type: 'static',
-
 					fieldType: 'select',
 					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
@@ -1229,6 +1233,39 @@ This is a paragraph.
 		}
 	},
 	plotlycomponent: {
+		name: 'Plotly',
+		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}/plotly`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					type: 'bar',
+					x: [1, 2, 3, 4],
+					y: [5, 10, 2, 8],
+					marker: {
+						color: '#C8A2C8',
+						line: {
+							width: 2.5
+						}
+					}
+				}
+			},
+			configuration: {
+				layout: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information'
+				}
+			}
+		}
+	},
+	plotlycomponentv2: {
 		name: 'Plotly',
 		icon: PieChart,
 		documentationLink: `${documentationBaseUrl}/plotly`,

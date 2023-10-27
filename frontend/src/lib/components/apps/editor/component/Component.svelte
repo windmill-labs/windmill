@@ -29,6 +29,7 @@
 		AppFormButton,
 		VegaLiteHtml,
 		PlotlyHtml,
+		PlotlyHtmlV2,
 		AppRangeInput,
 		AppTabs,
 		AppIcon,
@@ -252,6 +253,16 @@
 				configuration={component.configuration}
 				bind:initializing
 				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'plotlycomponentv2'}
+			<PlotlyHtmlV2
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
 				{render}
 			/>
 		{:else if component.type === 'scatterchartcomponent'}

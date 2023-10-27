@@ -78,7 +78,7 @@ const charts: ComponentSet = {
 		'barchartcomponent',
 		'piechartcomponent',
 		'vegalitecomponent',
-		'plotlycomponent',
+		'plotlycomponentv2',
 		'scatterchartcomponent',
 		'timeseriescomponent',
 		'chartjscomponent'
