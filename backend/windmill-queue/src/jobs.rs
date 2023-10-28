@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, iter, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -19,6 +19,7 @@ use axum::{
 };
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
+use itertools::Itertools;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Client, StatusCode,
@@ -1456,7 +1457,7 @@ pub async fn get_result_by_id(
 }
 
 #[async_recursion]
-pub async fn get_result_by_id_from_running_flow(
+async fn get_result_by_id_from_running_flow(
     db: &Pool<Postgres>,
     w_id: &str,
     flow_id: &Uuid,
@@ -1499,46 +1500,11 @@ pub async fn get_result_by_id_from_running_flow(
         format!("{}, {}", flow_id, node_id),
     )?;
 
-    let value = match result_id {
-        JobResult::ListJob(x) => {
-            let rows = sqlx::query(
-                "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
-            )
-            .bind(x.as_slice())
-            .bind(w_id)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .filter_map(|x| ResultR::from_row(&x).ok().and_then(|x| x.result))
-            .collect::<Vec<Json<Box<RawValue>>>>();
-            to_raw_value(&rows)
-        }
-        JobResult::SingleJob(x) => sqlx::query(
-            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(x)
-        .bind(w_id)
-        .bind(
-            json_path
-                .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
-                .unwrap_or_default(),
-        )
-        .fetch_optional(db)
-        .await?
-        .map(|r| {
-            ResultR::from_row(&r)
-                .ok()
-                .and_then(|x| x.result.map(|x| x.0))
-        })
-        .flatten()
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)),
-    };
-
-    Ok(value)
+    extract_result_from_job_result(db, w_id, result_id, json_path).await
 }
 
 #[async_recursion]
-pub async fn get_result_by_id_from_original_flow(
+async fn get_result_by_id_from_original_flow(
     db: &Pool<Postgres>,
     w_id: &str,
     completed_flow_id: &Uuid,
@@ -1559,7 +1525,7 @@ pub async fn get_result_by_id_from_original_flow(
         format!("{}", completed_flow_id),
     )?;
 
-    let mut leaf_jobs_for_flow = HashMap::<String, Uuid>::new();
+    let mut leaf_jobs_for_flow = HashMap::<String, JobResult>::new();
     compute_leaf_jobs_for_completed_flow(
         db,
         w_id,
@@ -1569,7 +1535,7 @@ pub async fn get_result_by_id_from_original_flow(
     )
     .await?;
 
-    tracing::debug!(
+    tracing::warn!(
         "Fetching leaf jobs for flow {} : {:?}",
         flow_job.id,
         leaf_jobs_for_flow
@@ -1595,27 +1561,8 @@ pub async fn get_result_by_id_from_original_flow(
     }
 
     // if the job is in the leaf_jobs map, then fetch its result and return
-    let leaf_job_uuid = leaf_jobs_for_flow.get(&node_id.to_string());
-    let leaf_job_result = sqlx::query(
-        "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(leaf_job_uuid)
-    .bind(w_id)
-    .bind(
-        json_path
-            .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
-            .unwrap_or_default(),
-    )
-    .fetch_optional(db)
-    .await?
-    .map(|r| {
-        ResultR::from_row(&r)
-            .ok()
-            .and_then(|x| x.result.map(|x| x.0))
-    })
-    .flatten()
-    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-    return Ok(leaf_job_result);
+    let leaf_job_uuid = leaf_jobs_for_flow.get(&node_id.to_string()).unwrap();
+    extract_result_from_job_result(db, w_id, leaf_job_uuid.to_owned(), json_path).await
 }
 
 #[async_recursion]
@@ -1624,7 +1571,7 @@ async fn compute_leaf_jobs_for_completed_flow(
     w_id: &str,
     completed_flow_id: Uuid,
     completed_flow_row: Option<CompletedJob>, // if provided, will be used, otherwise completed_flow_id must be set and the job definition will be pulled from DB
-    recursive_result: &mut HashMap<String, Uuid>,
+    recursive_result: &mut HashMap<String, JobResult>,
 ) -> error::Result<()> {
     let flow_status = match completed_flow_row {
         Some(job) => job.parse_flow_status(),
@@ -1664,13 +1611,34 @@ async fn compute_leaf_jobs_for_completed_flow(
                 // if is potentially a leaf job. Get its step_id from the initial flow definition and add it to the result map
                 for module in &flow_job_status_modules {
                     if module.job().map(|id| id == child_job_id).unwrap_or(false) {
-                        recursive_result.insert(module.id(), child_job_id);
+                        recursive_result.insert(module.id(), JobResult::SingleJob(child_job_id));
                     }
                 }
             }
             JobKind::Flow | JobKind::FlowPreview => {
                 // Extract the leaf job for this flow and add them to the result map
-                // TODO: we should exclude forloops nested flow here as it's non-sense to reference a result of a module inside a forloop from outside this forloop
+                for module in &flow_job_status_modules {
+                    // we add the module as an element of ListJob for this step ID and recursiively extract leaf job of the sub-flow
+                    match module {
+                        FlowStatusModule::Success { flow_jobs: Some(jobs), .. } => {
+                            for job in jobs {
+                                if *job == child_job_id {
+                                    let new_list_job = match recursive_result.get(&module.id()) {
+                                        Some(JobResult::ListJob(jobs_list)) => jobs_list
+                                            .into_iter()
+                                            .chain(iter::once(&child_job_id))
+                                            .cloned()
+                                            .collect_vec(),
+                                        _ => iter::once(&child_job_id).cloned().collect_vec(),
+                                    };
+                                    recursive_result
+                                        .insert(module.id(), JobResult::ListJob(new_list_job));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 compute_leaf_jobs_for_completed_flow(
                     db,
                     w_id,
@@ -1684,6 +1652,48 @@ async fn compute_leaf_jobs_for_completed_flow(
         }
     }
     Ok(())
+}
+
+async fn extract_result_from_job_result(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    job_result: JobResult,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    match job_result {
+        JobResult::ListJob(job_ids) => {
+            let rows = sqlx::query(
+                "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+            )
+            .bind(job_ids.as_slice())
+            .bind(w_id)
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .filter_map(|x| ResultR::from_row(&x).ok().and_then(|x| x.result))
+            .collect::<Vec<Json<Box<RawValue>>>>();
+            Ok(to_raw_value(&rows))
+        }
+        JobResult::SingleJob(x) => Ok(sqlx::query(
+            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        )
+        .bind(x)
+        .bind(w_id)
+        .bind(
+            json_path
+                .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        )
+        .fetch_optional(db)
+        .await?
+        .map(|r| {
+            ResultR::from_row(&r)
+                .ok()
+                .and_then(|x| x.result.map(|x| x.0))
+        })
+        .flatten()
+        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
+    }
 }
 
 #[instrument(level = "trace", skip_all)]
