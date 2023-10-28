@@ -1128,6 +1128,23 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::error!("Error queuing init bash script for worker {worker_name}: {e}");
         }
     }
+
+    let worker_dedicated_channel_queue_send_duration = if is_dedicated_worker
+        && METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
+        && METRICS_ENABLED.load(Ordering::Relaxed)
+    {
+        Some(Arc::new(
+            prometheus::register_histogram!(prometheus::HistogramOpts::new(
+                "worker_dedicated_worker_channel_send_duration",
+                "Duration sending job to dedicated worker channel",
+            )
+            .const_label("name", &worker_name),)
+            .expect("register prometheus metric"),
+        ))
+    } else {
+        None
+    };
+
     loop {
         #[cfg(feature = "benchmark")]
         let loop_start = Instant::now();
@@ -1308,9 +1325,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     #[cfg(feature = "benchmark")]
                     let send_start = Instant::now();
 
+                    let timer = worker_dedicated_channel_queue_send_duration
+                        .as_ref()
+                        .map(|x| x.start_timer());
+
                     if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
                         tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                     }
+
+                    timer.map(|x| x.stop_and_record());
 
                     #[cfg(feature = "benchmark")]
                     send_duration
