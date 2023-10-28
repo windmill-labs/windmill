@@ -18,7 +18,6 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { capitalize } from '$lib/utils'
 	import {
 		enterpriseLicense,
 		runFormStore,
