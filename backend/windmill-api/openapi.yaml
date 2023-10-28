@@ -7928,8 +7928,11 @@ components:
     RestartedFrom:
       type: object
       properties:
-        flow_job_id: uuid
-        step_id: string
+        flow_job_id:
+          type: string
+          format: uuid
+        step_id:
+          type: string
 
     Policy:
       type: object

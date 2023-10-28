@@ -6417,8 +6417,11 @@ paths:
                 restarted_from:
                   type: object
                   properties: &ref_146
-                    flow_job_id: uuid
-                    step_id: string
+                    flow_job_id:
+                      type: string
+                      format: uuid
+                    step_id:
+                      type: string
               required: &ref_145
                 - value
                 - content
