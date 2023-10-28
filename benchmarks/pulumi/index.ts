@@ -242,7 +242,7 @@ const lb = new awsx.lb.ApplicationLoadBalancer("lb2", {
 //   desiredCount: 2,
 //   taskDefinitionArgs: {
 //     container: {
-//       image: "nginx:latest",
+//       image: "nginx:main",
 //       cpu: 512,
 //       memory: 128,
 //       essential: true,
@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:latest",
+        image: "ghcr.io/windmill-labs/windmill-ee:main",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -319,7 +319,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:latest",
+        image: "ghcr.io/windmill-labs/windmill-ee:main",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -378,7 +378,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill-ee:latest",
+        image: "ghcr.io/windmill-labs/windmill-ee:main",
         cpu: 1024,
         memory: 1024,
         essential: true,
@@ -447,11 +447,6 @@ db.address.apply((address) => {
         field: "cpu",
       },
     ],
-    serviceRegistries: {
-      registryArn: "aws.servicediscovery.Service",
-      containerName: "windmill-worker",
-      containerPort: 8001
-    }
   });
 
   const service_worker2 = new aws.ecs.Service("service-worker-2", {

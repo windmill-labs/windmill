@@ -601,7 +601,22 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 "worker_pull_duration",
                 "Duration pulling next job",
             )
-            .const_label("name", &worker_name),)
+            .const_label("name", &worker_name)
+            .const_label("has_job", "true"),)
+            .expect("register prometheus metric"),
+        )
+    } else {
+        None
+    };
+
+    let worker_pull_duration_empty = if METRICS_ENABLED.load(Ordering::Relaxed) {
+        Some(
+            prometheus::register_histogram!(prometheus::HistogramOpts::new(
+                "worker_pull_duration",
+                "Duration pulling next job",
+            )
+            .const_label("name", &worker_name)
+            .const_label("has_job", "false"),)
             .expect("register prometheus metric"),
         )
     } else {
@@ -698,6 +713,21 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         None
     };
 
+    let worker_pull_duration_counter_empty =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(
+                prometheus::register_counter!(prometheus::opts!(
+        "worker_pull_duration_counter",
+        "Total number of seconds spent pulling jobs (if growing large the db is undersized)"
+    )
+                .const_label("name", &worker_name)
+                .const_label("has_job", "false"))
+                .expect("register prometheus metric"),
+            )
+        } else {
+            None
+        };
+
     let worker_pull_duration_counter = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
     {
         Some(
@@ -705,13 +735,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         "worker_pull_duration_counter",
         "Total number of seconds spent pulling jobs (if growing large the db is undersized)"
     )
-            .const_label("name", &worker_name))
+            .const_label("name", &worker_name)
+            .const_label("has_job", "true"))
             .expect("register prometheus metric"),
         )
     } else {
         None
     };
-
     let worker_busy: Option<prometheus::IntGauge> =
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             Some(
@@ -1287,24 +1317,39 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     .await
                     .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
                 },
-                (job, timer) = {
-                    let timer = worker_pull_duration.as_ref().map(|x| x.start_timer());
+                (job, timer) = async {
+                    let pull_time = Instant::now();
                     let suspend_first = if last_checked_suspended.elapsed().as_secs() > 3 {
                         last_checked_suspended = Instant::now();
                         true
                     } else { false };
-                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, timer))
+                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time)).await
                 } => {
                     add_time!(timing, loop_start, "post pull");
-
-                    timer.map(|timer| {
-                        let duration_pull_s = timer.stop_and_record();
-                        if let Some(wp) = worker_pull_duration_counter.as_ref() {
-                            wp.inc_by(duration_pull_s);
+                    let duration_pull_s = timer.elapsed().as_secs_f64();
+                    if duration_pull_s > 0.5 {
+                        tracing::error!("pull took more than 0.5s, this is a sign that the database is VERY undersized for this load")
+                    } else if duration_pull_s > 0.1 {
+                        tracing::error!("pull took more than 0.5s, this is a sign that the database is undersized for this load")
+                    }
+                    if let Ok(j) = job.as_ref() {
+                        if j.is_some() {
+                            if let Some(wp) = worker_pull_duration_counter.as_ref() {
+                                wp.inc_by(duration_pull_s);
+                            }
+                            if let Some(wp) = worker_pull_duration.as_ref() {
+                                wp.observe(duration_pull_s);
+                            }
+                        } else {
+                            if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
+                                wp.inc_by(duration_pull_s);
+                            }
+                            if let Some(wp) = worker_pull_duration_empty.as_ref() {
+                                wp.observe(duration_pull_s);
+                            }
                         }
-                    });
+                    }
                     job
-
                 },
             }
         };
