@@ -543,7 +543,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
-        let worker_name = format!("wk-{}-{}", &instance_name, rd_string(5));
+        let worker_name = format!("wk-{}-{}-{}", *WORKER_GROUP, &instance_name, rd_string(5));
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let tx = tx.clone();
