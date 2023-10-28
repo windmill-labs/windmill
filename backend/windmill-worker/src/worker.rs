@@ -658,7 +658,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     {
         Some(Arc::new(
             prometheus::register_histogram!(prometheus::HistogramOpts::new(
-                "worker_save__duration",
+                "worker_save_duration",
                 "Duration sending job to completed job channel",
             )
             .const_label("name", &worker_name),)
