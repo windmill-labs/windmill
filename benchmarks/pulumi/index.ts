@@ -242,7 +242,7 @@ const lb = new awsx.lb.ApplicationLoadBalancer("lb2", {
 //   desiredCount: 2,
 //   taskDefinitionArgs: {
 //     container: {
-//       image: "nginx:main",
+//       image: "nginx:main@sha256:42ff38e29bae93f2122afea981d2f0344c06a099ea37a434866806c274928094",
 //       cpu: 512,
 //       memory: 128,
 //       essential: true,
@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:main",
+        image: "ghcr.io/windmill-labs/windmill-ee:main@sha256:42ff38e29bae93f2122afea981d2f0344c06a099ea37a434866806c274928094",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -319,7 +319,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:main",
+        image: "ghcr.io/windmill-labs/windmill-ee:main@sha256:42ff38e29bae93f2122afea981d2f0344c06a099ea37a434866806c274928094",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -378,7 +378,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill-ee:main",
+        image: "ghcr.io/windmill-labs/windmill-ee:main@sha256:42ff38e29bae93f2122afea981d2f0344c06a099ea37a434866806c274928094",
         cpu: 1024,
         memory: 1024,
         essential: true,
