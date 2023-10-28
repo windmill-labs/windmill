@@ -57,7 +57,7 @@
 	{:else if fieldType === 'tab-select'}
 		<TabSelectInput bind:componentInput />
 	{:else if fieldType === 'labeledresource'}
-		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
+		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}
 			<div class="flex flex-col gap-1 w-full">
 				<input
 					on:keydown|stopPropagation
@@ -66,7 +66,7 @@
 					bind:value={componentInput.value['label']}
 				/>
 				<ResourcePicker
-					initialValue={componentInput.value?.['value']?.split('$res:')[1] || ''}
+					initialValue={componentInput.value?.['value']?.split('$res:')?.[1] || ''}
 					on:change={(e) => {
 						let path = e.detail
 						if (componentInput) {
@@ -86,9 +86,9 @@
 	{:else if fieldType === 'color'}
 		<ColorInput bind:value={componentInput.value} />
 	{:else if fieldType === 'object' || fieldType == 'labeledselect'}
-		{#if format?.startsWith('resource-')}
+		{#if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')[1] || ''}
+				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
 					let path = e.detail
 					if (componentInput) {
@@ -99,7 +99,7 @@
 						}
 					}
 				}}
-				resourceType={format.split('-').length > 1
+				resourceType={format && format?.split('-').length > 1
 					? format.substring('resource-'.length)
 					: undefined}
 				showSchemaExplorer
