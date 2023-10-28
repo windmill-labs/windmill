@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:1.190.3",
+        image: "ghcr.io/windmill-labs/windmill-ee:latest",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -296,6 +296,11 @@ db.address.apply((address) => {
         dockerLabels: {
           PROMETHEUS_EXPORTER_PORT: "8001",
         },
+        portMappings: [
+          {
+            containerPort: 8001,
+          },
+        ],
       },
     ]),
     volumes: [
@@ -314,7 +319,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:1.190.3",
+        image: "ghcr.io/windmill-labs/windmill-ee:latest",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -350,6 +355,11 @@ db.address.apply((address) => {
         dockerLabels: {
           PROMETHEUS_EXPORTER_PORT: "8001",
         },
+        portMappings: [
+          {
+            containerPort: 8001,
+          },
+        ],
       },
     ]),
     volumes: [
@@ -368,7 +378,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill-ee:1.190.3",
+        image: "ghcr.io/windmill-labs/windmill-ee:latest",
         cpu: 1024,
         memory: 1024,
         essential: true,
@@ -437,6 +447,11 @@ db.address.apply((address) => {
         field: "cpu",
       },
     ],
+    serviceRegistries: {
+      registryArn: "aws.servicediscovery.Service",
+      containerName: "windmill-worker",
+      containerPort: 8001
+    }
   });
 
   const service_worker2 = new aws.ecs.Service("service-worker-2", {
