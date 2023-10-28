@@ -172,12 +172,8 @@
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		class={twMerge(
-			'h-full w-full overflow-hidden',
-			customCss?.container?.class,
-			'wm-text-container'
-		)}
-		style={customCss?.container?.style}
+		class={twMerge('h-full w-full overflow-hidden', css.container?.class, 'wm-text-container')}
+		style={css?.container?.style}
 		on:dblclick={() => {
 			if (!editorMode) {
 				editorMode = true
@@ -193,7 +189,6 @@
 					class={twMerge(
 						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0 text-center',
 						css?.text?.class,
-						customCss?.text?.class,
 						'wm-text',
 						classes,
 						getClasses(),
@@ -201,7 +196,7 @@
 						getHorizontalAlignement()
 					)}
 					on:pointerdown|stopPropagation
-					style={customCss?.text?.style}
+					style={css?.text?.style}
 					id={`text-${id}`}
 					on:pointerenter={() => {
 						const elem = document.getElementById(`text-${id}`)
@@ -232,15 +227,8 @@
 					>
 						<svelte:element
 							this={component}
-							class={twMerge(
-								'whitespace-pre-wrap',
-								$app.css?.['textcomponent']?.['text']?.class,
-								customCss?.text?.class,
-								classes
-							)}
-							style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(
-								';'
-							)}
+							class={twMerge('whitespace-pre-wrap', css?.text?.class, classes)}
+							style={css?.text?.style}
 						>
 							{String(result)}
 						</svelte:element>

@@ -752,11 +752,11 @@ pub async fn handle_python_reqs(
 
 #[cfg(feature = "enterprise")]
 use std::sync::Arc;
-#[cfg(feature = "enterprise")]
-use tokio::sync::mpsc::Sender;
 
 #[cfg(feature = "enterprise")]
-use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process, JobCompleted};
+use crate::JobCompletedSender;
+#[cfg(feature = "enterprise")]
+use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
 #[cfg(feature = "enterprise")]
 use tokio::sync::mpsc::Receiver;
 #[cfg(feature = "enterprise")]
@@ -774,7 +774,7 @@ pub async fn start_worker(
     w_id: &str,
     script_path: &str,
     token: &str,
-    job_completed_tx: Sender<JobCompleted>,
+    job_completed_tx: JobCompletedSender,
     jobs_rx: Receiver<Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {

@@ -20,20 +20,21 @@
 	let workers: WorkerPing[] | undefined = undefined
 	let filteredWorkers: WorkerPing[] = []
 	let workerGroups: Record<string, any> | undefined = undefined
-	let groupedWorkers: [string, [[string, string], WorkerPing[]][]][] = []
+	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
 	let intervalId: NodeJS.Timer | undefined
 
+	const splitter = '_%%%_'
 	let globalCache = false
 	let customTags: string[] | undefined = []
 	$: filteredWorkers = (workers ?? []).filter((x) => (x.last_ping ?? 0) < 300)
 	$: groupedWorkers = groupBy(
 		groupBy(
 			filteredWorkers,
-			(wp: WorkerPing) => [wp.worker_instance, wp.worker_group],
+			(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
 			(wp: WorkerPing) => wp.worker
 		),
-		(x) => x[0][1],
-		(x) => x[0][0]
+		(x) => x[0]?.split(splitter)?.[1],
+		(x) => x[0]?.split(splitter)?.[0]
 	)
 
 	const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
@@ -289,6 +290,9 @@
 				on:reload={() => {
 					loadWorkerGroups()
 				}}
+				activeWorkers={worker_group?.[1].flatMap((x) =>
+					x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+				)?.length ?? 0}
 			/>
 
 			<DataTable>
@@ -320,8 +324,11 @@
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
-								Instance: <Badge color="gray">{section[0]}</Badge>
+								Instance: <Badge color="gray">{section?.split(splitter)?.[0]}</Badge>
 								IP: <Badge color="gray">{workers[0].ip}</Badge>
+								{#if workers?.length > 1}
+									{workers?.length} Workers
+								{/if}
 							</Cell>
 						</tr>
 
@@ -365,6 +372,7 @@
 				}}
 				name={worker_group[0]}
 				config={worker_group[1]}
+				activeWorkers={0}
 			/>
 			<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
 		{/each}

@@ -29,6 +29,10 @@
 		display: none !important;
 	}
 
+	.monaco-editor .suggest-widget {
+		z-index: 10001 !important;
+	}
+
 	.nowrap pre code.hljs {
 		whitespace: normal !important;
 	}

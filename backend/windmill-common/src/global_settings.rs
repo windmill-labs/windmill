@@ -9,6 +9,9 @@ pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
+pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
+pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
+pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 
 pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",

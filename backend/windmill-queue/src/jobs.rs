@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, iter, vec};
+use std::{collections::HashMap, iter, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -20,6 +20,7 @@ use axum::{
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
+use prometheus::IntCounter;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Client, StatusCode,
@@ -30,6 +31,7 @@ use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
+use tokio::sync::RwLock;
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -46,7 +48,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{
         get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
-        JobPayload, Metrics, QueuedJob, RawCode,
+        JobPayload, QueuedJob, RawCode,
     },
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
@@ -74,16 +76,21 @@ lazy_static::lazy_static! {
         "Total number of jobs pushed to the queue."
     )
     .unwrap();
+
     static ref QUEUE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_delete_count",
         "Total number of jobs deleted from the queue."
     )
     .unwrap();
+
     static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_pull_count",
         "Total number of jobs pulled from the queue."
     )
     .unwrap();
+
+    pub static ref WORKER_EXECUTION_FAILED: Arc<RwLock<HashMap<String, IntCounter>>> = Arc::new(RwLock::new(HashMap::new()));
+
 
 }
 
@@ -129,7 +136,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
     } else {
         let reason = reason
             .clone()
-            .unwrap_or_else(|| "No reason provided".to_string());
+            .unwrap_or_else(|| "unexplicited reasons".to_string());
         let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
         let add_job = add_completed_job_error(
             &db,
@@ -137,8 +144,8 @@ pub async fn cancel_job<'c: 'async_recursion>(
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             job_running.mem_peak.unwrap_or(0),
             e,
-            None,
             rsmq.clone(),
+            "server",
         )
         .await;
         if let Err(e) = add_job {
@@ -187,6 +194,36 @@ pub struct WrappedError {
     pub error: serde_json::Value,
 }
 
+pub async fn register_metric<T, F, F2, R>(
+    l: &Arc<RwLock<HashMap<String, T>>>,
+    s: &str,
+    fnew: F2,
+    f: F,
+) -> Option<R>
+where
+    F: FnOnce(&T) -> R,
+    F2: FnOnce(&str) -> (T, R),
+{
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let lock = l.read().await;
+
+        let counter = lock.get(s);
+        if let Some(counter) = counter {
+            let r = f(counter);
+            drop(lock);
+            Some(r)
+        } else {
+            drop(lock);
+            let (metric, r) = fnew(s);
+            let mut m = l.write().await;
+            (*m).insert(s.to_string(), metric);
+            Some(r)
+        }
+    } else {
+        None
+    }
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
@@ -194,12 +231,27 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     logs: String,
     mem_peak: i32,
     e: serde_json::Value,
-    metrics: Option<Metrics>,
     rsmq: Option<R>,
+    worker_name: &str,
 ) -> Result<WrappedError, Error> {
-    if *METRICS_ENABLED {
-        metrics.map(|m| m.worker_execution_failed.inc());
-    }
+    register_metric(
+        &WORKER_EXECUTION_FAILED,
+        &queued_job.tag,
+        |s| {
+            let counter = prometheus::register_int_counter!(prometheus::Opts::new(
+                "worker_execution_failed",
+                "Number of jobs having failed"
+            )
+            .const_label("name", worker_name)
+            .const_label("tag", s))
+            .expect("register prometheus metric");
+            counter.inc();
+            (counter, ())
+        },
+        |c| c.inc(),
+    )
+    .await;
+
     let result = WrappedError { error: e };
     tracing::error!(
         "job {} did not succeed: {}",
@@ -1078,7 +1130,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             || pulled_job.concurrent_limit.is_none()
             || pulled_job.canceled
         {
-            if *METRICS_ENABLED {
+            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
             return Ok(Option::Some(pulled_job));
@@ -1100,6 +1152,14 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             job_custom_concurrent_limit,
             job_custom_concurrency_time_window_s
         );
+
+        sqlx::query_scalar!(
+            "SELECT null FROM queue WHERE id = $1 FOR UPDATE",
+            pulled_job.id
+        )
+        .fetch_one(&mut tx)
+        .await
+        .context("lock job in queue")?;
 
         let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
             format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
@@ -1156,7 +1216,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             concurrent_jobs_for_this_script
         );
         if concurrent_jobs_for_this_script <= job_custom_concurrent_limit {
-            if *METRICS_ENABLED {
+            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
@@ -1535,7 +1595,7 @@ async fn get_result_by_id_from_original_flow(
     )
     .await?;
 
-    tracing::warn!(
+    tracing::debug!(
         "Fetching leaf jobs for flow {} : {:?}",
         flow_job.id,
         leaf_jobs_for_flow
@@ -1702,7 +1762,7 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     w_id: &str,
     job_id: Uuid,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
     let job_removed = sqlx::query_scalar!(
@@ -2494,7 +2554,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_PUSH_COUNT.inc();
     }
 

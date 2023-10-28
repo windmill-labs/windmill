@@ -25,6 +25,7 @@
 				cache_clear?: number
 				init_bash?: string
 		  }
+	export let activeWorkers: number
 
 	let nconfig: any = config
 		? config.worker_tags != undefined || config.dedicated_worker != undefined
@@ -355,7 +356,7 @@
 							dirty = false
 							dirtyCode = false
 						}}
-						disabled={!dirty || !$enterpriseLicense}
+						disabled={(!dirty && nconfig?.dedicated_worker == undefined) || !$enterpriseLicense}
 					>
 						Apply changes
 					</Button>
@@ -397,6 +398,11 @@
 	{:else if config}
 		<span class="text-xs text-secondary"
 			>config <Tooltip>{JSON.stringify(config, null, 4)}</Tooltip></span
+		>
+	{/if}
+	{#if activeWorkers > 1}
+		<span class="ml-4 text-xs"
+			>{activeWorkers} Workers <Tooltip>Number of workers active in the last 10s</Tooltip></span
 		>
 	{/if}
 </div>

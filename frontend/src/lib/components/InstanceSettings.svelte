@@ -84,6 +84,14 @@
 				storage: 'setting',
 				ee_only:
 					'You can still set this setting by using NPM_CONFIG_REGISTRY as env variable to the worker containers'
+			},
+			{
+				label: 'Expose metrics',
+				description: 'Expose prometheus metrics for workers and servers on port 8001 at /metrics',
+				key: 'expose_metrics',
+				fieldType: 'boolean',
+				storage: 'setting',
+				ee_only: 'No workaround around this'
 			}
 		],
 		SMTP: [
@@ -129,6 +137,22 @@
 			}
 		],
 		'SSO/OAuth': [],
+		Debug: [
+			{
+				label: 'Keep Job Directories',
+				key: 'keep_job_dir',
+				fieldType: 'boolean',
+				tooltip: 'Keep Job directories after execution at /tmp/windmill/<worker>/<job_id>',
+				storage: 'setting'
+			},
+			{
+				label: 'Expose Debug Metrics',
+				key: 'expose_debug_metrics',
+				fieldType: 'boolean',
+				tooltip: 'Expose additional metrics (require metrics to be enabled)',
+				storage: 'setting'
+			}
+		],
 		Telemetry: [
 			{
 				label: 'Disable telemetry',

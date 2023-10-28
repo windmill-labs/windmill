@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fmt::Display, ops::Mul, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    ops::Mul,
+    str::FromStr,
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
 
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
@@ -14,7 +21,8 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING,
+        BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         RETENTION_PERIOD_SECS_SETTING,
     },
@@ -22,10 +30,10 @@ use windmill_common::{
     server::load_server_config,
     users::truncate_token,
     worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
-    BASE_URL, DB, METRICS_ENABLED,
+    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, NPM_CONFIG_REGISTRY,
+    create_token_for_owner, handle_job_error, AuthedClient, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
     PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
@@ -76,72 +84,98 @@ pub async fn initial_load(
     worker_mode: bool,
     server_mode: bool,
 ) {
-    let reload_worker_config_f = async {
-        if worker_mode {
-            reload_worker_config(&db, tx, false).await;
-        }
-    };
-    let reload_custom_tags_f = async {
-        if server_mode {
-            if let Err(e) = reload_custom_tags_setting(db).await {
-                tracing::error!("Error reloading custom tags: {:?}", e)
-            }
-        }
-    };
+    if let Err(e) = load_metrics_enabled(db).await {
+        tracing::error!("Error loading expose metrics: {e}");
+    }
 
-    let reload_base_url_f = async {
-        if let Err(e) = reload_base_url_setting(db).await {
-            tracing::error!("Error reloading base url: {:?}", e)
-        }
-    };
+    if let Err(e) = load_metrics_debug_enabled(db).await {
+        tracing::error!("Error loading expose debug metrics: {e}");
+    }
 
-    let reload_server_config_f = async {
-        if server_mode {
-            reload_server_config(&db).await;
-        }
-    };
-    let reload_retention_period_f = async {
-        if server_mode {
-            reload_retention_period_setting(&db).await;
-        }
-    };
+    if worker_mode {
+        load_keep_job_dir(db).await;
+    }
 
-    let reload_request_size_f = async {
-        if server_mode {
-            reload_request_size(&db).await;
-        }
-    };
+    if worker_mode {
+        reload_worker_config(&db, tx, false).await;
+    }
 
-    let reload_license_key_f = async {
-        #[cfg(feature = "enterprise")]
-        if let Err(e) = reload_license_key(&db).await {
-            tracing::error!("Error reloading license key: {:?}", e)
+    if server_mode {
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!("Error reloading custom tags: {:?}", e)
         }
-    };
+    }
 
-    let reload_extra_pip_index_url_f = async {
-        if worker_mode {
-            reload_extra_pip_index_url_setting(&db).await;
+    if let Err(e) = reload_base_url_setting(db).await {
+        tracing::error!("Error reloading base url: {:?}", e)
+    }
+
+    if server_mode {
+        reload_server_config(&db).await;
+    }
+
+    if server_mode {
+        reload_retention_period_setting(&db).await;
+    }
+    if server_mode {
+        reload_request_size(&db).await;
+    }
+
+    #[cfg(feature = "enterprise")]
+    if let Err(e) = reload_license_key(&db).await {
+        tracing::error!("Error reloading license key: {:?}", e)
+    }
+
+    if worker_mode {
+        reload_extra_pip_index_url_setting(&db).await;
+    }
+
+    if worker_mode {
+        reload_npm_config_registry_setting(&db).await;
+    }
+}
+
+pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        EXPOSE_METRICS_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => METRICS_ENABLED.store(t, Ordering::Relaxed),
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        EXPOSE_DEBUG_METRICS_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed),
+        _ => (),
+    };
+    Ok(())
+}
+pub async fn load_keep_job_dir(db: &DB) {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        KEEP_JOB_DIR_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
+        Err(e) => {
+            tracing::error!("Error loading keep job dir metrics: {e}");
         }
+        _ => (),
     };
-
-    let reload_npm_config_registry_f = async {
-        if worker_mode {
-            reload_npm_config_registry_setting(&db).await;
-        }
-    };
-
-    join!(
-        reload_worker_config_f,
-        reload_server_config_f,
-        reload_custom_tags_f,
-        reload_request_size_f,
-        reload_base_url_f,
-        reload_retention_period_f,
-        reload_license_key_f,
-        reload_extra_pip_index_url_f,
-        reload_npm_config_registry_f
-    );
 }
 
 pub async fn delete_expired_items(db: &DB) -> () {
@@ -380,6 +414,38 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
     Ok(())
 }
 
+pub async fn monitor_pool(db: &DB) {
+    if METRICS_ENABLED.load(Ordering::Relaxed) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let active_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+                "pool_connections_active",
+                "Number of active postgresql connections in the pool"
+            )
+            .unwrap();
+
+            let idle_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+                "pool_connections_idle",
+                "Number of idle postgresql connections in the pool"
+            )
+            .unwrap();
+
+            let max_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+                "pool_connections_max",
+                "Number of max postgresql connections in the pool"
+            )
+            .unwrap();
+
+            max_pool_connections.set(db.options().get_max_connections() as i64);
+            loop {
+                active_pool_connections.set(db.size() as i64);
+                idle_pool_connections.set(db.num_idle() as i64);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+}
+
 pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     base_internal_url: &str,
@@ -388,7 +454,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 ) {
     let zombie_jobs_f = async {
         if server_mode {
-            handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
+            handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
         }
     };
     let expired_items_f = async {
@@ -413,7 +479,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     };
 
     let expose_queue_metrics_f = async {
-        if *METRICS_ENABLED && server_mode {
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) && server_mode {
             expose_queue_metrics(&db).await;
         }
     };
@@ -574,6 +640,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     db: &Pool<Postgres>,
     base_internal_url: &str,
     rsmq: Option<R>,
+    worker_name: &str,
 ) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
@@ -587,7 +654,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .ok()
             .unwrap_or_else(|| vec![]);
 
-        if *METRICS_ENABLED {
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
         for r in restarted {
@@ -613,7 +680,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .ok()
         .unwrap_or_else(|| vec![]);
 
-    if *METRICS_ENABLED {
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
 
@@ -638,6 +705,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             base_internal_url: base_internal_url.to_string(),
             token,
             workspace: job.workspace_id.to_string(),
+            force_client: None,
         };
 
         let last_ping = job.last_ping.clone();
@@ -653,11 +721,11 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .unwrap_or_else(|| "no ping".to_string()),
                 *ZOMBIE_JOB_TIMEOUT
             )),
-            None,
             true,
             same_worker_tx_never_used,
             "",
             rsmq.clone(),
+            worker_name,
         )
         .await;
     }

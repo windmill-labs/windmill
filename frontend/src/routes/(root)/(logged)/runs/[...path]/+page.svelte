@@ -392,7 +392,7 @@
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
 		{#if selectedId}
-			<JobPreview id={selectedId} />
+			<JobPreview blankLink id={selectedId} />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -563,7 +563,7 @@
 
 	<SplitPanesWrapper>
 		<Splitpanes>
-			<Pane size={60} minSize={60}>
+			<Pane size={60} minSize={40}>
 				{#if jobs}
 					<RunsTable
 						{jobs}

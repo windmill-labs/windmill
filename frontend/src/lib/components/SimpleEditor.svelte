@@ -76,6 +76,7 @@
 		code = ncode
 		if (editor) {
 			editor.setValue(ncode)
+			console.log(editor, ncode)
 		}
 	}
 
@@ -125,8 +126,16 @@
 
 	let width = 0
 	async function loadMonaco() {
-		model = meditor.createModel(code, lang, mUri.parse(uri))
-
+		try {
+			model = meditor.createModel(code, lang, mUri.parse(uri))
+		} catch (err) {
+			console.log('model already existed', err)
+			const nmodel = meditor.getModel(mUri.parse(uri))
+			if (!nmodel) {
+				throw err
+			}
+			model = nmodel
+		}
 		model.updateOptions(updateOptions)
 		let widgets: HTMLElement | undefined =
 			document.getElementById('monaco-widgets-root') ?? undefined

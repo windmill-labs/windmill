@@ -103,7 +103,12 @@
 <InitializeComponent {id} />
 
 {#each disabledTabs ?? [] as disableTab, index}
-	<InputValue key="disable" {id} input={disableTab} bind:value={resolvedDisabledTabs[index]} />
+	<InputValue
+		key="disable-{index}"
+		{id}
+		input={disableTab}
+		bind:value={resolvedDisabledTabs[index]}
+	/>
 {/each}
 
 <div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>

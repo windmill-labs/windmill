@@ -749,7 +749,13 @@ export const components = {
 							}
 						}
 					}
-				} as const
+				} as const,
+				displayBorders: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					tooltip: 'Display borders between items'
+				}
 			},
 			componentInput: {
 				type: 'static',
@@ -1498,6 +1504,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1544,6 +1555,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1890,6 +1906,11 @@ This is a paragraph.
 					type: 'static',
 					value: 'Password',
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1915,6 +1936,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

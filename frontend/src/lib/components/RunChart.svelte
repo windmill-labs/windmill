@@ -168,6 +168,6 @@
 	} as any
 </script>
 
-<div class="relative">
+<div class="relative max-h-40">
 	<Scatter {data} options={scatterOptions} />
 </div>

@@ -141,6 +141,7 @@
 	<ResolveStyle
 		{id}
 		{customCss}
+		{extraKey}
 		{key}
 		bind:css={css[key]}
 		componentStyle={$app.css?.buttoncomponent}
@@ -169,33 +170,35 @@
 		{#if errorsMessage}
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
-		<Button
-			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={twMerge(css?.button?.class, 'wm-button')}
-			wrapperClasses={twMerge(
-				css?.container?.class,
-				resolvedConfig.fillContainer ? 'w-full h-full' : '',
-				'wm-button-container'
-			)}
-			wrapperStyle={css?.container?.style}
-			style={css?.button?.style}
-			disabled={resolvedConfig.disabled}
-			on:click={handleClick}
-			size={resolvedConfig.size}
-			color={resolvedConfig.color}
-			{loading}
-		>
-			<span class="truncate inline-flex gap-2 items-center">
-				{#if resolvedConfig.beforeIcon && beforeIconComponent}
-					<svelte:component this={beforeIconComponent} size={14} />
-				{/if}
-				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
-					<div>{resolvedConfig.label.toString()}</div>
-				{/if}
-				{#if resolvedConfig.afterIcon && afterIconComponent}
-					<svelte:component this={afterIconComponent} size={14} />
-				{/if}
-			</span>
-		</Button>
+		{#key css}
+			<Button
+				on:pointerdown={(e) => e.stopPropagation()}
+				btnClasses={twMerge(css?.button?.class ?? '', 'wm-button')}
+				style={css?.button?.style}
+				wrapperClasses={twMerge(
+					css?.container?.class ?? '',
+					resolvedConfig.fillContainer ? 'w-full h-full' : '',
+					'wm-button-container'
+				)}
+				wrapperStyle={css?.container?.style}
+				disabled={resolvedConfig.disabled}
+				on:click={handleClick}
+				size={resolvedConfig.size}
+				color={resolvedConfig.color}
+				{loading}
+			>
+				<span class="truncate inline-flex gap-2 items-center">
+					{#if resolvedConfig.beforeIcon && beforeIconComponent}
+						<svelte:component this={beforeIconComponent} size={14} />
+					{/if}
+					{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
+						<div>{resolvedConfig.label.toString()}</div>
+					{/if}
+					{#if resolvedConfig.afterIcon && afterIconComponent}
+						<svelte:component this={afterIconComponent} size={14} />
+					{/if}
+				</span>
+			</Button>
+		{/key}
 	</AlignWrapper>
 </RunnableWrapper>

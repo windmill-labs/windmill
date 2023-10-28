@@ -489,7 +489,7 @@ if (import.meta.main) {
       }
     )
     .option(
-      "--continous",
+      "-c --continuous",
       "Run the benchmark forever. This effectively disables metric collection & exports. No zombie jobs will be tracked."
     )
     .option(

@@ -66,6 +66,13 @@
 	}
 
 	let css = initCss($app.css?.[appCssKey], customCss)
+
+	$: classInput = twMerge(
+		'windmillapp w-full  py-1.5 text-sm focus:ring-indigo-100 px-2',
+		css?.input?.class ?? '',
+		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
+		'wm-text-input'
+	)
 </script>
 
 {#each Object.keys(components['textinputcomponent'].initialData.configuration) as key (key)}
@@ -91,27 +98,20 @@
 {#if render}
 	{#if inputType === 'textarea'}
 		<textarea
-			class={twMerge(
-				'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-				css?.input?.class ?? '',
-				'wm-text-input'
-			)}
+			class={twMerge(classInput, 'h-full')}
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			on:keydown|stopPropagation
 			bind:value
 			placeholder={resolvedConfig.placeholder}
+			disabled={resolvedConfig.disabled}
 		/>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
 			{#if inputType === 'password'}
 				<input
-					class={twMerge(
-						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? '',
-						'wm-text-input'
-					)}
+					class={classInput}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -119,14 +119,11 @@
 					type="password"
 					bind:value
 					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
 				/>
 			{:else if inputType === 'text'}
 				<input
-					class={twMerge(
-						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? '',
-						'wm-text-input'
-					)}
+					class={classInput}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -134,14 +131,11 @@
 					type="text"
 					bind:value
 					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
 				/>
 			{:else if inputType === 'email'}
 				<input
-					class={twMerge(
-						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? '',
-						'wm-text-input'
-					)}
+					class={classInput}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -149,6 +143,7 @@
 					type="email"
 					bind:value
 					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
 				/>
 			{/if}
 		</AlignWrapper>
