@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.193.0](https://github.com/windmill-labs/windmill/compare/v1.192.0...v1.193.0) (2023-10-28)
+
+
+### Features
+
+* refactor metrics and add performance debug metrics ([#2520](https://github.com/windmill-labs/windmill/issues/2520)) ([b888348](https://github.com/windmill-labs/windmill/commit/b8883481f46f1317748bb1884e0f0d287e8ae7fa))
+
+
+### Bug Fixes
+
+* **frontend:** add a disabled prop to text inputs ([#2512](https://github.com/windmill-labs/windmill/issues/2512)) ([7164de8](https://github.com/windmill-labs/windmill/commit/7164de81b02376f61eac965f08d75ab8b790e0ee))
+* **frontend:** fix insert new item ([#2519](https://github.com/windmill-labs/windmill/issues/2519)) ([c4383cf](https://github.com/windmill-labs/windmill/commit/c4383cfe740220f4674c93beeae9eb74397f7aff))
+* **frontend:** increased size limit for images ([#2510](https://github.com/windmill-labs/windmill/issues/2510)) ([aaa2657](https://github.com/windmill-labs/windmill/commit/aaa26579dc5e24f46e554a42c0121fb6a04d58f3))
+* move keep job directories and expose debug metrics to instance settings UI ([55ceca1](https://github.com/windmill-labs/windmill/commit/55ceca19131ac6dfb190f8818b18b46ca329babc))
+* prometheus metrics are an instance settings ([ea28163](https://github.com/windmill-labs/windmill/commit/ea28163865a22174dc1b92242a24989a1a47af21))
+
 ## [1.192.0](https://github.com/windmill-labs/windmill/compare/v1.191.0...v1.192.0) (2023-10-25)
 
 
