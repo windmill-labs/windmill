@@ -54,6 +54,9 @@ const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 mod ee;
 mod monitor;
 
+#[cfg(feature = "pg_embed")]
+mod pg_embed;
+
 #[derive(Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -165,6 +168,14 @@ async fn main() -> anyhow::Result<()> {
         config.port = url.port().unwrap_or(6379).to_string();
         config
     });
+
+    #[cfg(feature = "pg_embed")]
+    let pg = {
+        let (db_url, pg) = pg_embed::start().await.expect("pg embed");
+        tracing::info!("Use embedded pg: {db_url}");
+        std::env::set_var("DATABASE_URL", db_url);
+        pg
+    };
 
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode).await?;
