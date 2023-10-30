@@ -23,6 +23,7 @@
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
+	export let disableAi
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -75,6 +76,7 @@
 				</button>
 			{:else}
 				<InsertModuleButton
+					{disableAi}
 					bind:open={openMenu}
 					{trigger}
 					on:new={(e) => {
@@ -216,6 +218,7 @@
 				</button>
 			{:else}
 				<InsertModuleButton
+					{disableAi}
 					bind:open={openMenu2}
 					{trigger}
 					on:new={(e) => {

@@ -8,6 +8,7 @@
 
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use windmill_common::flow_status::RestartedFrom;
 
 use crate::db::ApiAuthed;
 
@@ -41,7 +42,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
     flows::FlowValue,
-    jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
@@ -62,6 +63,10 @@ pub fn workspaced_service() -> Router {
             post(run_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone()),
+        )
+        .route(
+            "/restart/f/:job_id/from/*step_id",
+            post(restart_flow).head(|| async { "" }).layer(cors.clone()),
         )
         .route(
             "/run/p/*script_path",
@@ -399,64 +404,6 @@ async fn get_job_logs(
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
-pub struct CompletedJob {
-    pub workspace_id: String,
-    pub id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i64,
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logs: Option<String>,
-    pub deleted: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_code: Option<String>,
-    pub canceled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_reason: Option<String>,
-    pub job_kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub is_flow_step: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<ScriptLang>,
-    pub is_skipped: bool,
-    pub email: String,
-    pub visible_to_owner: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    pub tag: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-}
-
-impl CompletedJob {
-    pub fn json_result(&self) -> Option<serde_json::Value> {
-        self.result
-            .as_ref()
-            .map(|r| serde_json::from_str(r.get()).ok())
-            .flatten()
-    }
-}
-
-#[derive(Debug, sqlx::FromRow, Serialize)]
 pub struct ListableCompletedJob {
     pub r#type: String,
     pub workspace_id: String,
@@ -499,12 +446,6 @@ pub struct ListableCompletedJob {
     pub tag: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
-}
-
-impl<'a> IntoResponse for CompletedJob {
-    fn into_response(self) -> Response {
-        Json(self).into_response()
-    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -1531,6 +1472,7 @@ struct PreviewFlow {
     path: Option<String>,
     args: Option<Box<JsonRawValue>>,
     tag: Option<String>,
+    restarted_from: Option<RestartedFrom>,
 }
 
 pub struct QueryOrBody<D>(pub Option<D>);
@@ -1680,6 +1622,73 @@ pub async fn run_flow_by_path(
         None,
         None,
         None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+pub async fn restart_flow(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path((w_id, job_id, step_id)): Path<(String, Uuid, String)>,
+    Query(run_query): Query<RunJobQuery>,
+) -> error::Result<(StatusCode, String)> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Restarting a flow is a feature only available in enterprise version".to_string(),
+        ));
+    }
+
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    let completed_job = sqlx::query_as::<_, CompletedJob>(
+        "SELECT * from completed_job WHERE id = $1 and workspace_id = $2",
+    )
+    .bind(job_id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?
+    .with_context(|| "Unable to find completed job with the given job UUID")?;
+
+    let flow_path = completed_job
+        .script_path
+        .with_context(|| "No flow path set for completed flow job")?;
+    check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
+
+    let push_args = completed_job
+        .args
+        .map(|json| PushArgs { args: json.clone(), extra: json.0 });
+
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::RestartedFlow { completed_job_id: job_id, step_id: step_id },
+        push_args,
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        scheduled_for,
+        None,
+        run_query.parent_job,
+        run_query.parent_job,
+        run_query.job_id,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+        Some(completed_job.tag),
+        None,
+        None,
+        completed_job.priority,
     )
     .await?;
     tx.commit().await?;
@@ -2324,7 +2333,7 @@ async fn add_batch_jobs(
 
             let mut uuids: Vec<Uuid> = Vec::new();
             let payload = if let Some(ref fv) = batch_info.flow_value {
-                JobPayload::RawFlow { value: fv.clone(), path: None }
+                JobPayload::RawFlow { value: fv.clone(), path: None, restarted_from: None }
             } else {
                 if let Some(path) = batch_info.path.as_ref() {
                     JobPayload::Flow(path.to_string())
@@ -2442,7 +2451,11 @@ async fn run_preview_flow_job(
         &db,
         tx,
         &w_id,
-        JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
+        JobPayload::RawFlow {
+            value: raw_flow.value,
+            path: raw_flow.path,
+            restarted_from: raw_flow.restarted_from,
+        },
         raw_flow.args.unwrap_or_default(),
         &authed.username,
         &authed.email,
@@ -2769,7 +2782,8 @@ async fn get_completed_job<'a>(
         .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
-    Ok(CompletedJob::from_row(&job)?.into_response())
+    let response = Json(CompletedJob::from_row(&job)?).into_response();
+    Ok(response)
 }
 
 #[derive(FromRow)]
@@ -2900,5 +2914,6 @@ async fn delete_completed_job<'a>(
     .await?;
 
     tx.commit().await?;
-    Ok(CompletedJob::from_row(&job)?.into_response())
+    let response = Json(CompletedJob::from_row(&job)?).into_response();
+    Ok(response)
 }
