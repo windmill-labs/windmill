@@ -413,8 +413,9 @@
 										class="p-2"
 										on:keypress={() => toggleRow(row)}
 										on:click={() => toggleRow(row)}
+										style="width: {(actionButtons ?? []).length * 130}px"
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1.5">
+										<div class="center-center h-full w-full flex-wrap gap-2">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
 												<!-- svelte-ignore a11y-no-static-element-interactions -->
 												<RowWrapper
