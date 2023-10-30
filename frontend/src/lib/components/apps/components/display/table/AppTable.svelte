@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import type {
 		AppViewerContext,
 		BaseAppComponent,
@@ -113,10 +113,14 @@
 			outputs?.selectedRow.set(data, force)
 			outputs?.selectedRowIndex.set(index, force)
 			if (iterContext && listInputs) {
-				listInputs(id, { selectedRow: data, selectedRowIndex: index })
+				listInputs.set(id, { selectedRow: data, selectedRowIndex: index })
 			}
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
 
 	let mounted = false
 	onMount(() => {

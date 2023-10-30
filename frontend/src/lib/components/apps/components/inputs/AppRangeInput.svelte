@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import RangeSlider from 'svelte-range-slider-pips'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -53,10 +53,14 @@
 		}
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
 	$: {
 		outputs?.result.set(values)
 		if (iterContext && listInputs) {
-			listInputs(id, values)
+			listInputs.set(id, values)
 		}
 	}
 

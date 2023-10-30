@@ -13,13 +13,26 @@
 
 	$: $ctx = { index, value, disabled }
 	setContext<ListContext>('ListWrapperContext', ctx)
-	setContext<ListInputs>('ListInputs', (id: string, value: any) => {
-		if (!inputs[id]) {
-			inputs[id] = { [index]: value }
-		} else {
-			inputs[id][index] = value
+	setContext<ListInputs>('ListInputs', {
+		set: (id: string, value: any) => {
+			if (!inputs[id]) {
+				inputs[id] = { [index]: value }
+			} else {
+				inputs[id][index] = value
+			}
+			onInputsChange()
+		},
+		remove(id) {
+			if (inputs?.[id] == undefined) {
+				return
+			}
+			if (index == 0) {
+				delete inputs[id]
+			} else {
+				delete inputs[id][index]
+			}
+			inputs = inputs
 		}
-		onInputsChange()
 	})
 </script>
 

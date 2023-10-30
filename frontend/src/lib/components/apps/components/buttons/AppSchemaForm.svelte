@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type {
@@ -51,9 +51,13 @@
 
 		outputs.values.set(newArgs, true)
 		if (iterContext && listInputs) {
-			listInputs(id, newArgs)
+			listInputs.set(id, newArgs)
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
 
 	let schemaForm: LightweightSchemaForm
 
