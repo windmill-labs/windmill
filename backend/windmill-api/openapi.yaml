@@ -2363,13 +2363,14 @@ paths:
                 items:
                   type: string
 
-  /embeddings/query_resource_types:
+  /w/{workspace}/embeddings/query_resource_types:
     get:
       summary: query resource types by similarity
       operationId: queryResourceTypes
       tags:
         - resource
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - name: text
           description: query text
           in: query
