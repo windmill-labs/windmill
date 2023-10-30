@@ -106,7 +106,10 @@
 					resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
 					css?.buttonContainer?.class,
 					'wm-button-container',
-					'wm-modal-button-container'
+					'wm-modal-button-container',
+					resolvedConfig?.hideButtonOnView && $mode == 'preview'
+						? 'invisible h-0 overflow-hidden'
+						: ''
 				)}
 				style={css?.button?.style}
 				wrapperStyle={css?.buttonContainer?.style}

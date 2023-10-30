@@ -2259,6 +2259,12 @@ This is a paragraph.
 					fieldType: 'text',
 					value: 'Drawer title'
 				},
+				hideButtonOnView: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false,
+					tooltip: 'Make button invisible when app is used outside of the edit mode'
+				},
 				label: {
 					type: 'static',
 					fieldType: 'text',
@@ -2428,6 +2434,12 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'text',
 					value: 'Modal title'
+				},
+				hideButtonOnView: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false,
+					tooltip: 'Make button invisible when app is used outside of the edit mode'
 				},
 				buttonLabel: {
 					type: 'static',
