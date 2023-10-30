@@ -112,6 +112,8 @@
 		const connections: InputConnectionEval[] = []
 		const xDataResolved = resolveConfiguration(component.xData, connections)
 
+		if (component.datasets === undefined) return
+
 		const datasets =
 			(component.datasets?.type === 'static'
 				? component.datasets?.value
