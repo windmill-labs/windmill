@@ -434,7 +434,7 @@
 				<ResourcePicker
 					{disablePortal}
 					bind:value
-					resourceType={format.split('-').length > 1
+					resourceType={format && format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
 					{showSchemaExplorer}

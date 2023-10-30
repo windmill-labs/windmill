@@ -198,7 +198,7 @@ const asg = new aws.autoscaling.Group("asg3", {
     version: "$Latest",
   },
   minSize: 0,
-  maxSize: 30,
+  maxSize: 2,
   vpcZoneIdentifiers: [subnetA.id],
   tags: [
     {
@@ -242,7 +242,7 @@ const lb = new awsx.lb.ApplicationLoadBalancer("lb2", {
 //   desiredCount: 2,
 //   taskDefinitionArgs: {
 //     container: {
-//       image: "nginx:latest",
+//       image: "nginx:main@sha256:31ce1955e23ec18963e5d3d7357dc68b1a62f54145d19ceff4054d257066129e",
 //       cpu: 512,
 //       memory: 128,
 //       essential: true,
@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:1.190.3",
+        image: "ghcr.io/windmill-labs/windmill-ee:main@sha256:31ce1955e23ec18963e5d3d7357dc68b1a62f54145d19ceff4054d257066129e",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -273,8 +273,8 @@ db.address.apply((address) => {
         ],
         environment: [
           { name: "MODE", value: "worker" },
-          { name: "NUM_WORKERS", value: "1" },
-          { name: "DATABASE_CONNECTIONS", value: "5"},
+          { name: "NUM_WORKERS", value: "5" },
+          { name: "DATABASE_CONNECTIONS", value: "10"},
           { name: "SLEEP_QUEUE", value: "300"},
           // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
@@ -296,6 +296,11 @@ db.address.apply((address) => {
         dockerLabels: {
           PROMETHEUS_EXPORTER_PORT: "8001",
         },
+        portMappings: [
+          {
+            containerPort: 8001,
+          },
+        ],
       },
     ]),
     volumes: [
@@ -314,7 +319,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill-ee:1.190.3",
+        image: "ghcr.io/windmill-labs/windmill-ee:main@sha256:31ce1955e23ec18963e5d3d7357dc68b1a62f54145d19ceff4054d257066129e",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -350,6 +355,11 @@ db.address.apply((address) => {
         dockerLabels: {
           PROMETHEUS_EXPORTER_PORT: "8001",
         },
+        portMappings: [
+          {
+            containerPort: 8001,
+          },
+        ],
       },
     ]),
     volumes: [
@@ -368,7 +378,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill-ee:1.190.3",
+        image: "ghcr.io/windmill-labs/windmill-ee:main@sha256:31ce1955e23ec18963e5d3d7357dc68b1a62f54145d19ceff4054d257066129e",
         cpu: 1024,
         memory: 1024,
         essential: true,
@@ -409,7 +419,7 @@ db.address.apply((address) => {
   const service_server = new aws.ecs.Service("service-server", {
     cluster: cluster.id,
     taskDefinition: server_td.arn,
-    desiredCount: 4,
+    desiredCount: 1,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {
@@ -429,7 +439,7 @@ db.address.apply((address) => {
   const service_worker = new aws.ecs.Service("service-worker", {
     cluster: cluster.id,
     taskDefinition: worker_td.arn,
-    desiredCount: 20,
+    desiredCount: 1,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {
@@ -442,7 +452,7 @@ db.address.apply((address) => {
   const service_worker2 = new aws.ecs.Service("service-worker-2", {
     cluster: cluster.id,
     taskDefinition: worker_td2.arn,
-    desiredCount: 30,
+    desiredCount: 0,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {

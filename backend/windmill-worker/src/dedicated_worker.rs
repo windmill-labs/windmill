@@ -14,12 +14,14 @@ use std::{collections::VecDeque, process::Stdio, sync::Arc};
 
 use anyhow::Context;
 
-use crate::{common::start_child_process, JobCompleted, MAX_BUFFERED_DEDICATED_JOBS};
+use crate::{
+    common::start_child_process, JobCompleted, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS,
+};
 
 use futures::{future, Future};
 use std::{collections::HashMap, task::Poll};
 
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 
 fn conditional_polling<T>(
     fut: impl Future<Output = T>,
@@ -50,7 +52,7 @@ pub async fn handle_dedicated_process(
     common_bun_proc_envs: HashMap<String, String>,
     args: Vec<&str>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-    job_completed_tx: Sender<JobCompleted>,
+    job_completed_tx: JobCompletedSender,
     token: &str,
     mut jobs_rx: Receiver<Arc<QueuedJob>>,
 ) -> std::result::Result<(), error::Error> {

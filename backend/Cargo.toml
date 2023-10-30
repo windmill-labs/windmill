@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.192.0"
+version = "1.193.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -21,7 +21,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.192.0"
+version = "1.193.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -38,6 +38,7 @@ enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmi
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
+pg_embed = ["dep:pg-embed"]
 
 [dependencies]
 anyhow.workspace = true
@@ -64,6 +65,7 @@ uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true} 
 
 [dev-dependencies]
 serde_json.workspace = true

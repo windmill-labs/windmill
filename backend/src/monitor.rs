@@ -414,6 +414,38 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
     Ok(())
 }
 
+pub async fn monitor_pool(db: &DB) {
+    if METRICS_ENABLED.load(Ordering::Relaxed) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let active_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+                "pool_connections_active",
+                "Number of active postgresql connections in the pool"
+            )
+            .unwrap();
+
+            let idle_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+                "pool_connections_idle",
+                "Number of idle postgresql connections in the pool"
+            )
+            .unwrap();
+
+            let max_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+                "pool_connections_max",
+                "Number of max postgresql connections in the pool"
+            )
+            .unwrap();
+
+            max_pool_connections.set(db.options().get_max_connections() as i64);
+            loop {
+                active_pool_connections.set(db.size() as i64);
+                idle_pool_connections.set(db.num_idle() as i64);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+}
+
 pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     base_internal_url: &str,
