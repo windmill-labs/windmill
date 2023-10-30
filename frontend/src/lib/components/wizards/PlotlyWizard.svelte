@@ -17,7 +17,7 @@
 		aggregation_method: string
 		tooltip: string
 		color: string
-		type: 'bar' | 'line' | 'scatter' | 'pie'
+		type: 'bar' | 'scatter'
 		extraOptions?: { mode: 'markers' | 'lines' | 'lines+markers' } | undefined
 	}
 
@@ -50,7 +50,6 @@
 			<Label label="Type">
 				<select bind:value={value.type}>
 					<option value="bar">Bar</option>
-					<option value="line">Line</option>
 					<option
 						value="scatter"
 						on:click={() => {
@@ -61,7 +60,6 @@
 					>
 						Scatter
 					</option>
-					<option value="pie">Pie</option>
 				</select>
 			</Label>
 

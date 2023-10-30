@@ -112,10 +112,14 @@
 		const connections: InputConnectionEval[] = []
 		const xDataResolved = resolveConfiguration(component.xData, connections)
 
+		const datasets =
+			(component.datasets?.type === 'static'
+				? component.datasets?.value
+				: JSON.parse(component.datasets?.expr)) ?? []
+
 		const datasetsAsString =
-			component.datasets?.value
-				?.filter((rawDataset: any) => rawDataset && rawDataset.type === 'bar')
-				?.map((rawDataset: Dataset) => datasetToJson(rawDataset, xDataResolved, connections))
+			datasets
+				.map((rawDataset: Dataset) => datasetToJson(rawDataset, xDataResolved, connections))
 				.join(',\n') || ''
 
 		component.componentInput = {
