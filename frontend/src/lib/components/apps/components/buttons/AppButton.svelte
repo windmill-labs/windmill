@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
@@ -59,12 +59,12 @@
 
 	if (rowContext && rowInputs) {
 		const inputOutput = { result: outputs.result.peak(), loading: false }
-		rowInputs(id, inputOutput)
+		rowInputs.set(id, inputOutput)
 	}
 
 	if (iterContext && listInputs) {
 		const inputOutput = { result: outputs.result.peak(), loading: false }
-		listInputs(id, inputOutput)
+		listInputs.set(id, inputOutput)
 	}
 
 	if (controls) {
@@ -91,6 +91,11 @@
 		}
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+		rowInputs?.remove(id)
+	})
+
 	let errors: Record<string, string> = {}
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
@@ -104,10 +109,10 @@
 		$selectedComponent = [id]
 		const inputOutput = { result: outputs.result.peak(), loading: true }
 		if (rowContext && rowInputs) {
-			rowInputs(id, inputOutput)
+			rowInputs.set(id, inputOutput)
 		}
 		if (iterContext && listInputs) {
-			listInputs(id, inputOutput)
+			listInputs.set(id, inputOutput)
 		}
 		if (preclickAction) {
 			await preclickAction()
@@ -119,7 +124,7 @@
 			await runnableComponent?.runComponent()
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, { result: outputs.result.peak(), loading: false })
+			rowInputs.set(id, { result: outputs.result.peak(), loading: false })
 		}
 	}
 	let loading = false

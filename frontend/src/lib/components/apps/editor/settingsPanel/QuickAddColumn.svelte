@@ -19,7 +19,7 @@
 			Object.entries(observableOutputs).forEach(([k, output]) => {
 				output?.subscribe(
 					{
-						id: 'alloutputs' + $selectedComponent?.[0] + '-' + k,
+						id: 'alloutputs-quickadd' + $selectedComponent?.[0] + '-' + k,
 						next: (value) => {
 							if (k === 'result') {
 								result = value

@@ -173,7 +173,7 @@ export type ListContext = Writable<{
 	disabled: boolean
 }>
 
-export type ListInputs = (id: string, value: any) => void
+export type ListInputs = {set: (id: string, value: any) => void, remove: (id: string) => void}
 
 export type GroupContext = Writable<Record<string, any>>
 
