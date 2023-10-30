@@ -198,8 +198,30 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let last_mig_version =
+        sqlx::query_scalar!("select version from _sqlx_migrations order by version desc limit 1;")
+            .fetch_optional(&db)
+            .await
+            .ok()
+            .flatten();
+
+    tracing::info!(
+        "Last migration version: {last_mig_version:?}. Starting potential migration of the db if first connection on a new windmill version (can take a while depending on the migration) ...",
+    );
+
     // migration code to avoid break
     windmill_api::migrate_db(&db).await?;
+
+    let last_mig_version =
+        sqlx::query_scalar!("select version from _sqlx_migrations order by version desc limit 1;")
+            .fetch_optional(&db)
+            .await
+            .ok()
+            .flatten();
+
+    tracing::info!(
+        "Completed potential migration of the db. Last migration version: {last_mig_version:?}",
+    );
 
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx.clone(), rx.resubscribe());
