@@ -33,6 +33,7 @@
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
 	export let allowTypeChange: boolean = true
+	export let shouldFormatExpression: boolean = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -98,6 +99,10 @@
 								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
 							) {
 								componentInput['expr'] = JSON.stringify(componentInput['value'])
+							}
+
+							if (shouldFormatExpression) {
+								componentInput['expr'] = JSON.stringify(JSON.parse(componentInput['expr']), null, 4)
 							}
 						}}
 					>

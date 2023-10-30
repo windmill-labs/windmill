@@ -50,6 +50,7 @@
 				placeholder={datasets?.['placeholder']}
 				customTitle={datasets?.['customTitle']}
 				displayType={false}
+				shouldFormatExpression={true}
 			/>
 		{/if}
 	</div>
