@@ -67,7 +67,7 @@
 							label="Template"
 						/>
 					{/if}
-				{:else}
+				{:else if componentInput.noStatic !== true}
 					<ToggleButton
 						label="Static"
 						value="static"

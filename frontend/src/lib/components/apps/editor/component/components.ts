@@ -53,7 +53,7 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
+import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -78,6 +78,10 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
+export type PlotlyComponentV2 = BaseComponent<'plotlycomponentv2'> & {
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
 export type DownloadComponent = BaseComponent<'downloadcomponent'>
@@ -203,6 +207,7 @@ export type TypedComponent =
 	| DownloadComponent
 	| ChartJsComponent
 	| CarouselListComponent
+	| PlotlyComponentV2
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -246,7 +251,7 @@ export type PresetComponentConfig = {
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
-	componentInput?: StaticAppInput | ResultAppInput | undefined
+	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | undefined
 	configuration: StaticRichConfigurations
 	// Number of subgrids
 	numberOfSubgrids?: number
@@ -1119,7 +1124,6 @@ export const components = {
 			configuration: {
 				theme: {
 					type: 'static',
-
 					fieldType: 'select',
 					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
@@ -1250,6 +1254,25 @@ This is a paragraph.
 					}
 				}
 			},
+			configuration: {
+				layout: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information'
+				}
+			}
+		}
+	},
+	plotlycomponentv2: {
+		name: 'Plotly',
+		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}/plotly`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {},
+		initialData: {
+			componentInput: undefined,
 			configuration: {
 				layout: {
 					type: 'static',

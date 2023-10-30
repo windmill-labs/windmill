@@ -24,6 +24,7 @@ export type InputType =
 	| 'schema'
 	| 'ag-grid'
 	| 'table-column'
+	| 'plotly'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -151,6 +152,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		 */
 		convertTo?: ReadFileAs
 	}
+	noStatic?: boolean
 }
 
 export type StaticOptions = {
@@ -189,6 +191,7 @@ export type AppInput =
 	| AppInputSpec<'schema', object>
 	| AppInputSpec<'array', object[], 'ag-grid'>
 	| AppInputSpec<'array', object[], 'table-column'>
+	| AppInputSpec<'array', object[], 'plotly'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

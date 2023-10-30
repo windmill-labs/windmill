@@ -15,6 +15,7 @@
 	import { Settings } from 'lucide-svelte'
 	import AgGridWizard from '$lib/components/wizards/AgGridWizard.svelte'
 	import TableColumnWizard from '$lib/components/wizards/TableColumnWizard.svelte'
+	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -158,6 +159,27 @@
 							</Button>
 						</svelte:fragment>
 					</TableColumnWizard>
+				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'plotly'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.name}
+					placeholder="Dataset name"
+				/>
+				<div class="absolute top-1 right-1">
+					<PlotlyWizard bind:value={componentInput.value}>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</PlotlyWizard>
 				</div>
 			</div>
 		</div>
