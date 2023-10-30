@@ -42,8 +42,8 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, Error},
     flow_status::{
-        FlowStatus, FlowStatusModule, FlowStatusModuleWParent, JobResult, RestartedFrom,
-        RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        BranchAllStatus, FlowStatus, FlowStatusModule, FlowStatusModuleWParent, Iterator,
+        JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{
@@ -2240,6 +2240,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         Some(value.clone()),
                         restarted_from_val.flow_job_id,
                         restarted_from_val.step_id.as_str(),
+                        restarted_from_val.branch_or_iteration_n,
                     )
                     .await?;
                     FlowStatus {
@@ -2259,6 +2260,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         restarted_from: Some(RestartedFrom {
                             flow_job_id: restarted_from_val.flow_job_id,
                             step_id: restarted_from_val.step_id,
+                            branch_or_iteration_n: restarted_from_val.branch_or_iteration_n,
                         }),
                     }
                 }
@@ -2309,7 +2311,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.priority,
             )
         }
-        JobPayload::RestartedFlow { completed_job_id, step_id } => {
+        JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
             let (flow_path, raw_flow, step_n, truncated_modules, priority) =
                 restarted_flows_resolution(
                     _db,
@@ -2317,6 +2319,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     None,
                     completed_job_id,
                     step_id.as_str(),
+                    branch_or_iteration_n,
                 )
                 .await?;
             let restarted_flow_status = FlowStatus {
@@ -2333,7 +2336,11 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
                 // TODO: for now, flows with approval conditions aren't supported for restart
                 approval_conditions: None,
-                restarted_from: Some(RestartedFrom { flow_job_id: completed_job_id, step_id }),
+                restarted_from: Some(RestartedFrom {
+                    flow_job_id: completed_job_id,
+                    step_id,
+                    branch_or_iteration_n,
+                }),
             };
             (
                 None,
@@ -2615,6 +2622,7 @@ async fn restarted_flows_resolution(
     flow_value_if_any: Option<FlowValue>,
     completed_flow_id: Uuid,
     restart_step_id: &str,
+    branch_or_iteration_n: Option<usize>,
 ) -> Result<
     (
         Option<String>,
@@ -2669,11 +2677,96 @@ async fn restarted_flows_resolution(
             // skip module as it doesn't appear in the flow_value anymore
             continue;
         }
-        if module.id() == restart_step_id || dependent_module {
+        if module.id() == restart_step_id {
             // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
             // set the module as WaitingForPriorSteps as it needs to be re-run
-            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
+                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            } else {
+                // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
+                let branch_or_iteration_n = branch_or_iteration_n.unwrap();
+                let module_definition = raw_flow
+                    .modules
+                    .iter()
+                    .find(|flow_value_module| flow_value_module.id == restart_step_id)
+                    .ok_or(Error::InternalErr(format!(
+                        "Module {} not found in flow definition",
+                        module.id()
+                    )))?;
+
+                match module_definition.value.clone() {
+                    FlowModuleValue::BranchAll { branches, parallel, .. } => {
+                        if parallel {
+                            return Err(Error::InternalErr(format!(
+                                "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
+                                restart_step_id,
+                            )));
+                        }
+                        if module.flow_jobs().unwrap_or(vec![]).len() < branch_or_iteration_n {
+                            return Err(Error::InternalErr(format!(
+                                "Branch-all module {} doesn't have enough branch to be restarted on branch number {}",
+                                restart_step_id,
+                                branch_or_iteration_n,
+                            )));
+                        }
+                        let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
+                        new_flow_jobs.truncate(branch_or_iteration_n);
+                        truncated_modules.push(FlowStatusModule::InProgress {
+                            id: module.id(),
+                            job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
+                            iterator: None,
+                            flow_jobs: Some(new_flow_jobs),
+                            branch_chosen: None,
+                            branchall: Some(BranchAllStatus {
+                                branch: branch_or_iteration_n - 1, // Doing minus one here as this variable reflects the latest finished job in the iteration
+                                len: branches.len(),
+                            }),
+                            parallel: parallel,
+                        });
+                    }
+                    FlowModuleValue::ForloopFlow { parallel, .. } => {
+                        if parallel {
+                            return Err(Error::InternalErr(format!(
+                                "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",
+                                restart_step_id,
+                            )));
+                        }
+                        if module.flow_jobs().unwrap_or(vec![]).len() < branch_or_iteration_n {
+                            return Err(Error::InternalErr(format!(
+                                "For-loop module {} is doesn't have enough branch to be restarted on branch number {}",
+                                restart_step_id,
+                                branch_or_iteration_n,
+                            )));
+                        }
+                        let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
+                        new_flow_jobs.truncate(branch_or_iteration_n);
+
+                        truncated_modules.push(FlowStatusModule::InProgress {
+                            id: module.id(),
+                            job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
+                            iterator: Some(Iterator {
+                                index: branch_or_iteration_n - 1, // same deal as above, this refers to the last finished job
+                                itered: vec![], // Setting itered to empty array here, such that input transforms will be re-computed by worker_flows
+                            }),
+                            flow_jobs: Some(new_flow_jobs),
+                            branch_chosen: None,
+                            branchall: None,
+                            parallel: parallel,
+                        });
+                    }
+                    _ => {
+                        return Err(Error::InternalErr(format!(
+                            "Module {} is not a branchall or forloop, unable to restart it at step {:?}",
+                            restart_step_id,
+                            branch_or_iteration_n
+                        )));
+                    }
+                }
+            }
             dependent_module = true;
+        } else if dependent_module {
+            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
         } else {
             // else we simply "transfer" the module from the completed flow to the new one if it's a success
             step_n = step_n + 1;
