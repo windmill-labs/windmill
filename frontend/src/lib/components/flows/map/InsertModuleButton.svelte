@@ -20,6 +20,7 @@
 	export let index: number
 	export let funcDesc = ''
 	export let modules: FlowModule[]
+	export let disableAi = false
 
 	$: !open && (funcDesc = '')
 </script>
@@ -41,12 +42,15 @@
 	>
 		<Cross size={12} />
 	</button>
-	<div id="flow-editor-insert-module">
-		<StepGen {index} bind:funcDesc bind:open {close} {modules} />
+	<div id="flow-editor-insert-module ">
+		{#if !disableAi}
+			<StepGen {index} bind:funcDesc bind:open {close} {modules} />
+		{/if}
+
 		{#if funcDesc.length === 0}
 			<div class="font-mono divide-y text-xs w-full text-secondary">
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'script')
@@ -59,7 +63,7 @@
 				</button>
 				{#if trigger}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover"
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
 						on:pointerdown={() => {
 							close()
 							dispatch('new', 'trigger')
@@ -72,7 +76,7 @@
 					</button>
 				{/if}
 				<button
-					class="w-full text-left gap-1 py-2 px-3 hover:bg-surface-hover"
+					class="w-full text-left gap-1 py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'approval')
@@ -84,7 +88,7 @@
 					Approval
 				</button>
 				<button
-					class="w-full inline-flex text-left py-2 px-3 hover:bg-surface-hover"
+					class="w-full inline-flex text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'forloop')
@@ -99,7 +103,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'branchone')
@@ -111,7 +115,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'branchall')
@@ -123,7 +127,7 @@
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'flow')

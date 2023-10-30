@@ -24,6 +24,7 @@
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
 	export let center = true
+	export let disableAi = false
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -123,6 +124,7 @@
 			</button>
 		{:else}
 			<InsertModuleButton
+				{disableAi}
 				bind:open={openMenu}
 				trigger={label == 'Input'}
 				on:new={(e) => {
@@ -142,51 +144,54 @@
 {/if}
 
 {#if insertable && modules && label == 'Input'}
-	<div
-		class="{openNoCopilot
-			? 'z-10'
-			: ''} w-9 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2"
-	>
-		<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
-			<button
-				title="AI Flow Builder"
-				on:pointerdown={$copilotInfo.exists_openai_resource_path
-					? (ev) => {
-							ev.preventDefault()
-							ev.stopPropagation()
-							$copilotDrawerStore?.openDrawer()
-					  }
-					: undefined}
-				slot="trigger"
-				type="button"
-				class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
-			>
-				<Icon data={faMagicWandSparkles} scale={1} />
-			</button>
-			{#if !$copilotInfo.exists_openai_resource_path}
-				<div class="text-primary p-4">
-					<p class="text-sm w-80"
-						>Enable Windmill AI in the <a
-							href="/workspace_settings?tab=openai"
-							target="_blank"
-							class="inline-flex flex-row items-center gap-1"
-							on:click={() => {
-								close()
-							}}
-							>workspace settings
-							<ExternalLink size={16} /></a
-						></p
-					>
-				</div>
-			{/if}
-		</Menu>
-	</div>
+	{#if !disableAi}
+		<div
+			class="{openNoCopilot
+				? 'z-10'
+				: ''} w-9 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2"
+		>
+			<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
+				<button
+					title="AI Flow Builder"
+					on:pointerdown={$copilotInfo.exists_openai_resource_path
+						? (ev) => {
+								ev.preventDefault()
+								ev.stopPropagation()
+								$copilotDrawerStore?.openDrawer()
+						  }
+						: undefined}
+					slot="trigger"
+					type="button"
+					class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+				>
+					<Icon data={faMagicWandSparkles} scale={1} />
+				</button>
+				{#if !$copilotInfo.exists_openai_resource_path}
+					<div class="text-primary p-4">
+						<p class="text-sm w-80"
+							>Enable Windmill AI in the <a
+								href="/workspace_settings?tab=openai"
+								target="_blank"
+								class="inline-flex flex-row items-center gap-1"
+								on:click={() => {
+									close()
+								}}
+								>workspace settings
+								<ExternalLink size={16} /></a
+							></p
+						>
+					</div>
+				{/if}
+			</Menu>
+		</div>
+	{/if}
 	<div
 		class="{triggerOpenMenu
 			? 'z-10'
 			: ''} w-7 absolute top-12 left-[65%] right-[35%] -translate-x-1/2"
 	>
 		<InsertTriggerButton
+			{disableAi}
 			bind:open={triggerOpenMenu}
 			on:new={(e) => {
 				if (modules) {

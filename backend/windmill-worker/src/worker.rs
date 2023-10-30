@@ -742,6 +742,71 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     } else {
         None
     };
+
+    let worker_pull_over_500_counter_empty =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(
+                prometheus::register_counter!(prometheus::opts!(
+                    "worker_pull_slow_counter",
+                    "Total number of pull being too slow (if growing large the db is undersized)"
+                )
+                .const_label("name", &worker_name)
+                .const_label("over", "500")
+                .const_label("has_job", "false"))
+                .expect("register prometheus metric"),
+            )
+        } else {
+            None
+        };
+
+    let worker_pull_over_500_counter = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        Some(
+            prometheus::register_counter!(prometheus::opts!(
+                "worker_pull_slow_counter",
+                "Total number of pull being too slow (if growing large the db is undersized)"
+            )
+            .const_label("name", &worker_name)
+            .const_label("over", "500")
+            .const_label("has_job", "true"))
+            .expect("register prometheus metric"),
+        )
+    } else {
+        None
+    };
+
+    let worker_pull_over_100_counter_empty =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(
+                prometheus::register_counter!(prometheus::opts!(
+                    "worker_pull_slow_counter",
+                    "Total number of pull being too slow (if growing large the db is undersized)"
+                )
+                .const_label("name", &worker_name)
+                .const_label("over", "100")
+                .const_label("has_job", "false"))
+                .expect("register prometheus metric"),
+            )
+        } else {
+            None
+        };
+
+    let worker_pull_over_100_counter = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        Some(
+            prometheus::register_counter!(prometheus::opts!(
+                "worker_pull_slow_counter",
+                "Total number of pull being too slow (if growing large the db is undersized)"
+            )
+            .const_label("name", &worker_name)
+            .const_label("over", "100")
+            .const_label("has_job", "true"))
+            .expect("register prometheus metric"),
+        )
+    } else {
+        None
+    };
+
     let worker_busy: Option<prometheus::IntGauge> =
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             Some(
@@ -1327,10 +1392,28 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 } => {
                     add_time!(timing, loop_start, "post pull");
                     let duration_pull_s = timer.elapsed().as_secs_f64();
+                    let err_pull = job.is_ok();
+                    let empty = job.as_ref().is_ok_and(|x| x.is_none());
                     if duration_pull_s > 0.5 {
-                        tracing::error!("pull took more than 0.5s, this is a sign that the database is VERY undersized for this load")
+                        tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
+                        if empty {
+                            if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
+                                wp.inc();
+                            }
+                        } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
+                            wp.inc();
+                        }
+
                     } else if duration_pull_s > 0.1 {
-                        tracing::error!("pull took more than 0.5s, this is a sign that the database is undersized for this load")
+                        tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
+                        if empty {
+                            if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
+                                wp.inc();
+                            }
+                        } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
+                            wp.inc();
+                        }
+
                     }
                     if let Ok(j) = job.as_ref() {
                         if j.is_some() {
