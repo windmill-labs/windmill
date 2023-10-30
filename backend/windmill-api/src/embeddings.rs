@@ -269,13 +269,10 @@ impl EmbeddingsDb {
         .await?;
         let hub_resource_types = response.json::<Vec<HubResourceType>>().await?;
 
-        let resource_types: Vec<ResourceType> = sqlx::query_as!(
-            ResourceType,
-            "SELECT * from resource_type WHERE workspace_id = 'admins' ORDER \
-             BY name",
-        )
-        .fetch_all(pg_db)
-        .await?;
+        let resource_types: Vec<ResourceType> =
+            sqlx::query_as!(ResourceType, "SELECT * from resource_type ORDER BY name",)
+                .fetch_all(pg_db)
+                .await?;
 
         for rt in resource_types {
             let mut hm = HashMap::new();
