@@ -7,15 +7,23 @@
 	import { onMount } from 'svelte'
 	import type { RichConfiguration } from '../../types'
 	import type { InputConnectionEval } from '../../inputType'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	export let component: AppComponent
+	let convertToUIEditorCallback: (() => void) | undefined = undefined
 
 	let selected = 'ui-editor'
+	let renderCount = 0
 
 	onMount(() => {
-		if (component.type === 'plotlycomponentv2' && component.datasets !== undefined) {
-			selected = 'ui-editor'
-		} else {
+		if (
+			component.type === 'plotlycomponentv2' &&
+			component.componentInput === undefined &&
+			component.datasets === undefined
+		) {
+			setUpUIEditor()
+			renderCount++
+		} else if (component.componentInput !== undefined) {
 			selected = 'json'
 		}
 	})
@@ -33,13 +41,18 @@
 		if (component.type !== 'plotlycomponentv2') return
 
 		if (selected === 'ui-editor') {
-			setUpUIEditor(component)
+			convertToUIEditorCallback = () => {
+				component.componentInput = undefined
+				setUpUIEditor()
+			}
 		} else if (selected === 'json') {
 			convertToJson(component)
 		}
 	}
 
-	function setUpUIEditor(component: any) {
+	function setUpUIEditor() {
+		if (component.type !== 'plotlycomponentv2') return
+
 		component.datasets = createPlotlyComponentDataset()
 		component.xData = createXData()
 	}
@@ -120,7 +133,7 @@
 \t\t"type": "${dataset.type}",
 \t\t"x": ${xDataExpr},
 \t\t"y": ${resolveConfiguration(dataset.value, connections)},
-\t\t"text": ["${dataset.tooltip || ''}"],
+\t\t"text": "${dataset.tooltip || ''}",
 \t\t"aggregation_method": "${dataset.aggregation_method}",
 \t\t"marker": {
 \t\t\t"color": "${dataset.color}"
@@ -151,14 +164,39 @@
 	</div>
 
 	{#if selected === 'ui-editor'}
-		<PlotlyRichEditor
-			id={component.id}
-			bind:datasets={component.datasets}
-			bind:xData={component.xData}
-		/>
+		{#key renderCount}
+			<PlotlyRichEditor
+				id={component.id}
+				bind:datasets={component.datasets}
+				bind:xData={component.xData}
+			/>
+		{/key}
 	{:else}
 		<slot />
 	{/if}
 {:else}
 	<slot />
 {/if}
+
+<ConfirmationModal
+	open={Boolean(convertToUIEditorCallback)}
+	title="Convert to UI Editor"
+	confirmationText="Remove"
+	on:canceled={() => {
+		convertToUIEditorCallback = undefined
+		selected = 'json'
+	}}
+	on:confirmed={() => {
+		if (convertToUIEditorCallback) {
+			convertToUIEditorCallback()
+		}
+		convertToUIEditorCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>
+			Are you sure you want to convert this component to the UI Editor? The UI Editor does not
+			support all the features of the JSON editor.
+		</span>
+	</div>
+</ConfirmationModal>

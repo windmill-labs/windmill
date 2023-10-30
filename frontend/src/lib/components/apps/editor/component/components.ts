@@ -1278,13 +1278,7 @@ This is a paragraph.
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
-			componentInput: {
-				type: 'evalv2',
-				fieldType: 'object',
-				noStatic: true,
-				expr: '[\n  {\n    "type": "bar",\n    "x": [\n      1,\n      2,\n      3,\n      4\n    ],\n    "y": [\n      5,\n      10,\n      2,\n      8\n    ],\n    "marker": {\n      "color": "#C8A2C8",\n      "line": {\n        "width": 2.5\n      }\n    }\n  }\n]',
-				connections: [] as InputConnectionEval[]
-			},
+			componentInput: undefined,
 			configuration: {
 				layout: {
 					type: 'static',
