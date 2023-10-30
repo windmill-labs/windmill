@@ -131,6 +131,7 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 	}
 
 	const resourceTypes = await ResourceService.queryResourceTypes({
+		workspace,
 		text: elems.join(';')
 	})
 
