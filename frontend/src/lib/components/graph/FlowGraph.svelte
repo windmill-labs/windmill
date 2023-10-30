@@ -41,6 +41,7 @@
 	export let scroll = false
 	export let download = false
 	export let fullSize = false
+	export let disableAi = false
 
 	setContext<{ selectedId: Writable<string | undefined> }>('FlowGraphContext', { selectedId })
 
@@ -335,7 +336,8 @@
 						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
 						annotation,
 						modules,
-						moving
+						moving,
+						disableAi
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -692,7 +694,8 @@
 						deleteBranch,
 						id: mid,
 						moving,
-						center
+						center,
+						disableAi
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {
@@ -737,7 +740,8 @@
 						selected: $selectedId == mod.id,
 						index: 0,
 						selectable: true,
-						id: mod.id
+						id: mod.id,
+						disableAi
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'select') {
