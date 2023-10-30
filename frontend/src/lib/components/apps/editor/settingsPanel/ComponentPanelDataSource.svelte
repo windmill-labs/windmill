@@ -47,9 +47,10 @@
 					}
 
 					component.xData = {
-						type: 'static',
+						type: 'evalv2',
 						fieldType: 'array',
-						value: [1, 2, 3, 4]
+						expr: '[1, 2, 3, 4]',
+						connections: []
 					}
 				}
 
@@ -59,8 +60,16 @@
 				}
 			}}
 		>
-			<ToggleButton value="ui-editor" label="UI Editor" />
-			<ToggleButton value="json" label="JSON" />
+			<ToggleButton
+				value="ui-editor"
+				label="UI Editor"
+				tooltip="Use the UI editor to quickly create a plotly chart."
+			/>
+			<ToggleButton
+				value="json"
+				label="JSON"
+				tooltip="Switch to JSON mode for complete customization of Plotly settings."
+			/>
 		</ToggleButtonGroup>
 	</div>
 

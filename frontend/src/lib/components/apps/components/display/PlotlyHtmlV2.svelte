@@ -53,24 +53,35 @@
 
 	$: data =
 		datasets && xData && resolvedDatasets
-			? resolvedDatasets.map((d, index) => ({
-					type: d.type,
-					color: d.color,
-					text: d.tooltip,
-					x: resolvedXData,
-					y: resolvedDatasetsValues[index],
-					marker: {
-						color: d.color
-					},
-					transforms: [
-						{
-							type: 'aggregate',
-							groups: resolvedXData,
-							aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
-						}
-					],
-					...(d?.extraOptions ?? {})
-			  }))
+			? resolvedDatasets.map((d, index) => {
+					const fields =
+						d.type === 'pie'
+							? {
+									values: resolvedDatasetsValues[index]
+							  }
+							: {
+									x: resolvedXData,
+									y: resolvedDatasetsValues[index]
+							  }
+
+					return {
+						type: d.type,
+						color: d.color,
+						text: d.tooltip,
+						...fields,
+						marker: {
+							color: d.color
+						},
+						transforms: [
+							{
+								type: 'aggregate',
+								groups: resolvedXData,
+								aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
+							}
+						],
+						...(d?.extraOptions ?? {})
+					}
+			  })
 			: result
 
 	let error = ''

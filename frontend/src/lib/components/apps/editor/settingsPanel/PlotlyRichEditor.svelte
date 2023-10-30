@@ -8,7 +8,10 @@
 	export let id: string
 </script>
 
-<PanelSection title={`Plotly configuration`} tooltip="s">
+<PanelSection
+	title={`Plotly configuration`}
+	tooltip="The configuration is divided into two parts: X-axis data and an array of datasets. Each dataset hold the data fot he Y-axis and the configuration for the plot (type, color, etc)."
+>
 	<div class="w-full flex flex-col gap-2">
 		{#if xData}
 			<InputsSpecEditor
