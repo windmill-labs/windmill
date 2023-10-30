@@ -328,6 +328,7 @@ async fn ee_license() -> String {
 async fn openapi() -> &'static str {
     include_str!("../openapi-deref.yaml")
 }
+
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     db::migrate(db).await?;
     Ok(())
