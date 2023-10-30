@@ -8,7 +8,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    iter,
     sync::Arc,
     vec,
 };
@@ -24,7 +23,6 @@ use axum::{
 };
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
-use itertools::Itertools;
 use prometheus::IntCounter;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
