@@ -53,7 +53,13 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
+import type {
+	AppInputSpec,
+	EvalV2AppInput,
+	InputConnectionEval,
+	ResultAppInput,
+	StaticAppInput
+} from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -251,7 +257,7 @@ export type PresetComponentConfig = {
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
-	componentInput?: StaticAppInput | ResultAppInput | undefined
+	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | undefined
 	configuration: StaticRichConfigurations
 	// Number of subgrids
 	numberOfSubgrids?: number
@@ -1273,21 +1279,11 @@ This is a paragraph.
 		customCss: {},
 		initialData: {
 			componentInput: {
-				type: 'static',
+				type: 'evalv2',
 				fieldType: 'object',
-				value: [
-					{
-						type: 'bar',
-						x: [1, 2, 3, 4],
-						y: [5, 10, 2, 8],
-						marker: {
-							color: '#C8A2C8',
-							line: {
-								width: 2.5
-							}
-						}
-					}
-				]
+				noStatic: true,
+				expr: '[\n  {\n    "type": "bar",\n    "x": [\n      1,\n      2,\n      3,\n      4\n    ],\n    "y": [\n      5,\n      10,\n      2,\n      8\n    ],\n    "marker": {\n      "color": "#C8A2C8",\n      "line": {\n        "width": 2.5\n      }\n    }\n  }\n]',
+				connections: [] as InputConnectionEval[]
 			},
 			configuration: {
 				layout: {

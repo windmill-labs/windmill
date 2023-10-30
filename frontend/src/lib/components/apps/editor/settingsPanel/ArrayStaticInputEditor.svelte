@@ -62,7 +62,9 @@
 					aggregation_method: 'sum',
 					type: 'bar',
 					toolip: 'This is an example',
-					color: '#225cb2'
+					color: `#${Math.floor(Math.random() * 0xffffff)
+						.toString(16)
+						.padEnd(6, '0')}`
 				})
 			}
 		} else {

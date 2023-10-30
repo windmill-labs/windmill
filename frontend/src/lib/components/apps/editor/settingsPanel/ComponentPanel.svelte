@@ -196,14 +196,16 @@
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
-						<span
-							class={classNames(
-								'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
-								'bg-indigo-500'
-							)}
-						>
-							{`${component.id}`}
-						</span>
+						{#if componentSettings.item.data.type !== 'plotlycomponentv2'}
+							<span
+								class={classNames(
+									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+									'bg-indigo-500'
+								)}
+							>
+								{`${component.id}`}
+							</span>
+						{/if}
 					</svelte:fragment>
 
 					{#if componentSettings.item.data.componentInput}

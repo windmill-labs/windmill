@@ -152,6 +152,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		 */
 		convertTo?: ReadFileAs
 	}
+	noStatic?: boolean
 }
 
 export type StaticOptions = {
