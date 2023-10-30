@@ -110,9 +110,9 @@
 				><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
 						class="hidden lg:block">{msToSec(max - min)}s</div
 					>
-				{/if}<div class="flex gap-1 items-center"
+				{/if}<div class="flex gap-1 items-center font-mono"
 					>{max ? displayDate(new Date(max), true) : ''}{#if !max && min}{#if now}
-							{msToSec(now - min)}s
+							{msToSec(now - min, 3)}s
 						{/if}<Loader2 size={14} class="animate-spin" />{/if}</div
 				></div
 			>

@@ -31,7 +31,7 @@
 			></svelte:fragment
 		>
 		{#if len > 0}
-			<span class={len / total < 0.09 ? '-ml-14 text-primary' : ''}
+			<span class={len / total < 0.09 ? '-ml-14 text-primary font-mono' : 'font-mono'}
 				>{#if len}{msToSec(len, 1)}s{/if}</span
 			>
 		{/if}
