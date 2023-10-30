@@ -79,7 +79,10 @@
 			wrapperClasses={twMerge(
 				css?.container?.class,
 				'wm-drawer-button-container',
-				resolvedConfig?.fillContainer ? 'w-full h-full' : ''
+				resolvedConfig?.fillContainer ? 'w-full h-full' : '',
+				resolvedConfig?.hideButtonOnView && $mode == 'preview'
+					? 'invisible h-0 overflow-hidden'
+					: ''
 			)}
 			wrapperStyle={css?.container?.style}
 			disabled={resolvedConfig?.disabled}
