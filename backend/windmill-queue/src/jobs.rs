@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, sync::Arc, vec};
+use std::{collections::HashMap, iter, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -19,6 +19,7 @@ use axum::{
 };
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
+use itertools::Itertools;
 use prometheus::IntCounter;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
@@ -41,12 +42,13 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, Error},
     flow_status::{
-        FlowStatus, FlowStatusModule, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        FlowStatus, FlowStatusModule, FlowStatusModuleWParent, JobResult, RestartedFrom,
+        RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{
-        get_payload_tag_from_prefixed_path, script_path_to_payload, JobKind, JobPayload, QueuedJob,
-        RawCode,
+        get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
+        JobPayload, QueuedJob, RawCode,
     },
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
@@ -1467,12 +1469,59 @@ struct ResultR {
     result: Option<Json<Box<RawValue>>>,
 }
 
-#[async_recursion]
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
     flow_id: Uuid,
     node_id: String,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    match get_result_by_id_from_running_flow(
+        &db,
+        w_id.as_str(),
+        &flow_id,
+        node_id.as_str(),
+        json_path.clone(),
+    )
+    .await
+    {
+        Ok(res) => Ok(res),
+        Err(_) => {
+            let running_flow_job = sqlx::query_as::<_, QueuedJob>(
+                "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
+            ).bind(flow_id)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?;
+
+            let restarted_from = windmill_common::utils::not_found_if_none(
+                running_flow_job
+                    .map(|fj| fj.parse_flow_status())
+                    .flatten()
+                    .map(|status| status.restarted_from)
+                    .flatten(),
+                "Flow result by id in leaf jobs",
+                format!("{}, {}", flow_id, node_id),
+            )?;
+
+            get_result_by_id_from_original_flow(
+                &db,
+                w_id.as_str(),
+                &restarted_from.flow_job_id,
+                node_id.as_str(),
+                json_path.clone(),
+            )
+            .await
+        }
+    }
+}
+
+#[async_recursion]
+async fn get_result_by_id_from_running_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: &Uuid,
+    node_id: &str,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     let flow_job_result = sqlx::query!(
@@ -1481,7 +1530,7 @@ pub async fn get_result_by_id(
         flow_id,
         w_id,
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
 
     let flow_job_result = windmill_common::utils::not_found_if_none(
@@ -1498,11 +1547,11 @@ pub async fn get_result_by_id(
     if job_result.is_none() && flow_job_result.parent_job.is_some() {
         let parent_job = flow_job_result.parent_job.unwrap();
         let root_job = sqlx::query_scalar!("SELECT root_job FROM queue WHERE id = $1", parent_job)
-            .fetch_optional(&db)
+            .fetch_optional(db)
             .await?
             .flatten()
             .unwrap_or(parent_job);
-        return get_result_by_id(db, w_id, root_job, node_id, json_path).await;
+        return get_result_by_id_from_running_flow(db, w_id, &root_job, node_id, json_path).await;
     }
 
     let result_id = windmill_common::utils::not_found_if_none(
@@ -1511,21 +1560,181 @@ pub async fn get_result_by_id(
         format!("{}, {}", flow_id, node_id),
     )?;
 
-    let value = match result_id {
-        JobResult::ListJob(x) => {
+    extract_result_from_job_result(db, w_id, result_id, json_path).await
+}
+
+#[async_recursion]
+async fn get_result_by_id_from_original_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    completed_flow_id: &Uuid,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let flow_job = sqlx::query_as::<_, CompletedJob>(
+        "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(completed_flow_id)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?;
+
+    let flow_job = windmill_common::utils::not_found_if_none(
+        flow_job,
+        "Flow result by id in leaf jobs",
+        format!("{}", completed_flow_id),
+    )?;
+
+    let mut leaf_jobs_for_flow = HashMap::<String, JobResult>::new();
+    compute_leaf_jobs_for_completed_flow(
+        db,
+        w_id,
+        flow_job.id,
+        Some(flow_job.clone()),
+        &mut leaf_jobs_for_flow,
+    )
+    .await?;
+
+    tracing::debug!(
+        "Fetching leaf jobs for flow {} : {:?}",
+        flow_job.id,
+        leaf_jobs_for_flow
+    );
+    if !leaf_jobs_for_flow.contains_key(&node_id.to_string()) {
+        // if the flow is itself a restart flow, the step job might be from the upstream flow
+        let restarted_from = windmill_common::utils::not_found_if_none(
+            flow_job
+                .parse_flow_status()
+                .map(|status| status.restarted_from)
+                .flatten(),
+            "Flow result by id in leaf jobs",
+            format!("{}", completed_flow_id),
+        )?;
+        return get_result_by_id_from_original_flow(
+            db,
+            w_id,
+            &restarted_from.flow_job_id,
+            node_id,
+            json_path,
+        )
+        .await;
+    }
+
+    // if the job is in the leaf_jobs map, then fetch its result and return
+    let leaf_job_uuid = leaf_jobs_for_flow.get(&node_id.to_string()).unwrap();
+    extract_result_from_job_result(db, w_id, leaf_job_uuid.to_owned(), json_path).await
+}
+
+#[async_recursion]
+async fn compute_leaf_jobs_for_completed_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    completed_flow_id: Uuid,
+    completed_flow_row: Option<CompletedJob>, // if provided, will be used, otherwise completed_flow_id must be set and the job definition will be pulled from DB
+    recursive_result: &mut HashMap<String, JobResult>,
+) -> error::Result<()> {
+    let flow_status = match completed_flow_row {
+        Some(job) => job.parse_flow_status(),
+        None => {
+            let job_status_raw = sqlx::query_scalar!(
+                "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                completed_flow_id,
+                w_id,
+            )
+            .fetch_one(db)
+            .await?;
+            job_status_raw
+                .map(|raw| serde_json::from_value::<FlowStatus>(raw).ok())
+                .flatten()
+        }
+    };
+
+    let flow_job_status_modules = windmill_common::utils::not_found_if_none(
+        flow_status.map(|fs| fs.modules),
+        "Flow result by id in leaf jobs",
+        format!("{}", completed_flow_id),
+    )?;
+
+    let children_jobs = sqlx::query_as::<_, (Uuid, JobKind)>(
+        "SELECT id, job_kind FROM completed_job WHERE parent_job = $1 AND workspace_id = $2",
+    )
+    .bind(completed_flow_id)
+    .bind(w_id)
+    .fetch_all(db)
+    .await?;
+
+    for child_job in children_jobs {
+        let child_job_id = child_job.0;
+        let child_job_kind = child_job.1;
+        match child_job_kind {
+            JobKind::Script | JobKind::Preview | JobKind::Script_Hub => {
+                // if is potentially a leaf job. Get its step_id from the initial flow definition and add it to the result map
+                for module in &flow_job_status_modules {
+                    if module.job().map(|id| id == child_job_id).unwrap_or(false) {
+                        recursive_result.insert(module.id(), JobResult::SingleJob(child_job_id));
+                    }
+                }
+            }
+            JobKind::Flow | JobKind::FlowPreview => {
+                // Extract the leaf job for this flow and add them to the result map
+                for module in &flow_job_status_modules {
+                    // we add the module as an element of ListJob for this step ID and recursiively extract leaf job of the sub-flow
+                    match module {
+                        FlowStatusModule::Success { flow_jobs: Some(jobs), .. } => {
+                            for job in jobs {
+                                if *job == child_job_id {
+                                    let new_list_job = match recursive_result.get(&module.id()) {
+                                        Some(JobResult::ListJob(jobs_list)) => jobs_list
+                                            .into_iter()
+                                            .chain(iter::once(&child_job_id))
+                                            .cloned()
+                                            .collect_vec(),
+                                        _ => iter::once(&child_job_id).cloned().collect_vec(),
+                                    };
+                                    recursive_result
+                                        .insert(module.id(), JobResult::ListJob(new_list_job));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                compute_leaf_jobs_for_completed_flow(
+                    db,
+                    w_id,
+                    child_job_id,
+                    None,
+                    recursive_result,
+                )
+                .await?;
+            }
+            _ => {} // do nothing
+        }
+    }
+    Ok(())
+}
+
+async fn extract_result_from_job_result(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    job_result: JobResult,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    match job_result {
+        JobResult::ListJob(job_ids) => {
             let rows = sqlx::query(
                 "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
             )
-            .bind(x.as_slice())
+            .bind(job_ids.as_slice())
             .bind(w_id)
-            .fetch_all(&db)
+            .fetch_all(db)
             .await?
             .into_iter()
             .filter_map(|x| ResultR::from_row(&x).ok().and_then(|x| x.result))
             .collect::<Vec<Json<Box<RawValue>>>>();
-            to_raw_value(&rows)
+            Ok(to_raw_value(&rows))
         }
-        JobResult::SingleJob(x) => sqlx::query(
+        JobResult::SingleJob(x) => Ok(sqlx::query(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
         .bind(x)
@@ -1535,7 +1744,7 @@ pub async fn get_result_by_id(
                 .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
                 .unwrap_or_default(),
         )
-        .fetch_optional(&db)
+        .fetch_optional(db)
         .await?
         .map(|r| {
             ResultR::from_row(&r)
@@ -1543,10 +1752,8 @@ pub async fn get_result_by_id(
                 .and_then(|x| x.result.map(|x| x.0))
         })
         .flatten()
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)),
-    };
-
-    Ok(value)
+        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
+    }
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -1896,6 +2103,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         raw_code_tuple,
         job_kind,
         mut raw_flow,
+        flow_status,
         language,
         concurrent_limit,
         concurrency_time_window_s,
@@ -1918,6 +2126,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             JobKind::Script,
             None,
+            None,
             Some(language),
             concurrent_limit,
             concurrency_time_window_s,
@@ -1932,6 +2141,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 // Some((script.content, script.lockfile)),
                 JobKind::Script_Hub,
+                None,
                 None,
                 None,
                 None,
@@ -1955,6 +2165,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some((content, lock)),
             JobKind::Preview,
             None,
+            None,
             Some(language),
             concurrent_limit,
             concurrency_time_window_s,
@@ -1967,6 +2178,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some(path),
             Some((dependencies, None)),
             JobKind::Dependencies,
+            None,
             None,
             Some(language),
             None,
@@ -1995,7 +2207,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
-                Some(value),
+                Some(value.clone()),
+                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
                 None,
                 None,
@@ -2016,20 +2229,56 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
         ),
-        JobPayload::RawFlow { value, path } => (
-            None,
-            path,
-            None,
-            JobKind::FlowPreview,
-            Some(value.clone()),
-            None,
-            value.concurrent_limit.clone(),
-            value.concurrency_time_window_s,
-            value.cache_ttl.map(|x| x as i32),
-            None,
-            value.priority,
-        ),
+        JobPayload::RawFlow { value, path, restarted_from } => {
+            let flow_status: FlowStatus = match restarted_from {
+                Some(restarted_from_val) => {
+                    let (_, _, step_n, truncated_modules, _) = restarted_flows_resolution(
+                        _db,
+                        workspace_id,
+                        Some(value.clone()),
+                        restarted_from_val.flow_job_id,
+                        restarted_from_val.step_id.as_str(),
+                    )
+                    .await?;
+                    FlowStatus {
+                        step: step_n,
+                        modules: truncated_modules,
+                        // failure_module is reset
+                        failure_module: FlowStatusModuleWParent {
+                            parent_module: None,
+                            module_status: FlowStatusModule::WaitingForPriorSteps {
+                                id: "failure".to_string(),
+                            },
+                        },
+                        // retry status is reset
+                        retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
+                        // TODO: for now, flows with approval conditions aren't supported for restart
+                        approval_conditions: None,
+                        restarted_from: Some(RestartedFrom {
+                            flow_job_id: restarted_from_val.flow_job_id,
+                            step_id: restarted_from_val.step_id,
+                        }),
+                    }
+                }
+                _ => FlowStatus::new(&value), // this is a new flow being pushed, flow_status is set to flow_value
+            };
+            (
+                None,
+                path,
+                None,
+                JobKind::FlowPreview,
+                Some(value.clone()),
+                Some(flow_status),
+                None,
+                value.concurrent_limit.clone(),
+                value.concurrency_time_window_s,
+                value.cache_ttl.map(|x| x as i32),
+                None,
+                value.priority,
+            )
+        }
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
@@ -2051,12 +2300,54 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 JobKind::Flow,
                 Some(value.clone()),
+                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
                 None,
                 value.priority,
+            )
+        }
+        JobPayload::RestartedFlow { completed_job_id, step_id } => {
+            let (flow_path, raw_flow, step_n, truncated_modules, priority) =
+                restarted_flows_resolution(
+                    _db,
+                    workspace_id,
+                    None,
+                    completed_job_id,
+                    step_id.as_str(),
+                )
+                .await?;
+            let restarted_flow_status = FlowStatus {
+                step: step_n,
+                modules: truncated_modules,
+                // failure_module is reset
+                failure_module: FlowStatusModuleWParent {
+                    parent_module: None,
+                    module_status: FlowStatusModule::WaitingForPriorSteps {
+                        id: "failure".to_string(),
+                    },
+                },
+                // retry status is reset
+                retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
+                // TODO: for now, flows with approval conditions aren't supported for restart
+                approval_conditions: None,
+                restarted_from: Some(RestartedFrom { flow_job_id: completed_job_id, step_id }),
+            };
+            (
+                None,
+                flow_path,
+                None,
+                JobKind::Flow,
+                Some(raw_flow.clone()),
+                Some(restarted_flow_status),
+                None,
+                raw_flow.concurrent_limit,
+                raw_flow.concurrency_time_window_s,
+                raw_flow.cache_ttl.map(|x| x as i32),
+                None,
+                priority,
             )
         }
         JobPayload::Identity => (
@@ -2071,12 +2362,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
         ),
         JobPayload::Noop => (
             None,
             None,
             None,
             JobKind::Noop,
+            None,
             None,
             None,
             None,
@@ -2155,8 +2448,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     let (raw_code, raw_lock) = raw_code_tuple
         .map(|e| (Some(e.0), e.1))
         .unwrap_or_else(|| (None, None));
-
-    let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(
@@ -2316,4 +2607,103 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
         .unwrap_or_else(|| "no reason given");
     let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
+}
+
+async fn restarted_flows_resolution(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    flow_value_if_any: Option<FlowValue>,
+    completed_flow_id: Uuid,
+    restart_step_id: &str,
+) -> Result<
+    (
+        Option<String>,
+        FlowValue,
+        i32,
+        Vec<FlowStatusModule>,
+        Option<i16>,
+    ),
+    Error,
+> {
+    let completed_job = sqlx::query_as::<_, CompletedJob>(
+        "SELECT * FROM completed_job WHERE id = $1 and workspace_id = $2",
+    )
+    .bind(completed_flow_id)
+    .bind(workspace_id)
+    .fetch_one(db) // TODO: should we try to use the passed-in `tx` here?
+    .await
+    .map_err(|err| {
+        Error::InternalErr(format!(
+            "completed job not found for UUID {} in workspace {}: {}",
+            completed_flow_id, workspace_id, err
+        ))
+    })?;
+
+    let raw_flow = completed_job
+        .parse_raw_flow()
+        .ok_or(Error::InternalErr(format!(
+            "Unable to parse raw definition for job {} in workspace {}",
+            completed_flow_id, workspace_id,
+        )))?;
+    let flow_status = completed_job
+        .parse_flow_status()
+        .ok_or(Error::InternalErr(format!(
+            "Unable to parse flow status for job {} in workspace {}",
+            completed_flow_id, workspace_id,
+        )))?;
+
+    let mut step_n = 0;
+    let mut dependent_module = false;
+    let mut truncated_modules: Vec<FlowStatusModule> = vec![];
+    for module in flow_status.modules {
+        if flow_value_if_any
+            .clone()
+            .map(|fv| {
+                fv.modules
+                    .iter()
+                    .find(|flow_value_module| flow_value_module.id == module.id())
+                    .is_none()
+            })
+            .unwrap_or(false)
+        {
+            // skip module as it doesn't appear in the flow_value anymore
+            continue;
+        }
+        if module.id() == restart_step_id || dependent_module {
+            // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+            // set the module as WaitingForPriorSteps as it needs to be re-run
+            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            dependent_module = true;
+        } else {
+            // else we simply "transfer" the module from the completed flow to the new one if it's a success
+            step_n = step_n + 1;
+            match module.clone() {
+                FlowStatusModule::Success {
+                    id: _,
+                    job: _,
+                    flow_jobs: _,
+                    branch_chosen: _,
+                    approvers: _,
+                } => Ok(truncated_modules.push(module)),
+                _ => Err(Error::InternalErr(format!(
+                    "Flow cannot be restarted from a non successful module",
+                ))),
+            }?;
+        }
+    }
+    if !dependent_module {
+        // step not found in flow.
+        return Err(Error::InternalErr(format!(
+            "Flow cannot be restarted from step {} as it could not be found.",
+            restart_step_id
+        )));
+    }
+
+    return Ok((
+        completed_job.script_path,
+        raw_flow,
+        step_n,
+        truncated_modules,
+        completed_job.priority,
+    ));
 }

@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{self, Error},
-    flow_status::FlowStatus,
+    flow_status::{FlowStatus, RestartedFrom},
     flows::FlowValue,
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
@@ -186,6 +186,82 @@ impl Default for QueuedJob {
     }
 }
 
+#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
+pub struct CompletedJob {
+    pub workspace_id: String,
+    pub id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_job: Option<Uuid>,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub duration_ms: i64,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
+    pub args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<String>,
+    pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_code: Option<String>,
+    pub canceled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_reason: Option<String>,
+    pub job_kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_path: Option<String>,
+    pub permissioned_as: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub is_flow_step: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<ScriptLang>,
+    pub is_skipped: bool,
+    pub email: String,
+    pub visible_to_owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_peak: Option<i32>,
+    pub tag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
+}
+
+impl CompletedJob {
+    pub fn json_result(&self) -> Option<serde_json::Value> {
+        self.result
+            .as_ref()
+            .map(|r| serde_json::from_str(r.get()).ok())
+            .flatten()
+    }
+
+    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.raw_flow
+            .as_ref()
+            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
+    }
+
+    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct BranchResults<'a> {
+    pub result: &'a RawValue,
+    pub id: Uuid,
+}
+
 #[derive(Debug, Clone)]
 pub enum JobPayload {
     ScriptHub {
@@ -216,9 +292,14 @@ pub enum JobPayload {
         version: i64,
     },
     Flow(String),
+    RestartedFlow {
+        completed_job_id: Uuid,
+        step_id: String,
+    },
     RawFlow {
         value: FlowValue,
         path: Option<String>,
+        restarted_from: Option<RestartedFrom>,
     },
     Identity,
     Noop,

@@ -34,6 +34,8 @@ pub struct FlowStatus {
     pub retry: RetryStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_conditions: Option<ApprovalConditions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restarted_from: Option<RestartedFrom>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -48,6 +50,13 @@ pub struct RetryStatus {
 pub struct ApprovalConditions {
     pub user_auth_required: bool,
     pub user_groups_required: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct RestartedFrom {
+    pub flow_job_id: Uuid,
+    pub step_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -179,6 +188,13 @@ impl FlowStatusModule {
             FlowStatusModule::Failure { id, .. } => id.clone(),
         }
     }
+
+    pub fn is_failure(&self) -> bool {
+        match self {
+            FlowStatusModule::Failure { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 impl FlowStatus {
@@ -202,6 +218,7 @@ impl FlowStatus {
                 },
             },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
+            restarted_from: None,
         }
     }
 

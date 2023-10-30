@@ -39,7 +39,7 @@
 
 	export let isOwner = false
 
-	let selectedNode: string | undefined = undefined
+	export let selectedNode: string | undefined = undefined
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
