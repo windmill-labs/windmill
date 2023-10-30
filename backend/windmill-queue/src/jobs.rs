@@ -2703,10 +2703,12 @@ async fn restarted_flows_resolution(
                                 restart_step_id,
                             )));
                         }
-                        if module.flow_jobs().unwrap_or(vec![]).len() < branch_or_iteration_n {
+                        let total_branch_number = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
+                        if total_branch_number <= branch_or_iteration_n {
                             return Err(Error::InternalErr(format!(
-                                "Branch-all module {} doesn't have enough branch to be restarted on branch number {}",
+                                "Branch-all module {} has only {} branches. It can't be restarted on branch {}",
                                 restart_step_id,
+                                total_branch_number,
                                 branch_or_iteration_n,
                             )));
                         }
@@ -2732,11 +2734,13 @@ async fn restarted_flows_resolution(
                                 restart_step_id,
                             )));
                         }
-                        if module.flow_jobs().unwrap_or(vec![]).len() < branch_or_iteration_n {
+                        let total_iterations = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
+                        if total_iterations <= branch_or_iteration_n {
                             return Err(Error::InternalErr(format!(
-                                "For-loop module {} is doesn't have enough branch to be restarted on branch number {}",
+                                "For-loop module {} doesn't cannot be restarted on iteration number {} as it has only {} iterations",
                                 restart_step_id,
                                 branch_or_iteration_n,
+                                total_iterations,
                             )));
                         }
                         let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
