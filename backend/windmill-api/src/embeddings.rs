@@ -1,7 +1,11 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::{self, Error, Result};
-use axum::{extract::Query, routing::get, Extension, Json, Router};
+use axum::{
+    extract::{Path, Query},
+    routing::get,
+    Extension, Json, Router,
+};
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
@@ -70,13 +74,14 @@ pub struct ResourceTypeResult {
 }
 async fn query_resource_types(
     Query(query): Query<ResourceTypesQuery>,
+    Path(w_id): Path<String>,
     Extension(embeddings_db): Extension<Arc<RwLock<Option<EmbeddingsDb>>>>,
 ) -> JsonResult<Vec<ResourceTypeResult>> {
     let embeddings_db = embeddings_db.read().await;
 
     if let Some(embeddings_db) = embeddings_db.as_ref() {
         let results = embeddings_db
-            .query_resource_types(&query.text, query.limit)
+            .query_resource_types(w_id, &query.text, query.limit)
             .await?;
 
         Ok(Json(results))
@@ -264,13 +269,10 @@ impl EmbeddingsDb {
         .await?;
         let hub_resource_types = response.json::<Vec<HubResourceType>>().await?;
 
-        let resource_types: Vec<ResourceType> = sqlx::query_as!(
-            ResourceType,
-            "SELECT * from resource_type WHERE workspace_id = 'admins' ORDER \
-             BY name",
-        )
-        .fetch_all(pg_db)
-        .await?;
+        let resource_types: Vec<ResourceType> =
+            sqlx::query_as!(ResourceType, "SELECT * from resource_type ORDER BY name",)
+                .fetch_all(pg_db)
+                .await?;
 
         for rt in resource_types {
             let mut hm = HashMap::new();
@@ -278,6 +280,7 @@ impl EmbeddingsDb {
             if let Some(schema) = rt.schema.clone() {
                 hm.insert("schema".to_string(), serde_json::to_string(&schema)?);
             }
+            hm.insert("workspace".to_string(), rt.workspace_id.clone());
             let hub_rt = hub_resource_types.iter().find(|hrt| hrt.name == rt.name);
 
             let vector = if let Some(hub_rt) = hub_rt {
@@ -389,6 +392,7 @@ impl EmbeddingsDb {
 
     pub async fn query_resource_types(
         &self,
+        workspace: String,
         query: &str,
         limit: Option<i64>,
     ) -> Result<Vec<ResourceTypeResult>> {
@@ -402,10 +406,23 @@ impl EmbeddingsDb {
         }
 
         let collection = collection.ok_or(Error::msg("no collection found"))?;
+
+        let filter = |embedding: &Embedding| {
+            if let Some(metadata) = embedding.metadata.as_ref() {
+                match metadata.get("workspace").map(|x| x.as_str()) {
+                    Some("admins") => true,
+                    Some(rt_workspace) => &workspace == rt_workspace,
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        };
+
         let results = collection.get_similarity(
             &query_embedding,
             limit.unwrap_or(10) as usize,
-            None,
+            Some(&filter),
             Some(0.75),
         );
 
@@ -439,7 +456,7 @@ fn normalize_l2(v: &Tensor) -> Result<Tensor> {
     Ok(v.broadcast_div(&v.sqr()?.sum_keepdim(1)?.sqrt()?)?)
 }
 
-pub fn global_service(db: &Pool<Postgres>) -> Router {
+pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb>>> {
     let embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
 
     let disable_embedding = std::env::var("DISABLE_EMBEDDING")
@@ -478,8 +495,17 @@ pub fn global_service(db: &Pool<Postgres>) -> Router {
         });
     }
 
+    embeddings_db
+}
+
+pub fn workspaced_service(embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>>) -> Router {
+    Router::new()
+        .route("/query_resource_types", get(query_resource_types))
+        .layer(Extension(embeddings_db))
+}
+
+pub fn global_service(embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>>) -> Router {
     Router::new()
         .route("/query_hub_scripts", get(query_hub_scripts))
-        .route("/query_resource_types", get(query_resource_types))
         .layer(Extension(embeddings_db))
 }
