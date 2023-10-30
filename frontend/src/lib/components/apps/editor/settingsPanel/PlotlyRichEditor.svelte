@@ -12,7 +12,7 @@
 	title={`Plotly configuration`}
 	tooltip="The configuration is divided into two parts: X-axis data and an array of datasets. Each dataset hold the data fot he Y-axis and the configuration for the plot (type, color, etc)."
 >
-	<div class="w-full flex flex-col gap-2">
+	<div class="w-full flex flex-col gap-4">
 		{#if xData}
 			<InputsSpecEditor
 				key={`X-axis data`}
@@ -51,6 +51,6 @@
 				customTitle={datasets?.['customTitle']}
 				displayType={false}
 			/>
-		{/if}</div
-	>
+		{/if}
+	</div>
 </PanelSection>

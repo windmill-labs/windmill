@@ -45,6 +45,12 @@
 				component.componentInput = undefined
 				setUpUIEditor()
 			}
+
+			setTimeout(() => {
+				const activeElement = document.activeElement as HTMLElement
+				activeElement?.blur()
+				document.body.focus()
+			})
 		} else if (selected === 'json') {
 			convertToJson(component)
 		}
@@ -73,7 +79,7 @@
 					name: 'Dataset 1',
 					aggregation_method: 'sum',
 					type: 'bar',
-					tooltip: 'This is an example',
+					tooltip: '',
 					color: '#C8A2C8'
 				}
 			]
@@ -191,6 +197,7 @@
 			convertToUIEditorCallback()
 		}
 		convertToUIEditorCallback = undefined
+		selected = 'ui-editor'
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">

@@ -61,7 +61,7 @@
 					name: 'New dataset',
 					aggregation_method: 'sum',
 					type: 'bar',
-					toolip: 'This is an example',
+					toolip: '',
 					color: `#${Math.floor(Math.random() * 0xffffff)
 						.toString(16)
 						.padEnd(6, '0')}`

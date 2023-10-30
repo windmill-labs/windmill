@@ -68,6 +68,7 @@
 	<div class="border relative">
 		{#if !fullscreen}
 			<SimpleEditor
+				small
 				bind:this={editor}
 				lang="javascript"
 				bind:code={componentInput.expr}
