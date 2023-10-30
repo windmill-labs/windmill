@@ -41,7 +41,7 @@
 								aggregation_method: 'sum',
 								type: 'bar',
 								toolip: 'This is an example',
-								color: '#FF0000'
+								color: '#C8A2C8'
 							}
 						]
 					}

@@ -7,6 +7,7 @@
 	import Button from '../common/button/Button.svelte'
 	import InputsSpecEditor from '../apps/editor/settingsPanel/InputsSpecEditor.svelte'
 	import type { AppViewerContext, RichConfiguration } from '../apps/types'
+	import Tooltip from '../Tooltip.svelte'
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -75,6 +76,13 @@
 			{/if}
 
 			<Label label="Aggregation method">
+				<svelte:fragment slot="header">
+					<Tooltip>
+						A method to aggregate the data. For example, if you have multiple x data points with the
+						same value, you can choose to sum them up or take the mean. If you don't have multiple x
+						data points with the same value, this option will have no effect.
+					</Tooltip>
+				</svelte:fragment>
 				<select bind:value={value.aggregation_method}>
 					<option value="sum">Sum</option>
 					<option value="mean">Mean</option>
