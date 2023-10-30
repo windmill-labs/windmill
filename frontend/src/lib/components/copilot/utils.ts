@@ -32,6 +32,7 @@ function compile(schema: Schema) {
 		res += '\n}'
 		return res
 	}
+
 	return rec(schema.properties, true)
 }
 
@@ -71,9 +72,13 @@ export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python
 		})
 		return '\n' + result.join('\n\n')
 	} else {
-		const result = resourceTypes.map((resourceType) => {
-			return `type ${toCamel(capitalize(resourceType.name))} = ${compile(resourceType.schema)}`
-		})
+		const result = resourceTypes
+			.filter(
+				(resourceType) => Boolean(resourceType.schema) && typeof resourceType.schema === 'object'
+			)
+			.map((resourceType) => {
+				return `type ${toCamel(capitalize(resourceType.name))} = ${compile(resourceType.schema)}`
+			})
 		return '\n' + result.join('\n\n')
 	}
 }
