@@ -41,7 +41,7 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, monitor_db, reload_base_url_setting,
+    initial_load, load_keep_job_dir, monitor_db, monitor_pool, reload_base_url_setting,
     reload_extra_pip_index_url_setting, reload_license_key, reload_npm_config_registry_setting,
     reload_retention_period_setting, reload_server_config, reload_worker_config,
 };
@@ -53,6 +53,9 @@ const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 mod ee;
 mod monitor;
+
+#[cfg(feature = "pg_embed")]
+mod pg_embed;
 
 #[derive(Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -166,6 +169,14 @@ async fn main() -> anyhow::Result<()> {
         config
     });
 
+    #[cfg(feature = "pg_embed")]
+    let pg = {
+        let (db_url, pg) = pg_embed::start().await.expect("pg embed");
+        tracing::info!("Use embedded pg: {db_url}");
+        std::env::set_var("DATABASE_URL", db_url);
+        pg
+    };
+
     tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode).await?;
     tracing::info!("Database connected");
@@ -228,6 +239,8 @@ Windmill Community Edition {GIT_VERSION}
         initial_load(&db, tx.clone(), worker_mode, server_mode).await;
 
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
+
+        monitor_pool(&db).await;
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
@@ -346,12 +359,14 @@ Windmill Community Edition {GIT_VERSION}
                                                     load_keep_job_dir(&db).await;
                                                 }
                                                 EXPOSE_METRICS_SETTING | EXPOSE_DEBUG_METRICS_SETTING => {
-                                                    tracing::info!("Metrics setting changed, restarting");
-                                                    // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
-                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill to server");
+                                                    if n.payload() != EXPOSE_DEBUG_METRICS_SETTING || worker_mode {
+                                                        tracing::info!("Metrics setting changed, restarting");
+                                                        // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
+                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                        if let Err(e) = tx.send(()) {
+                                                            tracing::error!(error = %e, "Could not send killpill to server");
+                                                        }
                                                     }
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
@@ -539,7 +554,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
-        let worker_name = format!("wk-{}-{}", &instance_name, rd_string(5));
+        let worker_name = format!("wk-{}-{}-{}", *WORKER_GROUP, &instance_name, rd_string(5));
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let tx = tx.clone();

@@ -266,7 +266,7 @@ impl EmbeddingsDb {
 
         let resource_types: Vec<ResourceType> = sqlx::query_as!(
             ResourceType,
-            "SELECT * from resource_type ORDER \
+            "SELECT * from resource_type WHERE workspace_id = 'admins' ORDER \
              BY name",
         )
         .fetch_all(pg_db)

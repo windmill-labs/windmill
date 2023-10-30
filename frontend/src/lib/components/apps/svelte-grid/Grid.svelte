@@ -204,7 +204,7 @@
 		{/each}
 	{:else if xPerPx === 0}
 		{#each sortedItems as item (item.id)}
-			<div class="w-0 h-0 overflow-hidden">
+			<div class="w-0 h-0 overflow-hidden invisible">
 				<slot dataItem={item} item={item[getComputedCols]} />
 			</div>
 		{/each}
