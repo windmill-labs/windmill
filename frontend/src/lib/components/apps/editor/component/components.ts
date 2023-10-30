@@ -53,13 +53,7 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type {
-	AppInputSpec,
-	EvalV2AppInput,
-	InputConnectionEval,
-	ResultAppInput,
-	StaticAppInput
-} from '../../inputType'
+import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
