@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Job, JobService, type Flow, type FlowModule } from '$lib/gen'
+	import { Job, JobService, type Flow, type FlowModule, type RestartedFrom } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, Kbd } from './common'
+	import { Badge, Button, Drawer, Kbd } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
@@ -23,6 +23,7 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
+	let selectedJobStep: string | undefined = undefined
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
@@ -70,10 +71,13 @@
 		}
 	}
 
-	export async function runPreview(args: Record<string, any>) {
+	export async function runPreview(
+		args: Record<string, any>,
+		restartedFrom: RestartedFrom | undefined
+	) {
 		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
-		jobId = await runFlowPreview(args, newFlow)
+		jobId = await runFlowPreview(args, newFlow, restartedFrom)
 		isRunning = true
 	}
 
@@ -83,7 +87,7 @@
 				case 'Enter':
 					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
-						runPreview($previewArgs)
+						runPreview($previewArgs, undefined)
 					}
 					break
 			}
@@ -150,18 +154,42 @@
 				Cancel
 			</Button>
 		{:else}
-			<Button
-				variant="contained"
-				startIcon={{ icon: isRunning ? faRefresh : faPlay }}
-				color="dark"
-				size="sm"
-				btnClasses="w-full max-w-lg"
-				on:click={() => runPreview($previewArgs)}
-				id="flow-editor-test-flow-drawer"
-			>
-				Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
-			</Button>
+			<div class="flex flex-row gap-4">
+				{#if jobId !== undefined && selectedJobStep !== undefined && job?.flow_status?.modules !== undefined && job?.flow_status?.modules
+						.map((m) => m.id)
+						.indexOf(selectedJobStep) >= 0}
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						title={`Re-start this flow from step ${selectedJobStep} (included).`}
+						on:click={() => {
+							runPreview($previewArgs, {
+								flow_job_id: jobId,
+								step_id: selectedJobStep
+							})
+						}}
+						startIcon={{ icon: faPlay }}
+					>
+						Re-start from
+						<Badge baseClass="ml-1" color="indigo">
+							{selectedJobStep}
+						</Badge>
+					</Button>
+				{/if}
+				<Button
+					variant="contained"
+					startIcon={{ icon: isRunning ? faRefresh : faPlay }}
+					color="dark"
+					size="sm"
+					btnClasses="w-full max-w-lg"
+					on:click={() => runPreview($previewArgs, undefined)}
+					id="flow-editor-test-flow-drawer"
+				>
+					Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
+					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
+				</Button>
+			</div>
 		{/if}
 		<div class="flex gap-2">
 			{#if initialPath != ''}
@@ -205,6 +233,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					bind:selectedJobStep
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>

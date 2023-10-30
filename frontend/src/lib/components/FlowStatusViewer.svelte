@@ -10,6 +10,7 @@
 	export let jobId: string
 	export let workspaceId: string | undefined = undefined
 	export let flowStateStore: Writable<FlowState> | undefined = undefined
+	export let selectedJobStep: string | undefined = undefined
 
 	export let isOwner = false
 
@@ -56,6 +57,7 @@
 		}
 		dispatch('jobsLoaded', detail)
 	}}
+	bind:selectedNode={selectedJobStep}
 	{jobId}
 	{workspaceId}
 	{isOwner}
