@@ -82,7 +82,9 @@
 						...(d?.extraOptions ?? {})
 					}
 			  })
-			: result
+			: Array.isArray(result)
+			? result
+			: [result]
 
 	let error = ''
 	function plot(data) {
