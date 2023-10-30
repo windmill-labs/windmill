@@ -22,7 +22,7 @@
 	export let render: boolean
 	export let initializing: boolean | undefined
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, allIdsInPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 	let page = 0
 
@@ -143,7 +143,9 @@
 		style={css?.container?.style}
 	>
 		<div
-			class="w-full flex flex-wrap overflow-auto {isCard
+			class="w-full flex flex-wrap {$allIdsInPath.includes(id)
+				? 'overflow-visible'
+				: 'overflow-auto'} {isCard
 				? 'h-full gap-2'
 				: resolvedConfig?.displayBorders
 				? 'divide-y max-h-full'
@@ -158,7 +160,7 @@
 									? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
 									: ''
 							} max-height: ${resolvedConfig.heightPx}px;`}
-							class="overflow-auto {!isCard
+							class="{$allIdsInPath.includes(id) ? 'overflow-visible' : 'overflow-auto'} {!isCard
 								? 'w-full'
 								: resolvedConfig?.displayBorders
 								? 'border'
