@@ -151,7 +151,7 @@
 		<div class="flex flex-row items-center justify-between">
 			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
 
-			{#if subFieldType === 'ag-grid' || subFieldType === 'table-column' || subFieldType === 'plotly'}
+			{#if subFieldType === 'ag-grid' || subFieldType === 'table-column'}
 				<Toggle
 					options={{
 						right: 'Raw'

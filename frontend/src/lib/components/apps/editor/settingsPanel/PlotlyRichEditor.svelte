@@ -45,12 +45,13 @@
 				subFieldType={datasets?.['subFieldType']}
 				format={datasets?.['format']}
 				selectOptions={datasets?.['selectOptions']}
-				tooltip={datasets?.['tooltip']}
+				tooltip="For each dataset, you can specify the data for the Y-axis and the configuration for the plot (type, color, etc). If you want to have an eval for every data point, you can switch to JSON mode."
 				fileUpload={datasets?.['fileUpload']}
 				placeholder={datasets?.['placeholder']}
 				customTitle={datasets?.['customTitle']}
 				displayType={false}
 				shouldFormatExpression={true}
+				allowTypeChange={false}
 			/>
 		{/if}
 	</div>
