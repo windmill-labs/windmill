@@ -6,7 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, iter, sync::Arc, vec};
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+    sync::Arc,
+    vec,
+};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -1681,19 +1686,18 @@ async fn compute_leaf_jobs_for_completed_flow(
                     // we add the module as an element of ListJob for this step ID and recursiively extract leaf job of the sub-flow
                     match module {
                         FlowStatusModule::Success { flow_jobs: Some(jobs), .. } => {
-                            for job in jobs {
-                                if *job == child_job_id {
-                                    let new_list_job = match recursive_result.get(&module.id()) {
-                                        Some(JobResult::ListJob(jobs_list)) => jobs_list
-                                            .into_iter()
-                                            .chain(iter::once(&child_job_id))
-                                            .cloned()
-                                            .collect_vec(),
-                                        _ => iter::once(&child_job_id).cloned().collect_vec(),
-                                    };
-                                    recursive_result
-                                        .insert(module.id(), JobResult::ListJob(new_list_job));
-                                }
+                            let jobs_set: HashSet<Uuid> = HashSet::from_iter(jobs.iter().cloned());
+                            if jobs_set.contains(&child_job_id) {
+                                let new_list_job = match recursive_result.get(&module.id()) {
+                                    Some(JobResult::ListJob(jobs_list)) => {
+                                        let mut jobs_list_c = jobs_list.clone();
+                                        jobs_list_c.push(child_job_id);
+                                        jobs_list_c
+                                    }
+                                    _ => vec![child_job_id],
+                                };
+                                recursive_result
+                                    .insert(module.id(), JobResult::ListJob(new_list_job));
                             }
                         }
                         _ => {}
