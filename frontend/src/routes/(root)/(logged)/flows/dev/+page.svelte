@@ -178,7 +178,7 @@
 			code={JSON.stringify($flowStore, null, 4)}
 			lang="json"
 			on:change={(e) => {
-				const code = e.detail
+				const code = e.detail.code
 				try {
 					$flowStore = JSON.parse(code)
 				} catch (e) {
