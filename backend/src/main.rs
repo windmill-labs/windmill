@@ -170,7 +170,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     #[cfg(feature = "pg_embed")]
-    let pg = {
+    let _pg = {
         let (db_url, pg) = pg_embed::start().await.expect("pg embed");
         tracing::info!("Use embedded pg: {db_url}");
         std::env::set_var("DATABASE_URL", db_url);

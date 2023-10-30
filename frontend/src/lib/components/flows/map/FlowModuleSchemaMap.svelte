@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
-	import { getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
 		createBranchAll,
 		createBranches,
@@ -30,6 +30,9 @@
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
+	export let disableHeader = false
+	export let disableTutorials = false
+	export let disableAi = false
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
@@ -150,6 +153,8 @@
 			!tutorialInProgress()
 		)
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <Portal>
@@ -183,20 +188,23 @@
 	</ConfirmationModal>
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
-	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
-			$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
-		}`}
-	>
-		{#if $copilotCurrentStepStore !== undefined}
-			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
-		{/if}
-		<FlowSettingsItem />
-		<FlowConstantsItem />
-	</div>
+	{#if !disableHeader}
+		<div
+			class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
+				$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
+			}`}
+		>
+			{#if $copilotCurrentStepStore !== undefined}
+				<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+			{/if}
+			<FlowSettingsItem />
+			<FlowConstantsItem />
+		</div>
+	{/if}
 
 	<div class="flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraph
+			{disableAi}
 			insertable
 			scroll
 			{minHeight}
@@ -248,6 +256,7 @@
 						}
 
 						$flowStore = $flowStore
+						dispatch('change')
 					}
 				}
 			}}
@@ -283,4 +292,6 @@
 	</div>
 </div>
 
-<FlowTutorials bind:this={flowTutorials} on:reload />
+{#if !disableTutorials}
+	<FlowTutorials bind:this={flowTutorials} on:reload />
+{/if}

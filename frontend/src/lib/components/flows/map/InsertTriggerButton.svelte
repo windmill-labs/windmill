@@ -11,6 +11,7 @@
 	export let index: number
 	export let funcDesc = ''
 	export let modules: FlowModule[]
+	export let disableAi = false
 
 	$: !open && (funcDesc = '')
 </script>
@@ -31,9 +32,11 @@
 	>
 		<Icon data={faBolt} scale={0.8} />
 	</button>
-	<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger />
+	{#if !disableAi}
+		<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger />
+	{/if}
 	{#if funcDesc.length === 0}
-		<div class="font-mono divide-y text-xs w-full text-secondary">
+		<div class="font-mono divide-y text-xs w-full text-secondary whitespace-nowrap">
 			<button
 				class="w-full text-left py-2 px-3 hover:bg-surface-hover"
 				on:pointerdown={() => {
