@@ -35,7 +35,7 @@
 	let resolvedDatasetsValues: Array<number[]> = []
 	let resolvedXData: any[] = []
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -54,7 +54,14 @@
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
-		...(resolvedConfig.options ?? {})
+		...(resolvedConfig.options ?? {}),
+		plugins: {
+			legend: {
+				labels: {
+					color: $darkMode ? '#fff' : '#000'
+				}
+			}
+		}
 	} as ChartOptions
 
 	$: data =
