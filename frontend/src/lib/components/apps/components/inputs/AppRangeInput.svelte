@@ -101,7 +101,7 @@
 	<div class="flex flex-col w-full">
 		<div class="flex items-center w-full gap-1 px-1">
 			<span
-				class={twMerge(css?.limits?.class ?? '', 'wm-slider-limits')}
+				class={twMerge(css?.limits?.class ?? '', 'font-mono wm-slider-limits')}
 				style={css?.limits?.style ?? ''}
 			>
 				{+(resolvedConfig.min ?? 0)}
@@ -124,7 +124,7 @@
 				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
 			<span
-				class={twMerge(css?.limits?.class ?? '', 'wm-slider-limits')}
+				class={twMerge(css?.limits?.class ?? '', 'font-mono wm-slider-limits')}
 				style={css?.limits?.style ?? ''}
 			>
 				{+(resolvedConfig.max ?? 1)}
@@ -133,7 +133,7 @@
 		<div class="flex justify-between px-1">
 			<span
 				class={twMerge(
-					'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
+					'font-mono text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
 					css?.values?.class ?? '',
 					'wm-slider-value'
 				)}
@@ -143,7 +143,7 @@
 			</span>
 			<span
 				class={twMerge(
-					'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
+					'font-mono text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
 					css?.values?.class ?? '',
 					'wm-slider-value'
 				)}
