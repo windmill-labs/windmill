@@ -2791,6 +2791,7 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) {
         restarted_from: Some(RestartedFrom {
             flow_job_id: first_run_result.id,
             step_id: "h".to_owned(),
+            branch_or_iteration_n: None,
         }),
     }).run_until_complete(&db, port).await;
 
