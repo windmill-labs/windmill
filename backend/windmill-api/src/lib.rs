@@ -116,6 +116,7 @@ pub async fn run_server(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<u16>,
+    server_mode: bool,
 ) -> anyhow::Result<()> {
     if let Some(mut rsmq) = rsmq.clone() {
         for tag in ALL_TAGS.read().await.iter() {
@@ -165,7 +166,11 @@ pub async fn run_server(
     #[cfg(not(feature = "enterprise"))]
     let sp_extension = (ServiceProviderExt(), SamlSsoLogin(None));
 
-    let embeddings_db = load_embeddings_db(&db);
+    let embeddings_db = if server_mode {
+        Some(load_embeddings_db(&db))
+    } else {
+        None
+    };
 
     // build our application with a route
     let app = Router::new()

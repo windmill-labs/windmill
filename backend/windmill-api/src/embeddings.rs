@@ -498,14 +498,22 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb
     embeddings_db
 }
 
-pub fn workspaced_service(embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>>) -> Router {
-    Router::new()
-        .route("/query_resource_types", get(query_resource_types))
-        .layer(Extension(embeddings_db))
+pub fn workspaced_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) -> Router {
+    if let Some(embeddings_db) = embeddings_db {
+        Router::new()
+            .route("/query_resource_types", get(query_resource_types))
+            .layer(Extension(embeddings_db))
+    } else {
+        Router::new()
+    }
 }
 
-pub fn global_service(embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>>) -> Router {
-    Router::new()
-        .route("/query_hub_scripts", get(query_hub_scripts))
-        .layer(Extension(embeddings_db))
+pub fn global_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) -> Router {
+    if let Some(embeddings_db) = embeddings_db {
+        Router::new()
+            .route("/query_hub_scripts", get(query_hub_scripts))
+            .layer(Extension(embeddings_db))
+    } else {
+        Router::new()
+    }
 }

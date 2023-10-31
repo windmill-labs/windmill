@@ -280,7 +280,15 @@ Windmill Community Edition {GIT_VERSION}
             .expect("could not create initial server dir");
 
         let server_f = async {
-            windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe(), port_tx).await?;
+            windmill_api::run_server(
+                db.clone(),
+                rsmq2,
+                addr,
+                rx.resubscribe(),
+                port_tx,
+                server_mode,
+            )
+            .await?;
             Ok(()) as anyhow::Result<()>
         };
 
