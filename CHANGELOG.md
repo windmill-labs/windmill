@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.195.0](https://github.com/windmill-labs/windmill/compare/v1.194.0...v1.195.0) (2023-10-31)
+
+
+### Features
+
+* Ability to restart flow on loop/branchall iteration ([#2526](https://github.com/windmill-labs/windmill/issues/2526)) ([c31299b](https://github.com/windmill-labs/windmill/commit/c31299bed8110f53e31f69983f144aaa82d5560d))
+* **frontend:** chartjs wizard ([#2532](https://github.com/windmill-labs/windmill/issues/2532)) ([03dfe71](https://github.com/windmill-labs/windmill/commit/03dfe711c6292d8d9af78ed610fd2885ad62b8d7))
+* invalidate result cache on flow or script change ([cf9669c](https://github.com/windmill-labs/windmill/commit/cf9669c18de6091dbf5dafad0f6ffd6e17675ca4))
+
+
+### Bug Fixes
+
+* add on success events to triggers list ([1974012](https://github.com/windmill-labs/windmill/commit/1974012621f3a2112eace60ba5d68854d567c9c2))
+* fix quick search scripts ([b3d2213](https://github.com/windmill-labs/windmill/commit/b3d2213ccec73bf4a7f27242ac31eb0941b791ac))
+* Load schedule statistics in background ([#2530](https://github.com/windmill-labs/windmill/issues/2530)) ([c98ebf9](https://github.com/windmill-labs/windmill/commit/c98ebf92e5f99f63cc3754555b5867f71c09e1a9))
+* only load embeddings if in server mode ([c803631](https://github.com/windmill-labs/windmill/commit/c8036317d23bf81b474742223e903255dd8825e0))
+
 ## [1.194.0](https://github.com/windmill-labs/windmill/compare/v1.193.0...v1.194.0) (2023-10-30)
 
 
