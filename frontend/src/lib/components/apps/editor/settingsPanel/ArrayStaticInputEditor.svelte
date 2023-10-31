@@ -66,6 +66,16 @@
 						.toString(16)
 						.padEnd(6, '0')}`
 				})
+			} else if (subFieldType === 'chartjs') {
+				value.push({
+					value: {
+						type: 'static',
+						fieldType: 'array',
+						subFieldType: 'number',
+						value: [2, 4, 5, 6]
+					},
+					name: 'New dataset'
+				})
 			}
 		} else {
 			value.push('')
@@ -181,6 +191,7 @@
 								subFieldType={raw ? 'object' : subFieldType}
 								bind:componentInput
 								bind:value={item.value}
+								on:remove={() => deleteElementByType(index)}
 							/>
 						</div>
 

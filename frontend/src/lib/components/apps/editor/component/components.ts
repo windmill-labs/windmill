@@ -92,6 +92,10 @@ export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
 export type ChartJsComponent = BaseComponent<'chartjscomponent'>
+export type ChartJsComponentV2 = BaseComponent<'chartjscomponentv2'> & {
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
@@ -208,6 +212,7 @@ export type TypedComponent =
 	| ChartJsComponent
 	| CarouselListComponent
 	| PlotlyComponentV2
+	| ChartJsComponentV2
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1110,6 +1115,33 @@ export const components = {
 					]
 				}
 			}
+		}
+	},
+	chartjscomponentv2: {
+		name: 'ChartJs',
+		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}/chartjs`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'static',
+
+					fieldType: 'select',
+					selectOptions: selectOptions.chartTypeOptions,
+					value: 'pie'
+				},
+				options: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'ChartJs options object'
+				}
+			},
+			componentInput: undefined
 		}
 	},
 	barchartcomponent: {
