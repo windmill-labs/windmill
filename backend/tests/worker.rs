@@ -28,7 +28,7 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use windmill_common::worker::{WORKER_CONFIG, PriorityTags};
 use windmill_common::{
-    flow_status::{FlowStatus, FlowStatusModule},
+    flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
     jobs::{JobPayload, RawCode, JobKind},
     scripts::{ScriptLang, ScriptHash}
@@ -2608,6 +2608,196 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                 }) if lock.len() > 0)
             );
         });
+}
+
+#[sqlx::test(fixtures("base"))]
+
+async fn test_complex_flow_restart(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "go",
+                    "content": "package inner\nimport (\n\t\"fmt\"\n\t\"math/rand\"\n)\nfunc main(max int) (interface{}, error) {\n\tresult := rand.Intn(max) + 1\n\tfmt.Printf(\"Number generated: '%d'\", result)\n\treturn result, nil\n}",
+                    "input_transforms": {
+                        "max": {
+                            "type": "static",
+                            "value": json!(20),
+                        },
+                    }
+                },
+                "summary": "Generate random number in [1, 20]"
+            },
+            {
+                "id": "b",
+                "value":
+                {
+                    "type": "branchall",
+                    "branches":
+                    [
+                        {
+                            "modules":
+                            [
+                                {
+                                    "id": "d",
+                                    "value":
+                                    {
+                                        "type": "branchone",
+                                        "default":
+                                        [
+                                            {
+                                                "id": "f",
+                                                "value":
+                                                {
+                                                    "type": "rawscript",
+                                                    "content": "package inner\nimport \"math/rand\"\nfunc main(x int) (interface{}, error) {\n\treturn rand.Intn(x) + 1, nil\n}",
+                                                    "language": "go",
+                                                    "input_transforms":
+                                                    {
+                                                        "x":
+                                                        {
+                                                            "expr": "results.a",
+                                                            "type": "javascript"
+                                                        }
+                                                    }
+                                                },
+                                                "summary": "Rand N in [1; x]"
+                                            }
+                                        ],
+                                        "branches":
+                                        [
+                                            {
+                                                "expr": "results.a < flow_input.max / 2",
+                                                "modules":
+                                                [
+                                                    {
+                                                        "id": "e",
+                                                        "value":
+                                                        {
+                                                            "type": "rawscript",
+                                                            "content": "package inner\nimport \"math/rand\"\nfunc main(x int) (interface{}, error) {\n\treturn rand.Intn(x * 2) + 1, nil\n}\n",
+                                                            "language": "go",
+                                                            "input_transforms":
+                                                            {
+                                                                "x":
+                                                                {
+                                                                    "expr": "results.a",
+                                                                    "type": "javascript"
+                                                                }
+                                                            }
+                                                        },
+                                                        "summary": "Rand N in [1; x*2]"
+                                                    }
+                                                ],
+                                                "summary": "N in first half"
+                                            }
+                                        ]
+                                    },
+                                    "summary": ""
+                                }
+                            ],
+                            "summary": "Process x",
+                            "parallel": true,
+                            "skip_failure": false
+                        },
+                        {
+                            "modules":
+                            [
+                                {
+                                    "id": "c",
+                                    "value":
+                                    {
+                                        "type": "rawscript",
+                                        "content": "package inner\nfunc main(x int) (interface{}, error) {\n\treturn x, nil\n}",
+                                        "language": "go",
+                                        "input_transforms":
+                                        {
+                                            "x":
+                                            {
+                                                "expr": "results.a",
+                                                "type": "javascript"
+                                            }
+                                        }
+                                    },
+                                    "summary": "Identity"
+                                }
+                            ],
+                            "summary": "Do nothing",
+                            "parallel": true,
+                            "skip_failure": false
+                        }
+                    ],
+                    "parallel": false
+                },
+                "summary": ""
+            },
+            {
+                "id": "g",
+                "value":
+                {
+                    "tag": "",
+                    "type": "rawscript",
+                    "content": "package inner\nimport \"fmt\"\nfunc main(x []int) (interface{}, error) {\n\tfmt.Printf(\"Results: %v\", x)\n\treturn x, nil\n}\n",
+                    "language": "go",
+                    "input_transforms":
+                    {
+                        "x":
+                        {
+                            "expr": "results.b",
+                            "type": "javascript"
+                        }
+                    }
+                },
+                "summary": "Print results - This will get the results from the prior step directly"
+            },
+            {
+                "id": "h",
+                "value":
+                {
+                    "tag": "",
+                    "type": "rawscript",
+                    "content": "package inner\nimport (\n\t\"fmt\"\n\t\"slices\"\n)\nfunc main(x []int) (interface{}, error) {\n\tresult := slices.Max(x)\n\tfmt.Printf(\"Result is %d\", result)\n\treturn result, nil\n}",
+                    "language": "go",
+                    "input_transforms":
+                    {
+                        "x":
+                        {
+                            "expr": "results.b",
+                            "type": "javascript"
+                        }
+                    }
+                },
+                "summary": "Choose max - this will get results.b querying get_result_by_id on the backend"
+            }
+        ],
+    }))
+    .unwrap();
+
+    let first_run_result = RunJob::from(JobPayload::RawFlow { 
+        value: flow.clone(), 
+        path: None, 
+        restarted_from: None 
+    }).run_until_complete(&db, port).await;
+
+    let restarted_flow_result = RunJob::from(JobPayload::RawFlow {
+        value: flow.clone(),
+        path: None,
+        restarted_from: Some(RestartedFrom {
+            flow_job_id: first_run_result.id,
+            step_id: "h".to_owned(),
+        }),
+    }).run_until_complete(&db, port).await;
+
+    assert_eq!(
+        first_run_result.json_result().unwrap(),
+        restarted_flow_result.json_result().unwrap()
+    );
 }
 
 #[sqlx::test(fixtures("base"))]

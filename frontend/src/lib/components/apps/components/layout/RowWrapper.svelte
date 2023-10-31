@@ -13,13 +13,28 @@
 
 	$: $ctx = { index, value, disabled }
 	setContext<ListContext>('RowWrapperContext', ctx)
-	setContext<ListInputs>('RowInputs', (id: string, value: any) => {
-		if (!inputs[id]) {
-			inputs[id] = { [index]: value }
-		} else {
-			inputs[id][index] = value
+	setContext<ListInputs>('RowInputs', {
+		set: (id: string, value: any) => {
+			if (!inputs[id]) {
+				inputs[id] = { [index]: value }
+			} else {
+				inputs[id][index] = value
+			}
+			inputs = inputs
+			onInputsChange()
+		},
+		remove(id) {
+			if (inputs?.[id] == undefined) {
+				return
+			}
+			if (index == 0) {
+				delete inputs[id]
+			} else {
+				delete inputs[id][index]
+			}
+			inputs = inputs
+			onInputsChange()
 		}
-		onInputsChange()
 	})
 </script>
 

@@ -38,6 +38,7 @@
 				on:updateAutoRefresh={updateAutoRefresh}
 			>
 				<BackgroundScriptTriggerBy
+					{id}
 					bind:script={runnable}
 					recomputeOnInputChanged={runnable.recomputeOnInputChanged}
 				/>

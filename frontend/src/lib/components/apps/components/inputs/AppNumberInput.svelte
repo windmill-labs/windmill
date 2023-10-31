@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
@@ -40,6 +40,10 @@
 		}
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as number | undefined
 	})
@@ -49,7 +53,7 @@
 	$: {
 		outputs?.result.set(value)
 		if (iterContext && listInputs) {
-			listInputs(id, value)
+			listInputs.set(id, value)
 		}
 	}
 

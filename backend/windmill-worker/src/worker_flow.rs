@@ -6,7 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -615,7 +617,17 @@ pub async fn update_flow_status_after_job_completion_internal<
                 let cached_res_path = {
                     let args_hash = hash_args(&flow_job.args);
                     let flow_path = flow_job.script_path();
-                    format!("{flow_path}/flow/cache/{args_hash}")
+                    let version_hash = if let Some(rc) = flow_job.raw_flow.as_ref() {
+                        use std::hash::Hasher;
+                        let mut s = DefaultHasher::new();
+                        serde_json::to_string(&rc.0)
+                            .unwrap_or_default()
+                            .hash(&mut s);
+                        format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
+                    } else {
+                        "flow_unknown".to_string()
+                    };
+                    format!("{flow_path}/cache/{version_hash}/{args_hash}")
                 };
 
                 save_in_cache(db, &flow_job, cached_res_path, &nresult).await;

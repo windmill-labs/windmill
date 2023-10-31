@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type {
@@ -45,6 +45,10 @@
 		result: ''
 	})
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			value = nvalue
@@ -57,7 +61,7 @@
 		let val = value ?? ''
 		outputs?.result.set(val)
 		if (iterContext && listInputs) {
-			listInputs(id, val)
+			listInputs.set(id, val)
 		}
 	}
 

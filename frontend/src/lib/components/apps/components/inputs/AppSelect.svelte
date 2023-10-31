@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import Select from '../../svelte-select/lib/index'
 
 	import type {
@@ -93,12 +93,17 @@
 			outputs?.result.set(rawValue)
 		}
 		if (iterContext && listInputs) {
-			listInputs(id, rawValue)
+			listInputs.set(id, rawValue)
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, rawValue)
+			rowInputs.set(id, rawValue)
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+		rowInputs?.remove(id)
+	})
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
@@ -121,10 +126,10 @@
 		value = nvalue
 		outputs?.result.set(result)
 		if (iterContext && listInputs) {
-			listInputs(id, result)
+			listInputs.set(id, result)
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, result)
+			rowInputs.set(id, result)
 		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
@@ -135,7 +140,7 @@
 		value = undefined
 		outputs?.result.set(undefined, true)
 		if (iterContext && listInputs) {
-			listInputs(id, undefined)
+			listInputs.set(id, undefined)
 		}
 	}
 

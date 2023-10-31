@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.194.0](https://github.com/windmill-labs/windmill/compare/v1.193.0...v1.194.0) (2023-10-30)
+
+
+### Features
+
+* **frontend:** plotly wizard ([#2517](https://github.com/windmill-labs/windmill/issues/2517)) ([40adfdb](https://github.com/windmill-labs/windmill/commit/40adfdb7fd6e21d053e79c6db876a4a8c90509c3))
+* Restartable flows ([#2514](https://github.com/windmill-labs/windmill/issues/2514)) ([76a736a](https://github.com/windmill-labs/windmill/commit/76a736aee67517807d86e1c8c3961af907fc919c))
+
+
+### Bug Fixes
+
+* assign column length of table actions based on number of actions ([0c672e7](https://github.com/windmill-labs/windmill/commit/0c672e7e18b52d4615dcf473bf1424dfe685cc9d))
+* fix table reactivity ([01560db](https://github.com/windmill-labs/windmill/commit/01560dbdaf2dc30c16e9182b5a3353d13c927827))
+* **frontend:** fix ai gen ([#2518](https://github.com/windmill-labs/windmill/issues/2518)) ([6f4fb76](https://github.com/windmill-labs/windmill/commit/6f4fb7668cd09d2e5fdca8977718fd6b87883a27))
+* make modal and drawer button hiddable as config ([2e55af5](https://github.com/windmill-labs/windmill/commit/2e55af50c70b9d1118e9a63f119ac31e5a574e51))
+* workspaced embeddings for resource types ([#2525](https://github.com/windmill-labs/windmill/issues/2525)) ([302649f](https://github.com/windmill-labs/windmill/commit/302649faa858233ea62073a2460e1586db67249f))
+
 ## [1.193.0](https://github.com/windmill-labs/windmill/compare/v1.192.0...v1.193.0) (2023-10-28)
 
 

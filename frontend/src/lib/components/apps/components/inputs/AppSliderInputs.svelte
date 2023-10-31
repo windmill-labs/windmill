@@ -1,6 +1,6 @@
 <script lang="ts">
 	import RangeSlider from 'svelte-range-slider-pips'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import type {
 		ListInputs,
 		AppViewerContext,
@@ -34,6 +34,10 @@
 		configuration
 	)
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
 	let values: [number] = [resolvedConfig.defaultValue ?? 0]
 
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
@@ -64,7 +68,7 @@
 		const num = isNaN(+values[0]) ? null : +values[0]
 		outputs?.result.set(num)
 		if (iterContext && listInputs) {
-			listInputs(id, num)
+			listInputs.set(id, num)
 		}
 	}
 
