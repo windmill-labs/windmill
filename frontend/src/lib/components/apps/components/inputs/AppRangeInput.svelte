@@ -113,6 +113,7 @@
 				on:pointerdown|stopPropagation
 			>
 				<RangeSlider
+					springValues={{ stiffness: 1, damping: 1 }}
 					bind:slider
 					bind:values
 					step={resolvedConfig.step}
