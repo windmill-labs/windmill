@@ -50,6 +50,12 @@
 		components['chartjscomponent'].initialData.configuration,
 		configuration
 	)
+
+	function hasScales() {
+		const type = resolvedConfig?.type as string
+		return type === 'bar' || type === 'line' || type === 'scatter' || type === 'bubble'
+	}
+
 	$: options = {
 		responsive: true,
 		animation: false,
@@ -61,7 +67,21 @@
 					color: $darkMode ? '#fff' : '#000'
 				}
 			}
-		}
+		},
+		...(hasScales()
+			? {
+					scales: {
+						y: {
+							ticks: { color: $darkMode ? '#eee' : '#333' },
+							grid: { color: $darkMode ? '#555' : '#ddd' }
+						},
+						x: {
+							ticks: { color: $darkMode ? '#eee' : '#333' },
+							grid: { color: $darkMode ? '#555' : '#ddd' }
+						}
+					}
+			  }
+			: {})
 	} as ChartOptions
 
 	$: data =
@@ -104,7 +124,7 @@
 	{/each}
 {/if}
 
-{#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['chartjscomponentv2'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
