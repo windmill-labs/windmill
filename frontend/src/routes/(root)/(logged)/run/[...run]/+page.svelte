@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate, truncateHash } from '$lib/utils'
+	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import { ArrowRight } from 'lucide-svelte'
@@ -53,6 +53,7 @@
 
 	let selectedJobStepIsTopLevel: boolean | undefined = undefined
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+	let restartBranchNames: [number, string][] = []
 
 	// Test
 	let testIsLoading = false
@@ -112,16 +113,8 @@
 		initView()
 	}
 
-	$: {
-		if ($workspaceStore && $page.params.run && testJobLoader) {
-			forceCancel = false
-			getLogs()
-		}
-	}
-	let notfound = false
-	let forceCancel = false
-
-	$: {
+	function onSelectedJobStepChange() {
+		console.log('yo')
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -130,11 +123,29 @@
 				selectedJobStepType = 'forloop'
 			} else if (moduleDefinition?.value.type == 'branchall') {
 				selectedJobStepType = 'branchall'
+				moduleDefinition?.value.branches.forEach((branch, idx) => {
+					restartBranchNames.push([
+						idx,
+						emptyString(branch.summary) ? `Branch #${idx}` : branch.summary!
+					])
+				})
 			} else {
 				selectedJobStepType = 'single'
 			}
 		}
 	}
+
+	$: {
+		if ($workspaceStore && $page.params.run && testJobLoader) {
+			forceCancel = false
+			getLogs()
+		}
+	}
+
+	$: selectedJobStep !== undefined && onSelectedJobStepChange()
+
+	let notfound = false
+	let forceCancel = false
 </script>
 
 <TestJobLoader
@@ -290,13 +301,26 @@
 								>{selectedJobStepType == 'forloop' ? 'Iteration #' : 'Branch #'}</div
 							>
 							<div class="flex w-full">
-								<input
-									type="number"
-									min="0"
-									bind:value={branchOrIterationN}
-									class="!w-auto grow"
-									on:click|stopPropagation={() => {}}
-								/>
+								{#if selectedJobStepType === 'forloop'}
+									<input
+										type="number"
+										min="0"
+										bind:value={branchOrIterationN}
+										class="!w-32 grow"
+										on:click|stopPropagation={() => {}}
+									/>
+								{:else}
+									<select
+										bind:value={branchOrIterationN}
+										class="!w-32 grow"
+										on:click|stopPropagation={() => {}}
+									>
+										{#each restartBranchNames as [branchIdx, branchName]}
+											<option value={branchIdx}>{branchName}</option>
+										{/each}
+									</select>
+								{/if}
+
 								<Button
 									size="xs"
 									color="blue"

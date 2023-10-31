@@ -6,7 +6,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { emptyString, runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
@@ -25,6 +25,7 @@
 	export let job: Job | undefined = undefined
 	let selectedJobStep: string | undefined = undefined
 	let branchOrIterationN: number = 0
+	let restartBranchNames: [number, string][] = []
 
 	let selectedJobStepIsTopLevel: boolean | undefined = undefined
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
@@ -99,7 +100,7 @@
 		}
 	}
 
-	function onSelectedJobStepChange(_: CustomEvent<any>) {
+	function onSelectedJobStepChange() {
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -108,6 +109,12 @@
 				selectedJobStepType = 'forloop'
 			} else if (moduleDefinition?.value.type == 'branchall') {
 				selectedJobStepType = 'branchall'
+				moduleDefinition?.value.branches.forEach((branch, idx) => {
+					restartBranchNames.push([
+						idx,
+						emptyString(branch.summary) ? `Branch #${idx}` : branch.summary!
+					])
+				})
 			} else {
 				selectedJobStepType = 'single'
 			}
@@ -117,6 +124,8 @@
 	$: if (job?.type === 'CompletedJob') {
 		isRunning = false
 	}
+
+	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	let inputLibraryDrawer: Drawer
 </script>
@@ -224,13 +233,25 @@
 									>{selectedJobStepType == 'forloop' ? 'Iteration #' : 'Branch #'}</div
 								>
 								<div class="flex w-full">
-									<input
-										type="number"
-										min="0"
-										bind:value={branchOrIterationN}
-										class="!w-auto grow"
-										on:click|stopPropagation={() => {}}
-									/>
+									{#if selectedJobStepType === 'forloop'}
+										<input
+											type="number"
+											min="0"
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										/>
+									{:else}
+										<select
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										>
+											{#each restartBranchNames as [branchIdx, branchName]}
+												<option value={branchIdx}>{branchName}</option>
+											{/each}
+										</select>
+									{/if}
 									<Button
 										size="xs"
 										color="blue"
@@ -308,7 +329,6 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
-					on:selectedJobStepChange={onSelectedJobStepChange}
 					bind:selectedJobStep
 				/>
 			{:else}
