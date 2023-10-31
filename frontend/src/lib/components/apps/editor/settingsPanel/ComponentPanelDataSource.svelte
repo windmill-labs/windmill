@@ -13,8 +13,6 @@
 	export let component: AppComponent
 	let convertToUIEditorCallback: (() => void) | undefined = undefined
 
-	console.log(component)
-
 	let selected = 'ui-editor'
 	let renderCount = 0
 
