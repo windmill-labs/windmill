@@ -298,7 +298,7 @@
 						</svelte:fragment>
 						<label class="block text-primary">
 							<div class="pb-1 text-sm text-secondary"
-								>{selectedJobStepType == 'forloop' ? 'Iteration #' : 'Branch #'}</div
+								>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 							>
 							<div class="flex w-full">
 								{#if selectedJobStepType === 'forloop'}

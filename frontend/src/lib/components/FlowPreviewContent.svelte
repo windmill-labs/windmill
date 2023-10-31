@@ -6,13 +6,13 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
-	import { emptyString, runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { ArrowRight, Loader2 } from 'lucide-svelte'
-	import { getModifierKey } from '$lib/utils'
+	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
@@ -230,7 +230,7 @@
 							</svelte:fragment>
 							<label class="block text-primary">
 								<div class="pb-1 text-sm text-secondary"
-									>{selectedJobStepType == 'forloop' ? 'Iteration #' : 'Branch #'}</div
+									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 								>
 								<div class="flex w-full">
 									{#if selectedJobStepType === 'forloop'}
