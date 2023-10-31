@@ -99,11 +99,7 @@
 		}
 	}
 
-	$: if (job?.type === 'CompletedJob') {
-		isRunning = false
-	}
-
-	$: {
+	function onSelectedJobStepChange(_: CustomEvent<any>) {
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -116,6 +112,10 @@
 				selectedJobStepType = 'single'
 			}
 		}
+	}
+
+	$: if (job?.type === 'CompletedJob') {
+		isRunning = false
 	}
 
 	let inputLibraryDrawer: Drawer
@@ -308,6 +308,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					on:selectedJobStepChange={onSelectedJobStepChange}
 					bind:selectedJobStep
 				/>
 			{:else}
