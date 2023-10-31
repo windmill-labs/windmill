@@ -28,6 +28,8 @@
 	import Label from '$lib/components/Label.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 
+	export let noEditor: boolean
+
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -55,7 +57,7 @@
 </script>
 
 <div class="h-full overflow-hidden">
-	<FlowCard title="Settings">
+	<FlowCard {noEditor} title="Settings">
 		<div class="h-full flex-1">
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>

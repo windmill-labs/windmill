@@ -23,6 +23,7 @@
 	export let mod: FlowModule
 	export let parentModule: FlowModule | undefined
 	export let previousModule: FlowModule | undefined
+	export let noEditor: boolean
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'early-stop'
@@ -39,7 +40,7 @@
 </script>
 
 <div class="h-full flex flex-col">
-	<FlowCard title="For loop">
+	<FlowCard {noEditor} title="For loop">
 		<div slot="header" class="grow">
 			<input bind:value={mod.summary} placeholder={'Summary'} />
 		</div>

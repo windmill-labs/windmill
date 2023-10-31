@@ -18,10 +18,12 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 
+	export let flowModule: FlowModule
+	export let noEditor = false
+
 	const { selectedId, schedule, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let flowModule: FlowModule
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 
@@ -34,11 +36,11 @@
 
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
-		<FlowLoop bind:mod={flowModule} {parentModule} {previousModule} />
+		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesOneWrapper {previousModule} bind:flowModule />
+		<FlowBranchesOneWrapper {noEditor} {previousModule} bind:flowModule />
 	{:else if flowModule.value.type === 'branchall'}
-		<FlowBranchesAllWrapper {previousModule} bind:flowModule />
+		<FlowBranchesAllWrapper {noEditor} {previousModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<div class="p-4">
@@ -123,6 +125,7 @@
 		{/if}
 	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
 		<FlowModuleComponent
+			{noEditor}
 			bind:flowModule
 			{parentModule}
 			{previousModule}
@@ -156,7 +159,7 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchOneWrapper bind:branch parentModule={flowModule} {previousModule} />
+			<FlowBranchOneWrapper {noEditor} bind:branch parentModule={flowModule} {previousModule} />
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self
@@ -170,7 +173,7 @@
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchAllWrapper bind:branch />
+			<FlowBranchAllWrapper {noEditor} bind:branch />
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self

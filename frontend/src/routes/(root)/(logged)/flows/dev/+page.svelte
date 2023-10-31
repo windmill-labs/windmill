@@ -13,6 +13,7 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	let testJobLoader: TestJobLoader
 
@@ -30,6 +31,8 @@
 		extra_perms: {},
 		schema: emptySchema()
 	} as Flow)
+
+	let initialCode = JSON.stringify($flowStore, null, 4)
 	const flowStateStore = writable({} as FlowState)
 	const scheduleStore = writable({
 		args: {},
@@ -43,7 +46,7 @@
 	const history = initHistory($flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})
-	const selectedIdStore = writable('')
+	const selectedIdStore = writable('inputs')
 
 	// function select(selectedId: string) {
 	// 	selectedIdStore.set(selectedId)
@@ -165,6 +168,14 @@
 		// }
 	}
 	let editor: SimpleEditor
+
+	$: updateCode(editor, $flowStore)
+
+	function updateCode(editor: SimpleEditor, flow: Flow) {
+		if (editor && !deepEqual(flow, JSON.parse(editor.getCode()))) {
+			editor.setCode(JSON.stringify(flow, null, 4))
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -175,28 +186,28 @@
 	<div class="h-full w-full grid grid-cols-2">
 		<SimpleEditor
 			bind:this={editor}
-			code={JSON.stringify($flowStore, null, 4)}
+			code={initialCode}
 			lang="json"
 			on:change={(e) => {
 				const code = e.detail.code
 				try {
-					$flowStore = JSON.parse(code)
+					if (!deepEqual(JSON.parse(code), $flowStore)) {
+						$flowStore = JSON.parse(code)
+					}
 				} catch (e) {
 					console.error('issue parsing new change:', code, e)
 				}
 			}}
 		/>
-		<div class="flex flex-col h-full relative">
-			<div class="flex justify-center pt-1 absolute right-2 top-2">
+		<div class="flex flex-col max-h-screen h-full relative">
+			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
 				<FlowPreviewButtons />
 			</div>
-			<Splitpanes horizontal class="h-full">
+			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>
 					{#if $flowStore?.value?.modules}
 						<FlowModuleSchemaMap
-							disableHeader
 							bind:modules={$flowStore.value.modules}
-							on:change={() => editor?.setCode(JSON.stringify($flowStore, null, 4))}
 							disableAi
 							disableTutorials
 						/>
@@ -205,7 +216,7 @@
 					{/if}
 				</Pane>
 				<Pane size={67}>
-					<FlowEditorPanel />
+					<FlowEditorPanel noEditor />
 				</Pane>
 			</Splitpanes>
 		</div>
