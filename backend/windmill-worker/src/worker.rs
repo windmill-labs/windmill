@@ -17,7 +17,8 @@ use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::Hash,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -2096,6 +2097,23 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     };
 
     let cached_res_path = if job.cache_ttl.is_some() {
+        let version_hash = if let Some(h) = job.script_hash {
+            format!("script_{}", h.to_string())
+        } else if let Some(rc) = job.raw_code.as_ref() {
+            use std::hash::Hasher;
+            let mut s = DefaultHasher::new();
+            rc.hash(&mut s);
+            format!("inline_{}", hex::encode(s.finish().to_be_bytes()))
+        } else if let Some(rc) = job.raw_flow.as_ref() {
+            use std::hash::Hasher;
+            let mut s = DefaultHasher::new();
+            serde_json::to_string(&rc.0)
+                .unwrap_or_default()
+                .hash(&mut s);
+            format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
+        } else {
+            "none".to_string()
+        };
         let args_hash = hash_args(&job.args);
         if job.is_flow_step {
             let flow_path = sqlx::query_scalar!(
@@ -2107,10 +2125,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
             let step = step.unwrap_or(-1);
-            Some(format!("{flow_path}/cache/{step}/{args_hash}"))
+            Some(format!(
+                "{flow_path}/cache/{version_hash}/{step}/{args_hash}"
+            ))
         } else if let Some(script_path) = &job.script_path {
-            let is_flow = if job.is_flow() { "flow/" } else { "" };
-            Some(format!("{script_path}/{is_flow}cache/{args_hash}"))
+            Some(format!("{script_path}/cache/{version_hash}/{args_hash}"))
         } else {
             None
         }

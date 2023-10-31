@@ -73,6 +73,7 @@ urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
+hex.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true
