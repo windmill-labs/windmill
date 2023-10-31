@@ -74,7 +74,7 @@ const tables: ComponentSet = {
 
 const charts: ComponentSet = {
 	title: 'Charts',
-	components: ['vegalitecomponent', 'plotlycomponentv2', 'chartjscomponentv2']
+	components: ['plotlycomponentv2', 'chartjscomponentv2', 'vegalitecomponent']
 } as const
 
 export const COMPONENT_SETS = [layout, tabs, buttons, inputs, tables, display, charts] as const
