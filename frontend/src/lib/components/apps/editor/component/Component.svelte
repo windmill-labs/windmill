@@ -55,6 +55,7 @@
 	import AppLogsComponent from '../../components/display/AppLogsComponent.svelte'
 	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
 	import AppChartJs from '../../components/display/AppChartJs.svelte'
+	import AppChartJsV2 from '../../components/display/AppChartJsV2.svelte'
 	import AppQuillEditor from '../../components/inputs/AppQuillEditor.svelte'
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
@@ -643,6 +644,17 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'chartjscomponentv2'}
+			<AppChartJsV2
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
 				{render}
 			/>
 		{:else if component.type === 'carousellistcomponent'}
