@@ -780,7 +780,7 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
-pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> i64 {
+pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> String {
     if let Some(vs) = v {
         let mut dh = DefaultHasher::new();
         let hm = &vs.0;
@@ -788,9 +788,9 @@ pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) 
             k.hash(&mut dh);
             hm.get(k).unwrap().get().hash(&mut dh);
         }
-        dh.finish() as i64
+        hex::encode(dh.finish().to_be_bytes())
     } else {
-        0
+        "empty_args".to_string()
     }
 }
 
