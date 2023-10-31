@@ -171,6 +171,8 @@
 							dispatch('done', job)
 						}
 						currentId = undefined
+					} else {
+						dispatch('cancel', id)
 					}
 				}
 				notfound = false
@@ -185,6 +187,7 @@
 			}
 			return isCompleted
 		} else {
+			dispatch('cancel', id)
 			return true
 		}
 	}

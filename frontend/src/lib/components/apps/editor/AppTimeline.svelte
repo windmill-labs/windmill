@@ -130,6 +130,8 @@
 							{@const waitingLen = b?.started_at
 								? b.started_compute_at
 									? b.started_compute_at - b?.started_at
+									: b.duration_ms
+									? 0
 									: now - b?.started_at
 								: 0}
 							<div class="flex w-full">
