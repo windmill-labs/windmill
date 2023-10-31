@@ -145,6 +145,7 @@
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider
+				springValues={{ stiffness: 1, damping: 1 }}
 				{vertical}
 				bind:slider
 				bind:values
