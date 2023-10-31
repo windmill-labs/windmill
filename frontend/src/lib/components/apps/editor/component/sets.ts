@@ -81,7 +81,7 @@ const charts: ComponentSet = {
 		'plotlycomponentv2',
 		'scatterchartcomponent',
 		'timeseriescomponent',
-		'chartjscomponent'
+		'chartjscomponentv2'
 	]
 } as const
 

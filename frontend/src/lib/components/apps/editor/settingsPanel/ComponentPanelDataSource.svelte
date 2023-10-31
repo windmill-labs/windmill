@@ -4,6 +4,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import PlotlyRichEditor from './PlotlyRichEditor.svelte'
+	import ChartJSRichEditor from './ChartJSRichEditor.svelte'
 	import { onMount } from 'svelte'
 	import type { RichConfiguration } from '../../types'
 	import type { InputConnectionEval } from '../../inputType'
@@ -12,12 +13,14 @@
 	export let component: AppComponent
 	let convertToUIEditorCallback: (() => void) | undefined = undefined
 
+	console.log(component)
+
 	let selected = 'ui-editor'
 	let renderCount = 0
 
 	onMount(() => {
 		if (
-			component.type === 'plotlycomponentv2' &&
+			(component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2') &&
 			component.componentInput === undefined &&
 			component.datasets === undefined
 		) {
@@ -37,30 +40,80 @@
 		color: string
 	}
 
+	function resolveConfiguration(
+		x: RichConfiguration | undefined,
+		connections: InputConnectionEval[]
+	): string | undefined {
+		if (!x) return undefined
+		if (x.type === 'evalv2') {
+			connections.push(...x.connections)
+			return x.expr
+		}
+		if (x.type === 'static') return `[${x.value}]`
+		return undefined
+	}
+
 	function handleSelected(selected: string) {
-		if (component.type !== 'plotlycomponentv2') return
+		if (component.type === 'plotlycomponentv2') {
+			if (selected === 'ui-editor') {
+				convertToUIEditorCallback = () => {
+					component.componentInput = undefined
+					setUpUIEditor()
+				}
 
-		if (selected === 'ui-editor') {
-			convertToUIEditorCallback = () => {
-				component.componentInput = undefined
-				setUpUIEditor()
+				setTimeout(() => {
+					const activeElement = document.activeElement as HTMLElement
+					activeElement?.blur()
+					document.body.focus()
+				})
+			} else if (selected === 'json') {
+				convertToJson()
 			}
+		} else if (component.type === 'chartjscomponentv2') {
+			if (selected === 'ui-editor') {
+				convertToUIEditorCallback = () => {
+					component.componentInput = undefined
+					setUpUIEditor()
+				}
 
-			setTimeout(() => {
-				const activeElement = document.activeElement as HTMLElement
-				activeElement?.blur()
-				document.body.focus()
-			})
-		} else if (selected === 'json') {
-			convertToJson(component)
+				setTimeout(() => {
+					const activeElement = document.activeElement as HTMLElement
+					activeElement?.blur()
+					document.body.focus()
+				})
+			} else if (selected === 'json') {
+				convertChartJSToJson()
+			}
 		}
 	}
 
 	function setUpUIEditor() {
-		if (component.type !== 'plotlycomponentv2') return
+		if (component.type === 'plotlycomponentv2') {
+			component.datasets = createPlotlyComponentDataset()
+			component.xData = createXData()
+		} else if (component.type === 'chartjscomponentv2') {
+			component.datasets = createChartjsComponentDataset()
+			component.xData = createXData()
+		}
+	}
 
-		component.datasets = createPlotlyComponentDataset()
-		component.xData = createXData()
+	function createChartjsComponentDataset(): RichConfiguration {
+		return {
+			type: 'static',
+			fieldType: 'array',
+			subFieldType: 'chartjs',
+			value: [
+				{
+					value: {
+						type: 'static',
+						fieldType: 'array',
+						subFieldType: 'number',
+						value: [25, 25, 50]
+					},
+					name: 'Dataset 1'
+				}
+			]
+		}
 	}
 
 	function createPlotlyComponentDataset(): RichConfiguration {
@@ -95,20 +148,11 @@
 		}
 	}
 
-	function resolveConfiguration(
-		x: RichConfiguration | undefined,
-		connections: InputConnectionEval[]
-	): string | undefined {
-		if (!x) return undefined
-		if (x.type === 'evalv2') {
-			connections.push(...x.connections)
-			return x.expr
+	function convertToJson() {
+		if (component.type !== 'plotlycomponentv2') {
+			return
 		}
-		if (x.type === 'static') return `[${x.value}]`
-		return undefined
-	}
 
-	function convertToJson(component: any) {
 		const connections: InputConnectionEval[] = []
 		const xDataResolved = resolveConfiguration(component.xData, connections)
 
@@ -126,6 +170,42 @@
 			fieldType: 'object',
 			noStatic: true,
 			expr: `[\n${datasetsAsString}\n]`,
+			connections: connections.filter(Boolean)
+		}
+
+		component.datasets = undefined
+		component.xData = undefined
+	}
+
+	function convertChartJSToJson() {
+		if (component.type !== 'chartjscomponentv2') {
+			return
+		}
+
+		const connections: InputConnectionEval[] = []
+		const xDataResolved = resolveConfiguration(component.xData, connections)
+
+		if (component.datasets === undefined || component.datasets.type !== 'static') return
+
+		const datasets = component.datasets?.value
+
+		component.componentInput = {
+			type: 'evalv2',
+			fieldType: 'object',
+			noStatic: true,
+			expr: `\t{
+\t\t"labels": ${xDataResolved},
+\t\t"datasets": [\n${
+				datasets
+					.map(
+						(rawDataset: Dataset) => `{
+						data:${resolveConfiguration(rawDataset.value, connections)},
+						label: "${rawDataset.name}"
+					}`
+					)
+					.join(',\n') || ''
+			}\n]
+\t}`,
 			connections: connections.filter(Boolean)
 		}
 
@@ -151,7 +231,7 @@
 	}
 </script>
 
-{#if component.type === 'plotlycomponentv2'}
+{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2'}
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
@@ -174,11 +254,19 @@
 
 	{#if selected === 'ui-editor'}
 		{#key renderCount}
-			<PlotlyRichEditor
-				id={component.id}
-				bind:datasets={component.datasets}
-				bind:xData={component.xData}
-			/>
+			{#if component.type === 'plotlycomponentv2'}
+				<PlotlyRichEditor
+					id={component.id}
+					bind:datasets={component.datasets}
+					bind:xData={component.xData}
+				/>
+			{:else if component.type === 'chartjscomponentv2'}
+				<ChartJSRichEditor
+					id={component.id}
+					bind:datasets={component.datasets}
+					bind:xData={component.xData}
+				/>
+			{/if}
 		{/key}
 	{:else}
 		<slot />
