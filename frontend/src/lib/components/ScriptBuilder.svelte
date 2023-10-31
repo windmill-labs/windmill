@@ -1,11 +1,18 @@
 <script lang="ts">
-	import { DraftService, NewScript, Script, ScriptService, WorkerService } from '$lib/gen'
+	import {
+		DraftService,
+		NewScript,
+		Script,
+		ScriptService,
+		WorkerService,
+		type NewScriptWithDraft
+	} from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
-	import { emptySchema, encodeState, getModifierKey } from '$lib/utils'
+	import { cleanScriptProperties, emptySchema, encodeState, getModifierKey } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
@@ -43,6 +50,8 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
+	import type DiffDrawer from './DiffDrawer.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -50,6 +59,8 @@
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
+	export let diffDrawer: DiffDrawer
+	export let savedScript: NewScriptWithDraft | Script | undefined = undefined
 
 	let metadataOpen =
 		showMeta ||
@@ -205,6 +216,13 @@
 	}
 
 	async function saveDraft(): Promise<void> {
+		if (savedScript) {
+			const draftOrDeployed = cleanScriptProperties(savedScript['draft'] || savedScript)
+			const current = cleanScriptProperties(script)
+			if (deepEqual(draftOrDeployed, current)) {
+				return
+			}
+		}
 		loadingDraft = true
 		try {
 			$dirtyStore = false
@@ -250,6 +268,12 @@
 					value: script
 				}
 			})
+
+			savedScript = await ScriptService.getScriptByPathWithDraft({
+				workspace: $workspaceStore!,
+				path: script.path
+			})
+
 			if (initialPath == '') {
 				$dirtyStore = false
 				goto(`/scripts/edit/${script.path}`)
@@ -264,23 +288,42 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems() {
+	function computeDropdownItems(initialPath: string) {
 		let dropdownItems: { label: string; onClick: () => void }[] = [
-			{
-				label: 'Fork',
-				onClick: () => {
-					window.open(`/scripts/add?template=${initialPath}`)
-				}
-			},
-			{
-				label: 'Exit & See details',
-				onClick: () => {
-					goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
-				}
-			}
+			...(savedScript && !savedScript.draft_only
+				? [
+						{
+							label: 'Show diff',
+							onClick: () => {
+								if (savedScript) {
+									diffDrawer.openDrawer()
+									const deployed = cleanScriptProperties(savedScript)
+									const current = cleanScriptProperties(script)
+									diffDrawer.setDiff(deployed, current)
+								}
+							}
+						}
+				  ]
+				: []),
+			...(initialPath != ''
+				? [
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/scripts/add?template=${initialPath}`)
+							}
+						},
+						{
+							label: 'Exit & See details',
+							onClick: () => {
+								goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
+							}
+						}
+				  ]
+				: [])
 		]
 
-		return dropdownItems
+		return dropdownItems.length > 0 ? dropdownItems : undefined
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -301,11 +344,12 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-<UnsavedConfirmationModal />
+<UnsavedConfirmationModal {savedScript} modifiedScript={script} />
 
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
+			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="metadata">Metadata</Tab>
 				<Tab value="runtime">Runtime</Tab>
@@ -810,7 +854,7 @@
 						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript()}
-						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
+						dropdownItems={computeDropdownItems(initialPath)}
 					>
 						Deploy
 					</Button>

@@ -1,13 +1,15 @@
 <script lang="ts">
-	import { ScriptService, NewScript } from '$lib/gen'
+	import { ScriptService, NewScript, Script, type NewScriptWithDraft } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeState } from '$lib/utils'
+	import { decodeState, cleanScriptProperties } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
+	import { deepEqual } from 'fast-equals'
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -29,6 +31,8 @@
 
 	let reloadAction: () => void = () => {}
 
+	let savedScript: NewScriptWithDraft | Script | undefined = undefined
+
 	async function loadScript(): Promise<void> {
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
 			script = scriptLoadedFromUrl
@@ -37,38 +41,49 @@
 				goto(`/scripts/edit/${script!.path}`)
 				loadScript()
 			}
-			sendUserToast('Script loaded from latest autosave stored in the URL', false, [
-				{
-					label: 'Discard browser stored autosave and reload',
-					callback: reloadAction
-				},
-				{
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer.openDrawer()
-						let remoteContent = await ScriptService.getScriptByPathWithDraft({
-							workspace: $workspaceStore!,
-							path: script!.path
-						})
-						diffDrawer.setDiff(
-							remoteContent?.draft?.content ?? remoteContent.content,
-							scriptLoadedFromUrl.content
-						)
-					}
+
+			async function compareAutosave() {
+				let remoteContent = await ScriptService.getScriptByPathWithDraft({
+					workspace: $workspaceStore!,
+					path: script!.path
+				})
+				savedScript = cloneDeep(remoteContent)
+
+				const draftOrDeployed = cleanScriptProperties(remoteContent?.draft || remoteContent)
+				const urlScript = cleanScriptProperties(scriptLoadedFromUrl)
+				if (deepEqual(draftOrDeployed, urlScript)) {
+					reloadAction()
+				} else {
+					sendUserToast('Script loaded from latest autosave stored in the URL', false, [
+						{
+							label: 'Discard browser stored autosave and reload',
+							callback: reloadAction
+						},
+						{
+							label: 'Show diff',
+							callback: async () => {
+								diffDrawer.openDrawer()
+								diffDrawer.setDiff(draftOrDeployed, urlScript)
+							}
+						}
+					])
 				}
-			])
+			}
+			compareAutosave()
 		} else {
 			if (hash) {
 				const scriptByHash = await ScriptService.getScriptByHash({
 					workspace: $workspaceStore!,
 					hash
 				})
+				savedScript = cloneDeep(scriptByHash)
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: $page.params.path
 				})
+				savedScript = cloneDeep(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					if (!scriptWithDraft.draft_only) {
@@ -87,11 +102,14 @@
 								label: 'Show diff',
 								callback: async () => {
 									diffDrawer.openDrawer()
-									let remoteContent = await ScriptService.getScriptByPath({
+									let remoteContent = await ScriptService.getScriptByPathWithDraft({
 										workspace: $workspaceStore!,
 										path: script!.path
 									})
-									diffDrawer.setDiff(remoteContent.content, script?.content ?? '')
+									savedScript = cloneDeep(remoteContent)
+									const deployed = cleanScriptProperties(remoteContent)
+									const draft = cleanScriptProperties(script!)
+									diffDrawer.setDiff(deployed, draft)
 								}
 							}
 						])
@@ -132,5 +150,12 @@
 
 <DiffDrawer bind:this={diffDrawer} button={{ text: 'Revert', onClick: reloadAction }} />
 {#if script}
-	<ScriptBuilder bind:this={scriptBuilder} {initialPath} {script} {initialArgs} />
+	<ScriptBuilder
+		bind:this={scriptBuilder}
+		{initialPath}
+		{script}
+		bind:savedScript
+		{initialArgs}
+		{diffDrawer}
+	/>
 {/if}

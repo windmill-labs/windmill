@@ -224,15 +224,17 @@
 		}
 	}
 
-	export function format() {
+	export async function format() {
 		if (editor) {
 			code = getCode()
 			if (lang != 'shell') {
-				editor?.getAction('editor.action.formatDocument')?.run()
+				await editor?.getAction('editor.action.formatDocument')?.run()
 			}
-			if (formatAction) {
-				formatAction()
-			}
+			setTimeout(() => {
+				if (formatAction) {
+					formatAction()
+				}
+			}, 500)
 		}
 	}
 

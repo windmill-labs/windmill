@@ -40,6 +40,9 @@
 	import { setQuery } from '$lib/navigation'
 	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
 	import ContentSearch from '../ContentSearch.svelte'
+	import Drawer from '../common/drawer/Drawer.svelte'
+	import HighlightCode from '../HighlightCode.svelte'
+	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -257,6 +260,18 @@
 	let archived = false
 
 	let contentSearch: ContentSearch
+
+	let viewCodeDrawer: Drawer
+	let viewCodeTitle: string | undefined
+	let script: Script | undefined
+	async function showCode(path: string, summary: string) {
+		viewCodeTitle = summary || path
+		await viewCodeDrawer.openDrawer()
+		script = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path
+		})
+	}
 </script>
 
 <SearchItems
@@ -287,6 +302,24 @@
 		loadRawApps()
 	}}
 />
+
+<Drawer
+	bind:this={viewCodeDrawer}
+	on:close={() => {
+		setTimeout(() => {
+			viewCodeTitle = undefined
+			script = undefined
+		}, 300)
+	}}
+>
+	<DrawerContent title={viewCodeTitle} on:close={viewCodeDrawer.closeDrawer}>
+		{#if script}
+			<HighlightCode language={script?.language} code={script?.content} />
+		{:else}
+			<Skeleton layout={[[40]]} />
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 <ContentSearch bind:this={contentSearch} />
 <CenteredPage>
@@ -406,6 +439,7 @@
 										{shareModal}
 										{moveDrawer}
 										{deploymentDrawer}
+										{showCode}
 									/>
 								{:else if item.type == 'flow'}
 									<FlowRow

@@ -48,7 +48,10 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 
 export function msToSec(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
-	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: maximumFractionDigits ?? 3, minimumFractionDigits: maximumFractionDigits })
+	return (ms / 1000).toLocaleString(undefined, {
+		maximumFractionDigits: maximumFractionDigits ?? 3,
+		minimumFractionDigits: maximumFractionDigits
+	})
 }
 
 export function getToday() {
@@ -630,38 +633,60 @@ export async function tryEvery({
 	}
 }
 
-
 export function roughSizeOfObject(object: object | string) {
 	if (typeof object == 'string') {
-		return object.length * 2;
+		return object.length * 2
 	}
-    var objectList: any[] = [];
-    var stack = [ object ];
-    var bytes = 0;
+	var objectList: any[] = []
+	var stack = [object]
+	var bytes = 0
 
-    while ( stack.length ) {
-        let value: any = stack.pop();
+	while (stack.length) {
+		let value: any = stack.pop()
 
-        if ( typeof value === 'boolean' ) {
-            bytes += 4;
-        }
-        else if (typeof value === 'string' ) {
-            bytes += value.length * 2;
-        }
-        else if ( typeof value === 'number' ) {
-            bytes += 8;
-        }
-        else if (
-            typeof value === 'object'
-            && objectList.indexOf(value) === -1
-        )
-        {
-            objectList.push(value);
+		if (typeof value === 'boolean') {
+			bytes += 4
+		} else if (typeof value === 'string') {
+			bytes += value.length * 2
+		} else if (typeof value === 'number') {
+			bytes += 8
+		} else if (typeof value === 'object' && objectList.indexOf(value) === -1) {
+			objectList.push(value)
 
-            for( var i in value ) {
-                stack.push( value[ i ] );
-            }
-        }
-    }
-    return bytes;
+			for (var i in value) {
+				stack.push(value[i])
+			}
+		}
+	}
+	return bytes
+}
+
+export function cleanScriptProperties(obj: object) {
+	const keys = [
+		'path',
+		'summary',
+		'description',
+		'content',
+		'schema',
+		'language',
+		'kind',
+		'tag',
+		'draft_only',
+		'envs',
+		'concurrent_limit',
+		'concurrency_time_window_s',
+		'cache_ttl',
+		'dedicated_worker',
+		'ws_error_handler_muted',
+		'priority'
+	]
+	let newObj: object = {}
+	for (const key of keys) {
+		if (obj[key] !== undefined) {
+			newObj[key] = obj[key]
+		} else if (key === 'dedicated_worker') {
+			newObj[key] = null
+		}
+	}
+	return newObj
 }

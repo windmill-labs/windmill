@@ -442,7 +442,8 @@
 					content: script.content,
 					lock: script.lock,
 					schema: script.schema,
-					summary: script.summary
+					summary: script.summary,
+					language: script.language
 				}
 			} else if (kind == 'app') {
 				const app = await AppService.getAppByPath({
@@ -506,7 +507,7 @@
 			getValue(kind, path, $workspaceStore!),
 			getValue(kind, path, workspaceToDeployTo!)
 		])
-		diffDrawer.setDiff(JSON.stringify(values[0], null, 2), JSON.stringify(values[1], null, 2))
+		diffDrawer.setDiff(values[0], values[1])
 	}
 </script>
 

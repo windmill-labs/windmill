@@ -11,6 +11,7 @@
 	import {
 		faArchive,
 		faCalendarAlt,
+		faCode,
 		faCodeFork,
 		faCopy,
 		faEdit,
@@ -37,6 +38,7 @@
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let errorHandlerMuted: boolean
+	export let showCode: (path: string, summary: string) => void
 
 	let {
 		summary,
@@ -150,6 +152,13 @@
 				if (draft_only) {
 					return [
 						{
+							displayName: 'View code',
+							icon: faCode,
+							action: () => {
+								showCode(script.path, script.summary)
+							}
+						},
+						{
 							displayName: 'Delete',
 							icon: faTrashAlt,
 							action: (event) => {
@@ -167,6 +176,13 @@
 					]
 				}
 				return [
+					{
+						displayName: 'View code',
+						icon: faCode,
+						action: () => {
+							showCode(script.path, script.summary)
+						}
+					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,

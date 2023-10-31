@@ -1,54 +1,119 @@
 <script lang="ts">
-	import * as Diff from 'diff'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import { Loader2 } from 'lucide-svelte'
+	import DiffEditor from './DiffEditor.svelte'
+	import { scriptLangToEditorLang } from '$lib/scripts'
+	import type { Script } from '$lib/gen'
+	import Tabs from './common/tabs/Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import { cloneDeep } from 'lodash'
 
+	let selected: 'content' | 'metadata' | undefined = undefined
 	let diffViewer: Drawer
-	let diffContent: string | undefined = undefined
+	let originalContent: string | undefined = undefined
+	let originalMetadata: string | undefined = undefined
+	let originalLang: string | undefined = undefined
+	let modifiedContent: string | undefined = undefined
+	let modifiedMetadata: string | undefined = undefined
+	let modifiedLang: string | undefined = undefined
 
 	export let button: { text: string; onClick: () => void } | undefined = undefined
 	export function openDrawer() {
-		diffContent = undefined
+		originalContent = undefined
+		originalMetadata = undefined
+		originalLang = undefined
+		modifiedContent = undefined
+		modifiedMetadata = undefined
+		modifiedLang = undefined
 		diffViewer.openDrawer()
 	}
 
-	export function setDiff(local: string, remote: string) {
-		let finalString = ''
-		for (const part of Diff.diffLines(local, remote)) {
-			if (part.removed) {
-				// print red if removed without newline
-				finalString += `<span class="text-red-600">${part.value}</span>`
-			} else if (part.added) {
-				// print green if added
-				finalString += `<span class="text-green-600">${part.value}</span>`
-			} else {
-				let lines = part.value.split('\n')
-
-				if (lines.length > 12) {
-					lines = lines.slice(0, 6)
-					lines.push('...')
-					lines = lines.concat(part.value.split('\n').slice(-6))
-				}
-				// print white if unchanged
-				finalString += `${lines.join('\n')}`
+	export function setDiff(
+		local:
+			| {
+					content?: string
+					language?: Script.language
+					[key: string]: any
+			  }
+			| undefined,
+		remote:
+			| {
+					content?: string
+					language?: Script.language
+					[key: string]: any
+			  }
+			| undefined
+	) {
+		if (local) {
+			const local_ = cloneDeep(local)
+			if (local_.content && local_.language) {
+				originalContent = local_.content
+				originalLang = scriptLangToEditorLang(local_.language)
+				local_.content = 'check content diff'
 			}
+			originalMetadata = JSON.stringify(local_, null, 2)
 		}
-		diffContent = finalString
+		if (remote) {
+			const remote_ = cloneDeep(remote)
+			if (remote_.content && remote_.language) {
+				modifiedContent = remote_.content
+				modifiedLang = scriptLangToEditorLang(remote_.language)
+				remote_.content = 'check content diff'
+			}
+			modifiedMetadata = JSON.stringify(remote_, null, 2)
+		}
+		selected =
+			originalContent !== modifiedContent
+				? 'content'
+				: originalMetadata !== modifiedMetadata
+				? 'metadata'
+				: undefined
 	}
 </script>
 
-<Drawer bind:this={diffViewer} size="800px">
+<Drawer bind:this={diffViewer} size="1200px">
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
-		{#if diffContent == undefined}
-			<Loader2 class="animate-spin" />
+		{#if originalMetadata !== undefined && originalMetadata !== undefined}
+			{#if selected}
+				<div class="flex flex-col h-full gap-4">
+					<Tabs bind:selected>
+						{#if originalContent !== undefined && originalContent !== modifiedContent}
+							<Tab value="content">Content</Tab>
+						{/if}
+						{#if originalMetadata !== modifiedMetadata}
+							<Tab value="metadata">Metadata</Tab>
+						{/if}
+					</Tabs>
+					<div class="flex-1">
+						{#if selected === 'content'}
+							<DiffEditor
+								automaticLayout
+								class="h-full"
+								defaultLang={originalLang}
+								defaultModifiedLang={modifiedLang}
+								defaultOriginal={originalContent}
+								defaultModified={modifiedContent}
+								readOnly
+							/>
+						{:else if selected === 'metadata'}
+							<DiffEditor
+								automaticLayout
+								class="h-full"
+								defaultLang="json"
+								defaultOriginal={originalMetadata}
+								defaultModified={modifiedMetadata}
+								readOnly
+							/>
+						{/if}</div
+					>
+				</div>
+			{:else}
+				<Alert title="No changes detected">
+					There are no differences between the local and remote content
+				</Alert>
+			{/if}
 		{:else}
-			<pre class="border bg-surface-secondary p-2 whitespace-pre-wrap"
-				><code>{@html diffContent}</code></pre
-			>
-			<div class="flex flex-row-reverse gap-2">
-				<div class="text-red-600">Removed</div>
-				<div class="text-green-600">Added</div></div
-			>
+			<Loader2 class="animate-spin" />
 		{/if}
 		<svelte:fragment slot="actions">
 			{#if button}

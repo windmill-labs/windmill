@@ -7,6 +7,7 @@
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -72,11 +73,15 @@
 		}
 	}
 	$dirtyStore = true
+
+	let diffDrawer: DiffDrawer
 </script>
 
+<DiffDrawer bind:this={diffDrawer} />
 <ScriptBuilder
 	bind:this={scriptBuilder}
 	lockedLanguage={templatePath != null || hubPath != null}
 	{script}
 	{showMeta}
+	{diffDrawer}
 />

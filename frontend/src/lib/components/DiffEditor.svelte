@@ -9,12 +9,18 @@
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
+	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
 	export let automaticLayout = true
 	export let fixedOverflowWidgets = true
+	export let defaultLang: string | undefined = undefined
+	export let defaultModifiedLang: string | undefined = undefined
+	export let defaultOriginal: string | undefined = undefined
+	export let defaultModified: string | undefined = undefined
+	export let readOnly = false
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	let diffDivEl: HTMLDivElement | null = null
@@ -25,6 +31,7 @@
 			automaticLayout,
 			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
 			originalEditable: false,
+			readOnly,
 			minimap: {
 				enabled: false
 			},
@@ -35,15 +42,31 @@
 			autoDetectHighContrast: true,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
+		if (
+			defaultOriginal !== undefined &&
+			defaultModified !== undefined &&
+			defaultLang !== undefined
+		) {
+			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
+		}
 	}
 
 	export function setupModel(
-		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'javascript' | 'powershell'
+		lang: string,
+		original?: string,
+		modified?: string,
+		modifiedLang?: string
 	) {
 		diffEditor?.setModel({
 			original: meditor.createModel('', lang),
-			modified: meditor.createModel('', lang)
+			modified: meditor.createModel('', modifiedLang ?? lang)
 		})
+		if (original) {
+			setOriginal(original)
+		}
+		if (modified) {
+			setModified(modified)
+		}
 	}
 
 	export function setOriginal(code: string) {
