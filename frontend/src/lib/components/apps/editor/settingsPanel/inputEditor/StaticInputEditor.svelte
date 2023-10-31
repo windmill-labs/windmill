@@ -172,7 +172,7 @@
 					placeholder="Dataset name"
 				/>
 				<div class="absolute top-1 right-1">
-					<PlotlyWizard bind:value={componentInput.value}>
+					<PlotlyWizard bind:value={componentInput.value} on:remove>
 						<svelte:fragment slot="trigger">
 							<Button color="light" size="xs2" nonCaptureEvent={true}>
 								<div class="flex flex-row items-center gap-2 text-xs font-normal">
@@ -193,7 +193,7 @@
 					placeholder="Dataset name"
 				/>
 				<div class="absolute top-1 right-1">
-					<ChartJSWizard bind:value={componentInput.value}>
+					<ChartJSWizard bind:value={componentInput.value} on:remove>
 						<svelte:fragment slot="trigger">
 							<Button color="light" size="xs2" nonCaptureEvent={true}>
 								<div class="flex flex-row items-center gap-2 text-xs font-normal">
