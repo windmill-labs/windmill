@@ -24,6 +24,7 @@
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
+	import { Loader2 } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -36,14 +37,34 @@
 	let schedules: ScheduleW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let loadingSchedulesWithJobStats = true
 
 	async function loadSchedules(): Promise<void> {
-		schedules = (await ScheduleService.listSchedulesWithJobs({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		loading = false
+		// after the schedule core data has been loaded, load all the job stats
+		// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
+		// simpler to always call it. Update if performance becomes an issue.
+		loadSchedulesWithJobStats()
+	}
+
+	async function loadSchedulesWithJobStats(): Promise<void> {
+		loadingSchedulesWithJobStats = true
+		let schedulesWithJobsByPath = new Map<string, ScheduleW>()
+		let schedulesWithJobsList = await ScheduleService.listSchedulesWithJobs({
+			workspace: $workspaceStore!
+		})
+		schedulesWithJobsList.map((x) => {
+			schedulesWithJobsByPath[x.path] = x
+		})
+		for (let schedule of schedules) {
+			if (schedulesWithJobsByPath[schedule.path]) {
+				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+			}
+		}
+		loadingSchedulesWithJobStats = false
 	}
 
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
@@ -276,28 +297,36 @@
 							</div>
 						</div>
 						<div class="w-full flex justify-between items-baseline">
-							<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
-								{#if avg_s}
-									<div class="pl-2 text-tertiary text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
-								{/if}
-								{#each jobs ?? [] as job}
-									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-									<a href="/run/{job.id}?workspace={$workspaceStore}">
-										<JobPreview id={job.id}>
-											<div>
-												<div
-													class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
-													style="height: {h}px"
-												/>
-												<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
-													>{(job.duration_ms / 1000).toFixed(2)}s</div
-												> -->
-											</div>
-										</JobPreview>
-									</a>
-								{/each}
-							</div>
-							<div class="flex flex-wrap text-[0.7em] text-tertiary gap-1 justify-end truncate pr-2"
+							{#if loadingSchedulesWithJobStats}
+								<div class="flex gap-1 ml-0.5 text-[0.7em] text-tertiary items-center">
+									<Loader2 size={14} class="animate-spin" />
+									<span>Job stats loading...</span>
+								</div>
+							{:else}
+								<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
+									{#if avg_s}
+										<div class="pl-2 text-tertiary text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+									{/if}
+									{#each jobs ?? [] as job}
+										{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
+										<a href="/run/{job.id}?workspace={$workspaceStore}">
+											<JobPreview id={job.id}>
+												<div>
+													<div
+														class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
+														style="height: {h}px"
+													/>
+													<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
+														>{(job.duration_ms / 1000).toFixed(2)}s</div
+													> -->
+												</div>
+											</JobPreview>
+										</a>
+									{/each}
+								</div>
+							{/if}
+							<div
+								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
 								><div class="truncate">edited by {edited_by}</div><div class="truncate"
 									>the {displayDate(edited_at)}</div
 								></div

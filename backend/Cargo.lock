@@ -8358,6 +8358,7 @@ dependencies = [
  "futures",
  "gcp_auth",
  "git-version",
+ "hex",
  "itertools 0.11.0",
  "jsonwebtoken",
  "lazy_static",

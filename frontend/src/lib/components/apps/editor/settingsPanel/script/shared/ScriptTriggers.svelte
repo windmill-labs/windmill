@@ -5,16 +5,35 @@
 	import { Plus, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
-	import type { AppViewerContext, InlineScript } from '$lib/components/apps/types'
+	import type { App, AppViewerContext, InlineScript } from '$lib/components/apps/types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { getAllGridItems } from '../../../appUtils'
 
 	export let triggerEvents: string[] = []
 	export let inlineScript: InlineScript | undefined = undefined
 	export let isFrontend: boolean = false
 	export let dependencies: string[] = []
 	export let shoudlDisplayChangeEvents: boolean = false
+	export let id: string
 
+	const { connectingInput, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
+
+	let onSuccessEvents: string[] = []
+
+	$: computeOnSuccessEvents($app, id)
+
+	function computeOnSuccessEvents(app: App, _id: string) {
+		const nr: string[] = []
+		getAllGridItems(app).forEach((x) => {
+			if (`recomputeIds` in x.data) {
+				if (x.data.recomputeIds?.includes(id)) {
+					nr.push(`success of ${x.id}`)
+				}
+			}
+		})
+		onSuccessEvents = nr
+	}
 	$: changeEvents = isFrontend
 		? inlineScript?.refreshOn
 			? inlineScript.refreshOn.map((x) => `${x.id}.${x.key}`)
@@ -22,7 +41,9 @@
 		: dependencies
 
 	$: hasNoTriggers =
-		triggerEvents.length === 0 && (changeEvents.length === 0 || !shoudlDisplayChangeEvents)
+		triggerEvents.length === 0 &&
+		(changeEvents.length === 0 || !shoudlDisplayChangeEvents) &&
+		onSuccessEvents.length == 0
 
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
@@ -30,7 +51,6 @@
 		indigo: 'text-indigo-800 border-indigo-600 bg-indigo-100',
 		blue: 'text-blue-800 border-blue-600 bg-blue-100'
 	}
-	const { connectingInput, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	function applyConnection(connection: InputConnection) {
 		const refresh = {
@@ -61,10 +81,10 @@
 		This script has no triggers. It will never run.
 	</Alert>
 {:else}
-	{#if triggerEvents.length > 0}
+	{#if triggerEvents.length > 0 || onSuccessEvents.length > 0}
 		<div class="text-xs font-semibold text-secondary mb-1">Events</div>
 		<div class="flex flex-row gap-2 flex-wrap">
-			{#each triggerEvents as triggerEvent}
+			{#each triggerEvents.concat(onSuccessEvents) as triggerEvent}
 				<span class={classNames(badgeClass)}>{triggerEvent}</span>
 			{/each}
 		</div>

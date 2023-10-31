@@ -18,6 +18,7 @@
 
 {#if appInput?.runnable?.type === 'runnableByName'}
 	<ScriptTriggers
+		id={appComponent.id}
 		bind:inlineScript={appInput.runnable.inlineScript}
 		dependencies={getDependencies(appInput.fields)}
 		{isFrontend}
@@ -26,6 +27,7 @@
 	/>
 {:else}
 	<ScriptTriggers
+		id={appComponent.id}
 		dependencies={getDependencies(appInput.fields)}
 		{triggerEvents}
 		{isFrontend}
