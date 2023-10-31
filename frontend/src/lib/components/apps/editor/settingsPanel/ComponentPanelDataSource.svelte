@@ -193,19 +193,19 @@
 			type: 'evalv2',
 			fieldType: 'object',
 			noStatic: true,
-			expr: `\t{
-\t\t"labels": ${xDataResolved},
-\t\t"datasets": [\n${
+			expr: `({
+\t"labels": ${xDataResolved},
+\t"datasets": [\n${
 				datasets
 					.map(
-						(rawDataset: Dataset) => `{
-						data:${resolveConfiguration(rawDataset.value, connections)},
-						label: "${rawDataset.name}"
-					}`
+						(rawDataset: Dataset) => `\t\t{
+\t\t\tdata:${resolveConfiguration(rawDataset.value, connections)},
+\t\t\tlabel: "${rawDataset.name}"
+\t\t}`
 					)
 					.join(',\n') || ''
-			}\n]
-\t}`,
+			}\n\t]
+})`,
 			connections: connections.filter(Boolean)
 		}
 
