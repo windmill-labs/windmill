@@ -260,6 +260,7 @@ done`
 	</div>
 	{#key token}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<Tabs selected="rest">
 			<Tab value="rest" size="xs">REST</Tab>
 			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}

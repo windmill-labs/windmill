@@ -1,4 +1,4 @@
-import type { Flow, FlowModule } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -11,8 +11,9 @@ export type FlowEditorContext = {
 	schedule: Writable<Schedule>
 	previewArgs: Writable<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
-	history: History<Flow>
-	flowStore: Writable<Flow>
+	history: History<OpenFlow>
+	pathStore: Writable<string>
+	flowStore: Writable<OpenFlow & { tag?: string, ws_error_handler_muted?: boolean}>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void

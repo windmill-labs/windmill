@@ -76,7 +76,6 @@
 		code = ncode
 		if (editor) {
 			editor.setValue(ncode)
-			console.log(editor, ncode)
 		}
 	}
 

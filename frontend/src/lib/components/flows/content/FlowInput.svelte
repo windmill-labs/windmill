@@ -14,6 +14,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
 
+	export let noEditor: boolean
+
 	const { flowStore, flowStateStore, previewArgs, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -37,7 +39,7 @@
 </script>
 
 <CapturePayload bind:this={capturePayload} />
-<FlowCard title="Flow Input">
+<FlowCard {noEditor} title="Flow Input">
 	<div class="p-6">
 		<div class="flex flex-row items-center gap-2 pb-2 border-b border-gray-400">
 			<div>Copy input's schema from</div>

@@ -8,7 +8,8 @@
 		type PathScript,
 		ScriptService,
 		Script,
-		type HubScriptKind
+		type HubScriptKind,
+		type OpenFlow
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -61,10 +62,11 @@
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 
 	export let initialPath: string = ''
+	export let newFlow: boolean
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
 	export let loading = false
-	export let flowStore: Writable<Flow>
+	export let flowStore: Writable<OpenFlow>
 	export let flowStateStore: Writable<FlowState>
 
 	const dispatch = createEventDispatcher()
@@ -100,13 +102,13 @@
 
 			$dirtyStore = false
 			localStorage.removeItem('flow')
-			localStorage.removeItem(`flow-${flow.path}`)
+			localStorage.removeItem(`flow-${$pathStore}`)
 
-			if (initialPath == '') {
+			if (newFlow) {
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
-						path: flow.path,
+						path: $pathStore,
 						summary: flow.summary,
 						description: flow.description ?? '',
 						value: flow.value,
@@ -119,11 +121,15 @@
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
-				requestBody: { path: initialPath == '' ? flow.path : initialPath, typ: 'flow', value: flow }
+				requestBody: {
+					path: newFlow ? $pathStore : initialPath,
+					typ: 'flow',
+					value: flow
+				}
 			})
-			if (initialPath == '') {
+			if (newFlow) {
 				$dirtyStore = false
-				dispatch('saveInitial')
+				dispatch('saveInitial', $pathStore)
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -149,13 +155,13 @@
 			// return
 			const { cron, timezone, args, enabled } = $scheduleStore
 			$dirtyStore = false
-			if (initialPath === '') {
+			if (newFlow) {
 				localStorage.removeItem('flow')
-				localStorage.removeItem(`flow-${flow.path}`)
+				localStorage.removeItem(`flow-${$pathStore}`)
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
-						path: flow.path,
+						path: $pathStore,
 						summary: flow.summary,
 						description: flow.description ?? '',
 						value: flow.value,
@@ -164,7 +170,7 @@
 					}
 				})
 				if (enabled) {
-					await createSchedule(flow.path)
+					await createSchedule($pathStore)
 				}
 			} else {
 				localStorage.removeItem(`flow-${initialPath}`)
@@ -172,7 +178,7 @@
 					workspace: $workspaceStore!,
 					path: initialPath,
 					requestBody: {
-						path: flow.path,
+						path: $pathStore,
 						summary: flow.summary,
 						description: flow.description ?? '',
 						value: flow.value,
@@ -183,17 +189,17 @@
 				})
 				const scheduleExists = await ScheduleService.existsSchedule({
 					workspace: $workspaceStore ?? '',
-					path: flow.path
+					path: $pathStore
 				})
 				if (scheduleExists) {
 					const schedule = await ScheduleService.getSchedule({
 						workspace: $workspaceStore ?? '',
-						path: flow.path
+						path: $pathStore
 					})
 					if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
 						await ScheduleService.updateSchedule({
 							workspace: $workspaceStore ?? '',
-							path: flow.path,
+							path: $pathStore,
 							requestBody: {
 								schedule: formatCron(cron),
 								timezone,
@@ -204,17 +210,17 @@
 					if (enabled != schedule.enabled) {
 						await ScheduleService.setScheduleEnabled({
 							workspace: $workspaceStore ?? '',
-							path: flow.path,
+							path: $pathStore,
 							requestBody: { enabled }
 						})
 					}
 				} else if (enabled) {
-					await createSchedule(flow.path)
+					await createSchedule($pathStore)
 				}
 			}
 			loadingSave = false
 			$dirtyStore = false
-			dispatch('deploy')
+			dispatch('deploy', $pathStore)
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
@@ -234,7 +240,7 @@
 		timeout = setTimeout(() => {
 			try {
 				localStorage.setItem(
-					initialPath ? `flow-${initialPath}` : 'flow',
+					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
 					encodeState({
 						flow: $flowStore,
 						selectedId: $selectedIdStore
@@ -262,6 +268,9 @@
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
+	const pathStore = writable<string>(initialPath)
+
+	$: $pathStore = initialPath
 
 	const testStepStore = writable<Record<string, any>>({})
 
@@ -278,6 +287,7 @@
 		history,
 		flowStateStore,
 		flowStore,
+		pathStore,
 		testStepStore,
 		saveDraft,
 		initialPath
@@ -300,7 +310,7 @@
 
 	$: selectedId && select(selectedId)
 
-	$: initialPath && $workspaceStore && loadSchedule()
+	$: initialPath && initialPath != '' && $workspaceStore && loadSchedule()
 
 	function onKeyDown(event: KeyboardEvent) {
 		let classes = event.target?.['className']
@@ -366,11 +376,11 @@
 	}> = [
 		{
 			label: 'Exit & see details',
-			onClick: () => dispatch('details')
+			onClick: () => dispatch('details', $pathStore)
 		}
 	]
 
-	if (initialPath != '') {
+	if (!newFlow) {
 		dropdownItems.push({
 			label: 'Fork',
 			onClick: () => window.open(`/flows/add?template=${initialPath}`)
@@ -950,7 +960,7 @@
 						<input
 							type="text"
 							readonly
-							value={$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
+							value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
 							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
 							on:focus={({ currentTarget }) => {
 								currentTarget.select()
@@ -959,7 +969,7 @@
 					</div>
 				</div>
 				<div class="flex flex-row space-x-2">
-					{#if $enterpriseLicense && initialPath != ''}
+					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}
 					<FlowBuilderTutorials
@@ -992,7 +1002,7 @@
 						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveFlow()}
-						dropdownItems={initialPath != '' ? dropdownItems : undefined}
+						dropdownItems={!newFlow ? dropdownItems : undefined}
 					>
 						Deploy
 					</Button>
