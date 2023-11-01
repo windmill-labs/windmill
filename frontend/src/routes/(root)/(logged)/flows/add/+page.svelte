@@ -27,6 +27,8 @@
 	let selectedId: string = 'settings-metadata'
 	let loading = false
 
+	let initialPath: string | undefined = undefined
+
 	export const flowStore = writable<Flow>({
 		summary: '',
 		value: { modules: [] },
@@ -85,15 +87,16 @@
 					path: templatePath
 				})
 				Object.assign(flow, template)
-				const oldPath = flow.path.split('/')
-				flow.path = `u/${$userStore?.username.split('@')[0]}/${oldPath[oldPath.length - 1]}_fork`
+				const oldPath = templatePath.split('/')
+				console.log(oldPath)
+				initialPath = `u/${$userStore?.username.split('@')[0]}/${oldPath[oldPath.length - 1]}_fork`
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'settings-metadata'
 			} else if (hubId) {
 				const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
 				delete hub['comments']
-				flow.path = `u/${$userStore?.username}/flow_${hubId}`
+				initialPath = `u/${$userStore?.username}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
 				flow = flow
 				goto('?', { replaceState: true })
@@ -120,17 +123,19 @@
 <UnsavedConfirmationModal />
 
 <FlowBuilder
-	on:saveInitial={() => {
-		goto(`/flows/edit/${$flowStore.path}?selected=${getSelectedId?.()}`)
+	on:saveInitial={(e) => {
+		goto(`/flows/edit/${e.detail}?selected=${getSelectedId?.()}`)
 	}}
-	on:deploy={() => {
-		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	on:deploy={(e) => {
+		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
-	on:details={() => {
-		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	on:details={(e) => {
+		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
+	{initialPath}
 	bind:getSelectedId
 	bind:this={flowBuilder}
+	newFlow
 	{flowStore}
 	{flowStateStore}
 	{selectedId}

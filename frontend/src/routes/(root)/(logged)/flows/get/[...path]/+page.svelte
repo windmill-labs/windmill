@@ -255,6 +255,7 @@
 				bind:errorHandlerMuted={flow.ws_error_handler_muted}
 				scriptOrFlowPath={flow.path}
 				errorHandlerKind="flow"
+				tag={flow.tag}
 			>
 				{#if flow?.value?.priority != undefined}
 					<div class="hidden md:block">

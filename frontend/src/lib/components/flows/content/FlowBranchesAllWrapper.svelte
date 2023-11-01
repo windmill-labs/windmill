@@ -13,6 +13,7 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 
+	export let noEditor: boolean
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
 
@@ -23,7 +24,7 @@
 </script>
 
 <div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">
-	<FlowCard title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
+	<FlowCard {noEditor} title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
