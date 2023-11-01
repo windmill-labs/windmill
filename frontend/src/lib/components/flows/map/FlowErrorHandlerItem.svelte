@@ -40,6 +40,7 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	on:click={() => {
 		if ($copilotCurrentStepStore !== undefined) return
@@ -50,6 +51,7 @@
 		}
 	}}
 	class={classNames(
+		'z-10',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
 		'border transition-colors duration-[400ms] ease-linear mx-auto rounded-sm px-2 py-1 bg-surface text-sm flex justify-between items-center flex-row overflow-x-hidden relative',
 		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''

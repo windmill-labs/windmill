@@ -162,9 +162,13 @@
 								  } max-height: ${resolvedConfig.heightPx}px;`
 								: ''}
 							class={inRange
-								? `${$allIdsInPath.includes(id) ? 'overflow-visible' : 'overflow-auto'} ${
-										!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''
-								  }`
+								? `${
+										$allIdsInPath.includes(id)
+											? 'overflow-visible'
+											: resolvedConfig.heightPx
+											? 'overflow-auto'
+											: ''
+								  } ${!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''}`
 								: 'h-0 float overflow-hidden invisible absolute'}
 						>
 							<ListWrapper
