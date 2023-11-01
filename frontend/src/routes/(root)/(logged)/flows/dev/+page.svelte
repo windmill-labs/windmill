@@ -207,6 +207,7 @@
 							bind:modules={$flowStore.value.modules}
 							disableAi
 							disableTutorials
+							smallErrorHandler={true}
 						/>
 					{:else}
 						<div class="text-red-400 mt-20">Missing flow modules</div>
