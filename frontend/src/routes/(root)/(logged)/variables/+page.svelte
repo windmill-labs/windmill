@@ -25,12 +25,11 @@
 		faEdit,
 		faEyeSlash,
 		faFileExport,
-		faPlus,
 		faRefresh,
 		faShare,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
-	import { Building, DollarSign } from 'lucide-svelte'
+	import { Building, DollarSign, Plus } from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
@@ -116,7 +115,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 	>
 		<div class="flex flex-row justify-end">
-			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+			<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor.initNew()}>
 				New&nbsp;variable
 			</Button>
 		</div>

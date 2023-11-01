@@ -5,16 +5,6 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
 
-	import {
-		faBook,
-		faCube,
-		faDollarSign,
-		faHistory,
-		faPlus,
-		faRotate,
-		faRotateLeft
-	} from '@fortawesome/free-solid-svg-icons'
-
 	import { workspaceStore } from '$lib/stores'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
@@ -33,7 +23,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import { Link, Users } from 'lucide-svelte'
+	import { Box, DollarSign, History, Library, Link, Plus, RotateCcw, Users } from 'lucide-svelte'
 	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -293,7 +283,7 @@
 			variant="border"
 			color="blue"
 			size="sm"
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			on:click={() => {
 				variableEditor.initNew()
 			}}
@@ -345,7 +335,7 @@
 >
 	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
 		<Button
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			target="_blank"
 			variant="border"
 			color="blue"
@@ -407,7 +397,7 @@
 					size="xs"
 					btnClasses="!font-medium text-tertiary"
 					spacingSize="md"
-					startIcon={{ icon: faDollarSign }}
+					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 					>+Context Var
 				</Button>
@@ -420,7 +410,7 @@
 					on:click={variablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
-					startIcon={{ icon: faDollarSign }}
+					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 				>
 					+Variable
@@ -436,7 +426,7 @@
 					color="light"
 					on:click={resourcePicker.openDrawer}
 					{iconOnly}
-					startIcon={{ icon: faCube }}
+					startIcon={{ icon: Box }}
 				>
 					+Resource
 				</Button>
@@ -451,7 +441,7 @@
 					color="light"
 					on:click={resourceTypePicker.openDrawer}
 					{iconOnly}
-					startIcon={{ icon: faCube }}
+					startIcon={{ icon: Box }}
 				>
 					+Type
 				</Button>
@@ -465,7 +455,7 @@
 				color="light"
 				on:click={clearContent}
 				{iconOnly}
-				startIcon={{ icon: faRotateLeft }}
+				startIcon={{ icon: RotateCcw }}
 			>
 				Reset
 			</Button>
@@ -477,7 +467,7 @@
 				color="light"
 				on:click={() => editor?.reloadWebsocket()}
 				startIcon={{
-					icon: faRotate,
+					icon: RotateCcw,
 					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
 				}}
 				title="Reload assistants"
@@ -572,7 +562,7 @@
 				color="light"
 				on:click={() => (historyBrowserDrawerOpen = true)}
 				{iconOnly}
-				startIcon={{ icon: faHistory }}
+				startIcon={{ icon: History }}
 				title="See history"
 			>
 				History
@@ -586,7 +576,7 @@
 				color="light"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
-				startIcon={{ icon: faBook }}
+				startIcon={{ icon: Library }}
 				title="Explore other scripts"
 			>
 				Library

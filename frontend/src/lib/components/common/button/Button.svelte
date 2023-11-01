@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -19,8 +18,7 @@
 	export let href: string | undefined = undefined
 	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
-	export let startIcon: ButtonType.Icon | undefined = undefined
-	export let endIcon: ButtonType.Icon | undefined = undefined
+
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
@@ -29,6 +27,9 @@
 	export let title: string | undefined = undefined
 	export let style: string = ''
 	export let download: string | undefined = undefined
+
+	export let startIcon: ButtonType.Icon | undefined = undefined
+	export let endIcon: ButtonType.Icon | undefined = undefined
 
 	type MenuItem = {
 		label: string
@@ -109,8 +110,6 @@
 	}
 
 	$: isSmall = size === 'xs' || size === 'sm'
-	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
-	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 
 	$: buttonClass = twMerge(
 		'w-full',
@@ -122,7 +121,7 @@
 		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
 		'justify-center items-center text-center whitespace-nowrap inline-flex',
 		btnClasses,
-		'transition-all '
+		'transition-all'
 	)
 </script>
 
@@ -159,14 +158,14 @@
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon}
-				<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+				<svelte:component this={startIcon.icon} class={startIcon.classes} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon}
-				<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+				<svelte:component this={endIcon.icon} class={endIcon.classes} />
 			{/if}
 		</a>
 	{:else}
@@ -190,14 +189,14 @@
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon}
-				<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+				<svelte:component this={startIcon.icon} class={startIcon.classes} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon}
-				<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+				<svelte:component this={endIcon.icon} class={endIcon.classes} />
 			{/if}
 		</button>
 	{/if}
