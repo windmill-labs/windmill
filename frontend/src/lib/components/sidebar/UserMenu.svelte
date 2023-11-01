@@ -16,7 +16,8 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { switchWorkspace } from '$lib/storeUtils'
-
+	import MultiplayerMenu from './MultiplayerMenu.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 	export let isCollapsed: boolean = false
 </script>
 
@@ -109,6 +110,9 @@
 				<Icon class="pr-0.5" data={faSignOut} /> Sign out
 			</button>
 		</div>
+		{#if $enterpriseLicense}
+			<MultiplayerMenu />
+		{/if}
 		{#if isCloudHosted() && $premiumStore}
 			{#if !$premiumStore.premium}
 				<div class="py-1" role="none">
