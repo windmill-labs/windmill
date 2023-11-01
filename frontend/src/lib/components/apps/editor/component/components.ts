@@ -728,7 +728,7 @@ export const components = {
 				heightPx: {
 					type: 'static',
 					fieldType: 'number',
-					value: 280,
+					value: undefined,
 					tooltip: 'Height in pixels'
 				},
 

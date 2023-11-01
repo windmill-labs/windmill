@@ -141,9 +141,13 @@
 		style={css?.container?.style}
 	>
 		<div
-			class="w-full h-full shrink flex flex-wrap {$allIdsInPath.includes(id) && $mode == 'dnd'
+			class="w-full h-full shrink flex {$allIdsInPath.includes(id) && $mode == 'dnd'
 				? 'overflow-visible'
-				: 'overflow-auto'} {isCard ? 'gap-2' : resolvedConfig?.displayBorders ? 'divide-y' : ''}"
+				: 'overflow-auto'} {isCard
+				? 'gap-2 flex-wrap'
+				: resolvedConfig?.displayBorders
+				? 'divide-y flex-col'
+				: 'flex-col'}"
 		>
 			{#if $app.subgrids?.[`${id}-0`]}
 				{#if Array.isArray(result) && result.length > 0}
