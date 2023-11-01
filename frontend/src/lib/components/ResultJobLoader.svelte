@@ -43,6 +43,7 @@
 					try {
 						await watchJob(testId)
 					} catch {
+						dispatch('cancel', testId)
 						if (currentId === testId) {
 							currentId = undefined
 						}
@@ -194,6 +195,7 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (currentId != id) {
+			dispatch('cancel', id)
 			return
 		}
 		syncIteration++

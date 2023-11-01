@@ -37,7 +37,7 @@ export type FlowStatusViewerContext = {
 	flowModuleStates: Writable<Record<string, GraphModuleState>>
 	retryStatus: Writable<Record<string, number | undefined>>
 	suspendStatus: Writable<Record<string, number | undefined>>,
-	durationStatuses: Writable<Record<string, Record<string, {started_at?: number, duration_ms?: number}>>>
+	durationStatuses: Writable<Record<string, Record<string, {created_at?: number, started_at?: number, duration_ms?: number}>>>
 }
 export type GraphModuleState = {
 	type: FlowStatusModule.type
