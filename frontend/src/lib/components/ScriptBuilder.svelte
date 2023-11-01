@@ -60,7 +60,7 @@
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
-	export let diffDrawer: DiffScriptsDrawer
+	export let diffDrawer: DiffScriptsDrawer | undefined = undefined
 	export let savedScript: NewScriptWithDraft | Script | undefined = undefined
 
 	let metadataOpen =
@@ -818,8 +818,8 @@
 							if (!savedScript) {
 								return
 							}
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff(savedScript, savedScript['draft'], script)
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff(savedScript, savedScript['draft'], script)
 						}}
 						disabled={!savedScript}
 					>
