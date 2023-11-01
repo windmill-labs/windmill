@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.196.0](https://github.com/windmill-labs/windmill/compare/v1.195.0...v1.196.0) (2023-11-01)
+
+
+### Features
+
+* improve inputs handling for large list on apps ([270d871](https://github.com/windmill-labs/windmill/commit/270d871039c708b7cfa218e22650fc25b1ec841c))
+
 ## [1.195.0](https://github.com/windmill-labs/windmill/compare/v1.194.0...v1.195.0) (2023-10-31)
 
 
