@@ -67,6 +67,7 @@
 		// }
 		const num = isNaN(+values[0]) ? null : +values[0]
 		outputs?.result.set(num)
+
 		if (iterContext && listInputs) {
 			listInputs.set(id, num)
 		}

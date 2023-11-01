@@ -22,7 +22,7 @@
 	export let render: boolean
 	export let initializing: boolean | undefined
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, allIdsInPath } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, allIdsInPath, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 	let page = 0
 
@@ -69,19 +69,17 @@
 		initialData: Array<any> | undefined = [],
 		page: number = 0
 	) {
-		const sanitizedData = Array.isArray(initialData) ? initialData : []
-
+		const l = initialData ? initialData.length : 0
 		if (mode === 'auto') {
 			const pageSize: number = configuration.auto.pageSize ?? 0
-			const data = sanitizedData?.slice(0 + page * pageSize, pageSize + page * pageSize) ?? []
-			const shouldDisplayPagination = pageSize < sanitizedData?.length ?? false
-			const total = Math.ceil(sanitizedData.length / pageSize ?? 0)
+			const shouldDisplayPagination = pageSize < l ?? false
+			const total = Math.ceil(l / pageSize ?? 0)
 
 			return {
-				data,
 				shouldDisplayPagination,
 				indexOffset: page * pageSize,
-				disableNext: pageSize > 0 && (page + 1) * pageSize >= sanitizedData?.length,
+				maxIndex: (page + 1) * pageSize - 1,
+				disableNext: pageSize > 0 && (page + 1) * pageSize >= l,
 				total: total
 			}
 		} else {
@@ -90,8 +88,8 @@
 
 			return {
 				shouldDisplayPagination: true,
-				data: sanitizedData ?? [],
 				indexOffset: 0,
+				maxIndex: l,
 				disableNext: page + 1 >= pageCount,
 				total: total
 			}
@@ -139,43 +137,61 @@
 	bind:loading
 >
 	<div
-		class={twMerge('flex flex-col divide-y h-full', css?.container?.class, 'wm-list')}
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-list')}
 		style={css?.container?.style}
 	>
 		<div
-			class="w-full flex flex-wrap {$allIdsInPath.includes(id)
+			class="w-full h-full shrink flex flex-wrap {$allIdsInPath.includes(id) && $mode == 'dnd'
 				? 'overflow-visible'
-				: 'overflow-auto'} {isCard
-				? 'h-full gap-2'
-				: resolvedConfig?.displayBorders
-				? 'divide-y max-h-full'
-				: 'max-h-full'}"
+				: 'overflow-auto'} {isCard ? 'gap-2' : resolvedConfig?.displayBorders ? 'divide-y' : ''}"
 		>
 			{#if $app.subgrids?.[`${id}-0`]}
-				{#if Array.isArray(pagination.data) && pagination.data.length > 0}
-					{#each pagination?.data ?? [] as value, index}
+				{#if Array.isArray(result) && result.length > 0}
+					{#each result ?? [] as value, index (index)}
+						{@const inRange = index <= pagination.maxIndex && index >= pagination.indexOffset}
 						<div
-							style={`${
-								isCard
-									? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
-									: ''
-							} max-height: ${resolvedConfig.heightPx}px;`}
-							class="{$allIdsInPath.includes(id) ? 'overflow-visible' : 'overflow-auto'} {!isCard
-								? 'w-full'
-								: resolvedConfig?.displayBorders
-								? 'border'
-								: ''}"
+							style={inRange
+								? `${
+										isCard
+											? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
+											: ''
+								  } max-height: ${resolvedConfig.heightPx}px;`
+								: ''}
+							class={inRange
+								? `${$allIdsInPath.includes(id) ? 'overflow-visible' : 'overflow-auto'} ${
+										!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''
+								  }`
+								: 'h-0 float overflow-hidden invisible absolute'}
 						>
 							<ListWrapper
-								onInputsChange={() => {
+								on:set={(e) => {
+									const { id, value } = e.detail
+									if (!inputs[id]) {
+										inputs[id] = { [index]: value }
+									} else {
+										inputs[id] = { ...inputs[id], [index]: value }
+									}
 									outputs?.inputs.set(inputs, true)
 								}}
-								bind:inputs
+								on:remove={(e) => {
+									const id = e.detail
+									if (inputs?.[id] == undefined) {
+										return
+									}
+									if (index == 0) {
+										delete inputs[id]
+										inputs = { ...inputs }
+									} else {
+										delete inputs[id][index]
+										inputs[id] = { ...inputs[id] }
+									}
+									outputs?.inputs.set(inputs, true)
+								}}
 								{value}
-								index={index + pagination.indexOffset}
+								{index}
 							>
 								<SubGridEditor
-									visible={render}
+									visible={render && inRange}
 									{id}
 									subGridId={`${id}-0`}
 									containerHeight={resolvedConfig.heightPx}
@@ -190,7 +206,7 @@
 						</div>
 					{/each}
 				{:else}
-					<ListWrapper onInputsChange={() => {}} disabled value={undefined} index={0}>
+					<ListWrapper disabled value={undefined} index={0}>
 						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 					</ListWrapper>
 					{#if !Array.isArray(result)}
@@ -200,7 +216,9 @@
 			{/if}
 		</div>
 		{#if pagination.shouldDisplayPagination}
-			<div class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center wm-list-pagination">
+			<div
+				class="bg-surface-secondary z-20 h-8 flex flex-row gap-1 p-1 items-center wm-list-pagination absolute bottom-0 w-full"
+			>
 				<Button
 					size="xs2"
 					variant="border"
