@@ -422,7 +422,6 @@
 
 	async function setResult(res: any, jobId: string | undefined) {
 		dispatch('done')
-
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -552,12 +551,12 @@
 		if (job && job.started_at && !job.duration_ms) {
 			$jobsById[jobId] = {
 				...job,
+				started_compute_at: job.started_compute_at ?? Date.now(),
 				duration_ms: Date.now() - (job.started_compute_at ?? job.started_at)
 			}
 		}
 	}}
 	on:running={(e) => {
-		console.log('running', e.detail)
 		let jobId = e.detail
 		let job = $jobsById[jobId]
 		if (job && !job.started_compute_at) {

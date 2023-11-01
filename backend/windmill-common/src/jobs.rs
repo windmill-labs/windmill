@@ -295,6 +295,7 @@ pub enum JobPayload {
     RestartedFlow {
         completed_job_id: Uuid,
         step_id: String,
+        branch_or_iteration_n: Option<usize>,
     },
     RawFlow {
         value: FlowValue,

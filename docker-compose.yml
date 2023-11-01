@@ -79,7 +79,7 @@ services:
         condition: service_healthy
 
   lsp:
-    image: ghcr.io/windmill-labs/windmill-lsp:latest
+    image: ghcr.io/windmill-labs/windmill-lsp:1.195.0
     restart: unless-stopped
     expose:
       - 3001

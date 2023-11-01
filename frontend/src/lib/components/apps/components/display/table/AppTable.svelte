@@ -423,10 +423,29 @@
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
 												<!-- svelte-ignore a11y-no-static-element-interactions -->
 												<RowWrapper
-													bind:inputs
 													value={row.original}
 													index={rowIndex}
-													onInputsChange={() => {
+													on:set={(e) => {
+														const { id, value } = e.detail
+														if (!inputs[id]) {
+															inputs[id] = { [rowIndex]: value }
+														} else {
+															inputs[id] = { ...inputs[id], [rowIndex]: value }
+														}
+														outputs?.inputs.set(inputs, true)
+													}}
+													on:remove={(e) => {
+														const id = e.detail
+														if (inputs?.[id] == undefined) {
+															return
+														}
+														if (rowIndex == 0) {
+															delete inputs[id]
+															inputs = { ...inputs }
+														} else {
+															delete inputs[id][rowIndex]
+															inputs[id] = { ...inputs[id] }
+														}
 														outputs?.inputs.set(inputs, true)
 													}}
 												>

@@ -38,7 +38,7 @@
 				})
 			).map((s) => ({
 				...s,
-				path: `hub/${s.id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
+				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
 			}))
 			if (ts < doneTs) return
 			doneTs = ts
@@ -175,7 +175,7 @@
 									</div>
 
 									<div class="text-left text-xs text-secondary">
-										{item.summary ?? ''}
+										{item.summary ?? ''} ({item.app})
 									</div>
 								</div>
 							</button>

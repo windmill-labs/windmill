@@ -2123,7 +2123,7 @@ async fn compute_next_flow_transform(
                     let itered_raw = match iterator {
                         InputTransform::Static { value } => to_raw_value(value),
                         InputTransform::Javascript { expr } => {
-                            let mut context = HashMap::with_capacity(3);
+                            let mut context = HashMap::with_capacity(5);
                             context.insert("result".to_string(), arc_last_job_result.clone());
                             context.insert("previous_result".to_string(), arc_last_job_result);
                             context.insert("resumes".to_string(), resumes);
@@ -2167,20 +2167,53 @@ async fn compute_next_flow_transform(
                     flow_jobs: Some(flow_jobs),
                     ..
                 } if !*parallel => {
+                    let itered_new = if itered.is_empty() {
+                        // it's possible we need to re-compute the iterator Input Transforms here, in particular if the flow is being restarted inside the loop
+                        let by_id = if let Some(x) = by_id {
+                            x
+                        } else {
+                            get_transform_context(&flow_job, previous_id, &status).await?
+                        };
+                        let itered_raw = match iterator {
+                            InputTransform::Static { value } => to_raw_value(value),
+                            InputTransform::Javascript { expr } => {
+                                let mut context = HashMap::with_capacity(5);
+                                context.insert("result".to_string(), arc_last_job_result.clone());
+                                context.insert("previous_result".to_string(), arc_last_job_result);
+                                context.insert("resumes".to_string(), resumes);
+                                context.insert("resume".to_string(), resume);
+                                context.insert("approvers".to_string(), approvers);
+
+                                eval_timeout(
+                                    expr.to_string(),
+                                    context,
+                                    Some(arc_flow_job_args),
+                                    Some(client),
+                                    Some(by_id),
+                                )
+                                .await?
+                            }
+                        };
+                        serde_json::from_str::<Vec<serde_json::Value>>(itered_raw.get()).map_err(
+                            |not_array| {
+                                Error::ExecutionErr(format!(
+                                    "Expected an array value, found: {not_array}"
+                                ))
+                            },
+                        )?
+                    } else {
+                        itered.clone()
+                    };
                     let (index, next) = index
                         .checked_add(1)
-                        .and_then(|i| itered.get(i).map(|next| (i, next)))
-                        /* we shouldn't get here because update_flow_status_after_job_completion
-                         * should leave this state if there iteration is complete, but also it should
-                         * be reasonable to just enter a completed state instead of failing, similar to
-                         * iterating an empty list above */
+                        .and_then(|i| itered_new.get(i).map(|next| (i, next)))
                         .with_context(|| {
-                            format!("could not iterate index {index} of {itered:?}")
+                            format!("Could not find iteration number {index} restarting inside the for-loop flow. It's possible the itered-array has changed and this value isn't available anymore.")
                         })?;
 
                     LoopStatus::NextIteration(NextIteration {
                         index,
-                        itered: itered.clone(),
+                        itered: itered_new.clone(),
                         flow_jobs: flow_jobs.clone(),
                         new_args: Iter { index: index as i32, value: next.to_owned() },
                     })
