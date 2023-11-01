@@ -286,7 +286,7 @@
 		/>
 	</div>
 	<div
-		class="z-10 absolute w-full inline-flex flex-col gap-2 bottom-0 left-0 flex-initial p-2 items-center border-b"
+		class="absolute w-full inline-flex text-sm flex-col gap-2 bottom-0 left-0 flex-initial p-2 items-center border-b"
 	>
 		<FlowErrorHandlerItem />
 	</div>
