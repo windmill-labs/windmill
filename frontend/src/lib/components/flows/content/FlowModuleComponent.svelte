@@ -45,7 +45,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -197,7 +197,8 @@
 							flowModule,
 							$selectedId,
 							$flowStateStore[flowModule.id].schema,
-							$flowStore
+							$flowStore,
+							$pathStore
 						)
 						flowModule = module
 						$flowStateStore[module.id] = state

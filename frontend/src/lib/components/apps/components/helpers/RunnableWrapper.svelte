@@ -87,6 +87,11 @@
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
 	}
+
+	if (noBackend) {
+		initializing = false
+	}
+
 	onMount(() => {
 		$staticExporter[id] = () => {
 			return result

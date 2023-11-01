@@ -46,7 +46,7 @@
 	const history = initHistory($flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})
-	const selectedIdStore = writable('inputs')
+	const selectedIdStore = writable('settings-metadata')
 
 	// function select(selectedId: string) {
 	// 	selectedIdStore.set(selectedId)
@@ -59,6 +59,7 @@
 		scriptEditorDrawer,
 		moving,
 		history,
+		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
 		testStepStore,

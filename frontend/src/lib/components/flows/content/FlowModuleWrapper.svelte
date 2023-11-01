@@ -19,7 +19,7 @@
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 
 	export let flowModule: FlowModule
-	export let noEditor = false
+	export let noEditor: boolean = false
 
 	const { selectedId, schedule, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
