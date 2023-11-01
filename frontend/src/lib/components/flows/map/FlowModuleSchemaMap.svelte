@@ -27,6 +27,7 @@
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -214,6 +215,7 @@
 			modules={$flowStore.value?.modules}
 			{selectedId}
 			on:delete={({ detail }) => {
+				$dirtyStore = true
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
 				const cb = () => {
@@ -238,6 +240,7 @@
 					flowTutorials?.runTutorialById('branchall')
 				} else {
 					if (detail.modules) {
+						$dirtyStore = true
 						await tick()
 						if ($moving) {
 							push(history, $flowStore)
@@ -262,12 +265,14 @@
 			}}
 			on:newBranch={async ({ detail }) => {
 				if (detail.module) {
+					$dirtyStore = true
 					await addBranch(detail.module)
 					$flowStore = $flowStore
 				}
 			}}
 			on:deleteBranch={async ({ detail }) => {
 				if (detail.module) {
+					$dirtyStore = true
 					await removeBranch(detail.module, detail.index)
 					$flowStore = $flowStore
 					$selectedId = detail.module.id
@@ -276,7 +281,7 @@
 			on:move={async ({ detail }) => {
 				if (!$moving || $moving.module.id !== detail.module.id) {
 					if (detail.module && detail.modules) {
-						console.log('MOVE+')
+						$dirtyStore = true
 						$moving = { module: detail.module, modules: detail.modules }
 					}
 				} else {

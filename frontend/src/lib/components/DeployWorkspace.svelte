@@ -504,10 +504,10 @@
 	async function showDiff(kind: Kind, path: string) {
 		diffDrawer.openDrawer()
 		let values = await Promise.all([
-			getValue(kind, path, $workspaceStore!),
-			getValue(kind, path, workspaceToDeployTo!)
+			getValue(kind, path, workspaceToDeployTo!),
+			getValue(kind, path, $workspaceStore!)
 		])
-		diffDrawer.setDiff(values[0], values[1])
+		diffDrawer.setDiff(values[0], values[1], 'Staging/Prod <> Dev')
 	}
 </script>
 

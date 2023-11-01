@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, NewScript, Script, type NewScriptWithDraft } from '$lib/gen'
+	import { ScriptService, NewScript, Script, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
@@ -10,6 +10,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
 	import { deepEqual } from 'fast-equals'
+	import DiffScriptsDrawer from '$lib/components/DiffScriptsDrawer.svelte'
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -29,14 +30,14 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 
-	let reloadAction: () => void = () => {}
+	let reloadAction: () => Promise<void> = async () => {}
 
 	let savedScript: NewScriptWithDraft | Script | undefined = undefined
 
 	async function loadScript(): Promise<void> {
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
 			script = scriptLoadedFromUrl
-			reloadAction = () => {
+			reloadAction = async () => {
 				scriptLoadedFromUrl = undefined
 				goto(`/scripts/edit/${script!.path}`)
 				loadScript()
@@ -62,8 +63,12 @@
 						{
 							label: 'Show diff',
 							callback: async () => {
-								diffDrawer.openDrawer()
-								diffDrawer.setDiff(draftOrDeployed, urlScript)
+								genericDiffDrawer.openDrawer()
+								genericDiffDrawer.setDiff(
+									draftOrDeployed,
+									urlScript,
+									`${remoteContent?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`
+								)
 							}
 						}
 					])
@@ -87,21 +92,25 @@
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					if (!scriptWithDraft.draft_only) {
-						reloadAction = () => {
+						reloadAction = async () => {
 							scriptLoadedFromUrl = undefined
-							hash = scriptWithDraft.hash
+							await DraftService.deleteDraft({
+								workspace: $workspaceStore!,
+								kind: 'script',
+								path: script!.path
+							})
 							goto(`/scripts/edit/${script!.path}`)
 							loadScript()
 						}
 						sendUserToast('Script loaded from latest saved draft', false, [
 							{
-								label: 'Ignore draft and load from latest deployed version',
+								label: 'Discard draft and load from latest deployed version',
 								callback: reloadAction
 							},
 							{
 								label: 'Show diff',
 								callback: async () => {
-									diffDrawer.openDrawer()
+									genericDiffDrawer.openDrawer()
 									let remoteContent = await ScriptService.getScriptByPathWithDraft({
 										workspace: $workspaceStore!,
 										path: script!.path
@@ -109,7 +118,7 @@
 									savedScript = cloneDeep(remoteContent)
 									const deployed = cleanScriptProperties(remoteContent)
 									const draft = cleanScriptProperties(script!)
-									diffDrawer.setDiff(deployed, draft)
+									genericDiffDrawer.setDiff(deployed, draft, 'Deployed <> Draft')
 								}
 							}
 						])
@@ -145,10 +154,12 @@
 		}
 	}
 
-	let diffDrawer: DiffDrawer
+	let genericDiffDrawer: DiffDrawer
+	let scriptsDiffDrawer: DiffScriptsDrawer
 </script>
 
-<DiffDrawer bind:this={diffDrawer} button={{ text: 'Revert', onClick: reloadAction }} />
+<DiffDrawer bind:this={genericDiffDrawer} button={{ text: 'Revert', onClick: reloadAction }} />
+<DiffScriptsDrawer bind:this={scriptsDiffDrawer} {loadScript} />
 {#if script}
 	<ScriptBuilder
 		bind:this={scriptBuilder}
@@ -156,6 +167,6 @@
 		{script}
 		bind:savedScript
 		{initialArgs}
-		{diffDrawer}
+		diffDrawer={scriptsDiffDrawer}
 	/>
 {/if}

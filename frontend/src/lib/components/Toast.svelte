@@ -10,6 +10,7 @@
 	export let error: boolean = false
 	export let actions: ToastAction[] = []
 	export let errorMessage: string | undefined = undefined
+	export let duration = 5000
 
 	function handleClose() {
 		toast.pop(toastId)
@@ -19,7 +20,7 @@
 	onMount(() => {
 		setTimeout(() => {
 			toast.pop(toastId)
-		}, 5000)
+		}, duration)
 	})
 </script>
 
@@ -61,7 +62,7 @@
 				</button>
 			</div>
 		</div>
-		<div class="mt-2 flex flex-col gap-2 h-15">
+		<div class="mt-2 flex flex-col gap-2 h-15 items-center">
 			{#each actions as action, index (index)}
 				<Button
 					on:click={() => {

@@ -7,80 +7,86 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { cloneDeep } from 'lodash'
+	import { cleanScriptProperties } from '$lib/utils'
+
+	export let title = 'Diff'
 
 	let selected: 'content' | 'metadata' | undefined = undefined
 	let diffViewer: Drawer
-	let originalContent: string | undefined = undefined
-	let originalMetadata: string | undefined = undefined
-	let originalLang: string | undefined = undefined
-	let modifiedContent: string | undefined = undefined
-	let modifiedMetadata: string | undefined = undefined
-	let modifiedLang: string | undefined = undefined
+	let data:
+		| {
+				original: {
+					lang?: string
+					content?: string
+					metadata: string
+				}
+				current: {
+					lang?: string
+					content?: string
+					metadata: string
+				}
+		  }
+		| undefined = undefined
 
 	export let button: { text: string; onClick: () => void } | undefined = undefined
 	export function openDrawer() {
-		originalContent = undefined
-		originalMetadata = undefined
-		originalLang = undefined
-		modifiedContent = undefined
-		modifiedMetadata = undefined
-		modifiedLang = undefined
+		data = undefined
+		title = 'Diff'
 		diffViewer.openDrawer()
 	}
 
-	export function setDiff(
-		local:
-			| {
-					content?: string
-					language?: Script.language
-					[key: string]: any
-			  }
-			| undefined,
-		remote:
-			| {
-					content?: string
-					language?: Script.language
-					[key: string]: any
-			  }
-			| undefined
-	) {
-		if (local) {
-			const local_ = cloneDeep(local)
-			if (local_.content && local_.language) {
-				originalContent = local_.content
-				originalLang = scriptLangToEditorLang(local_.language)
-				local_.content = 'check content diff'
-			}
-			originalMetadata = JSON.stringify(local_, null, 2)
+	function prepareDiff(data: { content?: string; language?: string; [key: string]: any }) {
+		const metadata = cloneDeep(
+			data.content !== undefined && data.language !== undefined ? cleanScriptProperties(data) : data
+		)
+		const content = metadata['content']
+		if (metadata['content'] !== undefined) {
+			metadata['content'] = 'check content diff'
 		}
-		if (remote) {
-			const remote_ = cloneDeep(remote)
-			if (remote_.content && remote_.language) {
-				modifiedContent = remote_.content
-				modifiedLang = scriptLangToEditorLang(remote_.language)
-				remote_.content = 'check content diff'
-			}
-			modifiedMetadata = JSON.stringify(remote_, null, 2)
+		return {
+			lang: data.language ? scriptLangToEditorLang(data.language as Script.language) : undefined,
+			content,
+			metadata: JSON.stringify(metadata, null, 2)
+		}
+	}
+
+	export function setDiff(
+		original: {
+			content?: string
+			language?: Script.language
+			[key: string]: any
+		},
+		current: {
+			content?: string
+			language?: Script.language
+			[key: string]: any
+		},
+		newTitle?: string
+	) {
+		data = {
+			original: prepareDiff(original),
+			current: prepareDiff(current)
 		}
 		selected =
-			originalContent !== modifiedContent
+			data.original.content !== data.current.content
 				? 'content'
-				: originalMetadata !== modifiedMetadata
+				: data.original.metadata !== data.current.metadata
 				? 'metadata'
 				: undefined
+		title = newTitle || title
 	}
 </script>
 
 <Drawer bind:this={diffViewer} size="1200px">
-	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
-		{#if originalMetadata !== undefined && originalMetadata !== undefined}
+	<DrawerContent {title} on:close={diffViewer.closeDrawer}>
+		{#if data !== undefined}
 			{#if selected}
 				<div class="flex flex-col h-full gap-4">
 					<Tabs bind:selected>
-						{#if originalContent !== undefined && originalContent !== modifiedContent}
+						{#if data.original.content !== undefined && data.original.content !== data.current.content}
 							<Tab value="content">Content</Tab>
 						{/if}
-						{#if originalMetadata !== modifiedMetadata}
+						{#if data.original.metadata !== data.current.metadata}
 							<Tab value="metadata">Metadata</Tab>
 						{/if}
 					</Tabs>
@@ -89,10 +95,10 @@
 							<DiffEditor
 								automaticLayout
 								class="h-full"
-								defaultLang={originalLang}
-								defaultModifiedLang={modifiedLang}
-								defaultOriginal={originalContent}
-								defaultModified={modifiedContent}
+								defaultLang={data.original.lang}
+								defaultModifiedLang={data.current.lang}
+								defaultOriginal={data.original.content}
+								defaultModified={data.current.content}
 								readOnly
 							/>
 						{:else if selected === 'metadata'}
@@ -100,17 +106,15 @@
 								automaticLayout
 								class="h-full"
 								defaultLang="json"
-								defaultOriginal={originalMetadata}
-								defaultModified={modifiedMetadata}
+								defaultOriginal={data.original.metadata}
+								defaultModified={data.current.metadata}
 								readOnly
 							/>
 						{/if}</div
 					>
 				</div>
 			{:else}
-				<Alert title="No changes detected">
-					There are no differences between the local and remote content
-				</Alert>
+				<Alert title="No changes detected">There are no differences</Alert>
 			{/if}
 		{:else}
 			<Loader2 class="animate-spin" />

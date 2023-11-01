@@ -82,9 +82,11 @@
 					}
 					navigationState = undefined
 					diffDrawer.openDrawer()
-					const draftOfDeployed = cleanScriptProperties(savedScript['draft'] || savedScript)
-					const current = cleanScriptProperties(modifiedScript)
-					diffDrawer.setDiff(draftOfDeployed, current)
+					diffDrawer.setDiff(
+						savedScript['draft'] || savedScript,
+						modifiedScript,
+						`${savedScript['draft'] ? 'Latest saved draft' : 'Deployed'} <> Current`
+					)
 				}}
 				>Show diff
 			</Button>

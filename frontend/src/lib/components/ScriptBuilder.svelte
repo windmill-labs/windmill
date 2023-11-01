@@ -29,6 +29,7 @@
 		Bug,
 		CheckCircle,
 		Code,
+		DiffIcon,
 		ExternalLink,
 		Loader2,
 		Pen,
@@ -50,7 +51,7 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
-	import type DiffDrawer from './DiffDrawer.svelte'
+	import type DiffScriptsDrawer from './DiffScriptsDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
 	export let script: NewScript
@@ -59,7 +60,7 @@
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
-	export let diffDrawer: DiffDrawer
+	export let diffDrawer: DiffScriptsDrawer
 	export let savedScript: NewScriptWithDraft | Script | undefined = undefined
 
 	let metadataOpen =
@@ -289,23 +290,8 @@
 	}
 
 	function computeDropdownItems(initialPath: string) {
-		let dropdownItems: { label: string; onClick: () => void }[] = [
-			...(savedScript && !savedScript.draft_only
-				? [
-						{
-							label: 'Show diff',
-							onClick: () => {
-								if (savedScript) {
-									diffDrawer.openDrawer()
-									const deployed = cleanScriptProperties(savedScript)
-									const current = cleanScriptProperties(script)
-									diffDrawer.setDiff(deployed, current)
-								}
-							}
-						}
-				  ]
-				: []),
-			...(initialPath != ''
+		let dropdownItems: { label: string; onClick: () => void }[] =
+			initialPath != ''
 				? [
 						{
 							label: 'Fork',
@@ -320,8 +306,7 @@
 							}
 						}
 				  ]
-				: [])
-		]
+				: []
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
 	}
@@ -825,6 +810,24 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
+					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							if (!savedScript) {
+								return
+							}
+							diffDrawer.openDrawer()
+							diffDrawer.setDiff(savedScript, savedScript['draft'], script)
+						}}
+						disabled={!savedScript}
+					>
+						<div class="flex flex-row gap-2 items-center">
+							<DiffIcon size={14} />
+							Diff
+						</div>
+					</Button>
 					<Button
 						color="light"
 						variant="border"
