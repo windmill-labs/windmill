@@ -229,12 +229,11 @@
 			code = getCode()
 			if (lang != 'shell') {
 				await editor?.getAction('editor.action.formatDocument')?.run()
+				code = getCode()
 			}
-			setTimeout(() => {
-				if (formatAction) {
-					formatAction()
-				}
-			}, 500)
+			if (formatAction) {
+				formatAction()
+			}
 		}
 	}
 

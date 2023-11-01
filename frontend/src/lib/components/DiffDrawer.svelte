@@ -31,6 +31,7 @@
 	export let button: { text: string; onClick: () => void } | undefined = undefined
 	export function openDrawer() {
 		data = undefined
+		selected = undefined
 		title = 'Diff'
 		diffViewer.openDrawer()
 	}
@@ -82,14 +83,18 @@
 		{#if data !== undefined}
 			{#if selected}
 				<div class="flex flex-col h-full gap-4">
-					<Tabs bind:selected>
-						{#if data.original.content !== undefined && data.original.content !== data.current.content}
-							<Tab value="content">Content</Tab>
-						{/if}
-						{#if data.original.metadata !== data.current.metadata}
-							<Tab value="metadata">Metadata</Tab>
-						{/if}
-					</Tabs>
+					{#if data.original.content !== undefined}
+						<Tabs bind:selected>
+							<Tab value="content" disabled={data.original.content === data.current.content}
+								>Content{data.original.content === data.current.content ? ' (no changes)' : ''}</Tab
+							>
+							<Tab value="metadata" disabled={data.original.metadata === data.current.metadata}
+								>Metadata{data.original.metadata === data.current.metadata
+									? ' (no changes)'
+									: ''}</Tab
+							>
+						</Tabs>
+					{/if}
 					<div class="flex-1">
 						{#if selected === 'content'}
 							<DiffEditor

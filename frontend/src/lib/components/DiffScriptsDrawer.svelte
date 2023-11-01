@@ -105,15 +105,15 @@
 		}
 	}
 
-	function updateToggleSelected(data_: typeof data) {
+	function updateToggleSelected(data_: typeof data, draftOnly: boolean) {
 		if (!data_) return
-		if (data_?.draft) {
-			toggleSelected = 'draft'
-		} else if (data_?.deployed) {
+		if (data_?.deployed && !draftOnly) {
 			toggleSelected = 'deployed'
+		} else if (data_?.draft) {
+			toggleSelected = 'draft'
 		}
 	}
-	$: updateToggleSelected(data)
+	$: updateToggleSelected(data, draftOnly)
 
 	function updateSelected(data_: typeof data, toggleSelected_: typeof toggleSelected) {
 		if (!data_) return
@@ -133,11 +133,11 @@
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
 			<ToggleButtonGroup bind:selected={toggleSelected} class="shrink-0">
-				{#if data?.draft}
-					<ToggleButton value="draft" label="Latest saved draft <> Current" />
-				{/if}
 				{#if data?.deployed && !draftOnly}
 					<ToggleButton value="deployed" label="Deployed <> Current" />
+				{/if}
+				{#if data?.draft}
+					<ToggleButton value="draft" label="Latest saved draft <> Current" />
 				{/if}
 			</ToggleButtonGroup>
 			{#if toggleSelected === 'draft'}
@@ -181,12 +181,12 @@
 							: undefined}
 					<div class="flex flex-col h-full gap-4">
 						<Tabs bind:selected>
-							{#if content !== data.current.content}
-								<Tab value="content">Content</Tab>
-							{/if}
-							{#if metadata !== data.current.metadata}
-								<Tab value="metadata">Metadata</Tab>
-							{/if}
+							<Tab value="content" disabled={content === data.current.content}
+								>Content{content === data.current.content ? ' (no changes)' : ''}</Tab
+							>
+							<Tab value="metadata" disabled={metadata === data.current.metadata}
+								>Metadata{metadata === data.current.metadata ? ' (no changes)' : ''}</Tab
+							>
 						</Tabs>
 						<div class="flex-1">
 							{#key toggleSelected}
