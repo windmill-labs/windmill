@@ -62,6 +62,7 @@
 			/>
 		{:else}
 			<FlowInputs
+				{noEditor}
 				summary={flowModule.summary}
 				shouldDisableTriggerScripts={parentModule !== undefined ||
 					previousModule !== undefined ||
@@ -90,13 +91,14 @@
 					$flowStateStore[module.id] = state
 				}}
 				on:new={async ({ detail }) => {
-					const { language, kind, subkind } = detail
+					const { language, kind, subkind, summary } = detail
 
 					const [module, state] = await createInlineScriptModule(
 						language,
 						kind,
 						subkind,
-						flowModule.id
+						flowModule.id,
+						summary
 					)
 					scriptKind = kind
 					scriptTemplate = subkind

@@ -38,7 +38,7 @@
 			: [{ error: 'input was not an array' }]
 		if (api && loaded) {
 			let selected = api.getSelectedNodes()
-			if (selected.length > 0) {
+			if (selected && selected.length > 0) {
 				let data = { ...selected[0].data }
 				delete data['__index']
 				outputs?.selectedRow?.set(data)

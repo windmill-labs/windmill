@@ -62,6 +62,7 @@
 		saveDraft: () => {},
 		initialPath: ''
 	})
+
 	type LastEdit = {
 		content: string
 		path: string
@@ -173,6 +174,16 @@
 			editor.setCode(JSON.stringify(flow, null, 4))
 		}
 	}
+
+	function updateFromCode(code: string) {
+		try {
+			if (!deepEqual(JSON.parse(code), $flowStore)) {
+				$flowStore = JSON.parse(code)
+			}
+		} catch (e) {
+			console.error('issue parsing new change:', code, e)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -186,14 +197,7 @@
 			code={initialCode}
 			lang="json"
 			on:change={(e) => {
-				const code = e.detail.code
-				try {
-					if (!deepEqual(JSON.parse(code), $flowStore)) {
-						$flowStore = JSON.parse(code)
-					}
-				} catch (e) {
-					console.error('issue parsing new change:', code, e)
-				}
+				updateFromCode(e.detail.code)
 			}}
 		/>
 		<div class="flex flex-col max-h-screen h-full relative">
@@ -208,6 +212,7 @@
 							disableAi
 							disableTutorials
 							smallErrorHandler={true}
+							disableStaticInputs
 						/>
 					{:else}
 						<div class="text-red-400 mt-20">Missing flow modules</div>

@@ -30,7 +30,7 @@
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
-	export let disableHeader = false
+	export let disableStaticInputs = false
 	export let disableTutorials = false
 	export let disableAi = false
 	export let smallErrorHandler = false
@@ -189,19 +189,19 @@
 	</ConfirmationModal>
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
-	{#if !disableHeader}
-		<div
-			class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
-				$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
-			}`}
-		>
-			{#if $copilotCurrentStepStore !== undefined}
-				<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
-			{/if}
-			<FlowSettingsItem />
+	<div
+		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
+			$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
+		}`}
+	>
+		{#if $copilotCurrentStepStore !== undefined}
+			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+		{/if}
+		<FlowSettingsItem />
+		{#if !disableStaticInputs}
 			<FlowConstantsItem />
-		</div>
-	{/if}
+		{/if}
+	</div>
 
 	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraph
