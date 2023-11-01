@@ -215,8 +215,8 @@ export type AppViewerContext = {
 				result?: string
 				error?: any
 				transformer?: { result?: string; error?: string }
+				created_at?: number
 				started_at?: number
-				started_compute_at?: number
 				duration_ms?: number
 			}
 		>

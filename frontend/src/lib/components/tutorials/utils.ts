@@ -1,4 +1,4 @@
-import type { Flow, FlowModule } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
 import { findGridItem } from '../apps/editor/appUtils'
 import type { App } from '../apps/types'
 
@@ -55,7 +55,7 @@ export function selectOptionsBySelector(selector: string, value: string) {
 	}
 }
 
-export function isFlowTainted(flow: Flow) {
+export function isFlowTainted(flow: OpenFlow) {
 	return flow.value.modules.length > 0 || Object.keys(flow?.schema?.properties).length > 0
 }
 
@@ -64,7 +64,7 @@ export function isAppTainted(app: App) {
 }
 
 export function updateFlowModuleById(
-	flow: Flow,
+	flow: OpenFlow,
 	id: string,
 	callback: (module: FlowModule) => void
 ) {

@@ -8,7 +8,7 @@
 	export let flowModules: string[]
 	export let durationStatuses: Record<
 		string,
-		Record<string, { started_at?: number; duration_ms?: number }>
+		Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
 	>
 	export let flowDone = false
 
@@ -17,7 +17,10 @@
 	let total: number | undefined = undefined
 
 	let items:
-		| Record<string, Array<{ started_at?: number; duration_ms?: number; id: string }>>
+		| Record<
+				string,
+				Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
+		  >
 		| undefined = undefined
 
 	let debounced = debounce(() => computeItems(durationStatuses), 30)
@@ -117,6 +120,19 @@
 				></div
 			>
 		</div>
+		<div class="flex flex-row-reverse items-center text-sm text-secondary p-2">
+			<div class="flex gap-4 items-center text-2xs">
+				<div class="flex gap-2 items-center">
+					<div>Waiting for executor/Suspend</div>
+					<div class="h-4 w-4 bg-gray-500" />
+				</div>
+
+				<div class="flex gap-2 items-center">
+					<div>Execution</div>
+					<div class="h-4 w-4 bg-blue-500/90" />
+				</div>
+			</div>
+		</div>
 		{#each Object.values(flowModules) as k}
 			<div class="px-2 py-2 grid grid-cols-12 w-full"
 				><div>{k}</div>
@@ -124,15 +140,36 @@
 					>{#if min && total}
 						<div class="flex flex-col gap-2 w-full">
 							{#each items?.[k] ?? [] as b}
+								{@const waitingLen = b?.created_at
+									? b.started_at
+										? b.started_at - b?.created_at
+										: b.duration_ms
+										? 0
+										: now - b?.created_at
+									: 0}
 								<div class="flex w-full">
 									<TimelineBar
+										position="left"
 										id={b?.id}
 										{total}
 										{min}
-										started_at={b.started_at}
-										len={b?.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
-										running={b?.duration_ms == undefined}
+										gray
+										started_at={b.created_at}
+										len={waitingLen < 100 ? 0 : waitingLen - 100}
+										running={b?.started_at == undefined}
 									/>
+									{#if b.started_at}
+										<TimelineBar
+											position={waitingLen < 100 ? 'center' : 'right'}
+											id={b?.id}
+											{total}
+											{min}
+											concat
+											started_at={b.started_at}
+											len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+											running={b?.duration_ms == undefined}
+										/>
+									{/if}
 								</div>
 							{/each}
 						</div>

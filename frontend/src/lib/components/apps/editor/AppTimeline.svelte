@@ -16,7 +16,7 @@
 
 	let items: Record<
 		string,
-		{ started_at?: number; started_compute_at?: number; duration_ms?: number; id: string }[]
+		{ created_at?: number; started_at?: number; duration_ms?: number; id: string }[]
 	> = {}
 
 	export function reset() {
@@ -32,23 +32,23 @@
 
 		let nitems: Record<
 			string,
-			{ started_at?: number; started_compute_at?: number; duration_ms?: number; id: string }[]
+			{ created_at?: number; started_at?: number; duration_ms?: number; id: string }[]
 		> = {}
 		jobs.forEach((k) => {
 			let v = $jobsById[k]
-			if (v.started_at) {
+			if (v.created_at) {
 				if (!nmin) {
-					nmin = v.started_at
+					nmin = v.created_at
 				} else {
-					nmin = Math.min(nmin, v.started_at)
+					nmin = Math.min(nmin, v.created_at)
 				}
 			}
 			if (v.duration_ms == undefined) {
 				isStillRunning = true
 			}
 			if (!isStillRunning) {
-				if (v.started_compute_at && v.duration_ms) {
-					let lmax = v.started_compute_at + v.duration_ms
+				if (v.started_at && v.duration_ms) {
+					let lmax = v.started_at + v.duration_ms
 					if (!nmax) {
 						nmax = lmax
 					} else {
@@ -60,21 +60,21 @@
 				nitems[v.component] = []
 			}
 			nitems[v.component].push({
-				started_at: v.started_at,
+				created_at: v.created_at,
 				duration_ms: v.duration_ms,
-				started_compute_at: v.started_compute_at,
+				started_at: v.started_at,
 				id: v.job
 			})
 		})
 
 		Object.values(nitems).forEach((v) => {
 			v.sort((x, y) => {
-				if (!x.started_at) {
+				if (!x.created_at) {
 					return -1
-				} else if (!y.started_at) {
+				} else if (!y.created_at) {
 					return 1
 				} else {
-					return x.started_at - y.started_at
+					return x.created_at - y.created_at
 				}
 			})
 		})
@@ -127,31 +127,33 @@
 				>{#if min && total}
 					<div class="flex flex-col gap-2 w-full">
 						{#each v ?? [] as b}
-							{@const waitingLen = b?.started_at
-								? b.started_compute_at
-									? b.started_compute_at - b?.started_at
+							{@const waitingLen = b?.created_at
+								? b.started_at
+									? b.started_at - b?.created_at
 									: b.duration_ms
 									? 0
-									: now - b?.started_at
+									: now - b?.created_at
 								: 0}
 							<div class="flex w-full">
 								<TimelineBar
+									position="left"
 									id={b?.id}
 									{total}
 									{min}
 									gray
-									started_at={b.started_at}
+									started_at={b.created_at}
 									len={waitingLen < 100 ? 0 : waitingLen - 100}
-									running={b?.started_compute_at == undefined}
+									running={b?.started_at == undefined}
 								/>
-								{#if b.started_compute_at}
+								{#if b.started_at}
 									<TimelineBar
+										position={waitingLen < 100 ? 'center' : 'right'}
 										id={b?.id}
 										{total}
 										{min}
 										concat
-										started_at={b.started_compute_at}
-										len={b.started_compute_at ? b?.duration_ms ?? now - b?.started_compute_at : 0}
+										started_at={b.started_at}
+										len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
 										running={b?.duration_ms == undefined}
 									/>
 								{/if}

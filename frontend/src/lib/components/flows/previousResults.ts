@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
 import { schemaToObject } from '$lib/schema'
 import { getAllSubmodules, getSubModules } from './flowExplorer'
 import type { FlowState } from './flowState'
@@ -18,7 +18,7 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
-export function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
+export function dfs(id: string | undefined, flow: OpenFlow, getParents: boolean = true): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -85,7 +85,7 @@ function getFlowInput(
 	}
 }
 
-export function getPreviousIds(id: string, flow: Flow, include_node: boolean): string[] {
+export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean): string[] {
 	const df = dfs(id, flow, false)
 	if (!include_node) {
 		df.shift()
@@ -110,7 +110,7 @@ export function getStepPropPicker(
 	parentModule: FlowModule | undefined,
 	previousModule: FlowModule | undefined,
 	id: string,
-	flow: Flow,
+	flow: OpenFlow,
 	args: any,
 	include_node: boolean
 ): StepPropPicker {

@@ -16,6 +16,7 @@
 
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let noEditor: boolean
 
 	let value = flowModule.value as BranchOne
 	$: value = flowModule.value as BranchOne
@@ -24,7 +25,7 @@
 </script>
 
 <div class="h-full" id="flow-editor-branch-one-wrapper">
-	<FlowCard title="Run one branch">
+	<FlowCard {noEditor} title="Run one branch">
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>

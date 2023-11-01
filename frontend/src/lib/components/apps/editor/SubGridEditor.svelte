@@ -76,7 +76,7 @@
 >
 	<div
 		class={twMerge(
-			$allIdsInPath.includes(id) ? 'overflow-visible' : 'overflow-auto',
+			$allIdsInPath.includes(id) && $mode == 'dnd' ? 'overflow-visible' : 'overflow-auto',
 			noYPadding ? '' : 'py-2',
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
@@ -106,7 +106,6 @@
 					let:dataItem
 					rowHeight={36}
 					cols={columnConfiguration}
-					fastStart={true}
 					gap={[4, 2]}
 					scroller={container}
 					parentWidth={$parentWidth - 17}
