@@ -162,8 +162,6 @@ impl ModelInstance {
             Tokenizer::from_file(tokenizer_filename)
                 .map_err(Error::msg)?
                 .with_padding(None)
-                .with_truncation(None)
-                .map_err(Error::msg)?
                 .to_owned(),
         );
 
