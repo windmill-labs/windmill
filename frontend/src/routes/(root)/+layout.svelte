@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { OpenAPI, SettingsService, UserService, WorkspaceService } from '$lib/gen'
+	import { SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { enterpriseLicense, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
@@ -11,12 +11,6 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
-
-	let token = $page.url.searchParams.get('wm_token') ?? undefined
-	if (token) {
-		OpenAPI.WITH_CREDENTIALS = true
-		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
-	}
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
