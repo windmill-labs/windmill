@@ -2107,8 +2107,11 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple =
-                modules.len() == 1 && modules[0].value.is_simple() && flow.failure_module.is_none();
+            let is_simple = modules.len() == 1
+                && modules[0].value.is_simple()
+                && modules[0].sleep.is_none()
+                && modules[0].suspend.is_none()
+                && flow.failure_module.is_none();
 
             let next_loop_status = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
