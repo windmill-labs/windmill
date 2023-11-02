@@ -151,6 +151,12 @@ export async function handleFile(
           lock: typed?.lock,
           parent_hash: remote.hash,
           schema: typed?.schema,
+          tag: typed?.tag,
+          ws_error_handler_muted: typed?.ws_error_handler_muted,
+          dedicated_worker: typed?.dedicated_worker,
+          cache_ttl: typed?.cache_ttl,
+          concurrency_time_window_s: typed?.concurrency_time_window_s,
+          concurrent_limit: typed?.concurrent_limit,
         },
       });
     } else {
@@ -171,6 +177,12 @@ export async function handleFile(
           lock: typed?.lock,
           parent_hash: undefined,
           schema: typed?.schema,
+          tag: typed?.tag,
+          ws_error_handler_muted: typed?.ws_error_handler_muted,
+          dedicated_worker: typed?.dedicated_worker,
+          cache_ttl: typed?.cache_ttl,
+          concurrency_time_window_s: typed?.concurrency_time_window_s,
+          concurrent_limit: typed?.concurrent_limit,
         },
       });
     }

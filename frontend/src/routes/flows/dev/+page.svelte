@@ -1,6 +1,4 @@
 <script lang="ts">
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
@@ -8,18 +6,52 @@
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
-	import type { FlowModule, Job, OpenFlow } from '$lib/gen'
+	import { OpenAPI, type FlowModule, type OpenFlow } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { page } from '$app/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { getUserExt } from '$lib/user'
+	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 
-	let testJobLoader: TestJobLoader
+	let token = $page.url.searchParams.get('wm_token') ?? undefined
+	let workspace = $page.url.searchParams.get('workspace') ?? undefined
+	let themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
+	let themeDark = themeDarkRaw == '2' || themeDarkRaw == '4'
 
-	// Test
-	let testIsLoading = false
-	let testJob: Job | undefined
+	if (token) {
+		OpenAPI.WITH_CREDENTIALS = true
+		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+	}
+
+	if (workspace) {
+		$workspaceStore = workspace
+	}
+
+	if (workspace && token) {
+		loadUser()
+	}
+
+	async function loadUser() {
+		const user = await getUserExt(workspace!)
+		userStore.set(user)
+	}
+
+	let darkModeToggle: DarkModeToggle
+	let darkMode: boolean | undefined = undefined
+	let modeInitialized = false
+	function initializeMode() {
+		modeInitialized = true
+		darkModeToggle.toggle()
+	}
+	$: darkModeToggle &&
+		themeDark != darkMode &&
+		darkMode != undefined &&
+		!modeInitialized &&
+		initializeMode()
 
 	const flowStore = writable({
 		summary: '',
@@ -188,8 +220,6 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
-
 <main class="h-screen w-full">
 	<div class="h-full w-full grid grid-cols-2">
 		<SimpleEditor
@@ -201,6 +231,15 @@
 			}}
 		/>
 		<div class="flex flex-col max-h-screen h-full relative">
+			<div class="absolute top-0 left-2">
+				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
+				{#if $userStore}
+					As {$userStore?.username} in {$workspaceStore}
+				{:else}
+					<span class="text-red-600">Unable to login</span>
+				{/if}
+			</div>
+
 			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
 				<FlowPreviewButtons />
 			</div>
