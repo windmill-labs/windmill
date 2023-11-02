@@ -19,7 +19,6 @@
 	export let bgColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
-	export let whereInsert: 'before' | 'after' = 'after'
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
@@ -101,9 +100,9 @@
 
 {#if insertable && modules && (label != 'Input' || modules.length == 0)}
 	<div
-		class="{openMenu ? 'z-20' : ''} w-7 absolute {whereInsert == 'after'
-			? 'top-12'
-			: '-top-10'} left-[50%] right-[50%] -translate-x-1/2"
+		class="{openMenu
+			? 'z-20'
+			: ''} w-[27px] absolute top-[50px] left-[50%] right-[50%] -translate-x-1/2"
 	>
 		{#if moving}
 			<button
@@ -131,12 +130,12 @@
 					if (modules) {
 						dispatch('insert', {
 							modules,
-							index: whereInsert == 'after' ? index : index - 1,
+							index: index,
 							detail: e.detail
 						})
 					}
 				}}
-				index={whereInsert == 'after' ? index : index - 1}
+				{index}
 				modules={modules ?? []}
 			/>
 		{/if}
