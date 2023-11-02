@@ -259,7 +259,7 @@
 						{/if}
 					</div>
 				</button>
-				<div class="px-2 py-4 space-y-2 border-y border-gray-700">
+				<div class="px-2 pt-4 space-y-2 border-y border-gray-700">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu {isCollapsed} />
 					<FavoriteMenu {favoriteLinks} {isCollapsed} />
@@ -267,7 +267,7 @@
 
 				<SidebarContent {isCollapsed} />
 
-				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-700">
+				<div class="flex-shrink-0 flex px-4 pb-3.5">
 					<button
 						on:click={() => {
 							isCollapsed = !isCollapsed
