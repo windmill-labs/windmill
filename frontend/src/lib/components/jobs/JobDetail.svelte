@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
+	import { displayDate, truncateHash, truncateRev } from '$lib/utils'
 	import {
 		faCalendar,
 		faCircle,
@@ -23,6 +23,7 @@
 	import JobPreview from './JobPreview.svelte'
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
+	import DurationMs from '../DurationMs.svelte'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -141,13 +142,7 @@
 					>
 				</div>
 				{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-					<div>
-						<Icon class="text-secondary" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span
-							class="mx-2"
-						>
-							Ran in {msToSec(job.duration_ms)}s</span
-						>
-					</div>
+					<DurationMs duration_ms={job.duration_ms} />
 				{/if}
 			</div>
 			<div class="text-secondary text-xs text-left place-self-start flex flex-col gap-1">
