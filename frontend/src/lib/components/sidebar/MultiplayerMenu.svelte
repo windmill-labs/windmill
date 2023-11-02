@@ -6,6 +6,7 @@
 	import * as Y from 'yjs'
 	import type { Awareness } from 'y-protocols/awareness'
 	import { page } from '$app/stores'
+	import { slide } from 'svelte/transition'
 
 	const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
 
@@ -82,8 +83,9 @@
 </script>
 
 {#if connected}
-	<div class="divide-y divide-gray-100 border-t" role="none">
-		<div class="py-1 flex flex-col gap-y-1">
+	<div class="divide-gray-100 border-t" role="none">
+		<div class="px-2.5 text-xs font-semibold mt-1">Live activity</div>
+		<div class="py-1 flex flex-col gap-y-1 max-h-48 overflow-auto" transition:slide>
 			{#each Object.entries($awarenessStore ?? {}) as [user, url]}
 				<div class="inline-flex gap-2 px-2 items-center">
 					<span

@@ -28,7 +28,7 @@
 		class={classNames(
 			'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
 			isSelected ? 'bg-frost-700 hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
-			'transition-all',
+			'hover:transition-all',
 			$$props.class
 		)}
 		target={href.includes('http') ? '_blank' : null}
@@ -64,7 +64,7 @@
 					isSelected
 						? 'text-blue-100 group-hover:text-white font-semibold'
 						: 'text-gray-100 group-hover:text-white',
-					'transition-all'
+					'transition-all duration-75'
 				)}
 			>
 				{label}

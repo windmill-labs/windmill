@@ -4,6 +4,7 @@
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
+		Bot,
 		Boxes,
 		Calendar,
 		Cog,
@@ -13,7 +14,6 @@
 		HelpCircle,
 		Home,
 		Play,
-		ServerCog,
 		UserCog
 	} from 'lucide-svelte'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
@@ -42,7 +42,7 @@
 			icon: Cog,
 			disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
 		},
-		{ label: 'Workers', href: '/workers', icon: ServerCog, disabled: $userStore?.operator },
+		{ label: 'Workers', href: '/workers', icon: Bot, disabled: $userStore?.operator },
 		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,
@@ -136,7 +136,7 @@
 				{#if menuLink.subItems}
 					<Menu>
 						<div slot="trigger">
-							<MenuButton class="!text-xs" {...menuLink} {isCollapsed} />
+							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href)}
 							<MenuItem>

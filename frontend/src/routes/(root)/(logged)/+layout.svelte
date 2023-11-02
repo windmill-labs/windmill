@@ -213,7 +213,7 @@
 					</div>
 					<div class="bg-[#202125] h-full !dark">
 						<div
-							class="flex gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
+							class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
 							class:w-40={!isCollapsed}
 						>
 							<WindmillIcon white={true} height="20px" width="20px" />
@@ -246,7 +246,7 @@
 					}}
 				>
 					<div
-						class="flex-row flex-shrink-0 px-3.5 py-3.5 font-extrabold text-white h-12 flex items-center gap-1.5"
+						class="flex-row flex-shrink-0 px-3.5 py-3.5 font-semibold text-gray-100 text-opacity-70 h-12 flex items-center gap-1.5"
 						class:w-40={!isCollapsed}
 					>
 						<div class:mr-1={!isCollapsed}>
