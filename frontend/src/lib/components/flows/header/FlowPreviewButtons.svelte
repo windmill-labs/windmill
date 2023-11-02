@@ -28,6 +28,7 @@
 			'settings-worker-group',
 			'settings-cache',
 			'settings-concurrency',
+			'settings-early-stop',
 			'inputs',
 			'schedules',
 			'failure',

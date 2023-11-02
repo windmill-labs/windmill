@@ -61,7 +61,7 @@
 {#if mod}
 	{#if insertable}
 		<div
-			class="{openMenu ? 'z-10' : ''} w-7 absolute -top-9 left-[50%] right-[50%] -translate-x-1/2"
+			class="{openMenu ? 'z-20' : ''} w-7 absolute -top-9 left-[50%] right-[50%] -translate-x-1/2"
 		>
 			{#if moving}
 				<button
@@ -203,7 +203,7 @@
 	</div>
 	{#if insertable && insertableEnd}
 		<div
-			class="{openMenu2 ? 'z-10' : ''} w-7 absolute top-11 left-[50%] right-[50%] -translate-x-1/2"
+			class="{openMenu2 ? 'z-20' : ''} w-7 absolute top-11 left-[50%] right-[50%] -translate-x-1/2"
 		>
 			{#if moving}
 				<button

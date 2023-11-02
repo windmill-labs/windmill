@@ -8,7 +8,7 @@
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
-	import type { Flow, FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, Job, OpenFlow } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
@@ -22,15 +22,11 @@
 	let testJob: Job | undefined
 
 	const flowStore = writable({
-		path: '',
 		summary: '',
 		value: { modules: [] },
-		edited_by: '',
-		edited_at: '',
-		archived: false,
 		extra_perms: {},
 		schema: emptySchema()
-	} as Flow)
+	} as OpenFlow)
 
 	let initialCode = JSON.stringify($flowStore, null, 4)
 	const flowStateStore = writable({} as FlowState)
@@ -66,6 +62,7 @@
 		saveDraft: () => {},
 		initialPath: ''
 	})
+
 	type LastEdit = {
 		content: string
 		path: string
@@ -172,9 +169,19 @@
 
 	$: updateCode(editor, $flowStore)
 
-	function updateCode(editor: SimpleEditor, flow: Flow) {
+	function updateCode(editor: SimpleEditor, flow: OpenFlow) {
 		if (editor && !deepEqual(flow, JSON.parse(editor.getCode()))) {
 			editor.setCode(JSON.stringify(flow, null, 4))
+		}
+	}
+
+	function updateFromCode(code: string) {
+		try {
+			if (!deepEqual(JSON.parse(code), $flowStore)) {
+				$flowStore = JSON.parse(code)
+			}
+		} catch (e) {
+			console.error('issue parsing new change:', code, e)
 		}
 	}
 </script>
@@ -190,14 +197,7 @@
 			code={initialCode}
 			lang="json"
 			on:change={(e) => {
-				const code = e.detail.code
-				try {
-					if (!deepEqual(JSON.parse(code), $flowStore)) {
-						$flowStore = JSON.parse(code)
-					}
-				} catch (e) {
-					console.error('issue parsing new change:', code, e)
-				}
+				updateFromCode(e.detail.code)
 			}}
 		/>
 		<div class="flex flex-col max-h-screen h-full relative">
@@ -211,6 +211,8 @@
 							bind:modules={$flowStore.value.modules}
 							disableAi
 							disableTutorials
+							smallErrorHandler={true}
+							disableStaticInputs
 						/>
 					{:else}
 						<div class="text-red-400 mt-20">Missing flow modules</div>

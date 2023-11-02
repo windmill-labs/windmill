@@ -69,12 +69,14 @@ export async function createInlineScriptModule(
 	language: RawScript.language,
 	kind: Script.kind,
 	subkind: 'pgsql' | 'flow',
-	id: string
+	id: string,
+	summary?: string
 ): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
 	const flowModule: FlowModule = {
 		id,
+		summary,
 		value: { type: 'rawscript', content: code, language, input_transforms: {} }
 	}
 

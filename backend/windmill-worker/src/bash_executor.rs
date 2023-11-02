@@ -180,7 +180,7 @@ pub async fn handle_powershell_job(
             job.args.as_ref()
         };
 
-        let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
+        let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
             .args
             .iter()
             .map(|arg| {
