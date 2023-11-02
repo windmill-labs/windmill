@@ -18,7 +18,7 @@
 {#if item}
 	{#if isFolder(item)}
 		<div>
-			<div class={twMerge('p-4 border-b w-full flex flex-row items-center justify-between')}>
+			<div class={twMerge('px-4 py-2 border-b w-full flex flex-row items-center justify-between')}>
 				<div
 					class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 					style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
