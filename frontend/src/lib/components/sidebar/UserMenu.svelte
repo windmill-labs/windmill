@@ -95,33 +95,34 @@
 					<Icon class="pr-0.5" data={faCog} /> Superadmin workspace
 				</button>
 			</div>
-			<div class="py-1" role="none">
-				<button
-					on:click={() => {
-						if (!document.documentElement.classList.contains('dark')) {
-							document.documentElement.classList.add('dark')
-							window.localStorage.setItem('dark-mode', 'dark')
-						} else {
-							document.documentElement.classList.remove('dark')
-							window.localStorage.setItem('dark-mode', 'light')
-						}
-					}}
-					class={twMerge(
-						'text-secondary block text-left px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary w-full',
-						'flex flex-row items-center gap-1'
-					)}
-					role="menuitem"
-					tabindex="-1"
-				>
-					{#if darkMode}
-						<Sun class="w-4 h-4" />
-					{:else}
-						<Moon class="w-4 h-4" />
-					{/if}
-					Switch theme
-				</button>
-			</div>
 		{/if}
+
+		<div class="py-1" role="none">
+			<button
+				on:click={() => {
+					if (!document.documentElement.classList.contains('dark')) {
+						document.documentElement.classList.add('dark')
+						window.localStorage.setItem('dark-mode', 'dark')
+					} else {
+						document.documentElement.classList.remove('dark')
+						window.localStorage.setItem('dark-mode', 'light')
+					}
+				}}
+				class={twMerge(
+					'text-secondary block text-left px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary w-full',
+					'flex flex-row items-center gap-1'
+				)}
+				role="menuitem"
+				tabindex="-1"
+			>
+				{#if darkMode}
+					<Sun class="w-4 h-4" />
+				{:else}
+					<Moon class="w-4 h-4" />
+				{/if}
+				Switch theme
+			</button>
+		</div>
 
 		<div class="py-1" role="none">
 			<MenuItem>
