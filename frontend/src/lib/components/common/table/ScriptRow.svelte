@@ -37,6 +37,7 @@
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let errorHandlerMuted: boolean
+	export let depth: number = 0
 
 	let {
 		summary,
@@ -96,6 +97,7 @@
 	workspaceId={$workspaceStore ?? ''}
 	on:change
 	canFavorite={!draft_only}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		{#if lock_error_logs}
