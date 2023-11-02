@@ -1,37 +1,25 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { navigating, page } from '$app/stores'
 	import Icon from 'svelte-awesome'
 	import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
 
 	export let label: string
-	export let href: string
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let faIcon: IconDefinition | undefined = undefined
 
 	let isSelected = false
-
-	navigating.subscribe(() => {
-		if (href === '/') {
-			isSelected = $page.url.pathname === href
-		} else {
-			isSelected = $page.url.pathname.includes(href)
-		}
-	})
 </script>
 
 {#if !disabled}
-	<a
-		{href}
+	<button
 		class={classNames(
-			'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
-			isSelected ? 'bg-frost-700 hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
-			'hover:transition-all',
+			'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
+			isSelected ? 'bg-[#30404e] hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
+			'transition-all',
 			$$props.class
 		)}
-		target={href.includes('http') ? '_blank' : null}
 		title={label}
 	>
 		{#if icon}
@@ -41,7 +29,7 @@
 				class={classNames(
 					'flex-shrink-0',
 					isSelected
-						? 'text-frost-200 group-hover:text-white'
+						? 'text-blue-100 group-hover:text-white'
 						: 'text-gray-100 group-hover:text-white',
 					'transition-all'
 				)}
@@ -51,7 +39,9 @@
 				data={faIcon}
 				class={classNames(
 					'flex-shrink-0',
-					isSelected ? 'text-white' : 'text-gray-100 group-hover:text-white',
+					isSelected
+						? 'text-blue-100 group-hover:text-white'
+						: 'text-gray-100 group-hover:text-white',
 					'transition-all'
 				)}
 			/>
@@ -64,11 +54,12 @@
 					isSelected
 						? 'text-blue-100 group-hover:text-white font-semibold'
 						: 'text-gray-100 group-hover:text-white',
-					'transition-all duration-75'
+					'transition-all',
+					$$props.class
 				)}
 			>
 				{label}
 			</span>
 		{/if}
-	</a>
+	</button>
 {/if}

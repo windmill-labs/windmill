@@ -20,7 +20,7 @@
 
 <div
 	class="hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0
-first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5"
+first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0"
 >
 	<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
 		<div class="shrink">
