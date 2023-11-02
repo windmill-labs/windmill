@@ -5,6 +5,7 @@
 
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let isCollapsed: boolean = false
 	export let favoriteLinks = [] as {
@@ -16,7 +17,7 @@
 
 <Menu>
 	<div slot="trigger">
-		<MenuButton class="!text-xs !font-bold" icon={Star} label={'Favorites'} {isCollapsed} />
+		<MenuButton class="!text-xs" icon={Star} label={'Favorites'} {isCollapsed} />
 	</div>
 
 	<div class="overflow-hidden" role="none">
@@ -29,24 +30,26 @@
 		{:else}
 			<div class="py-1 w-full max-w-full">
 				{#each favoriteLinks ?? [] as favorite (favorite.href)}
-					<a
-						href={favorite.href}
-						on:click={close}
-						class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover"
-					>
-						<span class="center-center">
-							{#if favorite.kind == 'script'}
-								<Code2 size={16} />
-							{:else if favorite.kind == 'flow'}
-								<Icon data={faBarsStaggered} />
-							{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
-								<LayoutDashboard size={16} />
-							{/if}
-						</span>
-						<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
-							{favorite.label}
-						</span>
-					</a>
+					<MenuItem>
+						<a
+							href={favorite.href}
+							on:click={close}
+							class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover"
+						>
+							<span class="center-center">
+								{#if favorite.kind == 'script'}
+									<Code2 size={16} />
+								{:else if favorite.kind == 'flow'}
+									<Icon data={faBarsStaggered} />
+								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
+									<LayoutDashboard size={16} />
+								{/if}
+							</span>
+							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
+								{favorite.label}
+							</span>
+						</a>
+					</MenuItem>
 				{/each}
 			</div>
 		{/if}

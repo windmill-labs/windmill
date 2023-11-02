@@ -12,6 +12,7 @@
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let isCollapsed: boolean = false
 
@@ -57,32 +58,29 @@
 
 <Menu>
 	<div slot="trigger">
-		<MenuButton
-			class="!text-xs !font-bold"
-			icon={Building}
-			label={$workspaceStore ?? ''}
-			{isCollapsed}
-		/>
+		<MenuButton class="!text-xs" icon={Building} label={$workspaceStore ?? ''} {isCollapsed} />
 	</div>
 
 	<div class="divide-y" role="none">
 		<div class="py-1">
 			{#each $userWorkspaces as workspace}
-				<button
-					class="text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5
+				<MenuItem>
+					<button
+						class="text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5
 						{$workspaceStore === workspace.id
-						? 'cursor-default bg-surface-selected'
-						: 'cursor-pointer hover:bg-surface-hover'}"
-					on:click={async () => {
-						await toggleSwitchWorkspace(workspace.id)
-						close()
-					}}
-				>
-					<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
-					<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
-						{workspace.id}
-					</div>
-				</button>
+							? 'cursor-default bg-surface-selected'
+							: 'cursor-pointer hover:bg-surface-hover'}"
+						on:click={async () => {
+							await toggleSwitchWorkspace(workspace.id)
+							close()
+						}}
+					>
+						<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
+						<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
+							{workspace.id}
+						</div>
+					</button>
+				</MenuItem>
 			{/each}
 		</div>
 		<div class="py-1" role="none">
@@ -109,19 +107,19 @@
 			</a>
 		</div>
 		<div class="py-1" role="none">
-			<a
-				href="/workspace_settings"
-				class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
-				role="menuitem"
-				tabindex="-1"
-			>
-				<Icon class="pr-0.5" data={faCog} /> Workspace Settings
-			</a>
+			<MenuItem>
+				<a
+					href="/workspace_settings"
+					class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+					role="menuitem"
+					tabindex="-1"
+				>
+					<Icon class="pr-0.5" data={faCog} /> Workspace Settings
+				</a>
+			</MenuItem>
 		</div>
 	</div>
-	<div class="border-t">
-		{#if $enterpriseLicense}
-			<MultiplayerMenu />
-		{/if}
-	</div>
+	{#if $enterpriseLicense}
+		<MultiplayerMenu />
+	{/if}
 </Menu>

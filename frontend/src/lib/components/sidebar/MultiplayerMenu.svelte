@@ -82,7 +82,7 @@
 </script>
 
 {#if connected}
-	<div class="divide-y divide-gray-100" role="none">
+	<div class="divide-y divide-gray-100 border-t" role="none">
 		<div class="py-1 flex flex-col gap-y-1">
 			{#each Object.entries($awarenessStore ?? {}) as [user, url]}
 				<div class="inline-flex gap-2 px-2 items-center">

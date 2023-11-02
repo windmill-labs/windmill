@@ -20,6 +20,7 @@
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { Icon } from 'svelte-awesome'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -103,24 +104,26 @@
 							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href)}
-							<div class="py-1" role="none">
-								<a
-									href={subItem.href}
-									class="text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
-									role="menuitem"
-									tabindex="-1"
-								>
-									<div class="flex flex-row items-center gap-2">
-										{#if subItem.icon}
-											<svelte:component this={subItem.icon} size={16} />
-										{:else if subItem?.faIcon}
-											<Icon data={subItem.faIcon} />
-										{/if}
+							<MenuItem>
+								<div class="py-1" role="none">
+									<a
+										href={subItem.href}
+										class="text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
+										role="menuitem"
+										tabindex="-1"
+									>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<svelte:component this={subItem.icon} size={16} />
+											{:else if subItem?.faIcon}
+												<Icon data={subItem.faIcon} />
+											{/if}
 
-										{subItem.label}
-									</div>
-								</a>
-							</div>
+											{subItem.label}
+										</div>
+									</a>
+								</div>
+							</MenuItem>
 						{/each}
 					</Menu>
 				{:else}
@@ -136,25 +139,27 @@
 							<MenuButton class="!text-xs" {...menuLink} {isCollapsed} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href)}
-							<div class="py-1" role="none">
-								<a
-									href={subItem.href}
-									class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
-									role="menuitem"
-									tabindex="-1"
-									target="_blank"
-								>
-									<div class="flex flex-row items-center gap-2">
-										{#if subItem.icon}
-											<svelte:component this={subItem.icon} size={16} />
-										{:else if subItem.faIcon}
-											<Icon data={subItem.faIcon} />
-										{/if}
+							<MenuItem>
+								<div class="py-1" role="none">
+									<a
+										href={subItem.href}
+										class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+										role="menuitem"
+										tabindex="-1"
+										target="_blank"
+									>
+										<div class="flex flex-row items-center gap-2">
+											{#if subItem.icon}
+												<svelte:component this={subItem.icon} size={16} />
+											{:else if subItem.faIcon}
+												<Icon data={subItem.faIcon} />
+											{/if}
 
-										{subItem.label}
-									</div>
-								</a>
-							</div>
+											{subItem.label}
+										</div>
+									</a>
+								</div>
+							</MenuItem>
 						{/each}
 					</Menu>
 				{/if}

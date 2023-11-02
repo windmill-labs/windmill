@@ -19,6 +19,7 @@
 	import { Moon, Sun, User } from 'lucide-svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	let darkMode: boolean = document.documentElement.classList.contains('dark')
 	export let isCollapsed: boolean = false
@@ -34,7 +35,7 @@
 <Menu>
 	<div slot="trigger" class="w-full">
 		<MenuButton
-			class="!text-xs !font-bold"
+			class="!text-xs"
 			icon={User}
 			label={String($userStore?.username ?? ($superadmin ? $superadmin : '___'))}
 			{isCollapsed}
@@ -55,25 +56,29 @@
 		</div>
 
 		<div class="py-1" role="none">
-			<a
-				href={USER_SETTINGS_HASH}
-				class="text-secondary block px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
-				role="menuitem"
-				tabindex="-1"
-			>
-				<Icon class="pr-0.5" data={faCog} /> Account settings
-			</a>
-		</div>
-		{#if $superadmin}
-			<div class="py-1" role="none">
+			<MenuItem>
 				<a
-					href={SUPERADMIN_SETTINGS_HASH}
+					href={USER_SETTINGS_HASH}
 					class="text-secondary block px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Icon class="pr-0.5" data={faCog} /> Superadmin settings
+					<Icon class="pr-0.5" data={faCog} /> Account settings
 				</a>
+			</MenuItem>
+		</div>
+		{#if $superadmin}
+			<div class="py-1" role="none">
+				<MenuItem>
+					<a
+						href={SUPERADMIN_SETTINGS_HASH}
+						class="text-secondary block px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
+						role="menuitem"
+						tabindex="-1"
+					>
+						<Icon class="pr-0.5" data={faCog} /> Superadmin settings
+					</a>
+				</MenuItem>
 			</div>
 			<div class="py-1" role="none">
 				<button
@@ -120,15 +125,17 @@
 		{/if}
 
 		<div class="py-1" role="none">
-			<button
-				type="button"
-				class="text-secondary block w-full text-left px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
-				role="menuitem"
-				tabindex="-1"
-				on:click={() => logout()}
-			>
-				<Icon class="pr-0.5" data={faSignOut} /> Sign out
-			</button>
+			<MenuItem>
+				<button
+					type="button"
+					class="text-secondary block w-full text-left px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
+					role="menuitem"
+					tabindex="-1"
+					on:click={() => logout()}
+				>
+					<Icon class="pr-0.5" data={faSignOut} /> Sign out
+				</button>
+			</MenuItem>
 		</div>
 
 		{#if isCloudHosted() && $premiumStore}
