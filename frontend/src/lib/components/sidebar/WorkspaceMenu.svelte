@@ -2,7 +2,7 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { Building } from 'lucide-svelte'
 
-	import Menu from '../common/menu/Menu.svelte'
+	import Menu from '../common/menu/MenuV2.svelte'
 	import { faCog, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
 	import { goto } from '$app/navigation'

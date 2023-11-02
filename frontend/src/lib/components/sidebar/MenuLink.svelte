@@ -41,7 +41,7 @@
 				class={classNames(
 					'flex-shrink-0',
 					isSelected
-						? 'text-blue-100 group-hover:text-white'
+						? 'text-frost-300 group-hover:text-white'
 						: 'text-gray-100 group-hover:text-white',
 					'transition-all'
 				)}
@@ -52,7 +52,7 @@
 				class={classNames(
 					'flex-shrink-0',
 					isSelected
-						? 'text-blue-100 group-hover:text-white'
+						? 'text-frost-300 group-hover:text-white'
 						: 'text-gray-100 group-hover:text-white',
 					'transition-all'
 				)}

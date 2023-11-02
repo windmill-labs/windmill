@@ -1,47 +1,101 @@
-<script lang="ts">
-	import { Menu, MenuButton, MenuItems, Transition } from '@rgossiaux/svelte-headlessui'
-	import Portal from 'svelte-portal'
-	import { offset, flip, shift } from 'svelte-floating-ui/dom'
-	import { createFloatingActions } from 'svelte-floating-ui'
-
-	const [floatingRef, floatingContent] = createFloatingActions({
-		strategy: 'fixed',
-		middleware: [
-			offset({
-				mainAxis: 16,
-				crossAxis: 16
-			}),
-			flip(),
-			shift()
-		]
-	})
+<script lang="ts" context="module">
+	let current: (() => void) | undefined = undefined
 </script>
 
-<Menu let:open as="div" class="relative hover:z-50 flex w-full h-8">
-	<div use:floatingRef>
-		<MenuButton class="w-full">
-			<slot name="trigger" />
-		</MenuButton>
+<script lang="ts">
+	import { classNames } from '$lib/utils'
+	import { onMount } from 'svelte'
+	import { fade } from 'svelte/transition'
+
+	export let noMinW = false
+	export let show = false
+	export let wrapperClasses = ''
+	export let popupClasses = ''
+	export let transitionDuration = 25
+	export let pointerDown = false
+	let menu: HTMLDivElement
+
+	type Alignment = 'start' | 'end' | 'center'
+	type Side = 'top' | 'bottom'
+	type Placement = `${Side}-${Alignment}`
+
+	export let placement: Placement = 'bottom-start'
+
+	function handleOutsideClick(event) {
+		if (show && !menu.contains(event.target)) {
+			show = false
+			event.preventDefault()
+			event.stopPropagation()
+		}
+	}
+
+	function handleEscape(event) {
+		if (show && event.key === 'Escape') {
+			show = false
+		}
+	}
+
+	function close() {
+		show = false
+	}
+
+	onMount(() => {
+		document.addEventListener('click', handleOutsideClick, false)
+		document.addEventListener('keyup', handleEscape, false)
+
+		return () => {
+			document.removeEventListener('click', handleOutsideClick, false)
+			document.removeEventListener('keyup', handleEscape, false)
+		}
+	})
+
+	const placementsClasses = {
+		'bottom-center': 'origin-top-left left-1/2 transform -translate-x-1/2',
+		'bottom-start': 'origin-top-left left-0',
+		'bottom-end': 'origin-top-right right-0',
+		'top-start': 'origin-bottom-left left-0 bottom-0',
+		'top-end': 'origin-bottom-right right-0 bottom-0'
+	}
+</script>
+
+<div class="relative {wrapperClasses}" bind:this={menu}>
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<div
+		on:click={() => {
+			if (!pointerDown) {
+				if (!show) {
+					current && current()
+					current = close
+				}
+				show = !show
+			}
+		}}
+		on:pointerdown={() => {
+			if (pointerDown) {
+				if (!show) {
+					current && current()
+					current = close
+				}
+				show = !show
+			}
+		}}
+		class="relative"
+	>
+		<slot class="triggerable" name="trigger" />
 	</div>
-	<Portal>
-		<div use:floatingContent class="z-[6000]">
-			<Transition
-				{open}
-				enter="transition ease-out duration-[25ms]"
-				enterFrom="transform opacity-0 scale-95"
-				enterTo="transform opacity-100 scale-100"
-				leave="transition ease-in duration-[25ms]"
-				leaveFrom="transform opacity-100 scale-100"
-				leaveTo="transform opacity-0 scale-95"
-			>
-				<MenuItems
-					class="border w-56 origin-top-right rounded-md bg-surface shadow-md focus:outline-none"
-				>
-					<div class="my-1">
-						<slot />
-					</div>
-				</MenuItems>
-			</Transition>
+	{#if show}
+		<div
+			transition:fade|local={{ duration: transitionDuration }}
+			class={classNames(
+				'z-50 absolute mt-2 rounded-md shadow-lg bg-surface ring-1 ring-black ring-opacity-5 focus:outline-none',
+				placementsClasses[placement],
+				noMinW ? 'min-w-0' : 'w-60',
+				popupClasses
+			)}
+			role="menu"
+			tabindex="-1"
+		>
+			<slot {close} />
 		</div>
-	</Portal>
-</Menu>
+	{/if}
+</div>

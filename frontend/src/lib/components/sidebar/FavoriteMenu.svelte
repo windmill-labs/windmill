@@ -3,7 +3,7 @@
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
-	import Menu from '../common/menu/Menu.svelte'
+	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 
 	export let isCollapsed: boolean = false

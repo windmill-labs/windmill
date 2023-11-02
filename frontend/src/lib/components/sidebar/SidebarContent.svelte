@@ -17,7 +17,7 @@
 		UserCog
 	} from 'lucide-svelte'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
-	import Menu from '../common/menu/Menu.svelte'
+	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 
 	$: mainMenuLinks = [
@@ -75,9 +75,8 @@
 			<MenuLink class="!text-sm" {...menuLink} {isCollapsed} />
 		{/each}
 	</div>
-	<div>
+	<div class="flex flex-col h-full justify-between">
 		<div class="space-y-0.5 mb-6 md:mb-10">
-			<div class="text-xs text-tertiary px-2 mb-1">PERMISSIONS</div>
 			{#each secondaryMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 			{/each}

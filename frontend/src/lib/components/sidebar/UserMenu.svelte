@@ -11,7 +11,7 @@
 	} from '$lib/stores'
 	import { faCog, faCrown, faHardHat, faSignOut } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
-	import Menu from '../common/menu/Menu.svelte'
+	import Menu from '../common/menu/MenuV2.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { switchWorkspace } from '$lib/storeUtils'
