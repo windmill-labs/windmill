@@ -72,7 +72,6 @@
 							: 'cursor-pointer hover:bg-surface-hover'}"
 						on:click={async () => {
 							await toggleSwitchWorkspace(workspace.id)
-							close()
 						}}
 					>
 						<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>

@@ -154,7 +154,6 @@
 							role="menuitem"
 							tabindex="-1"
 							on:click={() => {
-								close()
 								goto('/workspace_settings?tab=premium')
 							}}
 						>
@@ -170,7 +169,6 @@
 						role="menuitem"
 						tabindex="-1"
 						on:click={() => {
-							close()
 							goto('/workspace_settings?tab=premium')
 						}}
 					>
