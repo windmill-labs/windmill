@@ -9,44 +9,37 @@
 		premiumStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { classNames } from '$lib/utils'
-	import { faCog, faCrown, faHardHat, faSignOut, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faCog, faCrown, faHardHat, faSignOut } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/Menu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
+	import { Moon, Sun, User } from 'lucide-svelte'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import MenuButton from './MenuButton.svelte'
+
+	let darkMode: boolean = document.documentElement.classList.contains('dark')
 	export let isCollapsed: boolean = false
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
 </script>
 
-<Menu let:close placement="bottom-start">
-	<button
-		title="User Menu"
-		slot="trigger"
-		type="button"
-		class={classNames(
-			'group w-full flex items-center text-white hover:bg-gray-50 hover:text-gray-900  focus:outline-none  px-2 py-2 text-sm font-medium rounded-md h-8 '
-		)}
-	>
-		<Icon
-			data={faUser}
-			class={classNames('flex-shrink-0 h-4 w-4', isCollapsed ? '-mr-1' : 'mr-2')}
+<Menu>
+	<div slot="trigger">
+		<MenuButton
+			class="!text-xs"
+			icon={User}
+			label={String($userStore?.username ?? ($superadmin ? $superadmin : '___'))}
+			{isCollapsed}
 		/>
-
-		{#if !isCollapsed}
-			<span class={classNames('whitespace-pre truncate')}>
-				{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
-				{#if $userStore?.is_admin}
-					<Icon data={faCrown} scale={0.6} />
-				{:else if $userStore?.operator}
-					<Icon class="ml-2" data={faHardHat} scale={0.8} />
-				{/if}
-			</span>
-		{/if}
-	</button>
-
+	</div>
 	<div class="divide-y">
 		<div class="px-4 py-3" role="none">
 			<p class="text-sm font-medium text-primary truncate" role="none">
@@ -98,7 +91,34 @@
 					<Icon class="pr-0.5" data={faCog} /> Superadmin workspace
 				</button>
 			</div>
+			<div class="py-1" role="none">
+				<button
+					on:click={() => {
+						if (!document.documentElement.classList.contains('dark')) {
+							document.documentElement.classList.add('dark')
+							window.localStorage.setItem('dark-mode', 'dark')
+						} else {
+							document.documentElement.classList.remove('dark')
+							window.localStorage.setItem('dark-mode', 'light')
+						}
+					}}
+					class={twMerge(
+						'text-secondary block text-left px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary w-full',
+						'flex flex-row items-center gap-1'
+					)}
+					role="menuitem"
+					tabindex="-1"
+				>
+					{#if darkMode}
+						<Sun class="w-4 h-4" />
+					{:else}
+						<Moon class="w-4 h-4" />
+					{/if}
+					Switch theme
+				</button>
+			</div>
 		{/if}
+
 		<div class="py-1" role="none">
 			<button
 				type="button"
@@ -110,9 +130,7 @@
 				<Icon class="pr-0.5" data={faSignOut} /> Sign out
 			</button>
 		</div>
-		{#if $enterpriseLicense}
-			<MultiplayerMenu />
-		{/if}
+
 		{#if isCloudHosted() && $premiumStore}
 			{#if !$premiumStore.premium}
 				<div class="py-1" role="none">
@@ -147,10 +165,14 @@
 						on:click={() => {
 							close()
 							goto('/workspace_settings?tab=premium')
-						}}>Premium plan</button
+						}}
 					>
+						Premium plan
+					</button>
 				</div>
 			{/if}
 		{/if}
 	</div>
 </Menu>
+
+<DarkModeObserver on:change={onThemeChange} />
