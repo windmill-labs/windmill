@@ -358,7 +358,19 @@
 			<div class="border rounded-md">
 				{#if treeView}
 					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item}
-						<TreeView {item} />
+						<TreeView
+							{item}
+							on:scriptChanged={loadScripts}
+							on:flowChanged={loadFlows}
+							on:appChanged={loadApps}
+							on:rawAppChanged={loadRawApps}
+							on:reload={() => {
+								loadScripts()
+								loadFlows()
+								loadApps()
+								loadRawApps()
+							}}
+						/>
 					{/each}
 				{:else}
 					{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
