@@ -47,6 +47,7 @@
 		if (!loaded) {
 			loaded = true
 		}
+		console.log(resolvedConfig?.extraConfig)
 	}
 
 	const { worldStore, selectedComponent, componentControl, darkMode } =
