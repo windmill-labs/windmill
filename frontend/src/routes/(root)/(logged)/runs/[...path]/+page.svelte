@@ -594,9 +594,7 @@
 			</Pane>
 			<Pane size={40} minSize={15} class="border-t">
 				{#if selectedId}
-					{#key selectedId}
-						<JobPreview id={selectedId} />
-					{/key}
+					<JobPreview id={selectedId} />
 				{:else}
 					<div class="text-xs m-4">No job selected</div>
 				{/if}

@@ -5,6 +5,7 @@
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
+	import Tooltip from '../Tooltip.svelte'
 
 	export let kind: 'script' | 'flow'
 	export let scriptOrFlowPath: string
@@ -71,3 +72,4 @@
 		</div>
 	{/if}
 </Button>
+<Tooltip>Disable workspace error handler, EE only</Tooltip>

@@ -27,15 +27,26 @@
 		  }
 	export let activeWorkers: number
 
-	let nconfig: any = config
-		? config.worker_tags != undefined || config.dedicated_worker != undefined
-			? config
+	let nconfig: {
+		dedicated_worker?: string
+		worker_tags?: string[]
+		priority_tags?: Map<string, number>
+		cache_clear?: number
+		init_bash?: string
+	} = {}
+
+	function loadNConfig() {
+		nconfig = config
+			? config.worker_tags != undefined || config.dedicated_worker != undefined
+				? config
+				: {
+						worker_tags: []
+				  }
 			: {
 					worker_tags: []
 			  }
-		: {
-				worker_tags: []
-		  }
+	}
+
 	let selectedPriorityTags: string[] = []
 
 	const defaultTags = [
@@ -173,7 +184,9 @@
 										if (nconfig != undefined) {
 											dirty = true
 											nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
-											delete nconfig.priority_tags[tag]
+											if (nconfig.priority_tags) {
+												delete nconfig.priority_tags[tag]
+											}
 											selectedPriorityTags = selectedPriorityTags.filter((t) => t != tag) ?? []
 										}
 									}}
@@ -264,10 +277,14 @@
 									bind:selected={selectedPriorityTags}
 									on:change={(e) => {
 										if (e.detail.type === 'add') {
-											nconfig.priority_tags[e.detail.option] = 100
+											if (nconfig.priority_tags) {
+												nconfig.priority_tags[e.detail.option] = 100
+											}
 											dirty = true
 										} else if (e.detail.type === 'remove') {
-											delete nconfig.priority_tags[e.detail.option]
+											if (nconfig.priority_tags) {
+												delete nconfig.priority_tags[e.detail.option]
+											}
 											dirty = true
 										} else {
 											console.error(
@@ -369,7 +386,15 @@
 <div class="flex gap-2 items-center"
 	><h4 class="py-4 truncate w-40 text-primary">{name}</h4>
 	{#if $superadmin}
-		<Button color="light" size="xs" on:click={drawer.openDrawer}>
+		<Button
+			color="light"
+			size="xs"
+			on:click={() => {
+				dirty = false
+				loadNConfig()
+				drawer.openDrawer()
+			}}
+		>
 			<div class="flex flex-row gap-1 items-center"
 				>{config == undefined ? 'create' : 'edit'} config</div
 			>
