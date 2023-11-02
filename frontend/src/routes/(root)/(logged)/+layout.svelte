@@ -16,14 +16,7 @@
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
-	import {
-		enterpriseLicense,
-		starStore,
-		superadmin,
-		usageStore,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -33,7 +26,6 @@
 	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import MultiplayerMenu from '$lib/components/sidebar/MultiplayerMenu.svelte'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 
 	OpenAPI.WITH_CREDENTIALS = true
