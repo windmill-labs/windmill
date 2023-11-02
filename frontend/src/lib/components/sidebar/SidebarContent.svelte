@@ -35,24 +35,42 @@
 	]
 
 	$: secondaryMenuLinks = [
-		{ label: 'Folders', href: '/folders', icon: FolderOpen, disabled: $userStore?.operator },
-		{ label: 'Groups', href: '/groups', icon: UserCog, disabled: $userStore?.operator },
-		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator },
 		{
 			label: 'Workspace',
 			href: '/workspace_settings',
 			icon: Cog,
 			disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
 		},
-		{ label: 'Workers', href: '/workers', icon: ServerCog, disabled: $userStore?.operator }
+		{ label: 'Workers', href: '/workers', icon: ServerCog, disabled: $userStore?.operator },
+		{
+			label: 'Folders & Groups',
+			icon: FolderOpen,
+			subItems: [
+				{
+					label: 'Folders',
+					href: '/folders',
+					icon: FolderOpen,
+					disabled: $userStore?.operator,
+					faIcon: undefined
+				},
+				{
+					label: 'Groups',
+					href: '/groups',
+					icon: UserCog,
+					disabled: $userStore?.operator,
+					faIcon: undefined
+				}
+			]
+		},
+		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
 	]
 
 	const thirdMenuLinks = [
-		{ label: 'Docs', href: 'https://www.windmill.dev/docs/intro/', icon: BookOpen },
 		{
 			label: 'Help',
 			icon: HelpCircle,
 			subItems: [
+				{ label: 'Docs', href: 'https://www.windmill.dev/docs/intro/', icon: BookOpen },
 				{
 					label: 'Feedbacks',
 					href: 'https://discord.gg/V7PM2YHsPB',
@@ -70,20 +88,48 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<nav class="grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-4">
+<nav class="grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-4 gap-16">
 	<div class="space-y-1 pt-4 mb-6 md:mb-10">
 		{#each mainMenuLinks as menuLink (menuLink.href)}
-			<MenuLink class="!text-sm" {...menuLink} {isCollapsed} />
+			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 		{/each}
 	</div>
 	<div class="flex flex-col h-full justify-between">
 		<div class="space-y-0.5 mb-6 md:mb-10">
 			{#each secondaryMenuLinks as menuLink (menuLink.href)}
-				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+				{#if menuLink.subItems}
+					<Menu>
+						<div slot="trigger">
+							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+						</div>
+						{#each menuLink.subItems as subItem (subItem.href)}
+							<div class="py-1" role="none">
+								<a
+									href={subItem.href}
+									class="text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
+									role="menuitem"
+									tabindex="-1"
+								>
+									<div class="flex flex-row items-center gap-2">
+										{#if subItem.icon}
+											<svelte:component this={subItem.icon} size={16} />
+										{:else if subItem?.faIcon}
+											<Icon data={subItem.faIcon} />
+										{/if}
+
+										{subItem.label}
+									</div>
+								</a>
+							</div>
+						{/each}
+					</Menu>
+				{:else}
+					<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
+				{/if}
 			{/each}
 		</div>
 		<div class="space-y-0.5">
-			{#each thirdMenuLinks as menuLink (menuLink.href)}
+			{#each thirdMenuLinks as menuLink (menuLink)}
 				{#if menuLink.subItems}
 					<Menu>
 						<div slot="trigger">
@@ -99,15 +145,18 @@
 									target="_blank"
 								>
 									<div class="flex flex-row items-center gap-2">
-										<Icon data={subItem.faIcon} />
+										{#if subItem.icon}
+											<svelte:component this={subItem.icon} size={16} />
+										{:else if subItem.faIcon}
+											<Icon data={subItem.faIcon} />
+										{/if}
+
 										{subItem.label}
 									</div>
 								</a>
 							</div>
 						{/each}
 					</Menu>
-				{:else}
-					<MenuLink class="!text-xs z-50" {...menuLink} {isCollapsed} />
 				{/if}
 			{/each}
 		</div>

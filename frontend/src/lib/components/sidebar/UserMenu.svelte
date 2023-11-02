@@ -34,7 +34,7 @@
 <Menu>
 	<div slot="trigger" class="w-full">
 		<MenuButton
-			class="!text-xs !font-bold !w-full"
+			class="!text-xs !font-bold"
 			icon={User}
 			label={String($userStore?.username ?? ($superadmin ? $superadmin : '___'))}
 			{isCollapsed}

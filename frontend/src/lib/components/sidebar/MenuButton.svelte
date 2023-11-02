@@ -15,7 +15,7 @@
 {#if !disabled}
 	<button
 		class={classNames(
-			'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3 w-full',
+			'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
 			isSelected ? 'bg-[#30404e] hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
 			'transition-all',
 			$$props.class
@@ -54,7 +54,8 @@
 					isSelected
 						? 'text-blue-100 group-hover:text-white font-semibold'
 						: 'text-gray-100 group-hover:text-white',
-					'transition-all'
+					'transition-all',
+					$$props.class
 				)}
 			>
 				{label}
