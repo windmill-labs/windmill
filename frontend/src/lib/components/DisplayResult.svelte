@@ -156,7 +156,7 @@
 		{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="top-0 mb-2 w-full min-w-[400px] text-sm relative"
 				>{#if !disableExpand}
-					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">
+					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2 z-10">
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
 							><ClipboardCopy size={16} /></button
 						>
@@ -311,7 +311,7 @@
 			</div>
 		{:else}
 			<Highlight
-				class={forceJson ? '' : 'absolute top-1 h-full'}
+				class={forceJson ? '' : 'absolute top-1 h-full w-full'}
 				language={json}
 				code={toJsonStr(result).replace(/\\n/g, '\n')}
 			/>
