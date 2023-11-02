@@ -70,10 +70,8 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 			}
 
 			if (pathSplit.length > 2) {
-				// If there are more segments, treat them as folders within the user's item structure
 				insertItemInFolder(userItem.items, item, pathSplit.slice(2))
 			} else {
-				// If no more segments, the item belongs directly under this user
 				userItem.items.push(item)
 			}
 		} else if (pathSplit[0] === 'f') {
@@ -81,10 +79,52 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 		}
 	})
 
+	root.sort((a, b) => {
+		if ('username' in a && 'folderName' in b) {
+			return -1
+		}
+		if ('folderName' in a && 'username' in b) {
+			return 1
+		}
+		return 0
+	})
+
+	sortGroup(root)
+
 	return root
 }
-/**
- * User > Folder (only top level)
- * Favorite
- * modified at for user, by name for folder
- */
+
+function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
+	group.forEach((item) => {
+		if ('items' in item) {
+			item.items.sort((a, b) => {
+				if (isItemType(a) && isItemType(b)) {
+					if (a.starred && !b.starred) return -1
+					if (!a.starred && b.starred) return 1
+					return getModifiedAt(b) - getModifiedAt(a)
+				}
+				return 0
+			})
+
+			sortGroup(item.items)
+		}
+	})
+}
+
+function isItemType(item: ItemType | FolderItem | UserItem): item is ItemType {
+	return 'type' in item
+}
+
+function getModifiedAt(item: ItemType): number {
+	if (item.type === 'app') {
+		return new Date(item.edited_at).getTime() || 0
+	} else if (item.type === 'script') {
+		return new Date(item.created_at).getTime() || 0
+	} else if (item.type === 'flow') {
+		return new Date(item.edited_at).getTime() || 0
+	} else if (item.type === 'raw_app') {
+		return new Date(item.edited_at).getTime() || 0
+	}
+
+	return 0
+}
