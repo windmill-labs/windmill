@@ -21,7 +21,6 @@ use crate::{
     variables::build_crypt,
     webhook_util::{InstanceEvent, WebhookShared}
 };
-use crate::oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH;
 #[cfg(feature = "enterprise")]
 use axum::response::Redirect;
 use axum::{
@@ -46,6 +45,7 @@ use windmill_common::{
     scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
+    oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
 };
 use windmill_queue::QueueTransaction;
 
