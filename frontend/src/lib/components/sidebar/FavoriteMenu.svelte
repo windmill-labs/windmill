@@ -16,7 +16,7 @@
 
 <Menu>
 	<div slot="trigger">
-		<MenuButton class="!text-xs" icon={Star} label={'Favorites'} {isCollapsed} />
+		<MenuButton class="!text-xs !font-bold" icon={Star} label={'Favorites'} {isCollapsed} />
 	</div>
 
 	<div class="overflow-hidden" role="none">

@@ -27,7 +27,7 @@
 		{href}
 		class={classNames(
 			'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
-			isSelected ? 'bg-[#30404e] hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
+			isSelected ? 'bg-frost-700 hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
 			'transition-all',
 			$$props.class
 		)}
@@ -41,7 +41,7 @@
 				class={classNames(
 					'flex-shrink-0',
 					isSelected
-						? 'text-frost-300 group-hover:text-white'
+						? 'text-frost-200 group-hover:text-white'
 						: 'text-gray-100 group-hover:text-white',
 					'transition-all'
 				)}
@@ -51,9 +51,7 @@
 				data={faIcon}
 				class={classNames(
 					'flex-shrink-0',
-					isSelected
-						? 'text-frost-300 group-hover:text-white'
-						: 'text-gray-100 group-hover:text-white',
+					isSelected ? 'text-white' : 'text-gray-100 group-hover:text-white',
 					'transition-all'
 				)}
 			/>

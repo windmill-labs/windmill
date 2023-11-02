@@ -32,9 +32,9 @@
 </script>
 
 <Menu>
-	<div slot="trigger">
+	<div slot="trigger" class="w-full">
 		<MenuButton
-			class="!text-xs"
+			class="!text-xs !font-bold !w-full"
 			icon={User}
 			label={String($userStore?.username ?? ($superadmin ? $superadmin : '___'))}
 			{isCollapsed}

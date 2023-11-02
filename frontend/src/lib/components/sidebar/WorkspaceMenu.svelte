@@ -57,7 +57,12 @@
 
 <Menu>
 	<div slot="trigger">
-		<MenuButton class="!text-xs" icon={Building} label={$workspaceStore ?? ''} {isCollapsed} />
+		<MenuButton
+			class="!text-xs !font-bold"
+			icon={Building}
+			label={$workspaceStore ?? ''}
+			{isCollapsed}
+		/>
 	</div>
 
 	<div class="divide-y" role="none">

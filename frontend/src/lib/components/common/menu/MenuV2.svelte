@@ -14,7 +14,7 @@
 </script>
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-8">
-	<div use:floatingRef>
+	<div use:floatingRef class="w-full">
 		<MenuButton class="w-full">
 			<slot name="trigger" />
 		</MenuButton>

@@ -19,6 +19,7 @@
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
+	import { Icon } from 'svelte-awesome'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -89,7 +90,20 @@
 							<MenuButton class="!text-xs" {...menuLink} {isCollapsed} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href)}
-							<MenuLink class="!text-xs" {...subItem} {isCollapsed} />
+							<div class="py-1" role="none">
+								<a
+									href={subItem.href}
+									class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+									role="menuitem"
+									tabindex="-1"
+									target="_blank"
+								>
+									<div class="flex flex-row items-center gap-2">
+										<Icon data={subItem.faIcon} />
+										{subItem.label}
+									</div>
+								</a>
+							</div>
 						{/each}
 					</Menu>
 				{:else}

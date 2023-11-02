@@ -257,7 +257,7 @@
 					}}
 				>
 					<div
-						class="flex-row flex-shrink-0 px-3.5 py-3.5 font-extrabold text-white h-12 flex items-center gap-2"
+						class="flex-row flex-shrink-0 px-3.5 py-3.5 font-extrabold text-white h-12 flex items-center gap-1.5"
 						class:w-40={!isCollapsed}
 					>
 						<div class:mr-1={!isCollapsed}>
