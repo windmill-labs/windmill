@@ -267,7 +267,7 @@
 
 				<SidebarContent {isCollapsed} />
 
-				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-700">
+				<div class="flex-shrink-0 flex px-4 pb-3.5">
 					<button
 						on:click={() => {
 							isCollapsed = !isCollapsed
