@@ -20,7 +20,16 @@ export interface FolderItem {
 	items: (ItemType | FolderItem)[]
 }
 
-function insertItemInFolder(root: (ItemType | FolderItem)[], item: ItemType, path: string[]) {
+export type UserItem = {
+	username: string
+	items: (ItemType | FolderItem)[]
+}
+
+function insertItemInFolder(
+	root: (ItemType | FolderItem | UserItem)[],
+	item: ItemType,
+	path: string[]
+) {
 	let currentLevel = root
 
 	path.forEach((folderName, index) => {
@@ -40,17 +49,33 @@ function insertItemInFolder(root: (ItemType | FolderItem)[], item: ItemType, pat
 	})
 }
 
-export function groupItems(items: ItemType[] | undefined): (ItemType | FolderItem)[] {
+export function groupItems(items: ItemType[] | undefined): (ItemType | FolderItem | UserItem)[] {
 	if (!items) {
 		return []
 	}
 
-	const root: (ItemType | FolderItem)[] = []
+	const root: (ItemType | FolderItem | UserItem)[] = []
 
 	items.forEach((item) => {
 		const pathSplit = item.path.split('/')
 		if (pathSplit[0] === 'u') {
-			root.push(item)
+			const username = pathSplit[1]
+			let userItem = root.find((f): f is UserItem => 'username' in f && f.username === username) as
+				| UserItem
+				| undefined
+
+			if (!userItem) {
+				userItem = { username, items: [] }
+				root.push(userItem)
+			}
+
+			if (pathSplit.length > 2) {
+				// If there are more segments, treat them as folders within the user's item structure
+				insertItemInFolder(userItem.items, item, pathSplit.slice(2))
+			} else {
+				// If no more segments, the item belongs directly under this user
+				userItem.items.push(item)
+			}
 		} else if (pathSplit[0] === 'f') {
 			insertItemInFolder(root, item, pathSplit.slice(1))
 		}
