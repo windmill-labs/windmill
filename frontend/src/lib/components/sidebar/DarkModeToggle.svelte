@@ -5,7 +5,6 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	export let darkMode: boolean = document.documentElement.classList.contains('dark')
-
 	export let forcedDarkMode: boolean = true
 
 	function onThemeChange() {
