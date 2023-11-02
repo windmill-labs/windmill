@@ -83,3 +83,8 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 
 	return root
 }
+/**
+ * User > Folder (only top level)
+ * Favorite
+ * modified at for user, by name for folder
+ */

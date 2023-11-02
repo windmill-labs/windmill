@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, ChevronUp, Folder, User } from 'lucide-svelte'
+	import { ChevronDown, ChevronUp, Folder, FolderTree, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
 	import type { FolderItem, ItemType, UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -27,14 +27,18 @@
 					<div
 						class=" rounded-md p-1 flex justify-center items-center border bg-gray-50 border-gray-200 dark:bg-transparent dark:border-gray-900"
 					>
-						<Folder size={20} color="#aaa" />
+						{#if depth === 0}
+							<Folder size={20} color="#aaa" />
+						{:else}
+							<FolderTree size={20} color="#aaa" />
+						{/if}
 					</div>
 
 					<div>
-						Folder: {item.folderName}
-						<div class="text-2xs font-normal text-secondary"
-							>({pluralize(item.items.length, ' item')})</div
-						>
+						{#if depth === 0}f/{/if}{item.folderName}
+						<div class="text-2xs font-normal text-secondary">
+							({pluralize(item.items.length, ' item')})
+						</div>
 					</div>
 				</div>
 				<button on:click={() => (opened = !opened)}>
@@ -75,7 +79,7 @@
 					</div>
 
 					<div>
-						User: {item.username}
+						u/{item.username}
 						<div class="text-2xs font-normal text-secondary"
 							>({pluralize(item.items.length, ' item')})</div
 						>
