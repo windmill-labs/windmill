@@ -56,8 +56,6 @@ use windmill_queue::PushIsolationLevel;
 
 use std::{fs, str};
 
-pub const WORKSPACE_SLACK_BOT_TOKEN_PATH: &str = "f/slack_bot/bot_token";
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/login/:client", get(login))

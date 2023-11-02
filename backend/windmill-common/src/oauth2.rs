@@ -10,3 +10,5 @@ use hmac::Hmac;
 use sha2::Sha256;
 
 pub type HmacSha256 = Hmac<Sha256>;
+
+pub const WORKSPACE_SLACK_BOT_TOKEN_PATH: &str = "f/slack_bot/bot_token";
