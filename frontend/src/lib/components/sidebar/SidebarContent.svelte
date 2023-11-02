@@ -89,13 +89,15 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<nav class="grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-4 gap-16">
+<nav
+	class="grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-16 justify-between"
+>
 	<div class="space-y-1 pt-4 mb-6 md:mb-10">
 		{#each mainMenuLinks as menuLink (menuLink.href)}
 			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 		{/each}
 	</div>
-	<div class="flex flex-col h-full justify-between">
+	<div class="flex flex-col h-full justify-end">
 		<div class="space-y-0.5 mb-6 md:mb-10">
 			{#each secondaryMenuLinks as menuLink (menuLink.href)}
 				{#if menuLink.subItems}
