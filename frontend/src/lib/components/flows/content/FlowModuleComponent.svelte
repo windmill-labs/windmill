@@ -45,16 +45,16 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
-
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
 	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
+	export let noEditor: boolean
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -159,7 +159,7 @@
 
 	let forceReload = 0
 
-	let editorPanelSize = flowModule.value.type == 'script' ? 30 : 50
+	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
 </script>
 
@@ -167,7 +167,7 @@
 
 {#if flowModule.value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
-		<FlowCard bind:flowModule>
+		<FlowCard {noEditor} bind:flowModule>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
@@ -197,7 +197,8 @@
 							flowModule,
 							$selectedId,
 							$flowStateStore[flowModule.id].schema,
-							$flowStore
+							$flowStore,
+							$pathStore
 						)
 						flowModule = module
 						$flowStateStore[module.id] = state
@@ -205,7 +206,7 @@
 				/>
 			</svelte:fragment>
 
-			{#if flowModule.value.type === 'rawscript'}
+			{#if flowModule.value.type === 'rawscript' && !noEditor}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
 						{validCode}
@@ -233,59 +234,63 @@
 				<Splitpanes horizontal>
 					<Pane bind:size={editorPanelSize} minSize={20}>
 						{#if flowModule.value.type === 'rawscript'}
-							{#key flowModule.id}
-								<Editor
-									folding
-									path={flowModule.value.path}
-									bind:websocketAlive
-									bind:this={editor}
-									class="h-full relative"
-									bind:code={flowModule.value.content}
-									deno={flowModule.value.language === RawScript.language.DENO}
-									lang={scriptLangToEditorLang(flowModule.value.language)}
-									automaticLayout={true}
-									cmdEnterAction={async () => {
-										selected = 'test'
-										if ($selectedId == flowModule.id) {
+							{#if !noEditor}
+								{#key flowModule.id}
+									<Editor
+										folding
+										path={flowModule.value.path}
+										bind:websocketAlive
+										bind:this={editor}
+										class="h-full relative"
+										bind:code={flowModule.value.content}
+										deno={flowModule.value.language === RawScript.language.DENO}
+										lang={scriptLangToEditorLang(flowModule.value.language)}
+										automaticLayout={true}
+										cmdEnterAction={async () => {
+											selected = 'test'
+											if ($selectedId == flowModule.id) {
+												if (flowModule.value.type === 'rawscript') {
+													flowModule.value.content = editor.getCode()
+												}
+												await reload(flowModule)
+												modulePreview?.runTestWithStepArgs()
+											}
+										}}
+										on:change={async (event) => {
 											if (flowModule.value.type === 'rawscript') {
-												flowModule.value.content = editor.getCode()
+												flowModule.value.content = event.detail
 											}
 											await reload(flowModule)
-											modulePreview?.runTestWithStepArgs()
-										}
-									}}
-									on:change={async (event) => {
-										if (flowModule.value.type === 'rawscript') {
-											flowModule.value.content = event.detail
-										}
-										await reload(flowModule)
-									}}
-									formatAction={() => {
-										reload(flowModule)
-										saveDraft()
-									}}
-									fixedOverflowWidgets={true}
-									args={Object.entries(flowModule.value.input_transforms).reduce(
-										(acc, [key, obj]) => {
-											acc[key] = obj.type === 'static' ? obj.value : undefined
-											return acc
-										},
-										{}
-									)}
-								/>
-								<DiffEditor
-									bind:this={diffEditor}
-									automaticLayout
-									fixedOverflowWidgets
-									class="hidden h-full"
-								/>
-							{/key}
-						{:else if flowModule.value.type === 'script'}
-							<div class="border-t">
-								{#key forceReload}
-									<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
+										}}
+										formatAction={() => {
+											reload(flowModule)
+											saveDraft()
+										}}
+										fixedOverflowWidgets={true}
+										args={Object.entries(flowModule.value.input_transforms).reduce(
+											(acc, [key, obj]) => {
+												acc[key] = obj.type === 'static' ? obj.value : undefined
+												return acc
+											},
+											{}
+										)}
+									/>
+									<DiffEditor
+										bind:this={diffEditor}
+										automaticLayout
+										fixedOverflowWidgets
+										class="hidden h-full"
+									/>
 								{/key}
-							</div>
+							{/if}
+						{:else if flowModule.value.type === 'script'}
+							{#if !noEditor}
+								<div class="border-t">
+									{#key forceReload}
+										<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
+									{/key}
+								</div>
+							{/if}
 						{:else if flowModule.value.type === 'flow'}
 							<FlowPathViewer path={flowModule.value.path} />
 						{/if}

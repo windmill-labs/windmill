@@ -28,10 +28,13 @@
 			'settings-worker-group',
 			'settings-cache',
 			'settings-concurrency',
+			'settings-early-stop',
 			'inputs',
 			'schedules',
 			'failure',
-			'constants'
+			'constants',
+			'Result',
+			'Input'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
 </script>
@@ -48,8 +51,8 @@
 		}}
 		startIcon={{ icon: faPlay }}
 	>
-		Test up to
-		<Badge baseClass="ml-1" color="indigo">
+		Test up to&nbsp;
+		<Badge baseClass="ml-1" small color="indigo">
 			{$selectedId}
 		</Badge>
 	</Button>

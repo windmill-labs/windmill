@@ -2,11 +2,11 @@ import type { Schema } from '$lib/common'
 import {
 	Script,
 	ScriptService,
-	type Flow,
 	type FlowModule,
 	type PathFlow,
 	type PathScript,
-	type RawScript
+	type RawScript,
+	type OpenFlow
 } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
@@ -69,12 +69,14 @@ export async function createInlineScriptModule(
 	language: RawScript.language,
 	kind: Script.kind,
 	subkind: 'pgsql' | 'flow',
-	id: string
+	id: string,
+	summary?: string
 ): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
 	const flowModule: FlowModule = {
 		id,
+		summary,
 		value: { type: 'rawscript', content: code, language, input_transforms: {} }
 	}
 
@@ -175,7 +177,7 @@ async function createInlineScriptModuleFromPath(
 	}
 }
 
-export function emptyModule(flowState: FlowState, fullFlow: Flow, flow?: boolean): FlowModule {
+export function emptyModule(flowState: FlowState, fullFlow: OpenFlow, flow?: boolean): FlowModule {
 	return {
 		id: nextId(flowState, fullFlow),
 		value: { type: 'identity', flow }
@@ -186,7 +188,8 @@ export async function createScriptFromInlineScript(
 	flowModule: FlowModule,
 	suffix: string,
 	schema: Schema,
-	flow: Flow
+	flow: OpenFlow,
+	flowPath: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const user = get(userStore)
 
@@ -202,9 +205,9 @@ export async function createScriptFromInlineScript(
 		suffix = others.join('/')
 	}
 
-	const path = `${flow.path}/${suffix}`
+	const path = `${flowPath}/${suffix}`
 	const forkedDescription = wasForked ? `as a fork of ${originalScriptPath}` : ''
-	const description = `This script was edited in place of flow ${flow.path} ${forkedDescription} by ${user?.username}.`
+	const description = `This script was edited in place of flow ${flowPath} ${forkedDescription} by ${user?.username}.`
 
 	const availablePath = await findNextAvailablePath(path)
 

@@ -67,6 +67,7 @@
 		// }
 		const num = isNaN(+values[0]) ? null : +values[0]
 		outputs?.result.set(num)
+
 		if (iterContext && listInputs) {
 			listInputs.set(id, num)
 		}
@@ -133,15 +134,19 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div class="flex {vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1">
-		<span class={twMerge(css?.limits?.class, 'wm-slider-limits')} style={css?.limits?.style ?? ''}>
+		<span
+			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
+			style={css?.limits?.style ?? ''}
+		>
 			{vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
 		</span>
 		<div
-			class={twMerge('grow', css?.bar?.class, 'wm-slider-bar')}
+			class={twMerge('grow', css?.bar?.class, 'font-mono wm-slider-bar')}
 			style={css?.bar?.style}
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider
+				springValues={{ stiffness: 1, damping: 1 }}
 				{vertical}
 				bind:slider
 				bind:values
@@ -150,12 +155,15 @@
 				max={+(resolvedConfig?.max ?? 0)}
 			/>
 		</div>
-		<span class={twMerge(css?.limits?.class, 'wm-slider-limits')} style={css?.limits?.style ?? ''}>
+		<span
+			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
+			style={css?.limits?.style ?? ''}
+		>
 			{vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
 		</span>
 		<span class="mx-2">
 			<span
-				class={twMerge(spanClass, css?.value?.class ?? '', 'wm-slider-value')}
+				class={twMerge(spanClass, css?.value?.class ?? '', 'font-mono wm-slider-value')}
 				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
 			>
 				{values[0]}

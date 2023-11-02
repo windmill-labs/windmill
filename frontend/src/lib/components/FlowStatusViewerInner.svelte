@@ -189,7 +189,10 @@
 					started_at,
 					parent_module: mod['parent_module']
 				}
-				$durationStatuses[mod.id][job.id] = { started_at }
+				$durationStatuses[mod.id][job.id] = {
+					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+					started_at
+				}
 			} else {
 				$flowModuleStates[mod.id] = {
 					args: job.args,
@@ -203,7 +206,11 @@
 					iteration_total: mod.iterator?.itered?.length
 					// retries: $flowStateStore?.raw_flow
 				}
-				$durationStatuses[mod.id][job.id] = { started_at, duration_ms: job['duration_ms'] }
+				$durationStatuses[mod.id][job.id] = {
+					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+					started_at,
+					duration_ms: job['duration_ms']
+				}
 			}
 		}
 	}
@@ -373,6 +380,10 @@
 										? new Date(e.detail.started_at).getTime()
 										: undefined
 
+									let created_at = e.detail.created_at
+										? new Date(e.detail.created_at).getTime()
+										: undefined
+
 									let job_id = e.detail.id
 									if ($durationStatuses[modId] == undefined) {
 										$durationStatuses[modId] = {}
@@ -388,7 +399,10 @@
 											duration_ms: undefined
 										}
 
-										$durationStatuses[modId][job_id] = { started_at }
+										$durationStatuses[modId][job_id] = {
+											created_at,
+											started_at
+										}
 									} else {
 										$flowModuleStates[modId] = {
 											started_at,
@@ -404,6 +418,7 @@
 											isListJob: true
 										}
 										$durationStatuses[modId][job_id] = {
+											created_at,
 											started_at,
 											duration_ms: e.detail.duration_ms
 										}

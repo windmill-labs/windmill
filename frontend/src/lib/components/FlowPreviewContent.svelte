@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { Job, JobService, type Flow, type FlowModule, type RestartedFrom } from '$lib/gen'
+	import {
+		Job,
+		JobService,
+		type Flow,
+		type FlowModule,
+		type RestartedFrom,
+		type OpenFlow
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Badge, Button, Drawer, Kbd, Popup } from './common'
@@ -33,7 +40,7 @@
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, initialPath } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
@@ -62,7 +69,7 @@
 			})
 	}
 
-	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
+	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
@@ -83,7 +90,7 @@
 	) {
 		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
-		jobId = await runFlowPreview(args, newFlow, restartedFrom)
+		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 		isRunning = true
 	}
 

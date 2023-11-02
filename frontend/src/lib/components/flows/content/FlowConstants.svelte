@@ -10,6 +10,8 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import type { FlowEditorContext } from '../types'
 
+	export let noEditor: boolean
+
 	let hideOptional = false
 	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -82,7 +84,7 @@
 </script>
 
 <div class="min-h-full">
-	<FlowCard title="All Static Inputs">
+	<FlowCard {noEditor} title="All Static Inputs">
 		<Toggle slot="header" bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"

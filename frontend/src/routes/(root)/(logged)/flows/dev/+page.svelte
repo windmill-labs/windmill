@@ -8,11 +8,12 @@
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
-	import type { Flow, FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, Job, OpenFlow } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	let testJobLoader: TestJobLoader
 
@@ -21,15 +22,13 @@
 	let testJob: Job | undefined
 
 	const flowStore = writable({
-		path: '',
 		summary: '',
 		value: { modules: [] },
-		edited_by: '',
-		edited_at: '',
-		archived: false,
 		extra_perms: {},
 		schema: emptySchema()
-	} as Flow)
+	} as OpenFlow)
+
+	let initialCode = JSON.stringify($flowStore, null, 4)
 	const flowStateStore = writable({} as FlowState)
 	const scheduleStore = writable({
 		args: {},
@@ -43,7 +42,7 @@
 	const history = initHistory($flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})
-	const selectedIdStore = writable('')
+	const selectedIdStore = writable('settings-metadata')
 
 	// function select(selectedId: string) {
 	// 	selectedIdStore.set(selectedId)
@@ -56,12 +55,14 @@
 		scriptEditorDrawer,
 		moving,
 		history,
+		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
 		testStepStore,
 		saveDraft: () => {},
 		initialPath: ''
 	})
+
 	type LastEdit = {
 		content: string
 		path: string
@@ -165,6 +166,24 @@
 		// }
 	}
 	let editor: SimpleEditor
+
+	$: updateCode(editor, $flowStore)
+
+	function updateCode(editor: SimpleEditor, flow: OpenFlow) {
+		if (editor && !deepEqual(flow, JSON.parse(editor.getCode()))) {
+			editor.setCode(JSON.stringify(flow, null, 4))
+		}
+	}
+
+	function updateFromCode(code: string) {
+		try {
+			if (!deepEqual(JSON.parse(code), $flowStore)) {
+				$flowStore = JSON.parse(code)
+			}
+		} catch (e) {
+			console.error('issue parsing new change:', code, e)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -175,37 +194,32 @@
 	<div class="h-full w-full grid grid-cols-2">
 		<SimpleEditor
 			bind:this={editor}
-			code={JSON.stringify($flowStore, null, 4)}
+			code={initialCode}
 			lang="json"
 			on:change={(e) => {
-				const code = e.detail.code
-				try {
-					$flowStore = JSON.parse(code)
-				} catch (e) {
-					console.error('issue parsing new change:', code, e)
-				}
+				updateFromCode(e.detail.code)
 			}}
 		/>
-		<div class="flex flex-col h-full relative">
-			<div class="flex justify-center pt-1 absolute right-2 top-2">
+		<div class="flex flex-col max-h-screen h-full relative">
+			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
 				<FlowPreviewButtons />
 			</div>
-			<Splitpanes horizontal class="h-full">
+			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>
 					{#if $flowStore?.value?.modules}
 						<FlowModuleSchemaMap
-							disableHeader
 							bind:modules={$flowStore.value.modules}
-							on:change={() => editor?.setCode(JSON.stringify($flowStore, null, 4))}
 							disableAi
 							disableTutorials
+							smallErrorHandler={true}
+							disableStaticInputs
 						/>
 					{:else}
 						<div class="text-red-400 mt-20">Missing flow modules</div>
 					{/if}
 				</Pane>
 				<Pane size={67}>
-					<FlowEditorPanel />
+					<FlowEditorPanel noEditor />
 				</Pane>
 			</Splitpanes>
 		</div>
