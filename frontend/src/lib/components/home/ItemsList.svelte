@@ -246,8 +246,6 @@
 	let treeView = false
 
 	let contentSearch: ContentSearch
-
-	$: console.log(groupItems(items))
 </script>
 
 <SearchItems

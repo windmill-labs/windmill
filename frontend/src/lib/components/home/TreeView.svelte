@@ -6,7 +6,7 @@
 	import { slide } from 'svelte/transition'
 	import { pluralize } from '$lib/utils'
 
-	export let item: ItemType | FolderItem | undefined
+	export let item: ItemType | FolderItem | UserItem | undefined
 
 	export let depth: number = 0
 
