@@ -259,7 +259,7 @@
 						{/if}
 					</div>
 				</button>
-				<div class="px-2 pt-4 space-y-2 border-y border-gray-700">
+				<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu {isCollapsed} />
 					<FavoriteMenu {favoriteLinks} {isCollapsed} />
