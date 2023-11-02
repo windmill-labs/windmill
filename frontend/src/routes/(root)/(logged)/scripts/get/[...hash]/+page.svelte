@@ -8,7 +8,6 @@
 		canWrite,
 		truncateHash
 	} from '$lib/utils'
-	import { faEdit, faCodeFork, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
@@ -43,10 +42,14 @@
 		Archive,
 		ArchiveRestore,
 		FolderOpen,
+		GitFork,
 		Globe2,
+		History,
 		Loader2,
+		Pen,
 		Server,
 		Share,
+		Table2,
 		Trash
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
@@ -206,7 +209,7 @@
 					href: `/scripts/add?template=${script.path}`,
 					size: 'xs',
 					color: 'light',
-					startIcon: faCodeFork
+					startIcon: GitFork
 				}
 			})
 		}
@@ -221,7 +224,7 @@
 				href: `/runs/${script.path}`,
 				size: 'xs',
 				color: 'light',
-				startIcon: faHistory
+				startIcon: History
 			}
 		})
 
@@ -235,7 +238,7 @@
 
 					size: 'xs',
 					color: 'light',
-					startIcon: faHistory
+					startIcon: History
 				}
 			})
 		}
@@ -252,7 +255,7 @@
 
 					size: 'xs',
 					color: 'light',
-					startIcon: faTableColumns
+					startIcon: Table2
 				}
 			})
 
@@ -263,7 +266,7 @@
 						topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 					}`,
 					size: 'xs',
-					startIcon: faEdit,
+					startIcon: Pen,
 					color: 'dark',
 					variant: 'contained',
 					disabled: !can_write

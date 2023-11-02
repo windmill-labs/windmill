@@ -24,7 +24,7 @@
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { faClipboard, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
@@ -38,6 +38,7 @@
 		Loader2,
 		MoreVertical,
 		RefreshCw,
+		Save,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -499,7 +500,7 @@
 
 			<div slot="actions">
 				<Button
-					startIcon={{ icon: faSave }}
+					startIcon={{ icon: Save }}
 					disabled={pathError != ''}
 					on:click={() => saveInitialDraft()}
 				>
@@ -547,7 +548,7 @@
 
 		<div slot="actions">
 			<Button
-				startIcon={{ icon: faSave }}
+				startIcon={{ icon: Save }}
 				disabled={pathError != ''}
 				on:click={() => {
 					if (appPath == '') {
@@ -978,12 +979,12 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		<Button loading={loading.save} startIcon={{ icon: faSave }} on:click={saveDraft} size="xs">
+		<Button loading={loading.save} startIcon={{ icon: Save }} on:click={saveDraft} size="xs">
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
 		<Button
 			loading={loading.save}
-			startIcon={{ icon: faSave }}
+			startIcon={{ icon: Save }}
 			on:click={save}
 			size="xs"
 			dropdownItems={appPath != ''

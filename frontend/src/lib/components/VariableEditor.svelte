@@ -10,13 +10,13 @@
 	import Alert from './common/alert/Alert.svelte'
 	import autosize from 'svelte-autosize'
 	import Toggle from './Toggle.svelte'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
+	import { Save } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -234,7 +234,7 @@
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
 				disabled={!can_write || !valid || pathError != ''}
-				startIcon={{ icon: faSave }}
+				startIcon={{ icon: Save }}
 				color="dark"
 				size="sm"
 			>

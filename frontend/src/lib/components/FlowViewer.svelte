@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import type { FlowValue } from '$lib/gen'
 	import { Tab, Tabs, TabContent, Button } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
@@ -13,6 +12,7 @@
 		SVELVET_CONTEXT_KEY,
 		type SvelvetSettingsContext
 	} from './graph/svelvet/container/models'
+	import { Clipboard } from 'lucide-svelte'
 
 	setContext<SvelvetSettingsContext>(SVELVET_CONTEXT_KEY, {
 		fullHeight: true
@@ -98,7 +98,7 @@
 					color="light"
 					variant="border"
 					size="xs"
-					startIcon={{ icon: faClipboard }}
+					startIcon={{ icon: Clipboard }}
 					btnClasses="absolute top-2 right-2 w-min"
 				>
 					Copy content

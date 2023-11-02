@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { faCalendar } from '@fortawesome/free-solid-svg-icons'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import { Badge, Button } from './common'
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
-	import { ListOrdered, PenBox } from 'lucide-svelte'
+	import { ListOrdered, Calendar, PenBox } from 'lucide-svelte'
 	import JobArgs from './JobArgs.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -87,7 +86,7 @@
 		variant="border"
 		color="light"
 		size="xs"
-		startIcon={{ icon: faCalendar }}
+		startIcon={{ icon: Calendar }}
 	>
 		New Schedule
 	</Button>

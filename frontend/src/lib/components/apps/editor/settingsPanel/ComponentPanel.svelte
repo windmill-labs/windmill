@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faChevronLeft } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -25,7 +24,7 @@
 	import { push } from '$lib/history'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import StylePanel from './StylePanel.svelte'
-	import { Delete, ExternalLink } from 'lucide-svelte'
+	import { ChevronLeft, Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -376,7 +375,7 @@
 						color="light"
 						size="xs"
 						variant="border"
-						startIcon={{ icon: faChevronLeft }}
+						startIcon={{ icon: ChevronLeft }}
 						on:click={() => secondaryMenuLeft.toggle(StylePanel, {})}
 					>
 						Show

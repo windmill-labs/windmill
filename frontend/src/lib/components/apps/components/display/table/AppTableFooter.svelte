@@ -1,8 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faDownload } from '@fortawesome/free-solid-svg-icons'
 	import type { Table } from '@tanstack/svelte-table'
-	import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, Download, Loader2 } from 'lucide-svelte'
 	import type { Readable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
@@ -116,7 +115,7 @@
 					color="light"
 					btnClasses="!py-1"
 					on:click={downloadResultAsCSV}
-					startIcon={{ icon: faDownload }}
+					startIcon={{ icon: Download }}
 				>
 					Download
 				</Button>

@@ -4,18 +4,12 @@
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
-	import { ArrowRight } from 'lucide-svelte'
+	import { ArrowRight, List, Pen, RefreshCw, Scroll, TimerOff, Trash } from 'lucide-svelte'
 	import {
-		faRefresh,
 		faCircle,
 		faTimes,
-		faTrash,
 		faCalendar,
-		faTimesCircle,
-		faList,
-		faEdit,
 		faHourglassHalf,
-		faScroll,
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -198,7 +192,7 @@
 					dropdownItems={[
 						{
 							displayName: 'delete log and results (admin only)',
-							icon: faTrash,
+							icon: Trash,
 							action: () => {
 								job?.id && deleteCompletedJob(job.id)
 							}
@@ -213,7 +207,7 @@
 						variant="border"
 						color="blue"
 						size="md"
-						startIcon={{ icon: faList }}
+						startIcon={{ icon: List }}
 					>
 						View runs
 					</Button>
@@ -229,7 +223,7 @@
 					<Button
 						color="red"
 						size="md"
-						startIcon={{ icon: faTimesCircle }}
+						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
 								cancelJob(job?.id)
@@ -245,7 +239,7 @@
 					<Button
 						color="red"
 						size="md"
-						startIcon={{ icon: faTimesCircle }}
+						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
 								cancelJob(job?.id)
@@ -268,7 +262,7 @@
 						on:click|once={() => {
 							restartFlow(job?.id, selectedJobStep, 0)
 						}}
-						startIcon={{ icon: faRefresh }}
+						startIcon={{ icon: RefreshCw }}
 					>
 						Re-start from
 						<Badge baseClass="ml-1" color="indigo">
@@ -287,7 +281,7 @@
 								variant="border"
 								color="blue"
 								disabled={!$enterpriseLicense}
-								startIcon={{ icon: faRefresh }}
+								startIcon={{ icon: RefreshCw }}
 								nonCaptureEvent={true}
 							>
 								Re-start from
@@ -346,7 +340,7 @@
 					}}
 					color="blue"
 					size="md"
-					startIcon={{ icon: faRefresh }}>Run again</Button
+					startIcon={{ icon: RefreshCw }}>Run again</Button
 				>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
@@ -359,11 +353,11 @@
 							}}
 							color="blue"
 							size="md"
-							startIcon={{ icon: faEdit }}>Edit</Button
+							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
 				{/if}
-				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: faScroll }}>
+				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: Scroll }}>
 					View {job?.job_kind}
 				</Button>
 			{/if}

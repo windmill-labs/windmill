@@ -89,7 +89,7 @@
 			</Button>
 			<Button
 				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
-				startIcon={{ icon: faCodeFork }}
+				startIcon={{ faIcon: faCodeFork }}
 				color="dark"
 				size="xs"
 			>
@@ -119,7 +119,7 @@
 
 			<Button
 				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
-				startIcon={{ icon: faCodeFork }}
+				startIcon={{ faIcon: faCodeFork }}
 				color="dark"
 				size="xs"
 			>
@@ -151,7 +151,7 @@
 
 			<Button
 				href="/apps/add?hub={appViewerApp?.app?.id}"
-				startIcon={{ icon: faCodeFork }}
+				startIcon={{ faIcon: faCodeFork }}
 				color="dark"
 				size="xs"
 			>

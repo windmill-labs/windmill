@@ -1,11 +1,11 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
+	import { Plus, Trash } from 'lucide-svelte'
 
 	export let panes: number[]
 	export let component: AppComponent
@@ -65,7 +65,7 @@
 						}}
 						iconOnly
 						btnClasses="!text-red-500"
-						startIcon={{ icon: faTrashAlt }}
+						startIcon={{ icon: Trash }}
 					/>
 				</div>
 			</div>
@@ -74,7 +74,7 @@
 			size="xs"
 			color="light"
 			variant="border"
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			on:click={addTab}
 			iconOnly
 		/>

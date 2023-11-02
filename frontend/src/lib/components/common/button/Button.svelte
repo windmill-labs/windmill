@@ -6,6 +6,7 @@
 	import ButtonDropdown from './ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
+	import { Icon } from 'svelte-awesome'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -109,8 +110,6 @@
 		}
 	}
 
-	$: isSmall = size === 'xs' || size === 'sm'
-
 	$: buttonClass = twMerge(
 		'w-full',
 		colorVariants?.[color]?.[variant],
@@ -119,7 +118,7 @@
 		ButtonType.SpacingClasses[spacingSize][variant],
 		'focus:ring-2 font-semibold',
 		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
-		'justify-center items-center text-center whitespace-nowrap inline-flex',
+		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
 		'transition-all'
 	)
@@ -158,14 +157,14 @@
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} />
+				<svelte:component this={startIcon.icon} class={startIcon.classes} size={16} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} />
+				<svelte:component this={endIcon.icon} class={endIcon.classes} size={16} />
 			{/if}
 		</a>
 	{:else}
@@ -188,15 +187,19 @@
 		>
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
-			{:else if startIcon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} />
+			{:else if startIcon?.icon}
+				<svelte:component this={startIcon.icon} class={startIcon.classes} size={16} />
+			{:else if startIcon?.faIcon}
+				<Icon data={startIcon.faIcon} class={startIcon.classes} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
-			{#if endIcon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} />
+			{#if endIcon?.icon}
+				<svelte:component this={endIcon.icon} class={endIcon.classes} size={16} />
+			{:else if endIcon?.faIcon}
+				<Icon data={endIcon.faIcon} class={endIcon.classes} />
 			{/if}
 		</button>
 	{/if}
@@ -215,7 +218,7 @@
 								)}
 							>
 								{#if item.icon}
-									<svelte:component this={item.icon} class="w-4 h-4" />
+									<svelte:component this={item.icon} class="w-4 h-4" size={16} />
 								{/if}
 								{item.label}
 							</div>

@@ -285,7 +285,7 @@
 					<div class="flex flex-col gap-2 max-w-sm">
 						<Button
 							size="sm"
-							endIcon={{ icon: faSlack }}
+							endIcon={{ faIcon: faSlack }}
 							btnClasses="mt-2"
 							variant="border"
 							on:click={async () => {
@@ -300,12 +300,12 @@
 						</Button>
 						<Button
 							size="sm"
-							endIcon={{ icon: faScroll }}
+							endIcon={{ faIcon: faScroll }}
 							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ faIcon: faBarsStaggered }} href="/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>

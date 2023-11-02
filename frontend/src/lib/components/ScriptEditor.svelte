@@ -5,7 +5,7 @@
 	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
-	import { faClipboard, faPlay } from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -25,6 +25,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import { Icon } from 'svelte-awesome'
 	import DiffEditor from './DiffEditor.svelte'
+	import { Play } from 'lucide-svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -260,7 +261,7 @@
 					size="xs"
 					btnClasses="mr-1 hidden lg:block"
 					startIcon={{
-						icon: faGithub
+						faIcon: faGithub
 					}}
 				>
 					Use VScode
@@ -337,7 +338,7 @@
 							btnClasses="w-full"
 							size="xs"
 							startIcon={{
-								icon: faPlay,
+								icon: Play,
 								classes: 'animate-none'
 							}}
 						>

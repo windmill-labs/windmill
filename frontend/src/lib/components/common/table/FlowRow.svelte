@@ -12,7 +12,6 @@
 		faCalendarAlt,
 		faCodeFork,
 		faCopy,
-		faEdit,
 		faFileExport,
 		faList,
 		faShare,
@@ -26,6 +25,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { Pen } from 'lucide-svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -96,7 +96,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faEdit }}
+							startIcon={{ icon: Pen }}
 							href="/flows/edit/{path}?nodraft=true"
 						>
 							Edit
@@ -108,7 +108,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faCodeFork }}
+							startIcon={{ faIcon: faCodeFork }}
 							href="/flows/add?template={path}"
 						>
 							Fork

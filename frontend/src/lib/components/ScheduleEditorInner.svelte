@@ -13,9 +13,9 @@
 	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
-	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
+	import { List, Save } from 'lucide-svelte'
 
 	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
@@ -238,7 +238,7 @@
 					<Button
 						size="sm"
 						variant="border"
-						startIcon={{ icon: faList }}
+						startIcon={{ icon: List }}
 						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 						href={`/runs/${script_path}`}
 					>
@@ -262,7 +262,7 @@
 				</div>
 			{/if}
 			<Button
-				startIcon={{ icon: faSave }}
+				startIcon={{ icon: Save }}
 				disabled={!allowSchedule ||
 					pathError != '' ||
 					emptyString(script_path) ||

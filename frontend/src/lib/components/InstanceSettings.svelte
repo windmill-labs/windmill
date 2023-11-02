@@ -7,7 +7,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import OAuthSetting from '$lib/components/OAuthSetting.svelte'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { deepEqual } from 'fast-equals'
 	import OktaSetting from './OktaSetting.svelte'
 	import CloseButton from './common/CloseButton.svelte'
@@ -17,7 +16,7 @@
 	import { capitalize } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle, Plus } from 'lucide-svelte'
 
 	export const settings: Record<string, Setting[]> = {
 		Core: [
@@ -390,7 +389,7 @@
 									color="blue"
 									hover="yo"
 									size="sm"
-									endIcon={{ icon: faPlus }}
+									endIcon={{ icon: Plus }}
 									disabled={(oauth_name == 'custom' && resourceName == '') ||
 										(oauth_name == 'custom' && !$enterpriseLicense)}
 									on:click={() => {

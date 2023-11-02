@@ -27,7 +27,7 @@
 	import { random_adj } from './random_positive_adjetive'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { Folder, User } from 'lucide-svelte'
+	import { Folder, Plus, User } from 'lucide-svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
@@ -269,12 +269,7 @@
 		{#if !folderCreated}
 			<div class="flex flex-row">
 				<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
-				<Button
-					size="md"
-					startIcon={{ icon: faPlus }}
-					disabled={!newFolderName}
-					on:click={addFolder}
-				>
+				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
 					New&nbsp;folder
 				</Button>
 			</div>

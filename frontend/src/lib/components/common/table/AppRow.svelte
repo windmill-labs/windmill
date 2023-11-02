@@ -7,7 +7,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faCodeFork,
-		faEdit,
 		faExternalLink,
 		faFileExport,
 		faHistory,
@@ -19,7 +18,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import Badge from '../badge/Badge.svelte'
-	import { Eye } from 'lucide-svelte'
+	import { Eye, Pen } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -100,7 +99,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faEdit }}
+							startIcon={{ icon: Pen }}
 							href="/apps/edit/{path}?nodraft=true"
 						>
 							Edit
@@ -112,7 +111,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faCodeFork }}
+							startIcon={{ faIcon: faCodeFork }}
 							href="/apps/add?template={path}"
 						>
 							Fork

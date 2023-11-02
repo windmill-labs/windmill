@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { GripVertical, X } from 'lucide-svelte'
+	import { GripVertical, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
@@ -219,7 +218,7 @@
 			{/each}
 		</section>
 	{/if}
-	<Button size="xs" color="light" startIcon={{ icon: faPlus }} on:click={() => addElementByType()}>
+	<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>
 		Add
 	</Button>
 

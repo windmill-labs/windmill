@@ -13,9 +13,9 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Code2 } from 'lucide-svelte'
+	import { Code2, ExternalLink } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
-	import { faExternalLink, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -131,7 +131,7 @@
 		{#if itemKind == 'flow'}
 			<div class="flex gap-2">
 				<Button
-					endIcon={{ icon: faExternalLink }}
+					endIcon={{ icon: ExternalLink }}
 					target="_blank"
 					color="light"
 					size="xs"
@@ -150,7 +150,7 @@
 		{:else}
 			<div class="flex gap-2">
 				<Button
-					endIcon={{ icon: faExternalLink }}
+					endIcon={{ icon: ExternalLink }}
 					target="_blank"
 					color="light"
 					size="xs"

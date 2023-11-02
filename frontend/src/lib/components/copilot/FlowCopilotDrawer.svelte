@@ -4,7 +4,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import { faAdd, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
+	import { faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { capitalize, classNames } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { charsToNumber, numberToChars } from '../flows/idUtils'
@@ -12,6 +12,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowModule } from '$lib/gen'
+	import { Plus, Wand2 } from 'lucide-svelte'
 
 	export let getHubCompletions: (text: string, idx: number, type: 'trigger' | 'script') => void
 	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
@@ -270,7 +271,7 @@
 			{#if flowCopilotMode !== 'trigger'}
 				<div class="flex justify-start">
 					<Button
-						startIcon={{ icon: faAdd }}
+						startIcon={{ icon: Plus }}
 						size="xs"
 						variant="border"
 						on:click={() =>
@@ -297,7 +298,7 @@
 						? genFlow(charsToNumber($currentStepStore), $flowStore.value.modules)
 						: genFlow(0, $flowStore.value.modules)}
 				spacingSize="md"
-				startIcon={{ icon: faMagicWandSparkles }}
+				startIcon={{ icon: Wand2 }}
 				disabled={$modulesStore.find((m) => m.source === undefined) !== undefined}
 			>
 				{$currentStepStore !== undefined

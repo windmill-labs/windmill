@@ -3,7 +3,7 @@
 	import type { TruncatedToken, NewToken } from '$lib/gen'
 	import { UserService } from '$lib/gen'
 	import { displayDate, copyToClipboard } from '$lib/utils'
-	import { faClipboard, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button } from '$lib/components/common'
 	import Icon from 'svelte-awesome'
@@ -26,6 +26,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
 	import Version from './Version.svelte'
+	import { Plus } from 'lucide-svelte'
 
 	let drawer: Drawer
 
@@ -149,7 +150,7 @@
 					<div class="flex justify-end border-b pb-1">
 						<Button
 							size="sm"
-							startIcon={{ icon: faPlus }}
+							startIcon={{ icon: Plus }}
 							btnClasses={displayCreateToken ? 'hidden' : ''}
 							on:click={() => {
 								displayCreateToken = !displayCreateToken

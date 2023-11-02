@@ -193,7 +193,7 @@
 							<Button
 								color="dark"
 								variant="border"
-								endIcon={{ icon }}
+								endIcon={{ faIcon: icon }}
 								btnClasses="w-full !border-gray-300"
 								on:click={() => storeRedirect(type)}
 							>

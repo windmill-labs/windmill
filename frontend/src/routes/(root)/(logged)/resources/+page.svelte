@@ -36,16 +36,13 @@
 		faCircle,
 		faEdit,
 		faFileExport,
-		faPen,
-		faPlus,
 		faRefresh,
 		faRotateRight,
-		faSave,
 		faShare,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { convert } from '@redocly/json-to-json-schema'
-	import { Building } from 'lucide-svelte'
+	import { Building, Link, Pen, Plus, Save, Trash } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
@@ -321,7 +318,7 @@
 <Drawer bind:this={editResourceTypeDrawer} size="800px">
 	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: faSave }} on:click={updateResourceType}>Update</Button>
+			<Button startIcon={{ icon: Save }} on:click={updateResourceType}>Update</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
@@ -362,7 +359,7 @@
 <Drawer bind:this={resourceTypeDrawer} size="800px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
+			<Button startIcon={{ icon: Save }} on:click={addResourceType}>Save</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
@@ -437,10 +434,10 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	>
 		<div class="flex flex-row justify-end gap-4">
-			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>
+			<Button variant="border" size="md" startIcon={{ icon: Plus }} on:click={startNewType}>
 				Add Resource Type
 			</Button>
-			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
+			<Button size="md" startIcon={{ icon: Link }} on:click={() => appConnect.open?.()}>
 				Add Resource
 			</Button>
 		</div>
@@ -791,7 +788,7 @@
 													size="sm"
 													color="red"
 													variant="border"
-													startIcon={{ icon: faTrash }}
+													startIcon={{ icon: Trash }}
 													on:click={() => handleDeleteResourceType(name)}
 												>
 													Delete
@@ -800,7 +797,7 @@
 													size="sm"
 													variant="border"
 													color="dark"
-													startIcon={{ icon: faPen }}
+													startIcon={{ icon: Pen }}
 													on:click={() => startEditResourceType(name)}
 												>
 													Edit

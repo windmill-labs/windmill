@@ -23,7 +23,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import type { Drawer } from '$lib/components/common'
 
-	import { faCalendarAlt, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext, tick } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -39,7 +38,7 @@
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
-	import { Pen } from 'lucide-svelte'
+	import { Calendar, Pen, Save } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -930,7 +929,7 @@
 					{#if $scheduleStore.enabled}
 						<Button
 							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: faCalendarAlt }}
+							startIcon={{ icon: Calendar }}
 							variant="contained"
 							color="light"
 							size="xs"
@@ -992,7 +991,7 @@
 					<Button
 						loading={loadingDraft}
 						size="xs"
-						startIcon={{ icon: faSave }}
+						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 					>
 						Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
@@ -1000,7 +999,7 @@
 					<Button
 						loading={loadingSave}
 						size="xs"
-						startIcon={{ icon: faSave }}
+						startIcon={{ icon: Save }}
 						on:click={() => saveFlow()}
 						dropdownItems={!newFlow ? dropdownItems : undefined}
 					>

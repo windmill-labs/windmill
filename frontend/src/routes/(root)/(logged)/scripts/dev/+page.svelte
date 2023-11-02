@@ -8,9 +8,9 @@
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount } from 'svelte'
+	import { Play } from 'lucide-svelte'
 
 	let testJobLoader: TestJobLoader
 
@@ -189,7 +189,7 @@
 					btnClasses="w-full"
 					size="xs"
 					startIcon={{
-						icon: faPlay,
+						icon: Play,
 						classes: 'animate-none'
 					}}
 				>

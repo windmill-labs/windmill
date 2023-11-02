@@ -26,7 +26,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { ExternalLink } from 'lucide-svelte'
+	import { Check, ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 
@@ -189,7 +189,7 @@
 				color="red"
 				on:click={rejectDiff}
 				variant="contained"
-				startIcon={{ icon: faClose }}
+				startIcon={{ icon: X }}
 				{iconOnly}
 			>
 				Discard
@@ -199,7 +199,7 @@
 				size="xs"
 				color="green"
 				on:click={acceptDiff}
-				startIcon={{ icon: faCheck }}
+				startIcon={{ icon: Check }}
 				{iconOnly}
 			>
 				Accept
@@ -242,7 +242,7 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={genLoading ? undefined : { icon: faMagicWandSparkles }}
+					startIcon={genLoading ? undefined : { icon: Wand2 }}
 					propagateEvent
 					on:click={genLoading
 						? () => abortController?.abort()

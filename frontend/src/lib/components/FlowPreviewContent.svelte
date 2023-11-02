@@ -18,7 +18,7 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { ArrowRight, Loader2 } from 'lucide-svelte'
+	import { ArrowRight, Loader2, Play, RefreshCw } from 'lucide-svelte'
 	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
@@ -205,7 +205,7 @@
 									branch_or_iteration_n: 0
 								})
 							}}
-							startIcon={{ icon: faPlay }}
+							startIcon={{ icon: Play }}
 						>
 							Re-start from
 							<Badge baseClass="ml-1" color="indigo">
@@ -219,7 +219,7 @@
 									title={`Re-start this flow from step ${selectedJobStep} (included).`}
 									variant="border"
 									color="blue"
-									startIcon={{ icon: faRefresh }}
+									startIcon={{ icon: RefreshCw }}
 									on:click={() => {
 										runPreview($previewArgs, {
 											flow_job_id: jobId,

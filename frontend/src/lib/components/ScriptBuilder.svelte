@@ -10,7 +10,6 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -27,6 +26,7 @@
 		Pen,
 		Plus,
 		Rocket,
+		Save,
 		Settings,
 		X
 	} from 'lucide-svelte'
@@ -797,7 +797,7 @@
 					<Button
 						loading={loadingDraft}
 						size="xs"
-						startIcon={{ icon: faSave }}
+						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 					>
 						<span class="hidden sm:flex">
@@ -808,7 +808,7 @@
 					<Button
 						loading={loadingSave}
 						size="xs"
-						startIcon={{ icon: faSave }}
+						startIcon={{ icon: Save }}
 						on:click={() => editScript()}
 						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
 					>

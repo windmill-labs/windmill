@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faMinus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button } from './common'
+	import { Plus } from 'lucide-svelte'
 
 	export let scopes: string[] = []
 </script>
@@ -28,7 +29,7 @@
 		color="blue"
 		hover="yo"
 		size="sm"
-		endIcon={{ icon: faPlus }}
+		endIcon={{ icon: Plus }}
 		on:click={() => {
 			scopes = scopes.concat('')
 		}}

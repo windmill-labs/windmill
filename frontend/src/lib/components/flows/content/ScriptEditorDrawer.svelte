@@ -5,8 +5,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 
@@ -116,8 +115,10 @@
 					scriptEditorDrawer.closeDrawer()
 				}}
 				disabled={!script}
-				startIcon={{ icon: faSave }}>Save</Button
+				startIcon={{ icon: Save }}
 			>
+				Save
+			</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

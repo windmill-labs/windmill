@@ -17,14 +17,12 @@
 		faEdit,
 		faEye,
 		faList,
-		faPen,
 		faPlay,
-		faPlus,
 		faShare,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
-	import { Loader2 } from 'lucide-svelte'
+	import { List, Loader2, Pen, Plus } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -132,7 +130,7 @@
 		tooltip="Trigger Scripts and Flows according to a cron schedule"
 		documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 	>
-		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}>
+		<Button size="md" startIcon={{ icon: Plus }} on:click={() => scheduleEditor.openNew(false)}>
 			New&nbsp;schedule
 		</Button>
 	</PageHeader>
@@ -228,7 +226,7 @@
 								<Button
 									href={`/runs/?schedule_path=${path}`}
 									size="xs"
-									startIcon={{ icon: faList }}
+									startIcon={{ icon: List }}
 									color="light"
 									variant="border"
 								>
@@ -237,7 +235,7 @@
 								<Button
 									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 									size="xs"
-									startIcon={{ icon: faPen }}
+									startIcon={{ icon: Pen }}
 									color="dark"
 								>
 									Edit

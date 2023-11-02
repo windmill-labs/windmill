@@ -13,7 +13,6 @@
 		faCalendarAlt,
 		faCodeFork,
 		faCopy,
-		faEdit,
 		faFileExport,
 		faList,
 		faShare,
@@ -28,6 +27,7 @@
 	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
+	import { Pen } from 'lucide-svelte'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -122,7 +122,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faEdit }}
+							startIcon={{ icon: Pen }}
 							href="/scripts/edit/{path}"
 						>
 							Edit
@@ -134,7 +134,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faCodeFork }}
+							startIcon={{ faIcon: faCodeFork }}
 							href="/scripts/add?template={path}"
 						>
 							Fork

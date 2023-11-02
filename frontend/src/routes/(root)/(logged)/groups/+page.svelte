@@ -12,8 +12,9 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { canWrite } from '$lib/utils'
+	import { Plus } from 'lucide-svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -83,7 +84,7 @@
 					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 				>
 					<svelte:fragment slot="button">
-						<Button size="md" startIcon={{ icon: faPlus }} nonCaptureEvent>New&nbsp;group</Button>
+						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
 					</svelte:fragment>
 					<div class="flex-col flex gap-2">
 						<input
@@ -94,7 +95,7 @@
 						/>
 						<Button
 							size="md"
-							startIcon={{ icon: faPlus }}
+							startIcon={{ icon: Plus }}
 							disabled={!newGroupName}
 							on:click={() => {
 								addGroup()

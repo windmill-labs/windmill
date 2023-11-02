@@ -172,7 +172,7 @@
 				size="xs"
 				variant="border"
 				color="blue"
-				startIcon={{ icon: faCodeBranch }}
+				startIcon={{ faIcon: faCodeBranch }}
 				btnClasses="truncate"
 			>
 				Fork a script

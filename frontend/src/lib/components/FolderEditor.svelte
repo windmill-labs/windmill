@@ -17,6 +17,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
+	import { Plus } from 'lucide-svelte'
 
 	export let name: string
 	let can_write = false
@@ -128,7 +129,7 @@
 		{#if !groupCreated}
 			<div class="flex flex-row">
 				<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
-				<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+				<Button size="md" startIcon={{ icon: Plus }} disabled={!newGroupName} on:click={addGroup}>
 					New&nbsp;group
 				</Button>
 			</div>

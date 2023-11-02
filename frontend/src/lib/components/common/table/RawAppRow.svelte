@@ -5,7 +5,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { RawAppService, type ListableRawApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faFileExport, faShare, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faFileExport, faShare, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
@@ -14,6 +14,7 @@
 	import FileInput from '../fileInput/FileInput.svelte'
 	import { goto } from '$app/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { Pen } from 'lucide-svelte'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined
@@ -73,7 +74,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ icon: faEdit }}
+							startIcon={{ icon: Pen }}
 							on:click={() => updateAppDrawer?.toggleDrawer?.()}
 						>
 							Edit
