@@ -7,6 +7,7 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
+	import { get } from 'lodash'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -122,6 +123,24 @@
 		btnClasses,
 		'transition-all'
 	)
+
+	function getLucideIconSize(size: ButtonType.Size): number {
+		console.log('size', size)
+		switch (size) {
+			case 'xs':
+				return 14
+			case 'sm':
+				return 16
+			case 'md':
+				return 16
+			case 'lg':
+				return 18
+			default:
+				return 12
+		}
+	}
+
+	$: lucideIconSize = getLucideIconSize(size)
 </script>
 
 <div
@@ -157,7 +176,7 @@
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} size={16} />
+				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{:else if startIcon?.faIcon}
 				<Icon data={startIcon.faIcon} class={startIcon.classes} />
 			{/if}
@@ -166,7 +185,7 @@
 				<slot />
 			{/if}
 			{#if endIcon?.icon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} size={16} />
+				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
 			{:else if endIcon?.faIcon}
 				<Icon data={endIcon.faIcon} class={endIcon.classes} />
 			{/if}
@@ -192,7 +211,7 @@
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} size={16} />
+				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{:else if startIcon?.faIcon}
 				<Icon data={startIcon.faIcon} class={startIcon.classes} />
 			{/if}
@@ -201,7 +220,7 @@
 				<slot />
 			{/if}
 			{#if endIcon?.icon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} size={16} />
+				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
 			{:else if endIcon?.faIcon}
 				<Icon data={endIcon.faIcon} class={endIcon.classes} />
 			{/if}
@@ -222,7 +241,7 @@
 								)}
 							>
 								{#if item.icon}
-									<svelte:component this={item.icon} class="w-4 h-4" size={16} />
+									<svelte:component this={item.icon} class="w-4 h-4" size={lucideIconSize} />
 								{/if}
 								{item.label}
 							</div>

@@ -26,8 +26,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import { faBarsStaggered, faScroll } from '@fortawesome/free-solid-svg-icons'
-	import { Slack } from 'lucide-svelte'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import { Scroll, Slack } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -300,7 +300,7 @@
 						</Button>
 						<Button
 							size="sm"
-							endIcon={{ faIcon: faScroll }}
+							endIcon={{ icon: Scroll }}
 							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands

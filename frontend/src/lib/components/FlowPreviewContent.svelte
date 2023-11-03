@@ -8,7 +8,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { Badge, Button, Drawer, Kbd, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -18,7 +18,7 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { ArrowRight, Loader2, Play, RefreshCw } from 'lucide-svelte'
+	import { ArrowRight, Play, RefreshCw } from 'lucide-svelte'
 	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
@@ -185,8 +185,8 @@
 				}}
 				size="sm"
 				btnClasses="w-full max-w-lg"
+				loading={true}
 			>
-				<Loader2 size={18} class="animate-spin mr-2" />
 				Cancel
 			</Button>
 		{:else}
@@ -282,7 +282,7 @@
 				{/if}
 				<Button
 					variant="contained"
-					startIcon={{ icon: isRunning ? faRefresh : faPlay }}
+					startIcon={{ icon: isRunning ? RefreshCw : Play }}
 					color="dark"
 					size="sm"
 					btnClasses="w-full max-w-lg"

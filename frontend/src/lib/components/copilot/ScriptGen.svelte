@@ -5,14 +5,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
-	import {
-		faCancel,
-		faCheck,
-		faClose,
-		faMagicWandSparkles
-	} from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
-	import { Icon } from 'svelte-awesome'
 	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -26,7 +19,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Check, ExternalLink, Wand2, X } from 'lucide-svelte'
+	import { Ban, Check, ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 
@@ -168,17 +161,18 @@
 				color="red"
 				on:click={rejectDiff}
 				variant="contained"
-			>
-				<Icon data={faClose} />
-			</Button><Button
+				startIcon={{ icon: X }}
+				iconOnly
+			/>
+			<Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2 w-7"
 				size="xs"
 				color="green"
 				on:click={acceptDiff}
-			>
-				<Icon data={faCheck} /></Button
-			>
+				iconOnly
+				startIcon={{ icon: Check }}
+			/>
 		</div>
 	{:else}
 		<div class="flex gap-1 px-2">
@@ -222,19 +216,15 @@
 		<svelte:fragment slot="button">
 			{#if inlineScript}
 				<Button
-					size="lg"
+					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={genLoading ? '!px-3' : '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
 					nonCaptureEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : undefined}
 					bind:element={button}
-				>
-					{#if genLoading}
-						<Icon scale={0.8} data={faCancel} />
-					{:else}
-						<Icon scale={0.8} data={faMagicWandSparkles} />
-					{/if}
-				</Button>
+					iconOnly
+					startIcon={{ icon: genLoading ? Ban : Wand2 }}
+				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
@@ -313,9 +303,9 @@
 								onGenerate(() => close(input || null))
 							}}
 							disabled={funcDesc.length <= 0}
-						>
-							<Icon data={faMagicWandSparkles} />
-						</Button>
+							iconOnly
+							startIcon={{ icon: Wand2 }}
+						/>
 					</div>
 
 					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(lang) && dbSchema?.lang === lang}

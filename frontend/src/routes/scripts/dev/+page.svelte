@@ -8,12 +8,12 @@
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { page } from '$app/stores'
 	import { getUserExt } from '$lib/user'
+	import { Play } from 'lucide-svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -239,7 +239,7 @@
 					btnClasses="w-full"
 					size="xs"
 					startIcon={{
-						icon: faPlay,
+						icon: Play,
 						classes: 'animate-none'
 					}}
 				>

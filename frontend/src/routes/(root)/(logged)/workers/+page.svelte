@@ -253,12 +253,12 @@
 					>
 						<svelte:fragment slot="button">
 							<div class="flex items-center">
-								<Button size="sm" startIcon={{ icon: Plus }} nonCaptureEvent
-									>New worker group config</Button
-								>
-								<Tooltip
-									>Worker Group configs are propagated to every workers in the worker group</Tooltip
-								>
+								<Button size="sm" startIcon={{ icon: Plus }} nonCaptureEvent>
+									New worker group config
+									<Tooltip light>
+										Worker Group configs are propagated to every workers in the worker group
+									</Tooltip>
+								</Button>
 							</div>
 						</svelte:fragment>
 						<div class="flex flex-col gap-2">

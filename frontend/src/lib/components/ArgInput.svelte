@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { faChevronDown, faChevronUp, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { DollarSign, X } from 'lucide-svelte'
+	import { DollarSign, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
@@ -371,8 +371,8 @@
 									value = value.concat('')
 								}}
 								id="arg-input-add-item"
+								startIcon={{ icon: Plus }}
 							>
-								<Icon data={faPlus} class="mr-2" />
 								Add item
 							</Button>
 						</div>

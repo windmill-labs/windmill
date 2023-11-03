@@ -105,7 +105,7 @@
 			variant="border"
 			color="blue"
 			size="sm"
-			startIcon={{ faIcon: Plus }}
+			startIcon={{ icon: Plus }}
 			on:click={() => {
 				variableEditor?.initNew?.()
 			}}
