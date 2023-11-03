@@ -70,6 +70,7 @@
 				path: string
 				summary: string
 				policy: any
+				draft_only?: boolean
 		  }
 		| undefined = undefined
 

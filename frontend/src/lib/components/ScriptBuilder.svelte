@@ -12,7 +12,13 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, emptySchema, encodeState, getModifierKey } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		emptySchema,
+		encodeState,
+		getModifierKey,
+		orderedJsonStringify
+	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
@@ -51,7 +57,6 @@
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import { deepEqual } from 'fast-equals'
 	import { cloneDeep } from 'lodash'
 
 	export let script: NewScript
@@ -220,7 +225,7 @@
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript['draft'] || savedScript)
 			const current = cleanValueProperties(script)
-			if (deepEqual(draftOrDeployed, current)) {
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				return
 			}
 		}

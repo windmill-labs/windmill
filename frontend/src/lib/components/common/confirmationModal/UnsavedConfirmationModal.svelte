@@ -3,8 +3,7 @@
 	import { beforeNavigate, goto } from '$app/navigation'
 	import Button from '../button/Button.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cleanValueProperties, type Value } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
+	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
 	import { tick } from 'svelte'
 
 	export let savedValue: Value | undefined = undefined
@@ -24,13 +23,10 @@
 			goingTo = newNavigationState.to.url
 			newNavigationState.cancel()
 			await tick() // make sure saved value is updated when clicking on save draft or deploy
-			console.log(savedValue)
 			if (savedValue && modifiedValue) {
 				const draftOrDeployed = cleanValueProperties(savedValue.draft || savedValue)
 				const current = cleanValueProperties(modifiedValue)
-				console.log(draftOrDeployed, current)
-				console.log(deepEqual(draftOrDeployed, current))
-				if (deepEqual(draftOrDeployed, current)) {
+				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 					bypassBeforeNavigate = true
 					goto(goingTo)
 				} else {
@@ -74,7 +70,7 @@
 					diffDrawer?.setDiff({
 						mode: 'normal',
 						deployed: savedValue,
-						draft: savedValue['draft'],
+						draft: savedValue.draft,
 						current: modifiedValue,
 						defaultDiffType: 'draft',
 						button: {

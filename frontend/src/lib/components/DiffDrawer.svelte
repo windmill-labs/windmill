@@ -6,8 +6,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { cloneDeep } from 'lodash'
-	import { cleanValueProperties, type Value } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
+	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
 	import type { Script } from '$lib/gen'
 
 	type DiffData = {
@@ -61,7 +60,7 @@
 		return {
 			lang: data.language ? scriptLangToEditorLang(data.language as Script.language) : undefined,
 			content,
-			metadata: JSON.stringify(metadata, null, 2)
+			metadata: orderedJsonStringify(metadata, 2)
 		}
 	}
 
@@ -151,19 +150,23 @@
 					<Button
 						size="xs"
 						color="light"
+						variant="border"
 						wrapperClasses="self-start"
 						on:click={restoreDraft}
-						disabled={deepEqual(data?.draft, data?.current)}>Restore to latest saved draft</Button
+						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
+						>Restore to latest saved draft</Button
 					>
 				{:else if diffType === 'deployed'}
 					<Button
 						size="xs"
 						color="light"
+						variant="border"
 						wrapperClasses="self-start"
 						on:click={restoreDeployed}
-						disabled={deepEqual(data?.deployed, data?.current)}
+						disabled={!data.draft &&
+							orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
 					>
-						Restore to deployed{data?.draft ? ' and discard draft' : ''}
+						Restore to deployed{data.draft ? ' and discard draft' : ''}
 					</Button>
 				{/if}
 			{/if}

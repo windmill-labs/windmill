@@ -18,6 +18,7 @@
 				path: string
 				summary: string
 				policy: any
+				draft_only?: boolean
 		  }
 		| undefined = undefined
 	let redraw = 0
@@ -42,14 +43,17 @@
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value,
 			path: app_w_draft_.path,
-			policy: app_w_draft_.policy
+			policy: app_w_draft_.policy,
+			draft_only: app_w_draft_.draft_only,
+			draft: app_w_draft_.draft
+				? {
+						summary: app_w_draft_.summary,
+						value: app_w_draft_.draft,
+						path: app_w_draft_.path,
+						policy: app_w_draft_.policy
+				  }
+				: undefined
 		}
-		savedApp.draft = app_w_draft_.draft
-			? {
-					...savedApp,
-					value: app_w_draft_.draft
-			  }
-			: undefined
 
 		if (stateLoadedFromUrl) {
 			const reloadAction = async () => {

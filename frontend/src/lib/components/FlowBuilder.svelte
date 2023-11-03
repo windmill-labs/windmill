@@ -20,7 +20,13 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { cleanValueProperties, encodeState, formatCron, sleep } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		encodeState,
+		formatCron,
+		orderedJsonStringify,
+		sleep
+	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import type { Drawer } from '$lib/components/common'
 
@@ -61,7 +67,6 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import { deepEqual } from 'fast-equals'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	export let initialPath: string = ''
@@ -109,7 +114,7 @@
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
 			const current = cleanValueProperties(flow)
-			if (deepEqual(draftOrDeployed, current)) {
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				return
 			}
 		}

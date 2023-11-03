@@ -4,12 +4,11 @@
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeState, cleanValueProperties } from '$lib/utils'
+	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
-	import { deepEqual } from 'fast-equals'
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -50,7 +49,7 @@
 
 				const draftOrDeployed = cleanValueProperties(savedScript?.draft || savedScript)
 				const urlScript = cleanValueProperties(scriptLoadedFromUrl)
-				if (deepEqual(draftOrDeployed, urlScript)) {
+				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
 					reloadAction()
 				} else {
 					sendUserToast('Script loaded from latest autosave stored in the URL', false, [

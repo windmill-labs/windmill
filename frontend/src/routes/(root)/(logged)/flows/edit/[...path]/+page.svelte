@@ -4,7 +4,13 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeArgs, decodeState, emptySchema } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		decodeArgs,
+		decodeState,
+		emptySchema,
+		orderedJsonStringify
+	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$app/navigation'
 	import { writable } from 'svelte/store'
@@ -12,7 +18,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
-	import { deepEqual } from 'fast-equals'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
@@ -64,7 +69,7 @@
 				goto(`/flows/edit/${flow!.path}`)
 				loadFlow()
 			}
-			if (deepEqual(draftOrDeployed, urlScript)) {
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
 				reloadAction()
 			} else {
 				sendUserToast('Flow loaded from browser storage', false, [

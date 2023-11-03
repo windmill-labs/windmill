@@ -43,7 +43,13 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, cleanValueProperties, copyToClipboard, truncateRev } from '../../../utils'
+	import {
+		classNames,
+		cleanValueProperties,
+		copyToClipboard,
+		orderedJsonStringify,
+		truncateRev
+	} from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -74,7 +80,6 @@
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { deepEqual } from 'fast-equals'
 
 	async function hash(message) {
 		try {
@@ -104,6 +109,7 @@
 				path: string
 				summary: string
 				policy: any
+				draft_only?: boolean
 		  }
 		| undefined = undefined
 
@@ -227,7 +233,16 @@
 				summary: app_w_draft.summary,
 				value: app_w_draft.value,
 				path: app_w_draft.path,
-				policy: app_w_draft.policy
+				policy: app_w_draft.policy,
+				draft_only: app_w_draft.draft_only,
+				draft: app_w_draft.draft
+					? {
+							summary: app_w_draft.summary,
+							value: app_w_draft.draft,
+							path: app_w_draft.path,
+							policy: app_w_draft.policy
+					  }
+					: undefined
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -258,7 +273,16 @@
 			summary: app_w_draft.summary,
 			value: app_w_draft.value,
 			path: app_w_draft.path,
-			policy: app_w_draft.policy
+			policy: app_w_draft.policy,
+			draft_only: app_w_draft.draft_only,
+			draft: app_w_draft.draft
+				? {
+						summary: app_w_draft.summary,
+						value: app_w_draft.draft,
+						path: app_w_draft.path,
+						policy: app_w_draft.policy
+				  }
+				: undefined
 		}
 
 		closeSaveDrawer()
@@ -311,7 +335,7 @@
 				path: newPath || savedApp.draft?.path || savedApp.path,
 				policy
 			})
-			if (deepEqual(draftOrDeployed, current)) {
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				return
 			}
 		}
@@ -343,11 +367,16 @@
 				summary: app_w_draft.summary,
 				value: app_w_draft.value,
 				path: app_w_draft.path,
-				policy: app_w_draft.policy
-			}
-			savedApp.draft = {
-				...savedApp,
-				value: app_w_draft.draft
+				policy: app_w_draft.policy,
+				draft_only: app_w_draft.draft_only,
+				draft: app_w_draft.draft
+					? {
+							summary: app_w_draft.summary,
+							value: app_w_draft.draft,
+							path: app_w_draft.path,
+							policy: app_w_draft.policy
+					  }
+					: undefined
 			}
 
 			draftDrawerOpen = false
@@ -367,7 +396,7 @@
 				path: newPath || savedApp.draft?.path || savedApp.path,
 				policy
 			})
-			if (deepEqual(draftOrDeployed, current)) {
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				return
 			}
 		}
@@ -395,11 +424,16 @@
 				summary: app_w_draft.summary,
 				value: app_w_draft.value,
 				path: app_w_draft.path,
-				policy: app_w_draft.policy
-			}
-			savedApp.draft = {
-				...savedApp,
-				value: app_w_draft.draft
+				policy: app_w_draft.policy,
+				draft_only: app_w_draft.draft_only,
+				draft: app_w_draft.draft
+					? {
+							summary: app_w_draft.summary,
+							value: app_w_draft.draft,
+							path: app_w_draft.path,
+							policy: app_w_draft.policy
+					  }
+					: undefined
 			}
 
 			sendUserToast('Draft saved')
@@ -662,7 +696,45 @@
 			autofocus={false}
 		/>
 
-		<div slot="actions">
+		<div slot="actions" class="flex flex-row gap-4">
+			<Button
+				variant="border"
+				color="light"
+				disabled={!savedApp || savedApp.draft_only}
+				on:click={() => {
+					if (!savedApp) {
+						return
+					}
+					saveDrawerOpen = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
+						mode: 'normal',
+						deployed: savedApp,
+						draft: savedApp.draft,
+						current: {
+							summary: $summary,
+							value: $app,
+							path: newPath || savedApp.draft?.path || savedApp.path,
+							policy
+						},
+						button: {
+							text: 'Looks good, deploy',
+							onClick: () => {
+								if (appPath == '') {
+									createApp(newPath)
+								} else {
+									updateApp(newPath)
+								}
+							}
+						}
+					})
+				}}
+			>
+				<div class="flex flex-row gap-2 items-center">
+					<DiffIcon size={14} />
+					Diff
+				</div>
+			</Button>
 			<Button
 				startIcon={{ icon: faSave }}
 				disabled={pathError != ''}

@@ -668,6 +668,7 @@ export type Value = {
 	path?: string
 	draft_only?: boolean
 	value?: any
+	draft?: Value
 	[key: string]: any
 }
 
@@ -677,10 +678,16 @@ export function cleanValueProperties(obj: Value) {
 	} else {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
-			if (key !== 'draft' && key !== 'parent_hash' && obj[key]) {
+			if (key !== 'draft' && key !== 'draft_only' && key !== 'parent_hash' && obj[key]) {
 				newObj[key] = obj[key]
 			}
 		}
 		return newObj
 	}
+}
+
+export function orderedJsonStringify(obj: any, space?: string | number) {
+	const allKeys = new Set()
+	JSON.stringify(obj, (key, value) => (allKeys.add(key), value))
+	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
