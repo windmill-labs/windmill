@@ -33,7 +33,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 
-	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
+	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
 
 	let initialPath: string
 	let scriptPath: string

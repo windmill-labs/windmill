@@ -422,6 +422,7 @@ pub async fn add_completed_job<
     // tracing::error!("2 {:?}", start.elapsed());
 
     // tracing::error!("Added completed job {:#?}", queued_job);
+    let mut skip_downstream_error_handlers = false;
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
@@ -429,7 +430,7 @@ pub async fn add_completed_job<
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        tx = apply_schedule_handlers(
+        (skip_downstream_error_handlers, tx) = apply_schedule_handlers(
             tx,
             db,
             queued_job.schedule_path.as_ref().unwrap(),
@@ -496,7 +497,8 @@ pub async fn add_completed_job<
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
     }
 
-    if matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
+    if !skip_downstream_error_handlers
+        && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
         && queued_job.parent_job.is_none()
         && !success
     {
@@ -556,15 +558,6 @@ pub async fn run_error_handler<
         extra.insert("schedule_path".to_string(), to_raw_value(schedule_path));
     }
 
-    if error_handler_path
-        .to_string()
-        .eq("hub/2431/slack/schedule-error-handler-slack")
-    {
-        // custom slack error handler being used -> we need to inject the slack token
-        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
-    }
-
     if let Some(extra_args) = error_handler_extra_args {
         if let serde_json::Value::Object(args_m) = extra_args {
             for (k, v) in args_m {
@@ -575,6 +568,15 @@ pub async fn run_error_handler<
                 "args of scripts needs to be dict".to_string(),
             ));
         }
+    }
+
+    if error_handler_path
+        .to_string()
+        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+    {
+        // custom slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
@@ -754,6 +756,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 on_recovery: schedule.on_recovery,
                 on_recovery_times: schedule.on_recovery_times,
                 on_recovery_extra_args: schedule.on_recovery_extra_args,
+                ws_error_handler_muted: schedule.ws_error_handler_muted,
             },
         )
         .await;
@@ -799,17 +802,18 @@ async fn apply_schedule_handlers<
     job_id: Uuid,
     started_at: DateTime<Utc>,
     job_priority: Option<i16>,
-) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+) -> windmill_common::error::Result<(bool, QueueTransaction<'c, R>)> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
     if schedule.is_none() {
         tracing::error!(
             "Schedule {schedule_path} in {w_id} not found. Impossible to apply schedule handlers"
         );
-        return Ok(tx);
+        return Ok((false, tx));
     }
 
     let schedule = schedule.unwrap();
+    let skip_downstream_error_handlers = schedule.ws_error_handler_muted;
 
     if !success {
         if let Some(on_failure_path) = schedule.on_failure.clone() {
@@ -836,7 +840,7 @@ async fn apply_schedule_handlers<
                 };
 
                 if !match_times {
-                    return Ok(tx);
+                    return Ok((skip_downstream_error_handlers, tx));
                 }
             }
 
@@ -895,13 +899,13 @@ async fn apply_schedule_handlers<
             ).fetch_all(&mut tx).await?;
 
             if past_jobs.len() < times as usize {
-                return Ok(tx);
+                return Ok((skip_downstream_error_handlers, tx));
             }
 
             let n_times_successful = past_jobs[..(times - 1) as usize].iter().all(|j| j.success);
 
             if !n_times_successful {
-                return Ok(tx);
+                return Ok((skip_downstream_error_handlers, tx));
             }
 
             let failed_job = past_jobs[past_jobs.len() - 1].clone();
@@ -951,7 +955,7 @@ async fn apply_schedule_handlers<
         }
     }
 
-    Ok(tx)
+    Ok((skip_downstream_error_handlers, tx))
 }
 
 pub async fn handle_on_failure<
@@ -995,6 +999,15 @@ pub async fn handle_on_failure<
                 "args of scripts needs to be dict".to_string(),
             ));
         }
+    }
+
+    if on_failure_path
+        .to_string()
+        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+    {
+        // custom slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
     let tx = PushIsolationLevel::Transaction(tx);
