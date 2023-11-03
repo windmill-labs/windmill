@@ -26,7 +26,7 @@ class WindmillFinder(MetaPathFinder):
         l = len(splitted)
         if l <= 2:
             return ModuleSpec(name, WindmillLoader(name))
-        elif l == 3:
+        elif l > 2:
             script_path = "/".join(splitted)
             import requests
 
@@ -44,12 +44,9 @@ class WindmillFinder(MetaPathFinder):
                     f.write(r.text)
                 return ModuleSpec(name, SourceFileLoader(name, fullpath))
             else:
-                print(r.text, r.status_code)
-                raise ImportError(f"Script {script_path} not found")
-        else:
-            raise ImportError(
-                "Import can only be done at the top level of a folder or user space"
-            )
+                # raise ImportError(f"Script {script_path} not found")
+                return ModuleSpec(name, WindmillLoader(name))
+
 
 
 sys.meta_path.append(WindmillFinder)
