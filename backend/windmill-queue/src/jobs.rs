@@ -54,9 +54,9 @@ use windmill_common::{
         JobPayload, QueuedJob, RawCode,
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
-    schedule::{schedule_to_user, Schedule},
+    schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
-    users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
+    users::SUPERADMIN_SECRET_EMAIL,
     worker::{to_raw_value, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
@@ -936,9 +936,6 @@ async fn apply_schedule_handlers<
                     times,
                     started_at,
                     schedule.on_recovery_extra_args,
-                    &schedule.email,
-                    &schedule_to_user(&schedule.path),
-                    username_to_permissioned_as(&schedule.edited_by),
                 )
                 .await;
 
@@ -1084,9 +1081,6 @@ async fn handle_on_recovery<
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
     extra_args: Option<serde_json::Value>,
-    username: &str,
-    email: &str,
-    permissioned_as: String,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
@@ -1119,6 +1113,15 @@ async fn handle_on_recovery<
             ));
         }
     }
+    // TODO: This should be inject when the EH is defined in the FE.
+    if on_recovery_path
+        .to_string()
+        .eq("script/hub/2430/slack/schedule-recovery-handler-slack")
+    {
+        // default slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        args.insert("slack".to_string(), json!(slack_resource));
+    }
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
@@ -1126,9 +1129,9 @@ async fn handle_on_recovery<
         w_id,
         payload,
         args,
-        username,
-        email,
-        permissioned_as,
+        ERROR_HANDLER_USERNAME,
+        ERROR_HANDLER_USER_EMAIL,
+        ERROR_HANDLER_USER_GROUP.to_string(),
         None,
         None,
         None,
