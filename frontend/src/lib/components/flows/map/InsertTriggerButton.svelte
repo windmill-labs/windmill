@@ -28,7 +28,7 @@
 		title="Add a Trigger"
 		slot="trigger"
 		type="button"
-		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 	>
 		<Icon data={faBolt} scale={0.8} />
 	</button>
