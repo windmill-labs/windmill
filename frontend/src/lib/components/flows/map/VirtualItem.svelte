@@ -19,7 +19,6 @@
 	export let bgColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
-	export let whereInsert: 'before' | 'after' = 'after'
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
@@ -44,7 +43,7 @@
 </script>
 
 {#if insertable && deleteBranch}
-	<div class="w-7 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2">
+	<div class="w-[27px] absolute -top-[40px] left-[50%] right-[50%] -translate-x-1/2">
 		<button
 			title="Delete branch"
 			on:click|stopPropagation={() => {
@@ -53,9 +52,9 @@
 				}
 			}}
 			type="button"
-			class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 		>
-			<X size={14} />
+			<X class="m-[5px]" size={15} />
 		</button>
 	</div>
 {/if}
@@ -101,9 +100,9 @@
 
 {#if insertable && modules && (label != 'Input' || modules.length == 0)}
 	<div
-		class="{openMenu ? 'z-20' : ''} w-7 absolute {whereInsert == 'after'
-			? 'top-12'
-			: '-top-10'} left-[50%] right-[50%] -translate-x-1/2"
+		class="{openMenu
+			? 'z-20'
+			: ''} w-[27px] absolute top-[49px] left-[50%] right-[50%] -translate-x-1/2"
 	>
 		{#if moving}
 			<button
@@ -118,7 +117,7 @@
 					}
 				}}
 				type="button"
-				class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+				class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 			>
 				<ClipboardCopy size={12} />
 			</button>
@@ -131,12 +130,12 @@
 					if (modules) {
 						dispatch('insert', {
 							modules,
-							index: whereInsert == 'after' ? index : index - 1,
+							index: index,
 							detail: e.detail
 						})
 					}
 				}}
-				index={whereInsert == 'after' ? index : index - 1}
+				{index}
 				modules={modules ?? []}
 			/>
 		{/if}
@@ -188,7 +187,7 @@
 	<div
 		class="{triggerOpenMenu
 			? 'z-10'
-			: ''} w-7 absolute top-12 left-[65%] right-[35%] -translate-x-1/2"
+			: ''} w-[27px] absolute top-[50px] left-[65%] right-[35%] -translate-x-1/2"
 	>
 		<InsertTriggerButton
 			{disableAi}
