@@ -64,10 +64,15 @@
 
 		appDeploymentHistory.open(app.versions)
 	}
+
+	let dropdownOpened: boolean = false
 </script>
 
-<AppJsonEditor on:change bind:this={appExport} />
-<AppDeploymentHistory bind:this={appDeploymentHistory} />
+{#if dropdownOpened}
+	<AppJsonEditor on:change bind:this={appExport} />
+	<AppDeploymentHistory bind:this={appDeploymentHistory} />
+{/if}
+
 <Row
 	href={`/apps/get/${path}`}
 	kind="app"
@@ -249,6 +254,12 @@
 						disabled: !canWrite
 					}
 				]
+			}}
+			on:dropdownOpen={() => {
+				dropdownOpened = true
+			}}
+			on:dropdownClose={() => {
+				dropdownOpened = false
 			}}
 		/>
 	</svelte:fragment>
