@@ -4,11 +4,18 @@
 	import { getDbClockNow } from '$lib/forLater'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let flowModules: string[]
-	export let durationStatuses: Record<
-		string,
-		Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+	export let durationStatuses: Writable<
+		Record<
+			string,
+			{
+				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+				iteration_from?: number
+				iteration_total?: number
+			}
+		>
 	>
 	export let flowDone = false
 
@@ -23,17 +30,22 @@
 		  >
 		| undefined = undefined
 
-	let debounced = debounce(() => computeItems(durationStatuses), 30)
-	$: flowDone != undefined && durationStatuses && debounced()
+	let debounced = debounce(() => computeItems($durationStatuses), 30)
+	$: flowDone != undefined && $durationStatuses && debounced()
 
 	export function reset() {
 		min = undefined
 		max = undefined
-		items = computeItems(durationStatuses)
+		items = computeItems($durationStatuses)
 	}
 
 	function computeItems(
-		durationStatuses: Record<string, Record<string, { started_at?: number; duration_ms?: number }>>
+		durationStatuses: Record<
+			string,
+			{
+				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+			}
+		>
 	): any {
 		let nmin: undefined | number = undefined
 		let nmax: undefined | number = undefined
@@ -43,7 +55,7 @@
 		let cnt = 0
 		let nitems = {}
 		Object.entries(durationStatuses).forEach(([k, o]) => {
-			Object.values(o).forEach((v) => {
+			Object.values(o.byJob).forEach((v) => {
 				cnt++
 				if (v.started_at) {
 					if (!nmin) {
@@ -67,7 +79,7 @@
 					}
 				}
 			})
-			let arr = Object.entries(o).map(([k, v]) => ({ ...v, id: k }))
+			let arr = Object.entries(o.byJob).map(([k, v]) => ({ ...v, id: k }))
 			arr.sort((x, y) => {
 				if (!x.started_at) {
 					return -1
@@ -106,7 +118,7 @@
 </script>
 
 {#if items}
-	<div class="divide-y">
+	<div class="divide-y border-b">
 		<div class="px-2 py-2 grid grid-cols-12 w-full"
 			><div />
 			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
@@ -133,49 +145,68 @@
 				</div>
 			</div>
 		</div>
-		{#each Object.values(flowModules) as k}
-			<div class="px-2 py-2 grid grid-cols-12 w-full"
-				><div>{k}</div>
-				<div class="col-span-11 pt-1 px-2 flex min-h-6 w-full"
-					>{#if min && total}
-						<div class="flex flex-col gap-2 w-full">
-							{#each items?.[k] ?? [] as b}
-								{@const waitingLen = b?.created_at
-									? b.started_at
-										? b.started_at - b?.created_at
-										: b.duration_ms
-										? 0
-										: now - b?.created_at
-									: 0}
-								<div class="flex w-full">
-									<TimelineBar
-										position="left"
-										id={b?.id}
-										{total}
-										{min}
-										gray
-										started_at={b.created_at}
-										len={waitingLen < 100 ? 0 : waitingLen - 100}
-										running={b?.started_at == undefined}
-									/>
-									{#if b.started_at}
+		{#each Object.values(flowModules) as k (k)}
+			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
+				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
+					<div class="w-full flex flex-row-reverse sticky top-0">
+						<button
+							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
+							on:click={() => {
+								let r = $durationStatuses[k]
+								if (r.iteration_from) {
+									r.iteration_from -= 20
+									$durationStatuses = $durationStatuses
+								}
+							}}
+							>Viewing iterations {$durationStatuses[k].iteration_from} to {$durationStatuses[k]
+								.iteration_total}. Load more
+						</button>
+					</div>
+				{/if}
+
+				<div class="px-2 py-2 grid grid-cols-6 w-full">
+					<div>{k}</div>
+					<div class="col-span-5 flex min-h-6 w-full">
+						{#if min && total}
+							<div class="flex flex-col gap-2 w-full p-2">
+								{#each items?.[k] ?? [] as b}
+									{@const waitingLen = b?.created_at
+										? b.started_at
+											? b.started_at - b?.created_at
+											: b.duration_ms
+											? 0
+											: now - b?.created_at
+										: 0}
+									<div class="flex w-full">
 										<TimelineBar
-											position={waitingLen < 100 ? 'center' : 'right'}
+											position="left"
 											id={b?.id}
 											{total}
 											{min}
-											concat
-											started_at={b.started_at}
-											len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
-											running={b?.duration_ms == undefined}
+											gray
+											started_at={b.created_at}
+											len={waitingLen < 100 ? 0 : waitingLen - 100}
+											running={b?.started_at == undefined}
 										/>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{/if}</div
-				></div
-			>
+										{#if b.started_at}
+											<TimelineBar
+												position={waitingLen < 100 ? 'center' : 'right'}
+												id={b?.id}
+												{total}
+												{min}
+												concat
+												started_at={b.started_at}
+												len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+												running={b?.duration_ms == undefined}
+											/>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}</div
+					></div
+				>
+			</div>
 		{/each}
 	</div>
 {:else}
