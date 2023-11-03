@@ -2854,6 +2854,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         script_path: "f/system/failing_script".to_string(),
         timezone: "UTC".to_string(),
         schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
+        ws_error_handler_muted: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -2913,6 +2914,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
+                ws_error_handler_muted: None,
             },
         )
         .await
@@ -2988,6 +2990,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         script_path: "f/system/failing_flow".to_string(),
         timezone: "UTC".to_string(),
         schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
+        ws_error_handler_muted: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3048,6 +3051,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 on_recovery_extra_args: None,
                 timezone: "UTC".to_string(),
                 schedule: format!("{} {} * * * *", then.second(), then.minute()).to_string(),
+                ws_error_handler_muted: None,
             },
         )
         .await
