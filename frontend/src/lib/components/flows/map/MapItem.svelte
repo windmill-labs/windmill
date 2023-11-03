@@ -72,9 +72,9 @@
 						dispatch('insert', { modules, index: idx, detail: 'move' })
 					}}
 					type="button"
-					class=" text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+					class=" text-primary bg-surface border mx-[1px] border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
-					<ClipboardCopy size={12} />
+					<ClipboardCopy class="m-[5px]" size={15} />
 				</button>
 			{:else}
 				<InsertModuleButton
@@ -207,7 +207,7 @@
 		<div
 			class="{openMenu2
 				? 'z-20'
-				: ''} w-[27px] absolute top-11 left-[50%] right-[50%] -translate-x-1/2"
+				: ''} w-[27px] absolute top-[49px] left-[50%] right-[50%] -translate-x-1/2"
 		>
 			{#if moving}
 				<button
@@ -216,9 +216,9 @@
 						dispatch('insert', { modules, index: idx + 1, detail: 'move' })
 					}}
 					type="button"
-					class=" text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+					class=" text-primary bg-surface border mx-[1px] border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
-					<ClipboardCopy size={12} />
+					<ClipboardCopy class="m-[5px]" size={15} />
 				</button>
 			{:else}
 				<InsertModuleButton
@@ -236,7 +236,7 @@
 	{/if}
 
 	{#if insertable && branchable}
-		<div class="w-7 absolute top-11 left-[60%] right-[40%] -translate-x-1/2">
+		<div class="w-[27px] absolute top-[45px] left-[60%] right-[40%] -translate-x-1/2">
 			<button
 				title="Add branch"
 				on:click={() => {
@@ -244,9 +244,9 @@
 				}}
 				type="button"
 				id="add-branch-button"
-				class=" text-primary bg-surface border mx-0.5 rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+				class=" text-primary bg-surface border mx-[1px] rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 			>
-				<GitBranchPlus size={12} />
+				<GitBranchPlus class="m-[5px]" size={15} />
 			</button>
 		</div>
 	{/if}
