@@ -18,6 +18,8 @@
 	export let href: string
 	export let workspaceId: string
 	export let depth: number = 0
+
+	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
 </script>
 
 <div
@@ -36,7 +38,7 @@
 				{#if marked}
 					{@html marked}
 				{:else}
-					{!summary || summary.length == 0 ? path : summary}
+					{!summary || summary.length == 0 ? displayPath : summary}
 				{/if}
 			</div>
 			<div class="text-secondary text-2xs truncate text-left font-light">
