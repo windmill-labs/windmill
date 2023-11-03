@@ -7,7 +7,6 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
-	import { get } from 'lodash'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
