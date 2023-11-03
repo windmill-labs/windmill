@@ -53,6 +53,7 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
         JobPayload, QueuedJob, RawCode,
     },
+    oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
@@ -561,6 +562,14 @@ pub async fn run_error_handler<
                 "args of scripts needs to be dict".to_string(),
             ));
         }
+    }
+    if error_handler_path
+        .to_string()
+        .eq("hub/2431/slack/schedule-error-handler-slack")
+    {
+        // custom slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);

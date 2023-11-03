@@ -156,15 +156,19 @@
 		>
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
-			{:else if startIcon}
+			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={16} />
+			{:else if startIcon?.faIcon}
+				<Icon data={startIcon.faIcon} class={startIcon.classes} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
-			{#if endIcon}
+			{#if endIcon?.icon}
 				<svelte:component this={endIcon.icon} class={endIcon.classes} size={16} />
+			{:else if endIcon?.faIcon}
+				<Icon data={endIcon.faIcon} class={endIcon.classes} />
 			{/if}
 		</a>
 	{:else}

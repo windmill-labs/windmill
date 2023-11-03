@@ -71,11 +71,12 @@
 		secondInterval = setInterval(() => {
 			timeSinceLastPing += 1
 		}, 1000)
-		if ($superadmin) {
-			loadGlobalCache()
-			loadCustomTags()
-		}
 	})
+
+	$: if ($superadmin) {
+		loadGlobalCache()
+		loadCustomTags()
+	}
 
 	async function loadGlobalCache() {
 		try {
@@ -102,10 +103,10 @@
 		}
 	})
 
-	let newGroupName = ''
+	let newConfigName = ''
 
-	async function addGroup() {
-		await ConfigService.updateConfig({ name: 'worker__' + newGroupName, requestBody: {} })
+	async function addConfig() {
+		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
 		loadWorkerGroups()
 	}
 
@@ -261,7 +262,7 @@
 							</div>
 						</svelte:fragment>
 						<div class="flex flex-col gap-2">
-							<input class="mr-2 h-full" placeholder="New group name" bind:value={newGroupName} />
+							<input class="mr-2 h-full" placeholder="New group name" bind:value={newConfigName} />
 
 							{#if !$enterpriseLicense}
 								<div class="flex items-center whitespace-nowrap text-yellow-600 gap-2">
@@ -272,8 +273,8 @@
 							<Button
 								size="sm"
 								startIcon={{ icon: Plus }}
-								disabled={!newGroupName || !$enterpriseLicense}
-								on:click={addGroup}
+								disabled={!newConfigName || !$enterpriseLicense}
+								on:click={addConfig}
 							>
 								Create
 							</Button>
@@ -282,7 +283,7 @@
 				</div>
 			{/if}</div
 		>
-		{#each groupedWorkers as worker_group}
+		{#each groupedWorkers as worker_group (worker_group[0])}
 			<WorkspaceGroup
 				name={worker_group[0]}
 				config={(workerGroups ?? {})[worker_group[0]]}
@@ -364,7 +365,7 @@
 
 		<div class="pb-4" />
 
-		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group}
+		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group (worker_group[0])}
 			<WorkspaceGroup
 				on:reload={() => {
 					loadWorkerGroups()

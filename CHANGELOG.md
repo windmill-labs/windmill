@@ -1,6 +1,30 @@
 # Changelog
 
 
+## [1.197.1](https://github.com/windmill-labs/windmill/compare/v1.197.0...v1.197.1) (2023-11-02)
+
+
+### Bug Fixes
+
+* fix cli ([77e0e2e](https://github.com/windmill-labs/windmill/commit/77e0e2ebc1fbe00eec431bd5d20619b89e8b7511))
+* Slack error handler missing "slack" arg ([#2546](https://github.com/windmill-labs/windmill/issues/2546)) ([7ba2a6c](https://github.com/windmill-labs/windmill/commit/7ba2a6c4f111b980181034ef5181193996c19fc4))
+
+## [1.197.0](https://github.com/windmill-labs/windmill/compare/v1.196.0...v1.197.0) (2023-11-02)
+
+
+### Features
+
+* **frontend:** add treeview ([#2542](https://github.com/windmill-labs/windmill/issues/2542)) ([86a2ced](https://github.com/windmill-labs/windmill/commit/86a2ced605fbab27bd01984c846e467a2612102b))
+* **frontend:** fix sidebar ([#2544](https://github.com/windmill-labs/windmill/issues/2544)) ([b4f043d](https://github.com/windmill-labs/windmill/commit/b4f043d32dd4fefc104d0fca429f4b39a23e1166))
+* **frontend:** fix sidebar color ([#2541](https://github.com/windmill-labs/windmill/issues/2541)) ([30a9460](https://github.com/windmill-labs/windmill/commit/30a9460cca676ac8f8e585024a0927ca90252f17))
+
+
+### Bug Fixes
+
+* enable default tokenizer truncation ([#2537](https://github.com/windmill-labs/windmill/issues/2537)) ([29aabd3](https://github.com/windmill-labs/windmill/commit/29aabd3472f59a4b5a657e7b046d66183d5fa0ba))
+* fix powershell args passing ([b4d5c5a](https://github.com/windmill-labs/windmill/commit/b4d5c5add8b92db1094e46c347efded52aa0f389))
+* improve rendering of list with undefined heights ([9eec2e2](https://github.com/windmill-labs/windmill/commit/9eec2e2c3e0183520cc50c716342bf329145edbd))
+
 ## [1.196.0](https://github.com/windmill-labs/windmill/compare/v1.195.0...v1.196.0) (2023-11-01)
 
 

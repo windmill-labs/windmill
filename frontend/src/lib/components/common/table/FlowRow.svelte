@@ -35,6 +35,7 @@
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let errorHandlerMuted: boolean
+	export let depth: number = 0
 
 	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
 
@@ -78,6 +79,7 @@
 	{errorHandlerMuted}
 	on:change
 	canFavorite={!draft_only}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		{#if archived}

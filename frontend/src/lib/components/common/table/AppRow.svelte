@@ -33,6 +33,7 @@
 	export let moveDrawer: MoveDrawer
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
+	export let depth: number = 0
 
 	let {
 		summary,
@@ -76,6 +77,7 @@
 	{starred}
 	on:change
 	canFavorite={!draft_only}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		{#if execution_mode == 'anonymous'}

@@ -17,11 +17,15 @@
 <button on:pointerdown|stopPropagation>
 	<ButtonDropdown hasPadding={false}>
 		<svelte:fragment slot="buttonReplacement">
-			<Button nonCaptureEvent size="xs" color="light" variant="border" id="tutorials-button">
-				<div class="flex flex-row gap-2 items-center">
-					<BookOpen size={16} />
-					Tutorials
-				</div>
+			<Button
+				nonCaptureEvent
+				size="xs"
+				color="light"
+				variant="border"
+				id="tutorials-button"
+				startIcon={{ icon: BookOpen }}
+			>
+				Tutorials
 			</Button>
 		</svelte:fragment>
 		<svelte:fragment slot="items">

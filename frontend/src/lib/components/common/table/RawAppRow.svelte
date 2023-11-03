@@ -23,6 +23,7 @@
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let deploymentDrawer: DeployWorkspaceDrawer
+	export let depth: number = 0
 
 	let updateAppDrawer: Drawer
 
@@ -61,6 +62,7 @@
 	{starred}
 	on:change
 	canFavorite={true}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		<SharedBadge {canWrite} extraPerms={extra_perms} />

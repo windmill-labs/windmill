@@ -788,11 +788,9 @@
 						on:click={() => {
 							metadataOpen = true
 						}}
+						startIcon={{ icon: Settings }}
 					>
-						<div class="flex flex-row gap-2 items-center">
-							<Settings size={14} />
-							Settings
-						</div>
+						Settings
 					</Button>
 					<Button
 						loading={loadingDraft}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Table } from '@tanstack/svelte-table'
-	import { ChevronLeft, ChevronRight, Download, Loader2 } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, Download } from 'lucide-svelte'
 	import type { Readable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
@@ -71,15 +71,10 @@
 						$table.previousPage()
 					}}
 					disabled={!$table.getCanPreviousPage()}
+					loading={isPreviousLoading && loading}
+					startIcon={{ icon: ChevronLeft }}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						{#if isPreviousLoading && loading}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<ChevronLeft size={14} />
-						{/if}
-						Previous
-					</div>
+					Previous
 				</Button>
 				<Button
 					size="xs2"
@@ -90,16 +85,10 @@
 						$table.nextPage()
 					}}
 					disabled={!$table.getCanNextPage()}
+					loading={isNextLoading && loading}
+					endIcon={{ icon: ChevronRight }}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						Next
-
-						{#if isNextLoading && loading}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<ChevronRight size={14} />
-						{/if}
-					</div>
+					Next
 				</Button>
 				{$table.getState().pagination.pageIndex + 1}
 				{$table.getPageCount() > 0 ? ` of ${$table.getPageCount()}` : ''}

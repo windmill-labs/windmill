@@ -44,14 +44,15 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
       const content = await Deno.readTextFile(cpath);
       const splitted = cpath.split(".");
       const wmPath = splitted[0];
-      const ext = splitted[splitted.length - 1];
+      const len = splitted.length;
+      const ext = splitted[len - 1];
       const lang =
         ext == "py"
           ? "python3"
           : ext == "ts"
-          ? splitted.length > 2 && splitted[splitted.length - 2] == "fetch"
+          ? len > 2 && splitted[len - 2] == "fetch"
             ? "nativets"
-            : splitted.length > 2 && splitted[splitted.length - 2] == "bun"
+            : len > 2 && splitted[len - 2] == "bun"
             ? "bun"
             : "deno"
           : ext == "go"
@@ -61,11 +62,11 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
           : ext == "ps1"
           ? "powershell"
           : ext == "sql"
-          ? splitted.length > 2 && splitted[splitted.length - 2] == "my"
+          ? len > 2 && splitted[len - 2] == "my"
             ? "mysql"
-            : splitted.length > 2 && splitted[splitted.length - 2] == "bq"
+            : len > 2 && splitted[len - 2] == "bq"
             ? "bigquery"
-            : splitted.length > 2 && splitted[splitted.length - 2] == "sf"
+            : len > 2 && splitted[len - 2] == "sf"
             ? "snowflake"
             : "postgresql"
           : ext == "gql"

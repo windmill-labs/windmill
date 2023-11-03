@@ -545,11 +545,9 @@
 						}
 					}))
 				]}
+				startIcon={{ icon: RefreshCw, classes: loading ? 'animate-spin' : '' }}
 			>
-				<div class="flex flex-row items-center gap-2">
-					<RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
-					{manualDates[selectedManualDate].label}
-				</div>
+				{manualDates[selectedManualDate].label}
 			</Button>
 
 			<Toggle
@@ -594,9 +592,7 @@
 			</Pane>
 			<Pane size={40} minSize={15} class="border-t">
 				{#if selectedId}
-					{#key selectedId}
-						<JobPreview id={selectedId} />
-					{/key}
+					<JobPreview id={selectedId} />
 				{:else}
 					<div class="text-xs m-4">No job selected</div>
 				{/if}

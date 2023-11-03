@@ -311,11 +311,13 @@
 					</div>
 				{:else}
 					<div class="flex flex-row gap-2">
-						<Button size="xs" color="dark" href="/api/oauth/connect_slack">
-							<div class="flex flex-row gap-1 items-center">
-								<Slack size={14} />
-								Connect to Slack
-							</div>
+						<Button
+							size="xs"
+							color="dark"
+							href="/api/oauth/connect_slack"
+							startIcon={{ icon: Slack }}
+						>
+							Connect to Slack
 						</Button>
 						<Badge color="red">Not connnected</Badge>
 					</div>

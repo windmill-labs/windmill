@@ -51,10 +51,8 @@
 				}
 			}
 		}}
+		endIcon={{ icon: Plug }}
 	>
-		<div class="flex flex-row gap-1 items-center">
-			<span>Connect</span>
-			<Plug size={14} />
-		</div>
+		Connect
 	</Button>
 {/if}

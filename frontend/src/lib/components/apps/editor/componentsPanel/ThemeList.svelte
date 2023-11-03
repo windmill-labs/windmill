@@ -120,11 +120,9 @@
 						previewTheme.set(undefined)
 						previewThemePath = undefined
 					}}
+					startIcon={{ icon: EyeOff }}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						<EyeOff size={16} />
-						Clear preview
-					</div>
+					Clear preview
 				</Button>
 			{/if}
 		</div>
