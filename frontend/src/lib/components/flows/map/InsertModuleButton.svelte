@@ -38,9 +38,9 @@
 		slot="trigger"
 		id={`flow-editor-add-step-${index}`}
 		type="button"
-		class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 	>
-		<Cross size={12} />
+		<Cross class="mx-[5px]" size={15} />
 	</button>
 	<div id="flow-editor-insert-module ">
 		{#if !disableAi}
