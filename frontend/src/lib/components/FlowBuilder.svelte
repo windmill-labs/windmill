@@ -61,7 +61,7 @@
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
-	import { cloneDeep, snakeCase } from 'lodash'
+	import { snakeCase } from 'lodash'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	import FlowTutorials from './FlowTutorials.svelte'
@@ -174,7 +174,6 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
-			savedFlow = cloneDeep(flow)
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -193,6 +192,10 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
+				savedFlow = await FlowService.getFlowByPathWithDraft({
+					workspace: $workspaceStore!,
+					path: $pathStore
+				})
 				if (enabled) {
 					await createSchedule($pathStore)
 				}
@@ -210,6 +213,10 @@
 						tag: flow.tag,
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
+				})
+				savedFlow = await FlowService.getFlowByPathWithDraft({
+					workspace: $workspaceStore!,
+					path: $pathStore
 				})
 				const scheduleExists = await ScheduleService.existsSchedule({
 					workspace: $workspaceStore ?? '',
