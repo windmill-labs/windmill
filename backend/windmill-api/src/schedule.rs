@@ -62,7 +62,7 @@ pub struct NewSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
-    pub ws_error_handler_muted: bool,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 async fn check_path_conflict<'c>(
@@ -156,7 +156,7 @@ async fn create_schedule(
         ns.on_recovery,
         ns.on_recovery_times,
         ns.on_recovery_extra_args,
-        ns.ws_error_handler_muted,
+        ns.ws_error_handler_muted.unwrap_or(false),
     )
     .fetch_one(&mut tx)
     .await
@@ -230,7 +230,7 @@ async fn edit_schedule(
         es.on_recovery,
         es.on_recovery_times,
         es.on_recovery_extra_args,
-        es.ws_error_handler_muted,
+        es.ws_error_handler_muted.unwrap_or(false),
         path,
         w_id,
     )
@@ -524,7 +524,7 @@ pub struct EditSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
-    pub ws_error_handler_muted: bool,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 pub async fn clear_schedule<'c>(
