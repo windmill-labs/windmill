@@ -552,6 +552,19 @@ pub async fn run_error_handler<
     );
     extra.insert("email".to_string(), to_raw_value(&queued_job.email));
 
+    if let Some(schedule_path) = &queued_job.schedule_path {
+        extra.insert("schedule_path".to_string(), to_raw_value(schedule_path));
+    }
+
+    if error_handler_path
+        .to_string()
+        .eq("hub/2431/slack/schedule-error-handler-slack")
+    {
+        // custom slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
+    }
+
     if let Some(extra_args) = error_handler_extra_args {
         if let serde_json::Value::Object(args_m) = extra_args {
             for (k, v) in args_m {
@@ -562,14 +575,6 @@ pub async fn run_error_handler<
                 "args of scripts needs to be dict".to_string(),
             ));
         }
-    }
-    if error_handler_path
-        .to_string()
-        .eq("hub/2431/slack/schedule-error-handler-slack")
-    {
-        // custom slack error handler being used -> we need to inject the slack token
-        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
