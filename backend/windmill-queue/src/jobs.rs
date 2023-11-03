@@ -926,6 +926,7 @@ async fn apply_schedule_handlers<
                 let on_recovery_result = handle_on_recovery(
                     db,
                     tx,
+                    job_id,
                     schedule_path,
                     script_path,
                     schedule.is_flow,
@@ -1071,6 +1072,7 @@ async fn handle_on_recovery<
 >(
     db: &Pool<Postgres>,
     tx: QueueTransaction<'c, R>,
+    job_id: Uuid,
     schedule_path: &str,
     script_path: &str,
     is_flow: bool,
@@ -1134,8 +1136,8 @@ async fn handle_on_recovery<
         ERROR_HANDLER_USER_GROUP.to_string(),
         None,
         None,
-        None,
-        None,
+        Some(job_id),
+        Some(job_id),
         None,
         false,
         false,
