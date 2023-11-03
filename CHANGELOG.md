@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.199.0](https://github.com/windmill-labs/windmill/compare/v1.198.0...v1.199.0) (2023-11-03)
+
+
+### Features
+
+* Schedule error handler improvements ([#2555](https://github.com/windmill-labs/windmill/issues/2555)) ([668c9da](https://github.com/windmill-labs/windmill/commit/668c9da6461997c1b7907111bbfd0eff5e0ec159))
+
+
+### Bug Fixes
+
+* fail on non-integer sleep value ([#2556](https://github.com/windmill-labs/windmill/issues/2556)) ([6f47b96](https://github.com/windmill-labs/windmill/commit/6f47b9600629ec24a4e265a0ccc9eee75458229f))
+
 ## [1.198.0](https://github.com/windmill-labs/windmill/compare/v1.197.1...v1.198.0) (2023-11-03)
 
 
