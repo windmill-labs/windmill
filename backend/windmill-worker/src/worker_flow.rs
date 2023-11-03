@@ -2111,6 +2111,7 @@ async fn compute_next_flow_transform(
                 && modules[0].value.is_simple()
                 && modules[0].sleep.is_none()
                 && modules[0].suspend.is_none()
+                && modules[0].cache_ttl.is_none()
                 && flow.failure_module.is_none();
 
             let next_loop_status = match status_module {
