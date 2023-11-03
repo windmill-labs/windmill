@@ -19,6 +19,8 @@
 	let shareModal: ShareModal
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
+
+	let menuOpen: boolean = false
 </script>
 
 {#key item.summary}
@@ -39,6 +41,7 @@
 					{moveDrawer}
 					{deploymentDrawer}
 					{depth}
+					bind:menuOpen
 				/>
 			{:else if item.type == 'flow'}
 				<FlowRow
@@ -55,6 +58,7 @@
 					{moveDrawer}
 					{deploymentDrawer}
 					{depth}
+					bind:menuOpen
 				/>
 			{:else if item.type == 'app'}
 				<AppRow
@@ -67,6 +71,7 @@
 					{shareModal}
 					{deploymentDrawer}
 					{depth}
+					bind:menuOpen
 				/>
 			{:else if item.type == 'raw_app'}
 				<RawAppRow
@@ -79,49 +84,52 @@
 					{shareModal}
 					{deploymentDrawer}
 					{depth}
+					bind:menuOpen
 				/>
 			{/if}
 		{/key}
 	{/key}
 {/key}
 
-<ConfirmationModal
-	open={Boolean(deleteConfirmedCallback)}
-	title="Remove"
-	confirmationText="Remove"
-	on:canceled={() => {
-		deleteConfirmedCallback = undefined
-	}}
-	on:confirmed={() => {
-		if (deleteConfirmedCallback) {
-			deleteConfirmedCallback()
-		}
-		deleteConfirmedCallback = undefined
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove it?</span>
-		<Alert type="info" title="Bypass confirmation">
-			<div>
-				You can press
-				<Badge color="dark-gray">SHIFT</Badge>
-				while removing to bypass confirmation.
-			</div>
-		</Alert>
-	</div>
-</ConfirmationModal>
+{#if menuOpen}
+	<ConfirmationModal
+		open={Boolean(deleteConfirmedCallback)}
+		title="Remove"
+		confirmationText="Remove"
+		on:canceled={() => {
+			deleteConfirmedCallback = undefined
+		}}
+		on:confirmed={() => {
+			if (deleteConfirmedCallback) {
+				deleteConfirmedCallback()
+			}
+			deleteConfirmedCallback = undefined
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>Are you sure you want to remove it?</span>
+			<Alert type="info" title="Bypass confirmation">
+				<div>
+					You can press
+					<Badge color="dark-gray">SHIFT</Badge>
+					while removing to bypass confirmation.
+				</div>
+			</Alert>
+		</div>
+	</ConfirmationModal>
 
-<ShareModal
-	bind:this={shareModal}
-	on:change={() => {
-		dispatch('reload')
-	}}
-/>
+	<ShareModal
+		bind:this={shareModal}
+		on:change={() => {
+			dispatch('reload')
+		}}
+	/>
 
-<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<MoveDrawer
-	bind:this={moveDrawer}
-	on:update={() => {
-		dispatch('reload')
-	}}
-/>
+	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+	<MoveDrawer
+		bind:this={moveDrawer}
+		on:update={() => {
+			dispatch('reload')
+		}}
+	/>
+{/if}

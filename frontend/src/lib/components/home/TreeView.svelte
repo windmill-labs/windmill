@@ -15,7 +15,7 @@
 	const isFolder = (i: any): i is FolderItem => i && 'folderName' in i
 	const isUser = (i: any): i is UserItem => i && 'username' in i
 
-	let opened: boolean = false
+	let opened: boolean = true
 </script>
 
 {#if isFolder(item)}

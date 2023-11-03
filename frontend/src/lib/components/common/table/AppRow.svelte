@@ -35,6 +35,7 @@
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let depth: number = 0
+	export let menuOpen: boolean = false
 
 	let {
 		summary,
@@ -64,11 +65,9 @@
 
 		appDeploymentHistory.open(app.versions)
 	}
-
-	let dropdownOpened: boolean = false
 </script>
 
-{#if dropdownOpened}
+{#if menuOpen}
 	<AppJsonEditor on:change bind:this={appExport} />
 	<AppDeploymentHistory bind:this={appDeploymentHistory} />
 {/if}
@@ -256,10 +255,10 @@
 				]
 			}}
 			on:dropdownOpen={() => {
-				dropdownOpened = true
+				menuOpen = true
 			}}
 			on:dropdownClose={() => {
-				dropdownOpened = false
+				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>
