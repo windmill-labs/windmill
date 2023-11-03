@@ -165,6 +165,10 @@
 	}
 
 	async function saveAsDefaultErrorHandler() {
+		if (!$enterpriseLicense) {
+			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
+			return
+		}
 		if ($workspaceStore && errorHandlerPath !== undefined) {
 			await SettingService.setGlobal({
 				key: 'default_error_handler_' + $workspaceStore!,
@@ -183,6 +187,10 @@
 	}
 
 	async function saveAsDefaultRecoveryHandler() {
+		if (!$enterpriseLicense) {
+			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
+			return
+		}
 		if ($workspaceStore && errorHandlerPath !== undefined) {
 			await SettingService.setGlobal({
 				key: 'default_recovery_handler_' + $workspaceStore!,
