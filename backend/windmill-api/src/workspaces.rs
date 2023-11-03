@@ -1440,8 +1440,28 @@ struct ScriptMetadata {
     is_template: bool,
     lock: Vec<String>,
     kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    envs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "is_none_or_false")]
+    ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    priority: Option<i16>,    
 }
 
+pub fn is_none_or_false(val: &Option<bool>) -> bool {
+    match val {
+        Some(val) => !val,
+        None => true,
+    }
+}
 enum ArchiveImpl {
     Zip(async_zip::write::ZipFileWriter<File>),
     Tar(tokio_tar::Builder<File>),
@@ -1629,6 +1649,14 @@ async fn tarball_workspace(
                 is_template: script.is_template,
                 kind: script.kind.to_string(),
                 lock,
+                envs: script.envs,
+                concurrent_limit: script.concurrent_limit,
+                concurrency_time_window_s: script.concurrency_time_window_s,
+                cache_ttl: script.cache_ttl,
+                dedicated_worker: script.dedicated_worker,
+                ws_error_handler_muted: script.ws_error_handler_muted,
+                priority: script.priority,
+                
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
