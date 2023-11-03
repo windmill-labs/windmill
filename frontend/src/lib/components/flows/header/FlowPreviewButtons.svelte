@@ -49,7 +49,7 @@
 		startIcon={{ icon: faPlay }}
 	>
 		Test up to
-		<Badge baseClass="ml-1" color="indigo">
+		<Badge baseClass="ml-1" color="indigo" wrapperClass="max-h-[15px]">
 			{$selectedId}
 		</Badge>
 	</Button>
