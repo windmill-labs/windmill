@@ -16,14 +16,7 @@
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
-	import {
-		enterpriseLicense,
-		starStore,
-		superadmin,
-		usageStore,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -33,7 +26,6 @@
 	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import MultiplayerMenu from '$lib/components/sidebar/MultiplayerMenu.svelte'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 
 	OpenAPI.WITH_CREDENTIALS = true
@@ -155,6 +147,7 @@
 </script>
 
 <svelte:window bind:innerWidth />
+
 <UserSettings bind:this={userSettings} />
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
@@ -180,7 +173,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-[#1e232e] bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
@@ -218,9 +211,9 @@
 							</svg>
 						</button>
 					</div>
-					<div class="bg-[#1e232e] h-full !dark">
+					<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
 						<div
-							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
+							class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
 							class:w-40={!isCollapsed}
 						>
 							<WindmillIcon white={true} height="20px" width="20px" />
@@ -231,9 +224,6 @@
 							<WorkspaceMenu />
 							<UserMenu />
 							<FavoriteMenu {favoriteLinks} />
-							{#if $enterpriseLicense}
-								<MultiplayerMenu />
-							{/if}
 						</div>
 
 						<SidebarContent {isCollapsed} />
@@ -244,40 +234,40 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
 				isCollapsed ? 'md:w-12' : 'md:w-40',
 				devOnly ? '!hidden' : ''
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#1e232e] !dark">
+			<div
+				class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
+			>
 				<button
 					on:click={() => {
 						goto('/')
 					}}
 				>
 					<div
-						class="center-center flex-row flex-shrink-0 px-2 py-3.5 font-extrabold text-white h-12"
+						class="flex-row flex-shrink-0 px-3.5 py-3.5 font-semibold text-gray-100 text-opacity-70 h-12 flex items-center gap-1.5"
 						class:w-40={!isCollapsed}
 					>
 						<div class:mr-1={!isCollapsed}>
 							<WindmillIcon white={true} height="20px" width="20px" />
 						</div>
 						{#if !isCollapsed}
-							<span> Windmill </span>
+							<div class="text-sm mt-0.5"> Windmill </div>
 						{/if}
 					</div>
 				</button>
-				<div class="px-2 py-4 space-y-2 border-y border-gray-500">
+				<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu {isCollapsed} />
-					<FavoriteMenu {favoriteLinks} />
-					{#if $enterpriseLicense}
-						<MultiplayerMenu />
-					{/if}
+					<FavoriteMenu {favoriteLinks} {isCollapsed} />
 				</div>
+
 				<SidebarContent {isCollapsed} />
 
-				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-500">
+				<div class="flex-shrink-0 flex px-4 pb-3.5">
 					<button
 						on:click={() => {
 							isCollapsed = !isCollapsed
@@ -297,7 +287,8 @@
 		<div
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
-				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40'
+				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+				'transition-all ease-in-out duration-200'
 			)}
 		>
 			<main class="min-h-screen">

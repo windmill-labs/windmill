@@ -444,7 +444,7 @@
 
 			{#if showResourceTypePicker}
 				<Button
-					title="Add resource"
+					title="Add resource type"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"

@@ -12,7 +12,6 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { onMount } from 'svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
@@ -73,10 +72,9 @@
 	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
 	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
 
-	onMount(() => {
-		loadInvites()
-		loadWorkspaces()
-	})
+	loadInvites()
+	loadWorkspaces()
+
 	let loading = false
 </script>
 

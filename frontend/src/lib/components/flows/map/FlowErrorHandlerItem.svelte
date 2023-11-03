@@ -10,6 +10,8 @@
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
 
+	export let small: boolean
+
 	const { selectedId, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -40,6 +42,7 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	on:click={() => {
 		if ($copilotCurrentStepStore !== undefined) return
@@ -50,11 +53,12 @@
 		}
 	}}
 	class={classNames(
+		'z-10',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
-		'border transition-colors duration-[400ms] ease-linear mx-auto rounded-sm px-2 py-1 bg-surface text-sm flex justify-between items-center flex-row overflow-x-hidden relative',
+		'border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 bg-surface text-sm flex justify-between items-center flex-row overflow-x-hidden relative',
 		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
-	style="min-width: 275px"
+	style={small ? 'min-width: 200px' : 'min-width: 275px'}
 >
 	{#if $copilotCurrentStepStore !== undefined}
 		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]" />
@@ -78,6 +82,7 @@
 	</div>
 	<div class="-my-1">
 		<Toggle
+			size={small ? 'xs' : 'sm'}
 			checked={Boolean($flowStore?.value?.failure_module)}
 			on:change={onToggle}
 			id="error-handler-toggle"

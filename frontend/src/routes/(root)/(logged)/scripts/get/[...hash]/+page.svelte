@@ -414,6 +414,7 @@
 				bind:errorHandlerMuted={script.ws_error_handler_muted}
 				errorHandlerKind="script"
 				scriptOrFlowPath={script.path}
+				tag={script.tag}
 			>
 				{#if script?.priority != undefined}
 					<div class="hidden md:block">

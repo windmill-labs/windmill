@@ -3,6 +3,7 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 
+	export let position: 'center' | 'left' | 'right' = 'center'
 	export let total: number
 	export let min: number | undefined
 	export let started_at: number | undefined
@@ -19,11 +20,12 @@
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"
-		class="h-4 {gray
-			? 'bg-gray-500'
-			: running
-			? 'bg-blue-400/90'
-			: 'bg-blue-500/90'} rounded-sm center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
+		class="h-4 {gray ? 'bg-gray-500' : running ? 'bg-blue-400/90' : 'bg-blue-500/90'} {position ==
+		'left'
+			? 'rounded-l-sm'
+			: position == 'right'
+			? 'rounded-r-sm'
+			: 'rounded-sm'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		<svelte:fragment slot="text"
 			><a href="/run/{id}" class="inline-flex items-center gap-1" target="_blank"

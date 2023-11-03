@@ -141,11 +141,13 @@
 									'bg-surface border'
 								)}
 							>
-								<svelte:component
-									this={APP_TO_ICON_COMPONENT[item['app']]}
-									height={18}
-									width={18}
-								/>
+								{#if item['app'] in APP_TO_ICON_COMPONENT}
+									<svelte:component
+										this={APP_TO_ICON_COMPONENT[item['app']]}
+										height={18}
+										width={18}
+									/>
+								{/if}
 							</div>
 
 							<div class="w-full text-left font-normal">

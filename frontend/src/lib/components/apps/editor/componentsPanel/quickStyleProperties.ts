@@ -670,6 +670,9 @@ export const quickStyleProperties: Record<
 	chartjscomponent: {
 		container: containerDefaultProps
 	},
+	chartjscomponentv2: {
+		container: containerDefaultProps
+	},
 	vegalitecomponent: {},
 	containercomponent: {
 		container: containerDefaultProps

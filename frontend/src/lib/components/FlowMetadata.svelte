@@ -15,6 +15,7 @@
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import Tooltip from './Tooltip.svelte'
 
 	export let job: Job
 	const SMALL_ICON_SCALE = 0.7
@@ -36,12 +37,14 @@
 			{:else}
 				Received job <TimeAgo date={job.created_at ?? ''} />
 			{/if}
+			<Tooltip>{job?.created_at}</Tooltip>
 		</span>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
 		<div>
 			<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 				Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
+				<Tooltip>{job?.started_at}</Tooltip>
 			</span>
 		</div>
 	{/if}

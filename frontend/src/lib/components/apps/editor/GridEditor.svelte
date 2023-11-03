@@ -103,7 +103,6 @@
 				let:dataItem
 				rowHeight={36}
 				cols={columnConfiguration}
-				fastStart={true}
 				gap={[4, 2]}
 			>
 				<ComponentWrapper

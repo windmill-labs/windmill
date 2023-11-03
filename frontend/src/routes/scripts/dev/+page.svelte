@@ -4,13 +4,52 @@
 	import { Button, Kbd } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
-	import { CompletedJob, Job, JobService, Preview } from '$lib/gen'
+	import { CompletedJob, Job, JobService, OpenAPI, Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount } from 'svelte'
+	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import { page } from '$app/stores'
+	import { getUserExt } from '$lib/user'
+
+	let token = $page.url.searchParams.get('wm_token') ?? undefined
+	let workspace = $page.url.searchParams.get('workspace') ?? undefined
+	let themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
+	let themeDark = themeDarkRaw == '2' || themeDarkRaw == '4'
+
+	if (token) {
+		OpenAPI.WITH_CREDENTIALS = true
+		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+	}
+
+	if (workspace) {
+		$workspaceStore = workspace
+	}
+
+	if (workspace && token) {
+		loadUser()
+	}
+
+	async function loadUser() {
+		const user = await getUserExt(workspace!)
+		userStore.set(user)
+	}
+
+	let darkModeToggle: DarkModeToggle
+	let darkMode: boolean | undefined = undefined
+	let modeInitialized = false
+	function initializeMode() {
+		modeInitialized = true
+		darkModeToggle.toggle()
+	}
+	$: darkModeToggle &&
+		themeDark != darkMode &&
+		darkMode != undefined &&
+		!modeInitialized &&
+		initializeMode()
 
 	let testJobLoader: TestJobLoader
 
@@ -160,10 +199,21 @@
 
 <main class="h-screen w-full">
 	<div class="flex flex-col h-full">
-		<div class="text-center w-full text-lg truncate py-1 dark:text-white">
+		<div class="absolute top-0 left-2">
+			<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
+		</div>
+		<div class="text-center w-full text-lg truncate py-1 text-primary">
 			{currentScript?.path ?? 'Not editing a script'}
 			{currentScript?.language ?? ''}
 		</div>
+		<div class="absolute top-2 right-2 !text-tertiary text-xs">
+			{#if $userStore}
+				As {$userStore?.username} in {$workspaceStore}
+			{:else}
+				<span class="text-red-600">Unable to login</span>
+			{/if}
+		</div>
+
 		{#if !validCode}
 			<div class="text-center w-full text-lg truncate py-1 text-red-500">Invalid code</div>
 		{/if}

@@ -28,7 +28,9 @@
 	import Label from '$lib/components/Label.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 
-	const { selectedId, flowStore, initialPath, previewArgs } =
+	export let noEditor: boolean
+
+	const { selectedId, flowStore, initialPath, previewArgs, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function loadWorkerGroups() {
@@ -38,8 +40,8 @@
 	}
 
 	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
-	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
-	$: syncedUrl = `${hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`
+	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$pathStore}`
+	$: syncedUrl = `${hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$pathStore}`
 
 	$: if ($selectedId == 'settings-worker-group') {
 		$workerTags = undefined
@@ -55,11 +57,13 @@
 </script>
 
 <div class="h-full overflow-hidden">
-	<FlowCard title="Settings">
+	<FlowCard {noEditor} title="Settings">
 		<div class="h-full flex-1">
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>
-				<Tab value="settings-schedule">Schedule</Tab>
+				{#if !noEditor}
+					<Tab value="settings-schedule">Schedule</Tab>
+				{/if}
 				<Tab value="settings-same-worker">Shared Directory</Tab>
 				<Tab value="settings-early-stop">Early Stop</Tab>
 				<Tab value="settings-worker-group">Worker Group</Tab>
@@ -90,17 +94,19 @@
 								/>
 							</Label>
 
-							<Label label="Path">
-								<Path
-									autofocus={false}
-									bind:this={path}
-									bind:dirty={dirtyPath}
-									bind:path={$flowStore.path}
-									{initialPath}
-									namePlaceholder="flow"
-									kind="flow"
-								/>
-							</Label>
+							{#if !noEditor}
+								<Label label="Path">
+									<Path
+										autofocus={false}
+										bind:this={path}
+										bind:dirty={dirtyPath}
+										bind:path={$pathStore}
+										{initialPath}
+										namePlaceholder="flow"
+										kind="flow"
+									/>
+								</Label>
+							{/if}
 
 							<Label label="Description">
 								<textarea
@@ -155,7 +161,7 @@
 							<div class="flex flex-row items-center gap-1">
 								<ErrorHandlerToggleButton
 									kind="flow"
-									scriptOrFlowPath={$flowStore.path}
+									scriptOrFlowPath={$pathStore}
 									bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
 									iconOnly={false}
 								/>

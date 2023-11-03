@@ -196,8 +196,8 @@
 		$jobsById[jobId] = {
 			component: id,
 			job: jobId,
-			started_at: Date.now(),
-			started_compute_at: jobId.startsWith('Frontend') ? Date.now() : undefined
+			created_at: Date.now(),
+			started_at: jobId.startsWith('Frontend') ? Date.now() : undefined
 		}
 		jobs.update((jobs) => {
 			const njobs = [...jobs, jobId]
@@ -358,7 +358,7 @@
 				...(result ? { result } : {}),
 				...(transformer ? { transformer } : {}),
 				error,
-				duration_ms: oldJob?.started_compute_at ? Date.now() - oldJob?.started_compute_at : 1
+				duration_ms: oldJob?.started_at ? Date.now() - oldJob?.started_at : 1
 			}
 
 			$jobsById[jobId] = job
@@ -422,7 +422,6 @@
 
 	async function setResult(res: any, jobId: string | undefined) {
 		dispatch('done')
-
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -549,19 +548,19 @@
 	on:cancel={(e) => {
 		let jobId = e.detail
 		let job = $jobsById[jobId]
-		if (job && job.started_at && !job.duration_ms) {
+		if (job && job.created_at && !job.duration_ms) {
 			$jobsById[jobId] = {
 				...job,
-				duration_ms: Date.now() - (job.started_compute_at ?? job.started_at)
+				started_at: job.started_at ?? Date.now(),
+				duration_ms: Date.now() - (job.started_at ?? job.created_at)
 			}
 		}
 	}}
 	on:running={(e) => {
-		console.log('running', e.detail)
 		let jobId = e.detail
 		let job = $jobsById[jobId]
-		if (job && !job.started_compute_at) {
-			$jobsById[jobId] = { ...job, started_compute_at: Date.now() }
+		if (job && !job.started_at) {
+			$jobsById[jobId] = { ...job, started_at: Date.now() }
 		}
 	}}
 	on:doneError={(e) => {

@@ -3,6 +3,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 
+	export let noEditor: boolean
 	export let branch: {
 		summary?: string
 		skip_failure?: boolean
@@ -11,7 +12,7 @@
 </script>
 
 <div class="h-full flex flex-col">
-	<FlowCard title="Branch">
+	<FlowCard {noEditor} title="Branch">
 		<div slot="header" class="grow">
 			<input bind:value={branch.summary} placeholder={'Summary'} />
 		</div>

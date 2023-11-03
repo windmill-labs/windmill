@@ -16,6 +16,7 @@
 	import AgGridWizard from '$lib/components/wizards/AgGridWizard.svelte'
 	import TableColumnWizard from '$lib/components/wizards/TableColumnWizard.svelte'
 	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
+	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -171,7 +172,7 @@
 					placeholder="Dataset name"
 				/>
 				<div class="absolute top-1 right-1">
-					<PlotlyWizard bind:value={componentInput.value}>
+					<PlotlyWizard bind:value={componentInput.value} on:remove>
 						<svelte:fragment slot="trigger">
 							<Button color="light" size="xs2" nonCaptureEvent={true}>
 								<div class="flex flex-row items-center gap-2 text-xs font-normal">
@@ -180,6 +181,27 @@
 							</Button>
 						</svelte:fragment>
 					</PlotlyWizard>
+				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'chartjs'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.name}
+					placeholder="Dataset name"
+				/>
+				<div class="absolute top-1 right-1">
+					<ChartJSWizard bind:value={componentInput.value} on:remove>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</ChartJSWizard>
 				</div>
 			</div>
 		</div>

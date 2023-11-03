@@ -6,7 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -615,7 +617,17 @@ pub async fn update_flow_status_after_job_completion_internal<
                 let cached_res_path = {
                     let args_hash = hash_args(&flow_job.args);
                     let flow_path = flow_job.script_path();
-                    format!("{flow_path}/flow/cache/{args_hash}")
+                    let version_hash = if let Some(rc) = flow_job.raw_flow.as_ref() {
+                        use std::hash::Hasher;
+                        let mut s = DefaultHasher::new();
+                        serde_json::to_string(&rc.0)
+                            .unwrap_or_default()
+                            .hash(&mut s);
+                        format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
+                    } else {
+                        "flow_unknown".to_string()
+                    };
+                    format!("{flow_path}/cache/{version_hash}/{args_hash}")
                 };
 
                 save_in_cache(db, &flow_job, cached_res_path, &nresult).await;
@@ -2095,8 +2107,12 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple =
-                modules.len() == 1 && modules[0].value.is_simple() && flow.failure_module.is_none();
+            let is_simple = modules.len() == 1
+                && modules[0].value.is_simple()
+                && modules[0].sleep.is_none()
+                && modules[0].suspend.is_none()
+                && modules[0].cache_ttl.is_none()
+                && flow.failure_module.is_none();
 
             let next_loop_status = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
@@ -2111,7 +2127,7 @@ async fn compute_next_flow_transform(
                     let itered_raw = match iterator {
                         InputTransform::Static { value } => to_raw_value(value),
                         InputTransform::Javascript { expr } => {
-                            let mut context = HashMap::with_capacity(3);
+                            let mut context = HashMap::with_capacity(5);
                             context.insert("result".to_string(), arc_last_job_result.clone());
                             context.insert("previous_result".to_string(), arc_last_job_result);
                             context.insert("resumes".to_string(), resumes);
@@ -2155,20 +2171,53 @@ async fn compute_next_flow_transform(
                     flow_jobs: Some(flow_jobs),
                     ..
                 } if !*parallel => {
+                    let itered_new = if itered.is_empty() {
+                        // it's possible we need to re-compute the iterator Input Transforms here, in particular if the flow is being restarted inside the loop
+                        let by_id = if let Some(x) = by_id {
+                            x
+                        } else {
+                            get_transform_context(&flow_job, previous_id, &status).await?
+                        };
+                        let itered_raw = match iterator {
+                            InputTransform::Static { value } => to_raw_value(value),
+                            InputTransform::Javascript { expr } => {
+                                let mut context = HashMap::with_capacity(5);
+                                context.insert("result".to_string(), arc_last_job_result.clone());
+                                context.insert("previous_result".to_string(), arc_last_job_result);
+                                context.insert("resumes".to_string(), resumes);
+                                context.insert("resume".to_string(), resume);
+                                context.insert("approvers".to_string(), approvers);
+
+                                eval_timeout(
+                                    expr.to_string(),
+                                    context,
+                                    Some(arc_flow_job_args),
+                                    Some(client),
+                                    Some(by_id),
+                                )
+                                .await?
+                            }
+                        };
+                        serde_json::from_str::<Vec<serde_json::Value>>(itered_raw.get()).map_err(
+                            |not_array| {
+                                Error::ExecutionErr(format!(
+                                    "Expected an array value, found: {not_array}"
+                                ))
+                            },
+                        )?
+                    } else {
+                        itered.clone()
+                    };
                     let (index, next) = index
                         .checked_add(1)
-                        .and_then(|i| itered.get(i).map(|next| (i, next)))
-                        /* we shouldn't get here because update_flow_status_after_job_completion
-                         * should leave this state if there iteration is complete, but also it should
-                         * be reasonable to just enter a completed state instead of failing, similar to
-                         * iterating an empty list above */
+                        .and_then(|i| itered_new.get(i).map(|next| (i, next)))
                         .with_context(|| {
-                            format!("could not iterate index {index} of {itered:?}")
+                            format!("Could not find iteration number {index} restarting inside the for-loop flow. It's possible the itered-array has changed and this value isn't available anymore.")
                         })?;
 
                     LoopStatus::NextIteration(NextIteration {
                         index,
-                        itered: itered.clone(),
+                        itered: itered_new.clone(),
                         flow_jobs: flow_jobs.clone(),
                         new_args: Iter { index: index as i32, value: next.to_owned() },
                     })

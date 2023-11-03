@@ -185,15 +185,16 @@
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 <FlowBuilder
-	on:deploy={() => {
-		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	on:deploy={(e) => {
+		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
-	on:details={() => {
-		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	on:details={(e) => {
+		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
 	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
+	newFlow={false}
 	{selectedId}
 	{initialArgs}
 	{loading}

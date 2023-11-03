@@ -1,8 +1,15 @@
 <script lang="ts">
-	import { Job, JobService, type Flow, type FlowModule, type RestartedFrom } from '$lib/gen'
+	import {
+		Job,
+		JobService,
+		type Flow,
+		type FlowModule,
+		type RestartedFrom,
+		type OpenFlow
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { Badge, Button, Drawer, Kbd } from './common'
+	import { Badge, Button, Drawer, Kbd, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
@@ -11,8 +18,8 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { Loader2 } from 'lucide-svelte'
-	import { getModifierKey } from '$lib/utils'
+	import { ArrowRight, Loader2 } from 'lucide-svelte'
+	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
@@ -24,10 +31,16 @@
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
 	let selectedJobStep: string | undefined = undefined
+	let branchOrIterationN: number = 0
+	let restartBranchNames: [number, string][] = []
+
+	let selectedJobStepIsTopLevel: boolean | undefined = undefined
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, initialPath } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
@@ -56,7 +69,7 @@
 			})
 	}
 
-	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
+	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
@@ -77,7 +90,7 @@
 	) {
 		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
-		jobId = await runFlowPreview(args, newFlow, restartedFrom)
+		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 		isRunning = true
 	}
 
@@ -94,9 +107,32 @@
 		}
 	}
 
+	function onSelectedJobStepChange() {
+		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
+			selectedJobStepIsTopLevel =
+				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
+			let moduleDefinition = job?.raw_flow?.modules.find((m) => m.id == selectedJobStep)
+			if (moduleDefinition?.value.type == 'forloopflow') {
+				selectedJobStepType = 'forloop'
+			} else if (moduleDefinition?.value.type == 'branchall') {
+				selectedJobStepType = 'branchall'
+				moduleDefinition?.value.branches.forEach((branch, idx) => {
+					restartBranchNames.push([
+						idx,
+						emptyString(branch.summary) ? `Branch #${idx}` : branch.summary!
+					])
+				})
+			} else {
+				selectedJobStepType = 'single'
+			}
+		}
+	}
+
 	$: if (job?.type === 'CompletedJob') {
 		isRunning = false
 	}
+
+	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	let inputLibraryDrawer: Drawer
 </script>
@@ -155,27 +191,94 @@
 			</Button>
 		{:else}
 			<div class="flex flex-row gap-4">
-				{#if jobId !== undefined && selectedJobStep !== undefined && job?.flow_status?.modules !== undefined && job?.flow_status?.modules
-						.map((m) => m.id)
-						.indexOf(selectedJobStep) >= 0}
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						title={`Re-start this flow from step ${selectedJobStep} (included).`}
-						on:click={() => {
-							runPreview($previewArgs, {
-								flow_job_id: jobId,
-								step_id: selectedJobStep
-							})
-						}}
-						startIcon={{ icon: faPlay }}
-					>
-						Re-start from
-						<Badge baseClass="ml-1" color="indigo">
-							{selectedJobStep}
-						</Badge>
-					</Button>
+				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
+					{#if selectedJobStepType == 'single'}
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							title={`Re-start this flow from step ${selectedJobStep} (included).`}
+							on:click={() => {
+								runPreview($previewArgs, {
+									flow_job_id: jobId,
+									step_id: selectedJobStep,
+									branch_or_iteration_n: 0
+								})
+							}}
+							startIcon={{ icon: faPlay }}
+						>
+							Re-start from
+							<Badge baseClass="ml-1" color="indigo">
+								{selectedJobStep}
+							</Badge>
+						</Button>
+					{:else}
+						<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+							<svelte:fragment slot="button">
+								<Button
+									title={`Re-start this flow from step ${selectedJobStep} (included).`}
+									variant="border"
+									color="blue"
+									startIcon={{ icon: faRefresh }}
+									on:click={() => {
+										runPreview($previewArgs, {
+											flow_job_id: jobId,
+											step_id: selectedJobStep,
+											branch_or_iteration_n: 0
+										})
+									}}
+									nonCaptureEvent={true}
+								>
+									Re-start from
+									<Badge baseClass="ml-1" color="indigo">
+										{selectedJobStep}
+									</Badge>
+								</Button>
+							</svelte:fragment>
+							<label class="block text-primary">
+								<div class="pb-1 text-sm text-secondary"
+									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
+								>
+								<div class="flex w-full">
+									{#if selectedJobStepType === 'forloop'}
+										<input
+											type="number"
+											min="0"
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										/>
+									{:else}
+										<select
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										>
+											{#each restartBranchNames as [branchIdx, branchName]}
+												<option value={branchIdx}>{branchName}</option>
+											{/each}
+										</select>
+									{/if}
+									<Button
+										size="xs"
+										color="blue"
+										buttonType="button"
+										btnClasses="!p-1 !w-[34px] !ml-1"
+										aria-label="Restart flow"
+										on:click|once={() => {
+											runPreview($previewArgs, {
+												flow_job_id: jobId,
+												step_id: selectedJobStep,
+												branch_or_iteration_n: branchOrIterationN
+											})
+										}}
+									>
+										<ArrowRight size={18} />
+									</Button>
+								</div>
+							</label>
+						</Popup>
+					{/if}
 				{/if}
 				<Button
 					variant="contained"

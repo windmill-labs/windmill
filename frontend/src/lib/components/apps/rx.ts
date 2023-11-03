@@ -169,7 +169,6 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 			} else {
 				value = x
 			}
-
 			subscribers.forEach((x) => x.next(value!))
 		}
 	}

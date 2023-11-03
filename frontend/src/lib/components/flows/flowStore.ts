@@ -1,4 +1,4 @@
-import type { Flow } from '$lib/gen'
+import type { Flow, OpenFlow } from '$lib/gen'
 import { writable, type Writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 
@@ -15,7 +15,7 @@ export async function initFlow(
 	flowStore.set(flow)
 }
 
-export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writable<Flow>) {
+export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writable<OpenFlow>) {
 	flowStore.update((flow) => {
 		const firstModuleId = flow.value.modules[0]?.id
 

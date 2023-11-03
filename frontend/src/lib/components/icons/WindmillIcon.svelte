@@ -35,6 +35,9 @@
 		.st2 {
 			fill: #bcd4fc;
 		}
+		.st2-gray {
+			fill: #cccccc;
+		}
 		.st3 {
 			fill: #3b82f6;
 		}
@@ -77,7 +80,8 @@
 	</style>
 	<g>
 		<polygon
-			class="st2"
+			class:st2={!white}
+			class:st2-gray={white}
 			points="134.78,14.22 114.31,48.21 101.33,69.75 158.22,69.75 177.97,36.95 191.67,14.22 	"
 		/>
 		<polygon
@@ -97,11 +101,13 @@
 			points="121.7,131.95 101.23,96.49 58.59,22.63 30.15,71.91 44.34,96.49 79.57,157.5 93.26,181.22 	"
 		/>
 		<polygon
-			class="st2"
+			class:st2={!white}
+			class:st2-gray={white}
 			points="64.81,131.95 25.15,131.21 0,130.74 28.44,180.01 66.73,180.72 93.26,181.21 	"
 		/>
 		<polygon
-			class="st2"
+			class:st2={!white}
+			class:st2-gray={white}
 			points="165.38,181.74 184.58,216.46 196.75,238.47 225.19,189.2 206.66,155.69 193.83,132.46 	"
 		/>
 	</g>

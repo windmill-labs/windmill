@@ -424,6 +424,12 @@ export function getAllSubgridsAndComponentIds(
 	return [subgrids, components]
 }
 
+export function getAllGridItems(
+	app: App
+	): GridItem[] {
+	return app.grid.concat(Object.values(app.subgrids ?? {}).flat())
+}
+
 export function deleteGridItem(
 	app: App,
 	component: AppComponent,

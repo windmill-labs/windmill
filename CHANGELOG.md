@@ -1,6 +1,72 @@
 # Changelog
 
 
+## [1.198.0](https://github.com/windmill-labs/windmill/compare/v1.197.1...v1.198.0) (2023-11-03)
+
+
+### Features
+
+* **frontend:** fix table when seaching with hidden columns ([#2549](https://github.com/windmill-labs/windmill/issues/2549)) ([0aaffad](https://github.com/windmill-labs/windmill/commit/0aaffadf0ca6964539011733b5d4882fdd26588a))
+* **frontend:** update displayed path for treeview ([#2551](https://github.com/windmill-labs/windmill/issues/2551)) ([0349ba5](https://github.com/windmill-labs/windmill/commit/0349ba5d567f2b52ff8058f347e501598ce4c981))
+
+
+### Bug Fixes
+
+* **frontend:** fix mobile sidebar opacity ([#2554](https://github.com/windmill-labs/windmill/issues/2554)) ([e1e48cf](https://github.com/windmill-labs/windmill/commit/e1e48cfc5f3cb68aa4bbd18a1a2ad6f0a300c374))
+* make graph rendering uniform across all rem ([#2553](https://github.com/windmill-labs/windmill/issues/2553)) ([0d4fc6a](https://github.com/windmill-labs/windmill/commit/0d4fc6a0bbc9b8e20c20bf2646eab202f795b8bd))
+* make python imports work at any nesting level ([75a5766](https://github.com/windmill-labs/windmill/commit/75a5766f8bf14c3749aff56fb94a8c04b32de4b6))
+* make timeline fit for high number of iterations for flows ([37eac60](https://github.com/windmill-labs/windmill/commit/37eac608666d903504872ce815839a7493fe876a))
+* subflow with cache can not be considered simple ([54f0812](https://github.com/windmill-labs/windmill/commit/54f08122d2837b5ee3d283733e0da403b21fadf0))
+* support results[&lt;x&gt;] + export more metatada for scripts ([0f37439](https://github.com/windmill-labs/windmill/commit/0f37439877ab498a615746357d771703db47a6d2))
+
+## [1.197.1](https://github.com/windmill-labs/windmill/compare/v1.197.0...v1.197.1) (2023-11-02)
+
+
+### Bug Fixes
+
+* fix cli ([77e0e2e](https://github.com/windmill-labs/windmill/commit/77e0e2ebc1fbe00eec431bd5d20619b89e8b7511))
+* Slack error handler missing "slack" arg ([#2546](https://github.com/windmill-labs/windmill/issues/2546)) ([7ba2a6c](https://github.com/windmill-labs/windmill/commit/7ba2a6c4f111b980181034ef5181193996c19fc4))
+
+## [1.197.0](https://github.com/windmill-labs/windmill/compare/v1.196.0...v1.197.0) (2023-11-02)
+
+
+### Features
+
+* **frontend:** add treeview ([#2542](https://github.com/windmill-labs/windmill/issues/2542)) ([86a2ced](https://github.com/windmill-labs/windmill/commit/86a2ced605fbab27bd01984c846e467a2612102b))
+* **frontend:** fix sidebar ([#2544](https://github.com/windmill-labs/windmill/issues/2544)) ([b4f043d](https://github.com/windmill-labs/windmill/commit/b4f043d32dd4fefc104d0fca429f4b39a23e1166))
+* **frontend:** fix sidebar color ([#2541](https://github.com/windmill-labs/windmill/issues/2541)) ([30a9460](https://github.com/windmill-labs/windmill/commit/30a9460cca676ac8f8e585024a0927ca90252f17))
+
+
+### Bug Fixes
+
+* enable default tokenizer truncation ([#2537](https://github.com/windmill-labs/windmill/issues/2537)) ([29aabd3](https://github.com/windmill-labs/windmill/commit/29aabd3472f59a4b5a657e7b046d66183d5fa0ba))
+* fix powershell args passing ([b4d5c5a](https://github.com/windmill-labs/windmill/commit/b4d5c5add8b92db1094e46c347efded52aa0f389))
+* improve rendering of list with undefined heights ([9eec2e2](https://github.com/windmill-labs/windmill/commit/9eec2e2c3e0183520cc50c716342bf329145edbd))
+
+## [1.196.0](https://github.com/windmill-labs/windmill/compare/v1.195.0...v1.196.0) (2023-11-01)
+
+
+### Features
+
+* improve inputs handling for large list on apps ([270d871](https://github.com/windmill-labs/windmill/commit/270d871039c708b7cfa218e22650fc25b1ec841c))
+
+## [1.195.0](https://github.com/windmill-labs/windmill/compare/v1.194.0...v1.195.0) (2023-10-31)
+
+
+### Features
+
+* Ability to restart flow on loop/branchall iteration ([#2526](https://github.com/windmill-labs/windmill/issues/2526)) ([c31299b](https://github.com/windmill-labs/windmill/commit/c31299bed8110f53e31f69983f144aaa82d5560d))
+* **frontend:** chartjs wizard ([#2532](https://github.com/windmill-labs/windmill/issues/2532)) ([03dfe71](https://github.com/windmill-labs/windmill/commit/03dfe711c6292d8d9af78ed610fd2885ad62b8d7))
+* invalidate result cache on flow or script change ([cf9669c](https://github.com/windmill-labs/windmill/commit/cf9669c18de6091dbf5dafad0f6ffd6e17675ca4))
+
+
+### Bug Fixes
+
+* add on success events to triggers list ([1974012](https://github.com/windmill-labs/windmill/commit/1974012621f3a2112eace60ba5d68854d567c9c2))
+* fix quick search scripts ([b3d2213](https://github.com/windmill-labs/windmill/commit/b3d2213ccec73bf4a7f27242ac31eb0941b791ac))
+* Load schedule statistics in background ([#2530](https://github.com/windmill-labs/windmill/issues/2530)) ([c98ebf9](https://github.com/windmill-labs/windmill/commit/c98ebf92e5f99f63cc3754555b5867f71c09e1a9))
+* only load embeddings if in server mode ([c803631](https://github.com/windmill-labs/windmill/commit/c8036317d23bf81b474742223e903255dd8825e0))
+
 ## [1.194.0](https://github.com/windmill-labs/windmill/compare/v1.193.0...v1.194.0) (2023-10-30)
 
 

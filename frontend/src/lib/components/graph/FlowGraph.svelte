@@ -106,7 +106,6 @@
 					getParentIds(),
 					'Input',
 					modules,
-					'after',
 					undefined,
 					undefined,
 					0,
@@ -134,7 +133,6 @@
 					getParentIds(),
 					'Result',
 					undefined,
-					'before',
 					undefined,
 					undefined,
 					0,
@@ -382,8 +380,11 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration_total
-						? 'Iteration ' + flowModuleStates?.[module.id]?.iteration_total
+					flowModuleStates?.[module.id]?.iteration
+						? 'Iteration ' +
+								flowModuleStates?.[module.id]?.iteration +
+								'/' +
+								(flowModuleStates?.[module.id]?.iteration_total ?? '?')
 						: '',
 					loopDepth,
 					false,
@@ -398,7 +399,6 @@
 				getParentIds(loop.items),
 				`Do one iteration`,
 				innerModules,
-				'after',
 				undefined,
 				1000,
 				loopDepth + 1,
@@ -425,7 +425,6 @@
 				getParentIds(loop.items),
 				`Collect result of each iteration`,
 				modules,
-				'after',
 				undefined,
 				1000,
 				loopDepth,
@@ -466,7 +465,6 @@
 					branchParent,
 					'No branches',
 					undefined,
-					'after',
 					undefined,
 					0,
 					loopDepth,
@@ -486,7 +484,6 @@
 					branchParent,
 					summary,
 					modules,
-					'after',
 					edgesLabel[i],
 					undefined,
 					loopDepth,
@@ -521,7 +518,6 @@
 				bitems.map((i) => getParentIds(i)).flat(),
 				branchall ? 'Collect result of each branch' : 'Result of the chosen branch',
 				modules,
-				'after',
 				undefined,
 				0,
 				loopDepth,
@@ -653,7 +649,6 @@
 		parentIds: string[],
 		label: string,
 		modules: FlowModule[] | undefined,
-		whereInsert: 'before' | 'after' | undefined,
 		edgeLabel: string | undefined,
 		offset: number | undefined,
 		loopDepth: number,
@@ -690,7 +685,6 @@
 						selected: $selectedId == label,
 						index,
 						selectable,
-						whereInsert,
 						deleteBranch,
 						id: mid,
 						moving,

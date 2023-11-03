@@ -3,6 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import RowIcon from './RowIcon.svelte'
 	import { BellOff } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let marked: string | undefined
 	export let starred: boolean
@@ -16,11 +17,17 @@
 	export let path: string
 	export let href: string
 	export let workspaceId: string
+	export let depth: number = 0
+
+	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
 </script>
 
 <div
-	class="hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0
-first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5"
+	class={twMerge(
+		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0',
+		depth > 0 ? '!rounded-none' : ''
+	)}
+	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
 >
 	<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
 		<div class="shrink">
@@ -31,7 +38,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border
 				{#if marked}
 					{@html marked}
 				{:else}
-					{!summary || summary.length == 0 ? path : summary}
+					{!summary || summary.length == 0 ? displayPath : summary}
 				{/if}
 			</div>
 			<div class="text-secondary text-2xs truncate text-left font-light">

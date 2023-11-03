@@ -1,10 +1,10 @@
-import type { Flow } from '$lib/gen/models/Flow'
+import type { OpenFlow } from '$lib/gen'
 import { dfs } from './dfs'
 import type { FlowState } from './flowState'
 import { charsToNumber, numberToChars } from './idUtils'
 
 // Computes the next available id
-export function nextId(flowState: FlowState, fullFlow: Flow): string {
+export function nextId(flowState: FlowState, fullFlow: OpenFlow): string {
 	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
 	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
 		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {

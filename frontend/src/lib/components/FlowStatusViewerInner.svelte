@@ -31,6 +31,7 @@
 		| {
 				moduleId: string
 				flowJobs: string[]
+				length: number
 		  }
 		| undefined = undefined
 	export let job: Job | undefined = undefined
@@ -52,6 +53,15 @@
 		let len = (flowJobIds?.flowJobs ?? []).length
 		if (len != lastSize) {
 			updateForloop(len)
+		}
+	}
+
+	if (flowJobIds) {
+		$durationStatuses[flowJobIds?.moduleId ?? ''] = {
+			...($durationStatuses[flowJobIds?.moduleId ?? ''] ?? {}),
+			iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
+			iteration_total: flowJobIds?.length,
+			byJob: {}
 		}
 	}
 
@@ -91,7 +101,6 @@
 					mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
 					$flowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 				) {
-					console.debug('updating', mod.job)
 					JobService.getJob({
 						workspace: workspaceId ?? $workspaceStore ?? '',
 						id: mod.job ?? ''
@@ -177,7 +186,7 @@
 				}
 			}
 			if ($durationStatuses[mod.id] == undefined) {
-				$durationStatuses[mod.id] = {}
+				$durationStatuses[mod.id] = { byJob: {} }
 			}
 			let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
 			if (job.type == 'QueuedJob') {
@@ -189,7 +198,10 @@
 					started_at,
 					parent_module: mod['parent_module']
 				}
-				$durationStatuses[mod.id][job.id] = { started_at }
+				$durationStatuses[mod.id].byJob[job.id] = {
+					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+					started_at
+				}
 			} else {
 				$flowModuleStates[mod.id] = {
 					args: job.args,
@@ -200,14 +212,18 @@
 					parent_module: mod['parent_module'],
 					duration_ms: job['duration_ms'],
 					started_at: started_at,
+					iteration: mod.iterator?.itered?.length,
 					iteration_total: mod.iterator?.itered?.length
 					// retries: $flowStateStore?.raw_flow
 				}
-				$durationStatuses[mod.id][job.id] = { started_at, duration_ms: job['duration_ms'] }
+				$durationStatuses[mod.id].byJob[job.id] = {
+					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+					started_at,
+					duration_ms: job['duration_ms']
+				}
 			}
 		}
 	}
-	let showEmbeddeds = -20
 
 	let flowTimeline: FlowTimeline
 
@@ -222,14 +238,23 @@
 			<div class="h-8" />
 		{/if} -->
 		{#if isListJob}
-			{#if (flowJobIds?.flowJobs.length ?? 0) > 20}
-				<p class="text-tertiary italic">
-					For performance reasons, only the last 20 items are shown. <button
-						class="text-primary underline"
+			{@const lenToAdd = Math.min(
+				20,
+				$durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
+			)}
+
+			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+				<p class="text-tertiary italic text-xs">
+					For performance reasons, only the last 20 items are shown by default <button
+						class="text-primary underline ml-4"
 						on:click={() => {
-							showEmbeddeds -= 20
+							let r = $durationStatuses[flowJobIds?.moduleId ?? '']
+							if (r.iteration_from) {
+								r.iteration_from -= lenToAdd
+								$durationStatuses = $durationStatuses
+							}
 						}}
-						>Load 20 prior
+						>Load {lenToAdd} prior
 					</button>
 				</p>
 			{/if}
@@ -299,21 +324,29 @@
 		{/if}
 		<div class={selected != 'sequence' ? 'hidden' : ''}>
 			{#if isListJob}
+				{@const lenToAdd = Math.min(
+					20,
+					$durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
+				)}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
-				{#if (flowJobIds?.flowJobs.length ?? 0) > 20}
-					<p class="text-tertiary italic">
-						For performance reasons, only the last 20 items are shown. <button
-							class="text-primary underline"
+				{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+					<p class="text-tertiary italic text-xs">
+						For performance reasons, only the last 20 items are shown by default <button
+							class="text-primary underline ml-4"
 							on:click={() => {
-								showEmbeddeds -= 20
+								let r = $durationStatuses[flowJobIds?.moduleId ?? '']
+								if (r.iteration_from) {
+									r.iteration_from -= lenToAdd
+									$durationStatuses = $durationStatuses
+								}
 							}}
-							>Load 20 prior
+							>Load {lenToAdd} prior
 						</button>
 					</p>
 				{/if}
-				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice(showEmbeddeds) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j}
+				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice($durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 					{#if render}
 						<Button
 							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
@@ -331,10 +364,8 @@
 								}
 							}}
 						>
-							<span class="truncate">
-								#{(flowJobIds?.flowJobs.length ?? 0) > 20
-									? (flowJobIds?.flowJobs.length ?? 0) + showEmbeddeds + j + 1
-									: j + 1}: {loopJobId}
+							<span class="truncate font-mono">
+								#{($durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) + j + 1}: {loopJobId}
 							</span>
 
 							<Icon
@@ -373,9 +404,13 @@
 										? new Date(e.detail.started_at).getTime()
 										: undefined
 
+									let created_at = e.detail.created_at
+										? new Date(e.detail.created_at).getTime()
+										: undefined
+
 									let job_id = e.detail.id
 									if ($durationStatuses[modId] == undefined) {
-										$durationStatuses[modId] = {}
+										$durationStatuses[modId] = { byJob: {} }
 									}
 									if (e.detail.type == 'QueuedJob') {
 										$flowModuleStates[modId] = {
@@ -384,11 +419,15 @@
 											logs: e.detail.logs,
 											job_id,
 											args: e.detail.args,
-											iteration_total: flowJobIds?.flowJobs.length,
+											iteration: flowJobIds?.flowJobs.length,
+											iteration_total: flowJobIds?.length,
 											duration_ms: undefined
 										}
 
-										$durationStatuses[modId][job_id] = { started_at }
+										$durationStatuses[modId].byJob[job_id] = {
+											created_at,
+											started_at
+										}
 									} else {
 										$flowModuleStates[modId] = {
 											started_at,
@@ -399,11 +438,13 @@
 											logs: 'All jobs completed',
 											result: jobResults,
 											job_id,
-											iteration_total: flowJobIds?.flowJobs.length,
-											duration_ms: e.detail.duration_ms,
+											iteration: flowJobIds?.flowJobs.length,
+											iteration_total: flowJobIds?.length,
+											duration_ms: undefined,
 											isListJob: true
 										}
-										$durationStatuses[modId][job_id] = {
+										$durationStatuses[modId].byJob[job_id] = {
+											created_at,
 											started_at,
 											duration_ms: e.detail.duration_ms
 										}
@@ -458,7 +499,8 @@
 										flowJobIds={mod.flow_jobs
 											? {
 													moduleId: mod.id,
-													flowJobs: mod.flow_jobs
+													flowJobs: mod.flow_jobs,
+													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length
 											  }
 											: undefined}
 										on:jobsLoaded={(e) => onJobsLoaded(mod, e.detail)}
@@ -530,7 +572,7 @@
 								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
 								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}
-								durationStatuses={$durationStatuses}
+								{durationStatuses}
 							/>
 						{:else if rightColumnSelect == 'detail'}
 							<div class="pt-2">

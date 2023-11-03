@@ -171,6 +171,8 @@ pub struct Script {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<i32>,
 }
 
 #[derive(Serialize)]
