@@ -103,6 +103,10 @@ const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "enterprise")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 
+const ERROR_HANDLER_USERNAME: &str = "error_handler";
+const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
+const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
+
 #[async_recursion]
 pub async fn cancel_job<'c: 'async_recursion>(
     username: &str,
@@ -552,6 +556,10 @@ pub async fn run_error_handler<
         "is_flow".to_string(),
         to_raw_value(&queued_job.raw_flow.is_some()),
     );
+    extra.insert(
+        "started_at".to_string(),
+        to_raw_value(&queued_job.started_at),
+    );
     extra.insert("email".to_string(), to_raw_value(&queued_job.email));
 
     if let Some(schedule_path) = &queued_job.schedule_path {
@@ -570,11 +578,12 @@ pub async fn run_error_handler<
         }
     }
 
+    // TODO: this should be injected when the EH is defined in the BE.
     if error_handler_path
         .to_string()
         .eq("hub/5792/workspace-or-schedule-error-handler-slack")
     {
-        // custom slack error handler being used -> we need to inject the slack token
+        // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
         extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
@@ -587,16 +596,20 @@ pub async fn run_error_handler<
         script_w_id,
         job_payload,
         PushArgs { extra, args: result.to_owned() },
-        if is_global { "global" } else { "error_handler" },
+        if is_global {
+            "global"
+        } else {
+            ERROR_HANDLER_USERNAME
+        },
         if is_global {
             SUPERADMIN_SECRET_EMAIL
         } else {
-            "error_handler@windmill.dev"
+            ERROR_HANDLER_USER_EMAIL
         },
         if is_global {
             SUPERADMIN_SECRET_EMAIL.to_string()
         } else {
-            "g/error_handler".to_string()
+            ERROR_HANDLER_USER_GROUP.to_string()
         },
         None,
         None,
@@ -847,6 +860,7 @@ async fn apply_schedule_handlers<
             let on_failure_result = handle_on_failure(
                 db,
                 tx,
+                job_id,
                 schedule_path,
                 script_path,
                 schedule.is_flow,
@@ -857,8 +871,6 @@ async fn apply_schedule_handlers<
                 started_at,
                 schedule.on_failure_extra_args,
                 &schedule.email,
-                &schedule_to_user(&schedule.path),
-                username_to_permissioned_as(&schedule.edited_by),
                 job_priority,
             )
             .await;
@@ -966,6 +978,7 @@ pub async fn handle_on_failure<
 >(
     db: &Pool<Postgres>,
     tx: QueueTransaction<'c, R>,
+    job_id: Uuid,
     schedule_path: &str,
     script_path: &str,
     is_flow: bool,
@@ -975,18 +988,19 @@ pub async fn handle_on_failure<
     failed_times: i32,
     started_at: DateTime<Utc>,
     extra_args: Option<serde_json::Value>,
-    username: &str,
     email: &str,
-    permissioned_as: String,
     priority: Option<i16>,
 ) -> windmill_common::error::Result<(Uuid, QueueTransaction<'c, R>)> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
     extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&script_path));
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
+    extra.insert("email".to_string(), to_raw_value(&email));
     extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
 
     if let Some(args_v) = extra_args {
@@ -1001,11 +1015,12 @@ pub async fn handle_on_failure<
         }
     }
 
+    // TODO: This should be inject when the EH is defined in the FE.
     if on_failure_path
         .to_string()
-        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
     {
-        // custom slack error handler being used -> we need to inject the slack token
+        // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
         extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
@@ -1017,13 +1032,13 @@ pub async fn handle_on_failure<
         w_id,
         payload,
         PushArgs { extra, args: result.to_owned() },
-        username,
-        email,
-        permissioned_as,
+        ERROR_HANDLER_USERNAME,
+        ERROR_HANDLER_USER_EMAIL,
+        ERROR_HANDLER_USER_GROUP.to_string(),
         None,
         None,
-        None,
-        None,
+        Some(job_id),
+        Some(job_id),
         None,
         false,
         false,

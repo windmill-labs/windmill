@@ -35,6 +35,7 @@ use chrono::Utc;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
+use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::schedule::Schedule;
@@ -543,7 +544,8 @@ async fn run_slack_message_test_job(
     let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
     let (uuid, tx) = windmill_queue::handle_on_failure(
         &db, 
-        tx, 
+        tx,
+        Uuid::parse_str("00000000-0000-0000-0000-000000000000")?,
         "slack_message_test", 
         "slack_message_test", 
         false, 
@@ -553,9 +555,7 @@ async fn run_slack_message_test_job(
         0, 
         Utc::now(), 
         Some(json!(extra_args)),
-        authed.username.as_str(), 
         authed.email.as_str(), 
-        username_to_permissioned_as(authed.username.as_str()),
         None, // Note: we could mark it as high priority to return result quickly to the user
     ).await?;
     tx.commit().await?;

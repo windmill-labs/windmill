@@ -248,12 +248,6 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
-		if (errorHandlerSelected === 'slack' && !emptyString(errorHandlerPath)) {
-			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		}
-		if (recoveryHandlerSelected === 'slack' && !emptyString(recoveryHandlerPath)) {
-			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		}
 		if (edit) {
 			await ScheduleService.updateSchedule({
 				workspace: $workspaceStore!,
