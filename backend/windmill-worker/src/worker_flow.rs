@@ -1425,7 +1425,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 };
                 match json_value {
                     Ok(serde_json::Value::Number(n)) => {
-                        n.as_u64().map(|x| from_now(Duration::from_secs(x)))
+                        if n.is_u64() {
+                            n.as_u64().map(|x| from_now(Duration::from_secs(x)))
+                        } else {
+                            Err(Error::ExecutionErr(format!("Expected an integer, found: {n}")))
+                        }
                     }
                     _ => Err(Error::ExecutionErr(format!(
                         "Expected a number value, found: {json_value:?}"
