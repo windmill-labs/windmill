@@ -123,23 +123,14 @@
 		'transition-all'
 	)
 
-	function getLucideIconSize(size: ButtonType.Size): number {
-		console.log('size', size)
-		switch (size) {
-			case 'xs':
-				return 14
-			case 'sm':
-				return 16
-			case 'md':
-				return 16
-			case 'lg':
-				return 18
-			default:
-				return 12
-		}
+	const iconMap = {
+		xs: 14,
+		sm: 16,
+		md: 16,
+		lg: 18
 	}
 
-	$: lucideIconSize = getLucideIconSize(size)
+	$: lucideIconSize = iconMap[size] ?? 12
 </script>
 
 <div

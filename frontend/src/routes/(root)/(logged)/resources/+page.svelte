@@ -42,7 +42,7 @@
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { convert } from '@redocly/json-to-json-schema'
-	import { Building, Link, Pen, Plus, Save, Trash } from 'lucide-svelte'
+	import { Braces, Building, Link, Pen, Plus, Save, Trash } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
@@ -409,7 +409,13 @@
 				<div class="flex justify-between w-full items-center">
 					<div class="mb-1 font-semibold text-secondary">Schema</div>
 					<div class="mb-2 w-full flex flex-row-reverse">
-						<Button on:click={openInferrer} size="sm" color="dark" variant="border">
+						<Button
+							on:click={openInferrer}
+							size="sm"
+							color="light"
+							variant="border"
+							startIcon={{ icon: Braces }}
+						>
 							Infer schema from a json value
 						</Button>
 					</div>

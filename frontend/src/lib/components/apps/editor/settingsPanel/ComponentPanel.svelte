@@ -183,7 +183,7 @@
 		</a>
 	</div>
 
-	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
+	<div class="flex min-h-[calc(100%-32px)] flex-col min-w-[150px] w-full divide-y">
 		<ComponentPanelDataSource bind:component={componentSettings.item.data}>
 			{#if component.componentInput}
 				<PanelSection
