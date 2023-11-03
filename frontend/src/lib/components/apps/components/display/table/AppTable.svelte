@@ -266,7 +266,7 @@
 		}
 	}
 
-	function updateTable(resolvedConfig) {
+	function updateTable(resolvedConfig, searchValue) {
 		if (resolvedConfig?.columnDefs) {
 			$table.getAllLeafColumns().map((column) => {
 				const columnConfig = resolvedConfig.columnDefs.find(
@@ -285,7 +285,7 @@
 		}
 	}
 
-	$: updateTable(resolvedConfig)
+	$: updateTable(resolvedConfig, searchValue)
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
