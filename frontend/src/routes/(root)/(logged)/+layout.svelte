@@ -173,7 +173,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
