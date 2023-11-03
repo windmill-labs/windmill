@@ -10,6 +10,7 @@
 import { deepEqual } from 'fast-equals'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
+import type { Script } from './gen'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -661,32 +662,25 @@ export function roughSizeOfObject(object: object | string) {
 	return bytes
 }
 
-export function cleanScriptProperties(obj: object) {
-	const keys = [
-		'path',
-		'summary',
-		'description',
-		'content',
-		'schema',
-		'language',
-		'kind',
-		'tag',
-		'draft_only',
-		'envs',
-		'concurrent_limit',
-		'concurrency_time_window_s',
-		'cache_ttl',
-		'dedicated_worker',
-		'ws_error_handler_muted',
-		'priority'
-	]
-	let newObj: object = {}
-	for (const key of keys) {
-		if (obj[key] !== undefined) {
-			newObj[key] = obj[key]
-		} else if (key === 'dedicated_worker') {
-			newObj[key] = null
+export type Value = {
+	language?: Script.language
+	content?: string
+	path?: string
+	draft_only?: boolean
+	value?: any
+	[key: string]: any
+}
+
+export function cleanValueProperties(obj: Value) {
+	if (typeof obj !== 'object') {
+		return obj
+	} else {
+		let newObj: any = {}
+		for (const key of Object.keys(obj)) {
+			if (key !== 'draft' && key !== 'parent_hash' && obj[key]) {
+				newObj[key] = obj[key]
+			}
 		}
+		return newObj
 	}
-	return newObj
 }

@@ -40,7 +40,6 @@
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
-	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
@@ -917,8 +916,6 @@
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
-			$dirtyStore = true
-
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()

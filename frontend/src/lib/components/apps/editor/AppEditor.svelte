@@ -54,6 +54,7 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
+	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	export let app: App
 	export let path: string
@@ -61,6 +62,16 @@
 	export let summary: string
 	export let fromHub: boolean = false
 	export let versions: number[]
+	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let savedApp:
+		| {
+				value: App
+				draft?: any
+				path: string
+				summary: string
+				policy: any
+		  }
+		| undefined = undefined
 
 	migrateApp(app)
 
@@ -464,7 +475,15 @@
 
 {#if !$userStore?.operator}
 	{#if $appStore}
-		<AppEditorHeader on:restore {versions} {policy} {fromHub} bind:this={appEditorHeader} />
+		<AppEditorHeader
+			on:restore
+			{versions}
+			{policy}
+			{fromHub}
+			bind:this={appEditorHeader}
+			{diffDrawer}
+			bind:savedApp
+		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div

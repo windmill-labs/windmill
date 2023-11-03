@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { getContext, onMount, tick } from 'svelte'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import {
 		components as componentsRecord,
 		presets as presetsRecord,
@@ -35,8 +34,6 @@
 	function addComponent(appComponentType: TypedComponent['type']): string {
 		push(history, $app)
 
-		$dirtyStore = true
-
 		const id = insertNewGridItem(
 			$app,
 			appComponentFromType(appComponentType) as (id: string) => AppComponent,
@@ -56,8 +53,6 @@
 
 		push(history, $app)
 
-		$dirtyStore = true
-
 		const id = copyComponent($app, res.value.item, $focusedGrid, res.value.subgrids, [])
 
 		if (id) {
@@ -70,8 +65,6 @@
 		const preset = presetsRecord[appComponentType]
 
 		push(history, $app)
-
-		$dirtyStore = true
 
 		const id = insertNewGridItem(
 			$app,

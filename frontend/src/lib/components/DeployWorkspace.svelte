@@ -507,7 +507,12 @@
 			getValue(kind, path, workspaceToDeployTo!),
 			getValue(kind, path, $workspaceStore!)
 		])
-		diffDrawer.setDiff(values[0], values[1], 'Staging/Prod <> Dev')
+		diffDrawer.setDiff({
+			mode: 'simple',
+			original: values[0],
+			current: values[1],
+			title: 'Staging/prod <> Dev'
+		})
 	}
 </script>
 

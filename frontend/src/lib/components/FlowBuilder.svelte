@@ -8,7 +8,9 @@
 		type PathScript,
 		ScriptService,
 		Script,
-		type HubScriptKind
+		type HubScriptKind,
+		type OpenFlow,
+		type FlowMetadata
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -18,7 +20,7 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { encodeState, formatCron, sleep } from '$lib/utils'
+	import { cleanValueProperties, encodeState, formatCron, sleep } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import type { Drawer } from '$lib/components/common'
 
@@ -27,7 +29,6 @@
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, Kbd, UndoRedo } from './common'
-	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
@@ -38,7 +39,7 @@
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
-	import { Pen } from 'lucide-svelte'
+	import { DiffIcon, Pen } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -54,11 +55,14 @@
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
-	import { snakeCase } from 'lodash'
+	import { cloneDeep, snakeCase } from 'lodash'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
+	import type DiffDrawer from './DiffDrawer.svelte'
+	import { deepEqual } from 'fast-equals'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -66,6 +70,13 @@
 	export let loading = false
 	export let flowStore: Writable<Flow>
 	export let flowStateStore: Writable<FlowState>
+	export let savedFlow:
+		| (OpenFlow &
+				FlowMetadata & {
+					draft?: Flow | undefined
+				})
+		| undefined = undefined
+	export let diffDrawer: DiffDrawer | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -94,11 +105,16 @@
 	let loadingDraft = false
 
 	async function saveDraft(): Promise<void> {
+		const flow = cleanInputs($flowStore)
+		if (savedFlow) {
+			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
+			const current = cleanValueProperties(flow)
+			if (deepEqual(draftOrDeployed, current)) {
+				return
+			}
+		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs($flowStore)
-
-			$dirtyStore = false
 			localStorage.removeItem('flow')
 			localStorage.removeItem(`flow-${flow.path}`)
 
@@ -121,8 +137,12 @@
 				workspace: $workspaceStore!,
 				requestBody: { path: initialPath == '' ? flow.path : initialPath, typ: 'flow', value: flow }
 			})
+
+			savedFlow = await FlowService.getFlowByPathWithDraft({
+				workspace: $workspaceStore!,
+				path: initialPath == '' ? flow.path : initialPath
+			})
 			if (initialPath == '') {
-				$dirtyStore = false
 				dispatch('saveInitial')
 			}
 			sendUserToast('Saved as draft')
@@ -144,11 +164,11 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
+			savedFlow = cloneDeep(flow)
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
 			const { cron, timezone, args, enabled } = $scheduleStore
-			$dirtyStore = false
 			if (initialPath === '') {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${flow.path}`)
@@ -213,7 +233,6 @@
 				}
 			}
 			loadingSave = false
-			$dirtyStore = false
 			dispatch('deploy')
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
@@ -869,6 +888,8 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
+
 {#key renderCount}
 	{#if !$userStore?.operator}
 		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
@@ -967,6 +988,29 @@
 							renderCount += 1
 						}}
 					/>
+					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							if (!savedFlow) {
+								return
+							}
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
+								mode: 'normal',
+								deployed: savedFlow,
+								draft: savedFlow['draft'],
+								current: $flowStore
+							})
+						}}
+						disabled={!savedFlow}
+					>
+						<div class="flex flex-row gap-2 items-center">
+							<DiffIcon size={14} />
+							Diff
+						</div>
+					</Button>
 
 					<FlowCopilotStatus
 						{copilotLoading}

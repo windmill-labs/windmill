@@ -1,92 +1,92 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
-	import { onDestroy } from 'svelte'
-	import { dirtyStore } from './dirtyStore'
-	import type { NewScript, NewScriptWithDraft, Script } from '$lib/gen'
 	import Button from '../button/Button.svelte'
-	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cleanScriptProperties } from '$lib/utils'
+	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cleanValueProperties, type Value } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
+	import { tick } from 'svelte'
 
-	export let savedScript: NewScriptWithDraft | Script | undefined = undefined
-	export let modifiedScript: NewScript | undefined = undefined
+	export let savedValue: Value | undefined = undefined
+	export let modifiedValue: Value | undefined = undefined
+	export let diffDrawer: DiffDrawer | undefined = undefined
 
-	let navigationState: { from: URL | undefined; to: URL | null; cancel: () => void } | undefined =
-		undefined
-	$: open = Boolean(navigationState)
+	let bypassBeforeNavigate = false
+	let open = false
+	let goingTo: URL | undefined = undefined
 
-	beforeNavigate((newNavigationState) => {
+	beforeNavigate(async (newNavigationState) => {
 		if (
-			!navigationState &&
-			$dirtyStore &&
+			!bypassBeforeNavigate &&
 			newNavigationState.to &&
 			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
 		) {
-			if (savedScript && modifiedScript) {
-				const draftOrDeployed = cleanScriptProperties(savedScript['draft'] || savedScript)
-				const current = cleanScriptProperties(modifiedScript)
-				if (deepEqual(draftOrDeployed, current)) {
-					return
-				}
-			}
-
-			navigationState = {
-				to: newNavigationState.to.url,
-				from: newNavigationState.from?.url,
-				cancel: newNavigationState.cancel
-			}
+			goingTo = newNavigationState.to.url
 			newNavigationState.cancel()
+			await tick() // make sure saved value is updated when clicking on save draft or deploy
+			console.log(savedValue)
+			if (savedValue && modifiedValue) {
+				const draftOrDeployed = cleanValueProperties(savedValue.draft || savedValue)
+				const current = cleanValueProperties(modifiedValue)
+				console.log(draftOrDeployed, current)
+				console.log(deepEqual(draftOrDeployed, current))
+				if (deepEqual(draftOrDeployed, current)) {
+					bypassBeforeNavigate = true
+					goto(goingTo)
+				} else {
+					open = true
+				}
+			} else {
+				open = true
+			}
+		} else if (bypassBeforeNavigate) {
+			bypassBeforeNavigate = false
 		}
 	})
-
-	onDestroy(() => {
-		$dirtyStore = false
-	})
-
-	let diffDrawer: DiffDrawer
 </script>
-
-<DiffDrawer bind:this={diffDrawer} />
 
 <ConfirmationModal
 	{open}
 	title="Unsaved changes detected"
 	confirmationText="Discard changes"
 	on:canceled={() => {
-		if (navigationState) {
-			navigationState.cancel()
-		}
-		navigationState = undefined
+		open = false
 	}}
 	on:confirmed={() => {
-		if (navigationState?.to) {
-			goto(navigationState.to)
+		if (goingTo) {
+			bypassBeforeNavigate = true
+			goto(goingTo)
 		}
-		$dirtyStore = false
-		navigationState = undefined
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to discard the changes you have made? </span>
-		{#if savedScript && modifiedScript}
+		{#if savedValue && modifiedValue}
 			<Button
 				wrapperClasses="self-start"
 				color="light"
 				on:click={() => {
-					if (!savedScript || !modifiedScript) {
+					if (!savedValue || !modifiedValue) {
 						return
 					}
-					if (navigationState) {
-						navigationState.cancel()
-					}
-					navigationState = undefined
-					diffDrawer.openDrawer()
-					diffDrawer.setDiff(
-						savedScript['draft'] || savedScript,
-						modifiedScript,
-						`${savedScript['draft'] ? 'Latest saved draft' : 'Deployed'} <> Current`
-					)
+					open = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
+						mode: 'normal',
+						deployed: savedValue,
+						draft: savedValue['draft'],
+						current: modifiedValue,
+						defaultDiffType: 'draft',
+						button: {
+							text: 'Leave anyway',
+							onClick: () => {
+								if (goingTo) {
+									bypassBeforeNavigate = true
+									goto(goingTo)
+								}
+							}
+						}
+					})
 				}}
 				>Show diff
 			</Button>
