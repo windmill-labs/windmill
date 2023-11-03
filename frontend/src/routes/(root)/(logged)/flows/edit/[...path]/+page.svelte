@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowService, type Flow, type OpenFlow, type FlowMetadata, DraftService } from '$lib/gen'
+	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
@@ -25,10 +25,9 @@
 	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
 	let savedFlow:
-		| (OpenFlow &
-				FlowMetadata & {
-					draft?: Flow | undefined
-				})
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
 		| undefined = undefined
 
 	if (nodraft) {
@@ -99,6 +98,7 @@
 				workspace: $workspaceStore!,
 				path: $page.params.path
 			})
+			console.log(flowWithDraft)
 			savedFlow = cloneDeep(flowWithDraft)
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft

@@ -9,8 +9,7 @@
 		ScriptService,
 		Script,
 		type HubScriptKind,
-		type OpenFlow,
-		type FlowMetadata
+		type OpenFlow
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -77,10 +76,9 @@
 	export let flowStore: Writable<OpenFlow>
 	export let flowStateStore: Writable<FlowState>
 	export let savedFlow:
-		| (OpenFlow &
-				FlowMetadata & {
-					draft?: Flow | undefined
-				})
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 
@@ -250,7 +248,7 @@
 				}
 			}
 			loadingSave = false
-			dispatch('deploy')
+			dispatch('deploy', $pathStore)
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
@@ -909,7 +907,14 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
+<UnsavedConfirmationModal
+	{diffDrawer}
+	savedValue={savedFlow}
+	modifiedValue={{
+		...$flowStore,
+		path: $pathStore
+	}}
+/>
 
 {#key renderCount}
 	{#if !$userStore?.operator}
