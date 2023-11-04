@@ -16,6 +16,7 @@
 	const isUser = (i: any): i is UserItem => i && 'username' in i
 
 	let opened: boolean = true
+	export let showCode: (path: string, summary: string) => void
 </script>
 
 {#if isFolder(item)}
@@ -111,5 +112,14 @@
 		{/if}
 	</div>
 {:else}
-	<Item {item} on:scriptChanged on:flowChanged on:appChanged on:rawAppChanged on:reload {depth} />
+	<Item
+		{item}
+		{showCode}
+		on:scriptChanged
+		on:flowChanged
+		on:appChanged
+		on:rawAppChanged
+		on:reload
+		{depth}
+	/>
 {/if}

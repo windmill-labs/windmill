@@ -10,7 +10,8 @@ export function sendUserToast(
 	message: string,
 	error: boolean = false,
 	actions: ToastAction[] = [],
-	errorMessage: string | undefined = undefined
+	errorMessage: string | undefined = undefined,
+	duration: number = 5000
 ): void {
 	toast.push({
 		component: {
@@ -19,7 +20,8 @@ export function sendUserToast(
 				message,
 				error,
 				actions,
-				errorMessage
+				errorMessage,
+				duration
 			},
 			sendIdTo: 'toastId'
 		},

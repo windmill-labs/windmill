@@ -277,7 +277,6 @@
 			on:move={async ({ detail }) => {
 				if (!$moving || $moving.module.id !== detail.module.id) {
 					if (detail.module && detail.modules) {
-						console.log('MOVE+')
 						$moving = { module: detail.module, modules: detail.modules }
 					}
 				} else {

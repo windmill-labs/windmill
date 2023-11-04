@@ -21,6 +21,7 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 
 	let menuOpen: boolean = false
+	export let showCode: (path: string, summary: string) => void
 </script>
 
 {#key item.summary}
@@ -42,6 +43,7 @@
 					{deploymentDrawer}
 					{depth}
 					bind:menuOpen
+					{showCode}
 				/>
 			{:else if item.type == 'flow'}
 				<FlowRow
