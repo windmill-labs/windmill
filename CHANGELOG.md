@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.200.0](https://github.com/windmill-labs/windmill/compare/v1.199.0...v1.200.0) (2023-11-04)
+
+
+### Features
+
+* improve drafts and diffs ([#2534](https://github.com/windmill-labs/windmill/issues/2534)) ([3bfc2c8](https://github.com/windmill-labs/windmill/commit/3bfc2c81d2d405c8ea12d68622bbf7175b3947db))
+
+
+### Bug Fixes
+
+* **frontend:** fix treeview ([#2552](https://github.com/windmill-labs/windmill/issues/2552)) ([02764b1](https://github.com/windmill-labs/windmill/commit/02764b1fad7e2f44f46b49cbe7500266e9cc2f8e))
+* return non-integer sleep error directly ([#2558](https://github.com/windmill-labs/windmill/issues/2558)) ([543fae7](https://github.com/windmill-labs/windmill/commit/543fae77a75b88a1199f8d3cbb0460257ed5db95))
+
 ## [1.199.0](https://github.com/windmill-labs/windmill/compare/v1.198.0...v1.199.0) (2023-11-03)
 
 
