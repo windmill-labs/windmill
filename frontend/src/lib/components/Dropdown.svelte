@@ -27,7 +27,7 @@
 	}
 </script>
 
-<Menu {placement} let:close>
+<Menu {placement} let:close on:dropdownOpen on:dropdownClose>
 	<Button
 		nonCaptureEvent
 		color="light"

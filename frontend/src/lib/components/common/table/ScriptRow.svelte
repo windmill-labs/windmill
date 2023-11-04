@@ -40,6 +40,7 @@
 	export let errorHandlerMuted: boolean
 	export let showCode: (path: string, summary: string) => void
 	export let depth: number = 0
+	export let menuOpen: boolean = false
 
 	let {
 		summary,
@@ -86,7 +87,9 @@
 	const dlt: 'delete' = 'delete'
 </script>
 
-<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+{#if menuOpen}
+	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+{/if}
 
 <Row
 	href="/scripts/get/{hash}?workspace={$workspaceStore}"
@@ -282,6 +285,12 @@
 						  ]
 						: [])
 				]
+			}}
+			on:dropdownOpen={() => {
+				menuOpen = true
+			}}
+			on:dropdownClose={() => {
+				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>
