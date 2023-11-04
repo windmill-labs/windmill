@@ -390,21 +390,23 @@
 		{:else}
 			<div class="border rounded-md">
 				{#if treeView}
-					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item}
-						<TreeView
-							{item}
-							on:scriptChanged={loadScripts}
-							on:flowChanged={loadFlows}
-							on:appChanged={loadApps}
-							on:rawAppChanged={loadRawApps}
-							on:reload={() => {
-								loadScripts()
-								loadFlows()
-								loadApps()
-								loadRawApps()
-							}}
-							{showCode}
-						/>
+					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
+						{#if item}
+							<TreeView
+								{item}
+								on:scriptChanged={loadScripts}
+								on:flowChanged={loadFlows}
+								on:appChanged={loadApps}
+								on:rawAppChanged={loadRawApps}
+								on:reload={() => {
+									loadScripts()
+									loadFlows()
+									loadApps()
+									loadRawApps()
+								}}
+								{showCode}
+							/>
+						{/if}
 					{/each}
 				{:else}
 					{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
@@ -425,7 +427,7 @@
 					{/each}
 				{/if}
 			</div>
-			{#if items && items?.length > 30}
+			{#if items && items?.length > 30 && !treeView && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
