@@ -442,7 +442,8 @@
 					content: script.content,
 					lock: script.lock,
 					schema: script.schema,
-					summary: script.summary
+					summary: script.summary,
+					language: script.language
 				}
 			} else if (kind == 'app') {
 				const app = await AppService.getAppByPath({
@@ -503,10 +504,15 @@
 	async function showDiff(kind: Kind, path: string) {
 		diffDrawer.openDrawer()
 		let values = await Promise.all([
-			getValue(kind, path, $workspaceStore!),
-			getValue(kind, path, workspaceToDeployTo!)
+			getValue(kind, path, workspaceToDeployTo!),
+			getValue(kind, path, $workspaceStore!)
 		])
-		diffDrawer.setDiff(JSON.stringify(values[0], null, 2), JSON.stringify(values[1], null, 2))
+		diffDrawer.setDiff({
+			mode: 'simple',
+			original: values[0],
+			current: values[1],
+			title: 'Staging/prod <> Dev'
+		})
 	}
 </script>
 

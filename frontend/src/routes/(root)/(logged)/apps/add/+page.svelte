@@ -5,7 +5,6 @@
 	import { AppService, Policy } from '$lib/gen'
 	import { page } from '$app/stores'
 	import { decodeState } from '$lib/utils'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { goto } from '$app/navigation'
@@ -105,8 +104,6 @@
 			value = decodeState(state)
 		}
 	}
-
-	$dirtyStore = false
 </script>
 
 {#if value}

@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { ScriptService, NewScript } from '$lib/gen'
+	import { ScriptService, NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeState } from '$lib/utils'
+	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -27,71 +28,97 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 
-	let reloadAction: () => void = () => {}
+	let reloadAction: () => Promise<void> = async () => {}
+
+	let savedScript: NewScriptWithDraft | undefined = undefined
 
 	async function loadScript(): Promise<void> {
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
 			script = scriptLoadedFromUrl
-			reloadAction = () => {
+			reloadAction = async () => {
 				scriptLoadedFromUrl = undefined
 				goto(`/scripts/edit/${script!.path}`)
 				loadScript()
 			}
-			sendUserToast('Script loaded from latest autosave stored in the URL', false, [
-				{
-					label: 'Discard browser stored autosave and reload',
-					callback: reloadAction
-				},
-				{
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer.openDrawer()
-						let remoteContent = await ScriptService.getScriptByPathWithDraft({
-							workspace: $workspaceStore!,
-							path: script!.path
-						})
-						diffDrawer.setDiff(
-							remoteContent?.draft?.content ?? remoteContent.content,
-							scriptLoadedFromUrl.content
-						)
-					}
+
+			async function compareAutosave() {
+				savedScript = await ScriptService.getScriptByPathWithDraft({
+					workspace: $workspaceStore!,
+					path: script!.path
+				})
+
+				const draftOrDeployed = cleanValueProperties(savedScript?.draft || savedScript)
+				const urlScript = cleanValueProperties(scriptLoadedFromUrl)
+				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
+					reloadAction()
+				} else {
+					sendUserToast('Script loaded from latest autosave stored in the URL', false, [
+						{
+							label: 'Discard browser stored autosave and reload',
+							callback: reloadAction
+						},
+						{
+							label: 'Show diff',
+							callback: async () => {
+								diffDrawer.openDrawer()
+								diffDrawer.setDiff({
+									mode: 'simple',
+									original: draftOrDeployed,
+									current: urlScript,
+									title: `${savedScript?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
+									button: { text: 'Discard autosave', onClick: reloadAction }
+								})
+							}
+						}
+					])
 				}
-			])
+			}
+			compareAutosave()
 		} else {
 			if (hash) {
 				const scriptByHash = await ScriptService.getScriptByHash({
 					workspace: $workspaceStore!,
 					hash
 				})
+				savedScript = cloneDeep(scriptByHash) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: $page.params.path
 				})
+				savedScript = cloneDeep(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					if (!scriptWithDraft.draft_only) {
-						reloadAction = () => {
+						reloadAction = async () => {
 							scriptLoadedFromUrl = undefined
-							hash = scriptWithDraft.hash
+							await DraftService.deleteDraft({
+								workspace: $workspaceStore!,
+								kind: 'script',
+								path: script!.path
+							})
 							goto(`/scripts/edit/${script!.path}`)
 							loadScript()
 						}
+						const deployed = cleanValueProperties(scriptWithDraft)
+						const draft = cleanValueProperties(script)
 						sendUserToast('Script loaded from latest saved draft', false, [
 							{
-								label: 'Ignore draft and load from latest deployed version',
+								label: 'Discard draft and load from latest deployed version',
 								callback: reloadAction
 							},
 							{
 								label: 'Show diff',
 								callback: async () => {
 									diffDrawer.openDrawer()
-									let remoteContent = await ScriptService.getScriptByPath({
-										workspace: $workspaceStore!,
-										path: script!.path
+									diffDrawer.setDiff({
+										mode: 'simple',
+										original: deployed,
+										current: draft,
+										title: 'Deployed <> Draft',
+										button: { text: 'Discard draft', onClick: reloadAction }
 									})
-									diffDrawer.setDiff(remoteContent.content, script?.content ?? '')
 								}
 							}
 						])
@@ -128,9 +155,43 @@
 	}
 
 	let diffDrawer: DiffDrawer
+
+	async function restoreDraft() {
+		if (!savedScript) {
+			sendUserToast('Could not restore to draft', true)
+			return
+		}
+		diffDrawer.closeDrawer()
+		goto(`/scripts/edit/${savedScript.path}`)
+		loadScript()
+	}
+
+	async function restoreDeployed() {
+		if (!savedScript) {
+			sendUserToast('Could not restore to deployed', true)
+			return
+		}
+		diffDrawer.closeDrawer()
+		if (savedScript['draft']) {
+			await DraftService.deleteDraft({
+				workspace: $workspaceStore!,
+				kind: 'script',
+				path: savedScript.path
+			})
+		}
+		goto(`/scripts/edit/${savedScript.path}`)
+		loadScript()
+	}
 </script>
 
-<DiffDrawer bind:this={diffDrawer} button={{ text: 'Revert', onClick: reloadAction }} />
+<DiffDrawer bind:this={diffDrawer} {restoreDraft} {restoreDeployed} />
 {#if script}
-	<ScriptBuilder bind:this={scriptBuilder} {initialPath} {script} {initialArgs} />
+	<ScriptBuilder
+		bind:this={scriptBuilder}
+		{initialPath}
+		{script}
+		bind:savedScript
+		{initialArgs}
+		{diffDrawer}
+	/>
 {/if}

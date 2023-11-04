@@ -12,7 +12,6 @@
 		UndoRedo
 	} from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
@@ -29,6 +28,7 @@
 		AlignHorizontalSpaceAround,
 		BellOff,
 		Bug,
+		DiffIcon,
 		Expand,
 		FileJson,
 		FileUp,
@@ -43,7 +43,13 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard, truncateRev } from '../../../utils'
+	import {
+		classNames,
+		cleanValueProperties,
+		copyToClipboard,
+		orderedJsonStringify,
+		truncateRev
+	} from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -52,7 +58,7 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../inputType'
-	import type { AppEditorContext, AppViewerContext } from '../types'
+	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
@@ -73,6 +79,7 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
+	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	async function hash(message) {
 		try {
@@ -94,6 +101,17 @@
 	export let policy: Policy
 	export let fromHub: boolean = false
 	export let versions: number[]
+	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let savedApp:
+		| {
+				value: App
+				draft?: any
+				path: string
+				summary: string
+				policy: any
+				draft_only?: boolean
+		  }
+		| undefined = undefined
 
 	const {
 		app,
@@ -207,7 +225,25 @@
 					policy
 				}
 			})
-			$dirtyStore = false
+			const app_w_draft = await AppService.getAppByPathWithDraft({
+				workspace: $workspaceStore!,
+				path
+			})
+			savedApp = {
+				summary: app_w_draft.summary,
+				value: app_w_draft.value,
+				path: app_w_draft.path,
+				policy: app_w_draft.policy,
+				draft_only: app_w_draft.draft_only,
+				draft: app_w_draft.draft
+					? {
+							summary: app_w_draft.summary,
+							value: app_w_draft.draft,
+							path: app_w_draft.path,
+							policy: app_w_draft.policy
+					  }
+					: undefined
+			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
 			localStorage.removeItem(`app-${path}`)
@@ -229,8 +265,26 @@
 				path: npath
 			}
 		})
+		const app_w_draft = await AppService.getAppByPathWithDraft({
+			workspace: $workspaceStore!,
+			path: npath
+		})
+		savedApp = {
+			summary: app_w_draft.summary,
+			value: app_w_draft.value,
+			path: app_w_draft.path,
+			policy: app_w_draft.policy,
+			draft_only: app_w_draft.draft_only,
+			draft: app_w_draft.draft
+				? {
+						summary: app_w_draft.summary,
+						value: app_w_draft.draft,
+						path: app_w_draft.path,
+						policy: app_w_draft.policy
+				  }
+				: undefined
+		}
 
-		$dirtyStore = false
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		if (appPath !== npath) {
@@ -268,12 +322,23 @@
 		$secondaryMenuLeftStore.isOpen = false
 		$secondaryMenuRightStore.isOpen = false
 
-		$dirtyStore = false
 		saveDrawerOpen = true
 		return
 	}
 
 	async function saveInitialDraft() {
+		if (savedApp) {
+			const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+			const current = cleanValueProperties({
+				summary: $summary,
+				value: $app,
+				path: newPath || savedApp.draft?.path || savedApp.path,
+				policy
+			})
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				return
+			}
+		}
 		await computeTriggerables()
 		try {
 			await AppService.createApp({
@@ -294,8 +359,27 @@
 					value: $app!
 				}
 			})
+			const app_w_draft = await AppService.getAppByPathWithDraft({
+				workspace: $workspaceStore!,
+				path: newPath
+			})
+			savedApp = {
+				summary: app_w_draft.summary,
+				value: app_w_draft.value,
+				path: app_w_draft.path,
+				policy: app_w_draft.policy,
+				draft_only: app_w_draft.draft_only,
+				draft: app_w_draft.draft
+					? {
+							summary: app_w_draft.summary,
+							value: app_w_draft.draft,
+							path: app_w_draft.path,
+							policy: app_w_draft.policy
+					  }
+					: undefined
+			}
+
 			draftDrawerOpen = false
-			$dirtyStore = false
 			goto(`/apps/edit/${newPath}`)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -304,7 +388,18 @@
 	}
 
 	async function saveDraft() {
-		$dirtyStore = false
+		if (savedApp) {
+			const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+			const current = cleanValueProperties({
+				summary: $summary,
+				value: $app,
+				path: newPath || savedApp.draft?.path || savedApp.path,
+				policy
+			})
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				return
+			}
+		}
 		if ($page.params.path == undefined) {
 			draftDrawerOpen = true
 			return
@@ -312,7 +407,6 @@
 		loading.saveDraft = true
 		try {
 			await computeTriggerables()
-			$dirtyStore = false
 			let path = $page.params.path
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
@@ -322,6 +416,26 @@
 					value: $app!
 				}
 			})
+			const app_w_draft = await AppService.getAppByPathWithDraft({
+				workspace: $workspaceStore!,
+				path
+			})
+			savedApp = {
+				summary: app_w_draft.summary,
+				value: app_w_draft.value,
+				path: app_w_draft.path,
+				policy: app_w_draft.policy,
+				draft_only: app_w_draft.draft_only,
+				draft: app_w_draft.draft
+					? {
+							summary: app_w_draft.summary,
+							value: app_w_draft.draft,
+							path: app_w_draft.path,
+							policy: app_w_draft.policy
+					  }
+					: undefined
+			}
+
 			sendUserToast('Draft saved')
 			localStorage.removeItem(`app-${path}`)
 			loading.saveDraft = false
@@ -439,7 +553,33 @@
 			action: () => {
 				inputsDrawerOpen = true
 			}
-		}
+		},
+
+		...(savedApp
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => {
+							if (!savedApp) {
+								return
+							}
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
+								mode: 'normal',
+								deployed: savedApp,
+								draft: savedApp.draft,
+								current: {
+									summary: $summary,
+									value: $app,
+									path: newPath || savedApp.draft?.path || savedApp.path,
+									policy
+								}
+							})
+						}
+					}
+			  ]
+			: [])
 	]
 
 	let appEditorTutorial: AppEditorTutorial | undefined = undefined
@@ -455,7 +595,16 @@
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 
-<UnsavedConfirmationModal />
+<UnsavedConfirmationModal
+	{diffDrawer}
+	savedValue={savedApp}
+	modifiedValue={{
+		summary: $summary,
+		value: $app,
+		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		policy
+	}}
+/>
 
 {#if appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
@@ -465,6 +614,7 @@
 			</Alert>
 			<h3>Summary</h3>
 			<div class="w-full pt-2">
+				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					autofocus
 					type="text"
@@ -513,6 +663,7 @@
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
+			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus
 				type="text"
@@ -545,7 +696,45 @@
 			autofocus={false}
 		/>
 
-		<div slot="actions">
+		<div slot="actions" class="flex flex-row gap-4">
+			<Button
+				variant="border"
+				color="light"
+				disabled={!savedApp || savedApp.draft_only}
+				on:click={() => {
+					if (!savedApp) {
+						return
+					}
+					saveDrawerOpen = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
+						mode: 'normal',
+						deployed: savedApp,
+						draft: savedApp.draft,
+						current: {
+							summary: $summary,
+							value: $app,
+							path: newPath || savedApp.draft?.path || savedApp.path,
+							policy
+						},
+						button: {
+							text: 'Looks good, deploy',
+							onClick: () => {
+								if (appPath == '') {
+									createApp(newPath)
+								} else {
+									updateApp(newPath)
+								}
+							}
+						}
+					})
+				}}
+			>
+				<div class="flex flex-row gap-2 items-center">
+					<DiffIcon size={14} />
+					Diff
+				</div>
+			</Button>
 			<Button
 				startIcon={{ icon: faSave }}
 				disabled={pathError != ''}

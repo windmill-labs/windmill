@@ -57,6 +57,7 @@
 	const handleHide = () => (hidden = !hidden)
 </script>
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <span
 	on:click
 	on:keydown

@@ -19,6 +19,7 @@
 	let shareModal: ShareModal
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
+	export let showCode: (path: string, summary: string) => void
 </script>
 
 {#key item.summary}
@@ -39,6 +40,7 @@
 					{moveDrawer}
 					{deploymentDrawer}
 					{depth}
+					{showCode}
 				/>
 			{:else if item.type == 'flow'}
 				<FlowRow
