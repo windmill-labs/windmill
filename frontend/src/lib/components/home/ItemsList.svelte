@@ -390,7 +390,7 @@
 		{:else}
 			<div class="border rounded-md">
 				{#if treeView}
-					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item}
+					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
 						{#if item}
 							<TreeView
 								{item}
@@ -427,7 +427,7 @@
 					{/each}
 				{/if}
 			</div>
-			{#if items && items?.length > 30}
+			{#if items && items?.length > 30 && !treeView && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span

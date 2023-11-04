@@ -17,11 +17,17 @@
 
 	let opened: boolean = true
 	export let showCode: (path: string, summary: string) => void
+
+	let showMax = 30
 </script>
 
 {#if isFolder(item)}
 	<div>
-		<div class={twMerge('px-4 py-2 border-b w-full flex flex-row items-center justify-between')}>
+		<div
+			class={twMerge(
+				'px-4 py-2 border-b border-t w-full flex flex-row items-center justify-between'
+			)}
+		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
@@ -53,7 +59,7 @@
 		</div>
 		{#if opened}
 			<div transition:slide>
-				{#each item.items as subItem}
+				{#each item.items.slice(0, showMax) as subItem (subItem['path'] ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						item={subItem}
 						on:scriptChanged
@@ -64,6 +70,20 @@
 						depth={depth + 1}
 					/>
 				{/each}
+				{#if showMax < item.items.length}
+					<div
+						class="text-center text-sm text-secondary cursor-pointer hover:text-primary"
+						on:click={() => {
+							if (isFolder(item)) {
+								showMax += Math.min(30, item.items.length - showMax)
+								showMax = showMax
+								console.log(showMax)
+							}
+						}}
+					>
+						Show more ({showMax}/{item.items.length})
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -97,7 +117,7 @@
 		</div>
 		{#if opened}
 			<div transition:slide>
-				{#each item.items as subItem}
+				{#each item.items.slice(0, showMax) as subItem (subItem['path'] ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						item={subItem}
 						on:scriptChanged
@@ -108,6 +128,20 @@
 						depth={depth + 1}
 					/>
 				{/each}
+				{#if showMax < item.items.length}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="text-center text-sm text-secondary cursor-pointer py-2 hover:text-primary"
+						on:click={() => {
+							if (isUser(item)) {
+								showMax += Math.min(30, item.items.length - showMax)
+							}
+						}}
+					>
+						Show more ({showMax}/{item.items.length})
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
