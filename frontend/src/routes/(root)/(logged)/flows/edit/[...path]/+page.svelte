@@ -98,8 +98,17 @@
 				workspace: $workspaceStore!,
 				path: $page.params.path
 			})
-			console.log(flowWithDraft)
-			savedFlow = cloneDeep(flowWithDraft)
+			savedFlow = {
+				...cloneDeep(flowWithDraft),
+				draft: flowWithDraft.draft
+					? {
+							...cloneDeep(flowWithDraft.draft),
+							path: flowWithDraft.path
+					  }
+					: undefined
+			} as Flow & {
+				draft?: Flow
+			}
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
 				if (!flowWithDraft.draft_only) {
@@ -169,7 +178,7 @@
 			return
 		}
 		diffDrawer.closeDrawer()
-		if (savedFlow['draft']) {
+		if (savedFlow.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
 				kind: 'flow',
