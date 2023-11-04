@@ -115,7 +115,7 @@
 																}}
 															>
 																<ToggleButton value={false} size="xs" label="User" />
-																<ToggleButton value={true} size="xs" label="Superdmin" />
+																<ToggleButton value={true} size="xs" label="Superadmin" />
 															</ToggleButtonGroup>
 														</td>
 														<td>
