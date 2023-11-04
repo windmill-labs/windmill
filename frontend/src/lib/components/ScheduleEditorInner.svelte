@@ -10,14 +10,21 @@
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
+	import {
+		FlowService,
+		ScheduleService,
+		Script,
+		ScriptService,
+		type Flow,
+		SettingService
+	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 
-	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
+	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
 
 	let initialPath = ''
@@ -27,6 +34,7 @@
 
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
+	let wsErrorHandlerMuted: boolean = false
 	let errorHandlerPath: string | undefined = undefined
 	let errorHandlerCustomInitialPath: string | undefined = undefined
 	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
@@ -56,23 +64,66 @@
 		drawer?.openDrawer()
 	}
 
-	export function openNew(is_flow: boolean, initial_script_path?: string) {
+	export async function openNew(is_flow: boolean, initial_script_path?: string) {
+		let defaultErrorHandlerMaybe = undefined
+		let defaultRecoveryHandlerMaybe = undefined
+		if ($workspaceStore) {
+			defaultErrorHandlerMaybe = await SettingService.getGlobal({
+				key: 'default_error_handler_' + $workspaceStore!
+			})
+			defaultRecoveryHandlerMaybe = await SettingService.getGlobal({
+				key: 'default_recovery_handler_' + $workspaceStore!
+			})
+		}
+
 		edit = false
 		itemKind = is_flow ? 'flow' : 'script'
 		initialScriptPath = initial_script_path ?? ''
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
-		errorHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
-		errorHandleritemKind = 'script'
-		errorHandlerPath = undefined
-		errorHandlerCustomInitialPath = undefined
-		errorHandlerExtraArgs = {}
-		recoveryHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
-		recoveryHandlerPath = undefined
-		recoveryHandlerCustomInitialPath = undefined
-		recoveryHandlerItemKind = 'script'
-		recoveryHandlerExtraArgs = {}
+		if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
+			console.log(defaultErrorHandlerMaybe)
+			wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
+			let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
+			errorHandleritemKind = splitted[0] as 'flow' | 'script'
+			errorHandlerPath = splitted.slice(1)?.join('/')
+			errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
+			errorHandlerCustomInitialPath = errorHandlerPath
+			if (errorHandlerPath === slackErrorHandler) {
+				errorHandlerSelected = 'slack'
+			} else {
+				errorHandlerSelected = 'custom'
+			}
+			failedTimes = defaultErrorHandlerMaybe['failedTimes']
+			failedExact = defaultErrorHandlerMaybe['failedExact']
+		} else {
+			wsErrorHandlerMuted = false
+			errorHandlerPath = undefined
+			errorHandleritemKind = 'script'
+			errorHandlerExtraArgs = {}
+			errorHandlerCustomInitialPath = undefined
+			errorHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
+		}
+		if (defaultRecoveryHandlerMaybe !== undefined && defaultRecoveryHandlerMaybe !== null) {
+			let splitted = (defaultRecoveryHandlerMaybe['recoveryHandlerPath'] as string).split('/')
+			recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
+			recoveryHandlerPath = splitted.slice(1)?.join('/')
+			recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
+			recoveryHandlerCustomInitialPath = recoveryHandlerPath
+			if (recoveryHandlerPath === slackRecoveryHandler) {
+				recoveryHandlerSelected = 'slack'
+			} else {
+				recoveryHandlerSelected = 'custom'
+			}
+			recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
+		} else {
+			recoveryHandlerPath = undefined
+			recoveryHandlerItemKind = 'script'
+			recoveryHandlerExtraArgs = {}
+			recoveryHandlerCustomInitialPath = undefined
+			recoveryHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
+		}
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
@@ -113,6 +164,48 @@
 		}
 	}
 
+	async function saveAsDefaultErrorHandler() {
+		if (!$enterpriseLicense) {
+			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
+			return
+		}
+		if ($workspaceStore && errorHandlerPath !== undefined) {
+			await SettingService.setGlobal({
+				key: 'default_error_handler_' + $workspaceStore!,
+				requestBody: {
+					value: {
+						wsErrorHandlerMuted: wsErrorHandlerMuted,
+						errorHandlerPath: `${errorHandleritemKind}/${errorHandlerPath}`,
+						errorHandlerExtraArgs: errorHandlerExtraArgs,
+						failedTimes: failedTimes,
+						failedExact: failedExact
+					}
+				}
+			})
+			sendUserToast(`Default error handler saved to ${errorHandlerPath}`, false)
+		}
+	}
+
+	async function saveAsDefaultRecoveryHandler() {
+		if (!$enterpriseLicense) {
+			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
+			return
+		}
+		if ($workspaceStore && errorHandlerPath !== undefined) {
+			await SettingService.setGlobal({
+				key: 'default_recovery_handler_' + $workspaceStore!,
+				requestBody: {
+					value: {
+						recoveryHandlerPath: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+						recoveryHandlerExtraArgs: recoveryHandlerExtraArgs,
+						recoveredTimes: recoveredTimes
+					}
+				}
+			})
+			sendUserToast(`Default recovery handler saved to ${errorHandlerPath}`, false)
+		}
+	}
+
 	let can_write = true
 	async function loadSchedule(): Promise<void> {
 		try {
@@ -125,6 +218,7 @@
 			timezone = s.timezone
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
+			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
 			if (s.on_failure) {
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
@@ -162,12 +256,6 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
-		if (errorHandlerSelected === 'slack' && !emptyString(errorHandlerPath)) {
-			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		}
-		if (recoveryHandlerSelected === 'slack' && !emptyString(recoveryHandlerPath)) {
-			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		}
 		if (edit) {
 			await ScheduleService.updateSchedule({
 				workspace: $workspaceStore!,
@@ -184,7 +272,8 @@
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
 					on_recovery_times: recoveredTimes,
-					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {}
+					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+					ws_error_handler_muted: wsErrorHandlerMuted
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -207,7 +296,8 @@
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
 					on_recovery_times: recoveredTimes,
-					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {}
+					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+					ws_error_handler_muted: wsErrorHandlerMuted
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -338,6 +428,27 @@
 				</div>
 			</Section>
 			<Section label="Error handler">
+				<svelte:fragment slot="action">
+					<div class="flex flex-row items-center gap-2">
+						<Button
+							disabled={emptyString(errorHandlerPath)}
+							btnClasses="text-center"
+							color="light"
+							size="xs"
+							startIcon={{ icon: faSave }}
+							on:click={saveAsDefaultErrorHandler}
+						>
+							Save as default
+						</Button>
+					</div>
+				</svelte:fragment>
+				<div class="flex flex-row">
+					<Toggle
+						disabled={!can_write}
+						bind:checked={wsErrorHandlerMuted}
+						options={{ right: 'Mute workspace error handler for this schedule' }}
+					/>
+				</div>
 				<ErrorOrRecoveryHandler
 					isEditable={can_write}
 					handlersOnlyForEe={['slack']}
@@ -404,6 +515,20 @@
 				<svelte:fragment slot="header">
 					<div class="flex flex-row gap-2">
 						{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+					</div>
+				</svelte:fragment>
+				<svelte:fragment slot="action">
+					<div class="flex flex-row items-center gap-2">
+						<Button
+							disabled={emptyString(recoveryHandlerPath)}
+							btnClasses="text-center"
+							color="light"
+							size="xs"
+							startIcon={{ icon: faSave }}
+							on:click={saveAsDefaultRecoveryHandler}
+						>
+							Save as default
+						</Button>
 					</div>
 				</svelte:fragment>
 

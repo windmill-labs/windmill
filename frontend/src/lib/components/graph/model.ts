@@ -28,16 +28,25 @@ export type Branch = {
 export type GraphItem = Node | Loop | Branch
 
 export type GraphModuleStates = {
-	job_id: string,
+	job_id: string
 	states: Record<string, GraphModuleState>
 }
 
 export type FlowStatusViewerContext = {
-	flowStateStore?: Writable<FlowState>,
+	flowStateStore?: Writable<FlowState>
 	flowModuleStates: Writable<Record<string, GraphModuleState>>
 	retryStatus: Writable<Record<string, number | undefined>>
-	suspendStatus: Writable<Record<string, number | undefined>>,
-	durationStatuses: Writable<Record<string, Record<string, {created_at?: number, started_at?: number, duration_ms?: number}>>>
+	suspendStatus: Writable<Record<string, number | undefined>>
+	durationStatuses: Writable<
+		Record<
+			string,
+			{
+				iteration_from?: number
+				iteration_total?: number
+				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+			}
+		>
+	>
 }
 export type GraphModuleState = {
 	type: FlowStatusModule.type
@@ -47,6 +56,7 @@ export type GraphModuleState = {
 	scheduled_for?: Date
 	job_id?: string
 	parent_module?: string
+	iteration?: number
 	iteration_total?: number
 	retries?: number
 	duration_ms?: number

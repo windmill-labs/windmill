@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.197.1
+  version: 1.199.0
   title: Windmill API
 
   contact:
@@ -7580,6 +7580,8 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        ws_error_handler_muted:
+          type: boolean
       required:
         - path
         - edited_by
@@ -7645,6 +7647,8 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        ws_error_handler_muted:
+          type: boolean
       required:
         - path
         - schedule
@@ -7677,6 +7681,8 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        ws_error_handler_muted:
+          type: boolean
       required:
         - schedule
         - timezone

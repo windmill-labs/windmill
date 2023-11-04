@@ -105,6 +105,11 @@
       },
       {
         "ordinal": 20,
+        "name": "ws_error_handler_muted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -137,6 +142,7 @@
       true,
       true,
       true,
+      false,
       null
     ]
   },

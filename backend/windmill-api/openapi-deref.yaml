@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.192.0
+  version: 1.197.1
   title: Windmill API
   contact:
     name: Windmill Team
@@ -3048,13 +3048,17 @@ paths:
                 type: array
                 items:
                   type: string
-  /embeddings/query_resource_types:
+  /w/{workspace}/embeddings/query_resource_types:
     get:
       summary: query resource types by similarity
       operationId: queryResourceTypes
       tags:
         - resource
       parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
         - name: text
           description: query text
           in: query
@@ -7818,6 +7822,8 @@ paths:
                 on_recovery_extra_args:
                   type: object
                   additionalProperties: *ref_14
+                ws_error_handler_muted:
+                  type: boolean
               required: &ref_133
                 - path
                 - schedule
@@ -7878,6 +7884,8 @@ paths:
                 on_recovery_extra_args:
                   type: object
                   additionalProperties: *ref_14
+                ws_error_handler_muted:
+                  type: boolean
               required: &ref_135
                 - schedule
                 - timezone
@@ -8014,6 +8022,8 @@ paths:
                   on_recovery_extra_args:
                     type: object
                     additionalProperties: *ref_14
+                  ws_error_handler_muted:
+                    type: boolean
                 required: &ref_74
                   - path
                   - edited_by

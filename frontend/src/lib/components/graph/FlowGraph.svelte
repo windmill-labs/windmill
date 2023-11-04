@@ -380,8 +380,11 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration_total
-						? 'Iteration ' + flowModuleStates?.[module.id]?.iteration_total
+					flowModuleStates?.[module.id]?.iteration
+						? 'Iteration ' +
+								flowModuleStates?.[module.id]?.iteration +
+								'/' +
+								(flowModuleStates?.[module.id]?.iteration_total ?? '?')
 						: '',
 					loopDepth,
 					false,
