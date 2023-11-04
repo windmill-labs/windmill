@@ -229,8 +229,8 @@ We publish helm charts at:
 
 ### Run from binaries
 
-Each release includes the corresponding binaries for x86_64. You can simply download the
-latest `windmill` binary using the following set of bash commands.
+Each release includes the corresponding binaries for x86_64. You can simply
+download the latest `windmill` binary using the following set of bash commands.
 
 ```bash
 BINARY_NAME='windmill-amd64' # or windmill-ee-amd64 for the enterprise edition
@@ -242,7 +242,10 @@ wget "$ARTIFACT_URL" -O windmill
 
 ### OAuth, SSO & SMTP
 
-Windmill Community Edition allows to configure the OAuth, SSO (including Google Workspace SSO, Microsoft/Azure and Okta) directly from the UI in the superadmin settings. Do note that there is a limit of 50 SSO users on the community edition.
+Windmill Community Edition allows to configure the OAuth, SSO (including Google
+Workspace SSO, Microsoft/Azure and Okta) directly from the UI in the superadmin
+settings. Do note that there is a limit of 50 SSO users on the community
+edition.
 
 ### Commercial license
 
@@ -320,7 +323,7 @@ it being synced automatically everyday.
 | WORKER_TAGS                                   | 'deno,go,python3,bash,flow,hub,dependency' | The worker groups assigned to that workers                                                                                                                                                         | Worker                |
 | DEDICATED_WORKER                              | None                                       | Unique script to run on that worker. Has to be in the form of <workspace>:<script_path>                                                                                                            | Worker                |
 | CUSTOM_TAGS                                   | None                                       | The custom tags assignable to scripts.                                                                                                                                                             | Server                |
-| JOB_RETENTION_SECS                            | 60*60*24\*60 //60 days                     | The time in seconds after which jobs get deleted. Set to 0 or -1 to never delete                                                                                                                   |
+| JOB_RETENTION_SECS                            | 60*60*24\*60 //60 days                     | **Overriden by the instance settings UI** The time in seconds after which jobs get deleted. Set to 0 or -1 to never delete                                                                         |
 | WAIT_RESULT_FAST_POLL_INTERVAL_MS             | 50                                         | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_SLOW_POLL_INTERVAL_MS             | 200                                        | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_FAST_POLL_DURATION_SECS           | 2                                          | The duration of fast poll mode before switching to slow poll                                                                                                                                       | Server                |
