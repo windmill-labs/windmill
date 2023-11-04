@@ -303,7 +303,8 @@
 						>
 					{:else if category == 'Telemetry'}
 						<div class="text-secondary pb-4 text-xs">
-							Telemetry helps Windmill build a better product for all
+							Telemetry helps Windmill build a better product for all. Only the instance version is
+							collected.
 						</div>
 					{/if}
 					{#if category == 'SSO/OAuth'}
