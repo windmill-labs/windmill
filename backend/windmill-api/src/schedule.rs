@@ -62,6 +62,7 @@ pub struct NewSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 async fn check_path_conflict<'c>(
@@ -105,7 +106,8 @@ async fn create_schedule(
 
     #[cfg(not(feature = "enterprise"))]
     if ns.on_failure.is_some()
-        && ns.on_failure.as_ref().unwrap() == "script/hub/2431/slack/schedule-error-handler-slack"
+        && ns.on_failure.as_ref().unwrap()
+            == "script/hub/5792/workspace-or-schedule-error-handler-slack"
     {
         return Err(Error::BadRequest(
             "Slack error handler is only available in enterprise version".to_string(),
@@ -136,7 +138,7 @@ async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-         is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *",
+         is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, ws_error_handler_muted) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -154,6 +156,7 @@ async fn create_schedule(
         ns.on_recovery,
         ns.on_recovery_times,
         ns.on_recovery_extra_args,
+        ns.ws_error_handler_muted.unwrap_or(false),
     )
     .fetch_one(&mut tx)
     .await
@@ -215,8 +218,8 @@ async fn edit_schedule(
     clear_schedule(tx.transaction_mut(), path, is_flow, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10 WHERE path \
-         = $11 AND workspace_id = $12 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10, ws_error_handler_muted = $11 
+        WHERE path  = $12 AND workspace_id = $13 RETURNING *",
         es.schedule,
         es.timezone,
         es.args,
@@ -227,6 +230,7 @@ async fn edit_schedule(
         es.on_recovery,
         es.on_recovery_times,
         es.on_recovery_extra_args,
+        es.ws_error_handler_muted.unwrap_or(false),
         path,
         w_id,
     )
@@ -317,6 +321,7 @@ pub struct ScheduleWJobs {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: bool,
     pub jobs: Option<Vec<serde_json::Value>>,
 }
 
@@ -519,6 +524,7 @@ pub struct EditSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 pub async fn clear_schedule<'c>(
