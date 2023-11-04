@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
@@ -113,14 +111,11 @@
 
 	loadFlow()
 
-	$dirtyStore = true
-
 	let getSelectedId: (() => string) | undefined = undefined
 	let flowBuilder: FlowBuilder | undefined = undefined
 </script>
 
 <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
-<UnsavedConfirmationModal />
 
 <FlowBuilder
 	on:saveInitial={(e) => {

@@ -32,6 +32,9 @@
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
 	import ContentSearch from '../ContentSearch.svelte'
+	import Drawer from '../common/drawer/Drawer.svelte'
+	import HighlightCode from '../HighlightCode.svelte'
+	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import { groupItems } from './treeViewUtils'
 	import Item from './Item.svelte'
 
@@ -246,6 +249,18 @@
 	let treeView = false
 
 	let contentSearch: ContentSearch
+
+	let viewCodeDrawer: Drawer
+	let viewCodeTitle: string | undefined
+	let script: Script | undefined
+	async function showCode(path: string, summary: string) {
+		viewCodeTitle = summary || path
+		await viewCodeDrawer.openDrawer()
+		script = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path
+		})
+	}
 </script>
 
 <SearchItems
@@ -255,6 +270,24 @@
 	f={(x) => (x.summary ? x.summary + ' (' + x.path + ')' : x.path)}
 	{opts}
 />
+
+<Drawer
+	bind:this={viewCodeDrawer}
+	on:close={() => {
+		setTimeout(() => {
+			viewCodeTitle = undefined
+			script = undefined
+		}, 300)
+	}}
+>
+	<DrawerContent title={viewCodeTitle} on:close={viewCodeDrawer.closeDrawer}>
+		{#if script}
+			<HighlightCode language={script?.language} code={script?.content} />
+		{:else}
+			<Skeleton layout={[[40]]} />
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 <ContentSearch bind:this={contentSearch} />
 <CenteredPage>
@@ -370,6 +403,7 @@
 								loadApps()
 								loadRawApps()
 							}}
+							{showCode}
 						/>
 					{/each}
 				{:else}
@@ -386,6 +420,7 @@
 								loadApps()
 								loadRawApps()
 							}}
+							{showCode}
 						/>
 					{/each}
 				{/if}

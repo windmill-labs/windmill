@@ -2,7 +2,6 @@
 	import { insertNewGridItem, appComponentFromType } from '$lib/components/apps/editor/appUtils'
 	import type { AppComponent, TypedComponent } from '$lib/components/apps/editor/component'
 	import type { AppViewerContext, AppEditorContext } from '$lib/components/apps/types'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { push } from '$lib/history'
 	import { getContext } from 'svelte'
 	import Tutorial from '../Tutorial.svelte'
@@ -30,8 +29,6 @@
 
 	function addComponent(appComponentType: TypedComponent['type']): void {
 		push(history, $app)
-
-		$dirtyStore = true
 
 		const id = insertNewGridItem(
 			$app,
