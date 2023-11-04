@@ -67,6 +67,7 @@
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { cloneDeep } from 'lodash'
 
 	export let initialPath: string = ''
 	export let newFlow: boolean
@@ -146,10 +147,17 @@
 				}
 			})
 
-			savedFlow = await FlowService.getFlowByPathWithDraft({
-				workspace: $workspaceStore!,
-				path: newFlow ? $pathStore : initialPath
-			})
+			savedFlow = {
+				...cloneDeep(flow),
+				path: $pathStore,
+				draft: {
+					...cloneDeep(flow),
+					path: $pathStore
+				}
+			} as Flow & {
+				draft?: Flow
+			}
+
 			if (newFlow) {
 				dispatch('saveInitial', $pathStore)
 			}
@@ -170,8 +178,13 @@
 
 	async function saveFlow(): Promise<void> {
 		loadingSave = true
+
+		const flow = cleanInputs($flowStore)
+		savedFlow = {
+			...cloneDeep(flow),
+			path: $pathStore
+		} as Flow
 		try {
-			const flow = cleanInputs($flowStore)
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -190,10 +203,6 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
-				savedFlow = await FlowService.getFlowByPathWithDraft({
-					workspace: $workspaceStore!,
-					path: $pathStore
-				})
 				if (enabled) {
 					await createSchedule($pathStore)
 				}
@@ -211,10 +220,6 @@
 						tag: flow.tag,
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
-				})
-				savedFlow = await FlowService.getFlowByPathWithDraft({
-					workspace: $workspaceStore!,
-					path: $pathStore
 				})
 				const scheduleExists = await ScheduleService.existsSchedule({
 					workspace: $workspaceStore ?? '',
