@@ -303,8 +303,9 @@
 						>
 					{:else if category == 'Telemetry'}
 						<div class="text-secondary pb-4 text-xs">
-							Telemetry helps Windmill build a better product for all. Only the instance version is
-							collected.
+							Anonymous usage data is collected to help improve Windmill.
+							<br />The following information is collected:
+							<ul class="list-disc list-inside pl-2"><li>version</li></ul>
 						</div>
 					{/if}
 					{#if category == 'SSO/OAuth'}
