@@ -149,10 +149,10 @@
 
 			savedFlow = {
 				...cloneDeep(flow),
-				path: $pathStore,
+				path: newFlow ? $pathStore : initialPath,
 				draft: {
 					...cloneDeep(flow),
-					path: $pathStore
+					path: newFlow ? $pathStore : initialPath
 				}
 			} as Flow & {
 				draft?: Flow
