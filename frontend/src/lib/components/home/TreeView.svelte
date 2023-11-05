@@ -59,7 +59,7 @@
 		</div>
 		{#if opened}
 			<div transition:slide>
-				{#each item.items.slice(0, showMax) as subItem (subItem['path'] ?? 'folder__' + subItem['folderName'])}
+				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						item={subItem}
 						on:scriptChanged
@@ -71,6 +71,8 @@
 					/>
 				{/each}
 				{#if showMax < item.items.length}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						class="text-center text-sm text-secondary cursor-pointer hover:text-primary"
 						on:click={() => {
@@ -117,7 +119,7 @@
 		</div>
 		{#if opened}
 			<div transition:slide>
-				{#each item.items.slice(0, showMax) as subItem (subItem['path'] ?? 'folder__' + subItem['folderName'])}
+				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						item={subItem}
 						on:scriptChanged

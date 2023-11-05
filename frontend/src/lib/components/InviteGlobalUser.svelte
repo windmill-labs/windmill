@@ -31,6 +31,7 @@
 	}
 </script>
 
+<h3 class="mb-4">Add new user to instance</h3>
 <div class="flex flex-row flex-wrap gap-2 mb-2 items-end">
 	<label class="block shrink min-w-0">
 		<span class="text-secondary text-sm">Email</span>

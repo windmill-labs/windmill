@@ -44,6 +44,8 @@
 	}
 
 	let tab: 'users' | 'settings' = 'users'
+
+	let nbDisplayed = 50
 </script>
 
 <SearchItems
@@ -75,6 +77,8 @@
 								<div class="py-2 mb-4">
 									<InviteGlobalUser on:new={listUsers} />
 								</div>
+
+								<h3>All instance users</h3>
 								<div class="pb-1" />
 								<div>
 									<input placeholder="Search users" bind:value={filter} class="input mt-1" />
@@ -90,7 +94,7 @@
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
-												{#each filteredUsers as { email, super_admin, login_type, name } (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name } (email)}
 													<tr class="border">
 														<td>{email}</td>
 														<td>{login_type}</td>
@@ -136,6 +140,13 @@
 										</tbody>
 									</TableCustom>
 								</div>
+								{#if filteredUsers && filteredUsers?.length > 50 && nbDisplayed < filteredUsers.length}
+									<span class="text-xs"
+										>{nbDisplayed} users out of {filteredUsers.length}
+										<button class="ml-4" on:click={() => (nbDisplayed += 50)}>load 50 more</button
+										></span
+									>
+								{/if}
 							</div>
 						</TabContent>
 						<TabContent value="settings">

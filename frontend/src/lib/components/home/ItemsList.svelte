@@ -387,30 +387,12 @@
 			{/each}
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
-		{:else}
+		{:else if treeView}
+			{@const groupedItems = groupItems(items)}
 			<div class="border rounded-md">
-				{#if treeView}
-					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
-						{#if item}
-							<TreeView
-								{item}
-								on:scriptChanged={loadScripts}
-								on:flowChanged={loadFlows}
-								on:appChanged={loadApps}
-								on:rawAppChanged={loadRawApps}
-								on:reload={() => {
-									loadScripts()
-									loadFlows()
-									loadApps()
-									loadRawApps()
-								}}
-								{showCode}
-							/>
-						{/if}
-					{/each}
-				{:else}
-					{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
-						<Item
+				{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
+					{#if item}
+						<TreeView
 							{item}
 							on:scriptChanged={loadScripts}
 							on:flowChanged={loadFlows}
@@ -424,10 +406,35 @@
 							}}
 							{showCode}
 						/>
-					{/each}
-				{/if}
+					{/if}
+				{/each}
 			</div>
-			{#if items && items?.length > 30 && !treeView && nbDisplayed < items.length}
+			{#if groupedItems.length > 30 && nbDisplayed < groupedItems.length}
+				<span class="text-xs"
+					>{nbDisplayed} root nodes out of {groupedItems.length}
+					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				>
+			{/if}
+		{:else}
+			<div class="border rounded-md">
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
+					<Item
+						{item}
+						on:scriptChanged={loadScripts}
+						on:flowChanged={loadFlows}
+						on:appChanged={loadApps}
+						on:rawAppChanged={loadRawApps}
+						on:reload={() => {
+							loadScripts()
+							loadFlows()
+							loadApps()
+							loadRawApps()
+						}}
+						{showCode}
+					/>
+				{/each}
+			</div>
+			{#if items && items?.length > 30 && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
