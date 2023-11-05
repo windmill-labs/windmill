@@ -78,6 +78,8 @@
 				)
 		)
 	}
+
+	let nbInviteDisplayed = 50
 </script>
 
 <SearchItems
@@ -273,7 +275,7 @@
 		</Head>
 		<tbody class="divide-y bg-surface">
 			{#if invites?.length > 0}
-				{#each invites as { email, is_admin, operator }}
+				{#each invites.slice(0, nbInviteDisplayed) as { email, is_admin, operator }}
 					<Row>
 						<Cell first>{email}</Cell>
 						<Cell>
@@ -314,6 +316,12 @@
 			{/if}
 		</tbody>
 	</DataTable>
+	{#if invites && invites?.length > 50 && nbInviteDisplayed < invites.length}
+		<span class="text-xs"
+			>{nbInviteDisplayed} invites out of {invites.length}
+			<button class="ml-4" on:click={() => (nbInviteDisplayed += 50)}>load 50 more</button></span
+		>
+	{/if}
 </div>
 
 <PageHeader
