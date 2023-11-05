@@ -26,13 +26,12 @@
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import { faBarsStaggered, faCrown, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { faBarsStaggered, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import { Slack } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
-	import { Icon } from 'svelte-awesome'
 
 	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
 
@@ -218,7 +217,7 @@
 					size="sm"
 					on:click={() => goto('#superadmin-settings')}
 				>
-					Superadmin settings
+					Instance settings
 				</Button>
 			{/if}</PageHeader
 		>
