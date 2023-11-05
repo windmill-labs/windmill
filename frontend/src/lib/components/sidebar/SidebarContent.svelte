@@ -7,7 +7,6 @@
 		Bot,
 		Boxes,
 		Calendar,
-		Cog,
 		DollarSign,
 		Eye,
 		FolderCog,
@@ -145,7 +144,7 @@
 							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem disabled={subItem.disabled}>
+							<MenuItem>
 								<div class="py-1" role="none">
 									<a
 										href={subItem.href}
