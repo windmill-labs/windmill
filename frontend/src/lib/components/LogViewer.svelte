@@ -11,6 +11,7 @@
 	export let mem: number | undefined = undefined
 	export let wrapperClass = ''
 	export let jobId: string | undefined = undefined
+	export let tag: string | undefined
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -63,7 +64,12 @@
 			</div>
 		</div>
 		{#if isLoading}
-			<Loader2 class="animate-spin absolute top-2 left-2" />
+			<div class="flex gap-2 absolute top-2 left-2 items-center">
+				<Loader2 class="animate-spin" />
+				{#if tag}
+					<div class="text-secondary text-xs">tag: {tag}</div>
+				{/if}
+			</div>
 		{:else if duration}
 			<span class="absolute text-xs text-tertiary dark:text-gray-400 top-2 left-2"
 				>took {duration}ms</span

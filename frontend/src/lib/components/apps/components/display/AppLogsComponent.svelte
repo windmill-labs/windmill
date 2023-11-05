@@ -74,6 +74,7 @@
 				mem={testJob?.['mem_peak']}
 				content={testJob?.logs}
 				isLoading={testIsLoading}
+				tag={testJob?.tag}
 			/>
 		</div>
 	</div>

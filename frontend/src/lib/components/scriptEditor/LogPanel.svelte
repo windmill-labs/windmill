@@ -93,6 +93,7 @@
 							mem={previewJob?.['mem_peak']}
 							content={previewJob?.logs}
 							isLoading={previewIsLoading}
+							tag={previewJob?.tag}
 						/>
 					</Pane>
 					<Pane>
