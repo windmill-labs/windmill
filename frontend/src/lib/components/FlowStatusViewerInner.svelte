@@ -457,7 +457,7 @@
 			{:else if innerModules.length > 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
-						Step-by-step results
+						Step-by-step
 					</h3>
 
 					{#each innerModules as mod, i}

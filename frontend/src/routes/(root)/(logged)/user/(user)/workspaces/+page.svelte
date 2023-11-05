@@ -215,7 +215,7 @@
 		{#if $superadmin}
 			<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
 				<Icon data={faCrown} class="mr-1" scale={1} />
-				Superadmin settings
+				Instance settings
 			</Button>
 		{/if}
 		<Button variant="border" size="sm" on:click={userSettings.openDrawer}>

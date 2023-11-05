@@ -2,7 +2,7 @@
 	import { UserService, GlobalUserInfo } from '$lib/gen'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
@@ -15,6 +15,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { ExternalLink } from 'lucide-svelte'
 
 	let drawer: Drawer
 	let filter = ''
@@ -56,7 +58,7 @@
 />
 
 <Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:clickAway={removeHash}>
-	<DrawerContent overflow_y={true} title="Superadmin Settings" on:close={closeDrawer}>
+	<DrawerContent overflow_y={true} title="Instance Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
 				<div class="flex justify-between">
@@ -64,6 +66,11 @@
 						<div>Windmill <Version /></div>
 					</div>
 					<div><Uptodate /></div></div
+				>
+			</div>
+			<div class="flex flex-row-reverse">
+				<Button variant="border" color="dark" target="_blank" href="/?workspace=admins"
+					>Admins workspace&nbsp;<ExternalLink /></Button
 				>
 			</div>
 			<div class="pt-4 h-full">
