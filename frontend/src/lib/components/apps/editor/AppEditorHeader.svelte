@@ -892,6 +892,7 @@
 											<LogViewer
 												content={`Logs are avaiable in the browser console directly`}
 												isLoading={false}
+												tag={undefined}
 											/>
 										</Pane>
 										<Pane size={90} minSize={10} class="text-sm text-secondary">
@@ -910,6 +911,7 @@
 											<LogViewer
 												content={`Logs are avaiable in the browser console directly`}
 												isLoading={false}
+												tag={undefined}
 											/>
 										</Pane>
 										<Pane size={90} minSize={10} class="text-sm text-secondary">
@@ -955,6 +957,7 @@
 													jobId={job?.id}
 													content={job?.logs}
 													isLoading={testIsLoading}
+													tag={job?.tag}
 												/>
 											</Pane>
 											<Pane size={50} minSize={10} class="text-sm text-secondary">

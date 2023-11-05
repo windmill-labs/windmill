@@ -474,6 +474,7 @@
 					jobId={job.id}
 					isLoading={!(job && 'logs' in job && job.logs)}
 					content={job?.logs}
+					tag={job?.tag}
 				/>
 			</div>
 		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
@@ -500,6 +501,7 @@
 									mem={job?.['mem_peak']}
 									isLoading={!(job && 'logs' in job && job.logs)}
 									content={job?.logs}
+									tag={job?.tag}
 								/>
 							</div>
 						{:else if viewTab == 'code'}

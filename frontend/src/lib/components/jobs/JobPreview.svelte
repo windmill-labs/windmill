@@ -128,6 +128,7 @@
 						mem={job?.['mem_peak']}
 						content={job?.logs}
 						isLoading
+						tag={job?.tag}
 					/>
 				{/if}
 			</div>

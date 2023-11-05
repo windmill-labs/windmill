@@ -108,6 +108,7 @@
 										mem={job?.['mem_peak']}
 										isLoading={!(job && 'logs' in job && job.logs)}
 										content={job?.logs}
+										tag={job?.tag}
 									/>
 								</div>
 							{:else if viewTab == 'code'}
@@ -147,6 +148,7 @@
 						mem={job?.['mem_peak']}
 						content={job?.logs}
 						isLoading
+						tag={job?.tag}
 					/>
 				{/if}
 			{/if}
