@@ -15,6 +15,8 @@
 	const dispatch = createEventDispatcher()
 
 	export let selected: string
+	export let hideTabs = false
+
 	let c = ''
 	export { c as class }
 	export let wrapperClass = ''
@@ -55,10 +57,11 @@
 </script>
 
 <svelte:window on:hashchange={hashChange} />
-
-<div class="overflow-x-auto {wrapperClass}">
-	<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
-		<slot {selected} />
+{#if !hideTabs}
+	<div class="overflow-x-auto {wrapperClass}">
+		<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
+			<slot {selected} />
+		</div>
 	</div>
-</div>
+{/if}
 <slot name="content" />

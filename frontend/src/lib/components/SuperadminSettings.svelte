@@ -16,6 +16,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
+	import { settingsKeys } from './instanceSettings'
 
 	let drawer: Drawer
 	let filter = ''
@@ -44,7 +45,7 @@
 		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
 	}
 
-	let tab: 'users' | 'settings' = 'users'
+	let tab: 'users' | string = 'users'
 
 	let nbDisplayed = 50
 </script>
@@ -75,7 +76,9 @@
 			<div class="pt-4 h-full">
 				<Tabs bind:selected={tab}>
 					<Tab value="users">Global Users</Tab>
-					<Tab value="settings">Instance Settings</Tab>
+					{#each settingsKeys as category}
+						<Tab value={category}>{category}</Tab>
+					{/each}
 					<svelte:fragment slot="content">
 						<div class="pt-4" />
 						<TabContent value="users">
@@ -155,8 +158,8 @@
 								{/if}
 							</div>
 						</TabContent>
-						<TabContent value="settings">
-							<div class="h-full"> <InstanceSettings /> </div>
+						<TabContent value="" values={settingsKeys}>
+							<div class="h-full"> <InstanceSettings hideTabs {tab} /> </div>
 						</TabContent>
 					</svelte:fragment>
 				</Tabs>

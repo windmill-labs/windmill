@@ -8,8 +8,8 @@
 <CenteredModal title="Instance Settings">
 	<InstanceSettings />
 	<p class="text-secondary text-sm px-2 py-4">
-		You can change these settings later in the superadmins settings but finishing setup will leave
-		this page.
+		You can change these settings later in the instance settings but finishing setup will leave this
+		page.
 	</p>
 	<Button
 		on:click={() => {
