@@ -313,6 +313,7 @@
 						<Cell head>Last ping</Cell>
 						<Cell head>Worker start</Cell>
 						<Cell head>Nb of jobs executed</Cell>
+						<Cell head>Version</Cell>
 						<Cell head last>Liveness</Cell>
 					</tr>
 				</Head>
@@ -321,7 +322,7 @@
 						<tr class="border-t">
 							<Cell
 								first
-								colspan="6"
+								colspan="7"
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
@@ -334,7 +335,7 @@
 						</tr>
 
 						{#if workers}
-							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed }}
+							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, wm_version }}
 								<tr>
 									<Cell first>{worker}</Cell>
 									<Cell>
@@ -348,6 +349,11 @@
 									<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
 									<Cell>{displayDate(started_at)}</Cell>
 									<Cell>{jobs_executed}</Cell>
+									<Cell
+										><div class="!text-2xs"
+											>{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip></div
+										></Cell
+									>
 									<Cell last>
 										<Badge
 											color={last_ping != undefined ? (last_ping < 60 ? 'green' : 'red') : 'gray'}
