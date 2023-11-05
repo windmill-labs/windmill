@@ -15,7 +15,6 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore } from '$lib/stores'
-	import { switchWorkspace } from '$lib/storeUtils'
 	import { ExternalLink } from 'lucide-svelte'
 
 	let drawer: Drawer
