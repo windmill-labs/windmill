@@ -51,7 +51,7 @@
 			subItems: [
 				{
 					label: 'Account',
-					href: '#account-settings',
+					href: '#user-settings',
 					icon: UserCog,
 					faIcon: undefined
 				},
