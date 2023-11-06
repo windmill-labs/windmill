@@ -80,6 +80,7 @@
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
 
 	async function hash(message) {
 		try {
@@ -227,7 +228,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: $app,
+				value: cloneDeep($app),
 				path: path,
 				policy: policy
 			}
@@ -254,7 +255,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: $app,
+			value: cloneDeep($app),
 			path: npath,
 			policy
 		}
@@ -323,13 +324,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: $app,
+				value: cloneDeep($app),
 				path: newPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: $app,
+					value: cloneDeep($app),
 					path: newPath,
 					policy
 				}
@@ -379,7 +380,7 @@
 				...savedApp,
 				draft: {
 					summary: $summary,
-					value: $app,
+					value: cloneDeep($app),
 					path,
 					policy
 				}
