@@ -164,7 +164,12 @@
 						<div class="text-secondary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
-							<ul class="list-disc list-inside pl-2"><li>version</li></ul>
+							<ul class="list-disc list-inside pl-2">
+								<li>version</li>
+								<li>number of jobs</li>
+								<li>total duration of jobs</li>
+								<li>number of users per login type</li>
+							</ul>
 						</div>
 					{/if}
 					{#if category == 'SSO/OAuth'}

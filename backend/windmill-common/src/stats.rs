@@ -6,7 +6,6 @@ use crate::{
     utils::GIT_VERSION,
     DB,
 };
-
 use chrono::Utc;
 use cron::Schedule;
 
@@ -88,10 +87,37 @@ pub async fn send_stats(
 
     let uid = serde_json::from_value::<String>(uid).map_err(to_anyhow)?;
 
+    let nb_of_jobs = sqlx::query_scalar!("SELECT COUNT(*) FROM completed_job")
+        .fetch_one(db)
+        .await?
+        .unwrap_or(0);
+
+    let total_duration_of_jobs =
+        sqlx::query_scalar!("SELECT SUM(duration_ms)::BIGINT FROM completed_job")
+            .fetch_one(db)
+            .await?
+            .unwrap_or(0);
+
+    let nb_of_users_per_login_type =
+        sqlx::query!("SELECT login_type, COUNT(*) FROM password GROUP BY login_type")
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .map(|r| {
+                serde_json::json!({
+                    "login_type": r.login_type,
+                    "count": r.count.unwrap_or(0),
+                })
+            })
+            .collect::<Vec<serde_json::Value>>();
+
     let payload = serde_json::json!({
         "uid": uid,
         "version": GIT_VERSION,
         "instance_name": instance_name,
+        "nb_of_jobs": nb_of_jobs,
+        "total_duration_of_jobs": total_duration_of_jobs,
+        "nb_of_users_per_login_type": nb_of_users_per_login_type,
     });
 
     let request = http_client
