@@ -123,6 +123,10 @@
 		'transition-all'
 	)
 
+	$: isSmall = size === 'xs' || size === 'sm'
+	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
+	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
+
 	const iconMap = {
 		xs: 14,
 		sm: 16,
@@ -168,7 +172,7 @@
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{:else if startIcon?.faIcon}
-				<Icon data={startIcon.faIcon} class={startIcon.classes} />
+				<Icon data={startIcon.faIcon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 
 			{#if !iconOnly}
@@ -177,7 +181,7 @@
 			{#if endIcon?.icon}
 				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
 			{:else if endIcon?.faIcon}
-				<Icon data={endIcon.faIcon} class={endIcon.classes} />
+				<Icon data={endIcon.faIcon} class={endIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 		</a>
 	{:else}
@@ -203,7 +207,7 @@
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{:else if startIcon?.faIcon}
-				<Icon data={startIcon.faIcon} class={startIcon.classes} />
+				<Icon data={startIcon.faIcon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 
 			{#if !iconOnly}
@@ -212,7 +216,7 @@
 			{#if endIcon?.icon}
 				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
 			{:else if endIcon?.faIcon}
-				<Icon data={endIcon.faIcon} class={endIcon.classes} />
+				<Icon data={endIcon.faIcon} class={endIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 		</button>
 	{/if}
