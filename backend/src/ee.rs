@@ -2,7 +2,8 @@
 use windmill_common::error;
 
 pub async fn set_license_key(license_key: String) -> anyhow::Result<()> {
-    use windmill_api::{ee::validate_license_key, LICENSE_KEY, LICENSE_KEY_ID, LICENSE_KEY_VALID};
+    use windmill_api::ee::validate_license_key;
+    use windmill_common::ee::{LICENSE_KEY, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
     let id = validate_license_key(license_key.clone()).await?;
     {
@@ -24,7 +25,7 @@ pub async fn set_license_key(license_key: String) -> anyhow::Result<()> {
 
 #[cfg(feature = "enterprise")]
 pub async fn verify_license_key() -> error::Result<()> {
-    use windmill_api::{LICENSE_KEY, LICENSE_KEY_VALID};
+    use windmill_common::ee::{LICENSE_KEY, LICENSE_KEY_VALID};
     use windmill_common::error::to_anyhow;
 
     let expiry_nb = LICENSE_KEY
