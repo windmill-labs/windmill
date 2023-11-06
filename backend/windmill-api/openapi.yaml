@@ -650,6 +650,20 @@ paths:
               schema:
                 type: string
 
+  /settings/send_stats:
+    post:
+      summary: send stats
+      operationId: sendStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
+
   /users/email:
     get:
       summary: get current user email (if logged in)

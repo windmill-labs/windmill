@@ -41,7 +41,7 @@ use windmill_worker::{
 use crate::ee::verify_license_key;
 
 #[cfg(feature = "enterprise")]
-use windmill_api::LICENSE_KEY_VALID;
+use windmill_common::ee::LICENSE_KEY_VALID;
 
 use crate::ee::set_license_key;
 
