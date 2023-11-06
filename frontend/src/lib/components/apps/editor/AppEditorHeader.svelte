@@ -225,24 +225,11 @@
 					policy
 				}
 			})
-			const app_w_draft = await AppService.getAppByPathWithDraft({
-				workspace: $workspaceStore!,
-				path
-			})
 			savedApp = {
-				summary: app_w_draft.summary,
-				value: app_w_draft.value,
-				path: app_w_draft.path,
-				policy: app_w_draft.policy,
-				draft_only: app_w_draft.draft_only,
-				draft: app_w_draft.draft
-					? {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-					: undefined
+				summary: $summary,
+				value: $app,
+				path: path,
+				policy: policy
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -265,24 +252,11 @@
 				path: npath
 			}
 		})
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			workspace: $workspaceStore!,
-			path: npath
-		})
 		savedApp = {
-			summary: app_w_draft.summary,
-			value: app_w_draft.value,
-			path: app_w_draft.path,
-			policy: app_w_draft.policy,
-			draft_only: app_w_draft.draft_only,
-			draft: app_w_draft.draft
-				? {
-						summary: app_w_draft.summary,
-						value: app_w_draft.draft,
-						path: app_w_draft.path,
-						policy: app_w_draft.policy
-				  }
-				: undefined
+			summary: $summary,
+			value: $app,
+			path: npath,
+			policy
 		}
 
 		closeSaveDrawer()
@@ -327,18 +301,6 @@
 	}
 
 	async function saveInitialDraft() {
-		if (savedApp) {
-			const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-			const current = cleanValueProperties({
-				summary: $summary,
-				value: $app,
-				path: newPath || savedApp.draft?.path || savedApp.path,
-				policy
-			})
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				return
-			}
-		}
 		await computeTriggerables()
 		try {
 			await AppService.createApp({
@@ -359,24 +321,18 @@
 					value: $app!
 				}
 			})
-			const app_w_draft = await AppService.getAppByPathWithDraft({
-				workspace: $workspaceStore!,
-				path: newPath
-			})
 			savedApp = {
-				summary: app_w_draft.summary,
-				value: app_w_draft.value,
-				path: app_w_draft.path,
-				policy: app_w_draft.policy,
-				draft_only: app_w_draft.draft_only,
-				draft: app_w_draft.draft
-					? {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-					: undefined
+				summary: $summary,
+				value: $app,
+				path: newPath,
+				policy,
+				draft_only: true,
+				draft: {
+					summary: $summary,
+					value: $app,
+					path: newPath,
+					policy
+				}
 			}
 
 			draftDrawerOpen = false
@@ -388,20 +344,22 @@
 	}
 
 	async function saveDraft() {
-		if (savedApp) {
-			const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-			const current = cleanValueProperties({
-				summary: $summary,
-				value: $app,
-				path: newPath || savedApp.draft?.path || savedApp.path,
-				policy
-			})
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				return
-			}
-		}
 		if ($page.params.path == undefined) {
+			// initial draft
 			draftDrawerOpen = true
+			return
+		}
+		if (!savedApp) {
+			return
+		}
+		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+		const current = cleanValueProperties({
+			summary: $summary,
+			value: $app,
+			path: newPath || savedApp.draft?.path || savedApp.path,
+			policy
+		})
+		if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 			return
 		}
 		loading.saveDraft = true
@@ -416,24 +374,15 @@
 					value: $app!
 				}
 			})
-			const app_w_draft = await AppService.getAppByPathWithDraft({
-				workspace: $workspaceStore!,
-				path
-			})
+
 			savedApp = {
-				summary: app_w_draft.summary,
-				value: app_w_draft.value,
-				path: app_w_draft.path,
-				policy: app_w_draft.policy,
-				draft_only: app_w_draft.draft_only,
-				draft: app_w_draft.draft
-					? {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-					: undefined
+				...savedApp,
+				draft: {
+					summary: $summary,
+					value: $app,
+					path,
+					policy
+				}
 			}
 
 			sendUserToast('Draft saved')
@@ -1170,7 +1119,13 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		<Button loading={loading.save} startIcon={{ icon: faSave }} on:click={saveDraft} size="xs">
+		<Button
+			loading={loading.save}
+			startIcon={{ icon: faSave }}
+			on:click={saveDraft}
+			disabled={$page.params.path !== undefined && !savedApp}
+			size="xs"
+		>
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
 		<Button
