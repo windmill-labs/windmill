@@ -35,7 +35,8 @@ use windmill_common::{
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{rd_string, StripPath},
     worker::{
-        to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG, WORKER_GROUP,
+        to_raw_value, to_raw_value_owned, update_ping, WorkspacedPath, CLOUD_HOSTED, WORKER_CONFIG,
+        WORKER_GROUP,
     },
     DB, IS_READY, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
@@ -1079,7 +1080,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(worker = %worker_name, "listening for jobs, WORKER_GROUP: {}, config: {:?}", *WORKER_GROUP, WORKER_CONFIG.read().await);
 
-    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
+    let (dedi_path, dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
         WORKER_CONFIG.read().await.dedicated_worker.clone()
     {
         #[cfg(not(feature = "enterprise"))]
@@ -1088,6 +1089,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             killpill_tx.send(()).expect("send");
             return;
         }
+
+        let dedi_path = _wp.clone();
 
         #[cfg(feature = "enterprise")]
         {
@@ -1208,10 +1211,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     tracing::error!("error in dedicated worker: {:?}", e)
                 }
             });
-            (Some(dedicated_worker_tx), Some(handle))
+            (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))
         }
     } else {
-        (None, None) as (Option<Sender<Arc<QueuedJob>>>, Option<JoinHandle<()>>)
+        (None, None, None)
+            as (
+                Option<WorkspacedPath>,
+                Option<Sender<Arc<QueuedJob>>>,
+                Option<JoinHandle<()>>,
+            )
     };
 
     #[cfg(feature = "benchmark")]
@@ -1447,28 +1455,35 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                if let Some(dedicated_worker_tx) = dedicated_worker_tx.clone() {
-                    #[cfg(feature = "benchmark")]
-                    main_duration
-                        .fetch_add(loop_start.elapsed().as_millis() as usize, Ordering::SeqCst);
-                    #[cfg(feature = "benchmark")]
-                    let send_start = Instant::now();
+                if let (Some(dedi_path), Some(dedicated_worker_tx)) =
+                    (dedi_path.as_ref(), dedicated_worker_tx.clone())
+                {
+                    if dedi_path.workspace_id == job.workspace_id
+                        && Some(&dedi_path.path) == job.script_path.as_ref()
+                    {
+                        #[cfg(feature = "benchmark")]
+                        main_duration
+                            .fetch_add(loop_start.elapsed().as_millis() as usize, Ordering::SeqCst);
+                        #[cfg(feature = "benchmark")]
+                        let send_start = Instant::now();
 
-                    let timer = worker_dedicated_channel_queue_send_duration
-                        .as_ref()
-                        .map(|x| x.start_timer());
+                        let timer = worker_dedicated_channel_queue_send_duration
+                            .as_ref()
+                            .map(|x| x.start_timer());
 
-                    if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
-                        tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
+                        if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
+                            tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
+                        }
+
+                        timer.map(|x| x.stop_and_record());
+
+                        #[cfg(feature = "benchmark")]
+                        send_duration
+                            .fetch_add(send_start.elapsed().as_millis() as usize, Ordering::SeqCst);
+                        continue;
                     }
-
-                    timer.map(|x| x.stop_and_record());
-
-                    #[cfg(feature = "benchmark")]
-                    send_duration
-                        .fetch_add(send_start.elapsed().as_millis() as usize, Ordering::SeqCst);
-                    continue;
-                } else if matches!(job.job_kind, JobKind::Noop) {
+                }
+                if matches!(job.job_kind, JobKind::Noop) {
                     #[cfg(feature = "benchmark")]
                     main_duration
                         .fetch_add(loop_start.elapsed().as_millis() as usize, Ordering::SeqCst);
@@ -1726,6 +1741,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 concurrent_limit: None,
                 concurrency_time_window_s: None,
                 cache_ttl: None,
+                dedicated_worker: None,
             }),
             PushArgs::empty(),
             worker_name,
