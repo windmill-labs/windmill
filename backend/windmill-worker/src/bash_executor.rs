@@ -6,6 +6,7 @@ use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use tokio::process::Command;
 use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
+use windmill_queue::CanceledBy;
 
 const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
@@ -28,6 +29,7 @@ lazy_static::lazy_static! {
 pub async fn handle_bash_job(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -115,6 +117,7 @@ pub async fn handle_bash_job(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -160,6 +163,7 @@ fn raw_to_string(x: &str) -> String {
 pub async fn handle_powershell_job(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -253,6 +257,7 @@ pub async fn handle_powershell_job(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,

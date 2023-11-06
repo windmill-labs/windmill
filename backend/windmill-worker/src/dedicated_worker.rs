@@ -142,10 +142,10 @@ pub async fn handle_dedicated_process(
 
                     let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
                     match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line) {
-                        Ok(result) => job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap(),
+                        Ok(result) => job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap(),
                         Err(e) => {
                             tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                            job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                            job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
                         },
                     };
                 } else {
