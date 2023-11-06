@@ -7,7 +7,7 @@
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
@@ -16,6 +16,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
+	import { Pen, Trash } from 'lucide-svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
@@ -162,7 +163,7 @@
 									items={[
 										{
 											displayName: 'Manage folder',
-											icon: faEdit,
+											icon: Pen,
 											disabled: !canWrite,
 											action: () => {
 												editFolderName = name
@@ -171,8 +172,7 @@
 										},
 										{
 											displayName: 'Delete',
-
-											icon: faTrash,
+											icon: Trash,
 											type: 'delete',
 											disabled: !canWrite,
 											action: async () => {
