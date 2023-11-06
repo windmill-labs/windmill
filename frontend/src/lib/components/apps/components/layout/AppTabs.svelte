@@ -148,15 +148,15 @@
 					on:click={() => (selected = res)}
 					class={twMerge(
 						'rounded-sm !truncate text-sm hover:bg-gray-100 hover:border-gray-300 border border-transparent hover:text-black px-1 py-2',
+						css?.allTabs?.class,
+						'wm-tabs-alltabs',
 						selected == res
 							? twMerge(
 									'outline outline-gray-500 outline-1 bg-surface text-black',
 									css?.selectedTab?.class,
 									'wm-tabs-selectedTab'
 							  )
-							: '',
-						css?.allTabs?.class,
-						'wm-tabs-alltabs'
+							: ''
 					)}
 					style={selected == res
 						? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
