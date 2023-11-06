@@ -2,7 +2,7 @@
 	export let label: string | undefined = undefined
 </script>
 
-<label>
+<div>
 	<div class="flex flex-row justify-between items-center w-full">
 		<div class="flex flex-row items-center gap-1">
 			<span class="text-secondary text-sm leading-6">{label}</span>
@@ -12,4 +12,4 @@
 		<slot name="action" />
 	</div>
 	<slot />
-</label>
+</div>
