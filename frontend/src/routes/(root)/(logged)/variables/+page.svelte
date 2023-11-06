@@ -156,6 +156,13 @@
 				{#each new Array(3) as _}
 					<Skeleton layout={[[3.5], 0.5]} />
 				{/each}
+			{:else if filteredItems.length == 0}
+				<div class="flex flex-col items-center justify-center h-full">
+					<div class="text-md font-medium">No variables found</div>
+					<div class="text-sm text-secondary">
+						Try changing the filters or creating a new variable
+					</div>
+				</div>
 			{:else}
 				<DataTable>
 					<Head>

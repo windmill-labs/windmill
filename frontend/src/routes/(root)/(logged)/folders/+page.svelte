@@ -3,7 +3,7 @@
 	import { FolderService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -159,8 +159,7 @@
 							<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
 							<Cell shouldStopPropagation>
 								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
+									items={[
 										{
 											displayName: 'Manage folder',
 											icon: faEdit,
