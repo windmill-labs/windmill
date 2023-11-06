@@ -26,7 +26,12 @@
 
 <Menu>
 	<div slot="trigger" class="w-full">
-		<MenuButton class="!text-xs" icon={User} label={'User'} {isCollapsed} />
+		<MenuButton
+			class="!text-xs"
+			icon={User}
+			label={`User (${$userStore?.username ?? $userStore?.email})`}
+			{isCollapsed}
+		/>
 	</div>
 	<div class="divide-y">
 		<div class="px-4 py-3" role="none">
