@@ -315,6 +315,7 @@ pub struct RawCode {
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub dedicated_worker: Option<bool>,
 }
 
 type Tag = String;
