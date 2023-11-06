@@ -134,6 +134,7 @@ pub struct WorkspaceSettings {
     pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
+    pub error_handler_muted_on_cancel: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -246,6 +247,7 @@ pub struct NewWorkspaceUser {
 pub struct EditErrorHandler {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
+    pub error_handler_muted_on_cancel: Option<bool>,
 }
 
 async fn list_pending_invites(
@@ -833,9 +835,10 @@ async fn edit_error_handler(
 
     if let Some(error_handler) = &ee.error_handler {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2 WHERE workspace_id = $3",
+            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2, error_handler_muted_on_cancel = $3 WHERE workspace_id = $4",
             error_handler,
             ee.error_handler_extra_args,
+            ee.error_handler_muted_on_cancel.unwrap_or(false),
             &w_id
         )
         .execute(&mut *tx)

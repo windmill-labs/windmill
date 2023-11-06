@@ -714,6 +714,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             &client,
             &job,
             0,
+            None,
             error::Error::ExecutionErr(format!(
                 "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {})",
                 last_ping

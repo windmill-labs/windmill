@@ -14,6 +14,7 @@ use windmill_common::{
     utils::calculate_hash,
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
+use windmill_queue::CanceledBy;
 
 use crate::{
     common::{
@@ -35,6 +36,7 @@ lazy_static::lazy_static! {
 pub async fn handle_go_job(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -79,6 +81,7 @@ pub async fn handle_go_job(
             inner_content,
             logs,
             mem_peak,
+            canceled_by,
             job_dir,
             db,
             true,
@@ -195,6 +198,7 @@ func Run(req Req) (interface{{}}, error){{
             db,
             logs,
             mem_peak,
+            canceled_by,
             build_go_process,
             false,
             worker_name,
@@ -275,6 +279,7 @@ func Run(req Req) (interface{{}}, error){{
         db,
         logs,
         mem_peak,
+        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -313,6 +318,7 @@ pub async fn install_go_dependencies(
     code: &str,
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     non_dep_job: bool,
@@ -336,6 +342,7 @@ pub async fn install_go_dependencies(
             db,
             logs,
             mem_peak,
+            canceled_by,
             child_process,
             false,
             worker_name,
@@ -400,6 +407,7 @@ pub async fn install_go_dependencies(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child_process,
         false,
         worker_name,

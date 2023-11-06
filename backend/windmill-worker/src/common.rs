@@ -17,6 +17,7 @@ use windmill_common::{
 };
 
 use anyhow::Result;
+use windmill_queue::CanceledBy;
 
 use std::{
     borrow::Borrow,
@@ -422,6 +423,7 @@ pub async fn handle_child(
     db: &Pool<Postgres>,
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
@@ -484,15 +486,21 @@ pub async fn handle_child(
                         *mem_peak = current_mem
                     }
                     tracing::info!("{worker_name}/{job_id} in {_w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
-                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled", *mem_peak, job_id)
+                    let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
+                        .bind(*mem_peak)
+                        .bind(job_id)
                         .fetch_optional(&db)
                         .await
-                        .map(|v| Some(true) == v)
-                        .unwrap_or_else(|err| {
-                            tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
-                            false
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id}: {e}");
+                            Some((false, None, None))
                         })
-                    {
+                        .unwrap_or((false, None, None));
+                    if canceled {
+                        canceled_by_ref.replace(CanceledBy {
+                            username: canceled_by.clone(),
+                            reason: canceled_reason.clone(),
+                        });
                         break;
                     }
                 },

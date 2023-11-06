@@ -77,6 +77,11 @@
         "ordinal": 14,
         "name": "error_handler_extra_args",
         "type_info": "Json"
+      },
+      {
+        "ordinal": 15,
+        "name": "error_handler_muted_on_cancel",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -99,7 +104,8 @@
       true,
       true,
       false,
-      true
+      true,
+      false
     ]
   },
   "hash": "5445083864b2b092b012e894bff7630a1d7b9deb8d33e9f909061f351f96844e"
