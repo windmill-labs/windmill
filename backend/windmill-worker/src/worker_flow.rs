@@ -43,8 +43,8 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, handle_maybe_scheduled_job, PushIsolationLevel,
-    WrappedError,
+    add_completed_job, add_completed_job_error, handle_maybe_scheduled_job, CanceledBy,
+    PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -607,6 +607,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                 &flow_job,
                 logs,
                 0,
+                Some(CanceledBy {
+                    username: flow_job.canceled_by.clone(),
+                    reason: flow_job.canceled_reason.clone(),
+                }),
                 canceled_job_to_result(&flow_job),
                 rsmq.clone(),
                 worker_name,
@@ -642,6 +646,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     Json(&nresult),
                     logs,
                     0,
+                    None,
                     rsmq.clone(),
                 )
                 .await?;
@@ -658,6 +663,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     ),
                     logs,
                     0,
+                    None,
                     rsmq.clone(),
                 )
                 .await?;
@@ -684,6 +690,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     0,
+                    None,
                     e,
                     rsmq.clone(),
                     worker_name,
@@ -1352,6 +1359,14 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let skipped = false;
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
+                let canceled_by = if flow_job.canceled {
+                    Some(CanceledBy {
+                        username: flow_job.canceled_by.clone(),
+                        reason: flow_job.canceled_reason.clone(),
+                    })
+                } else {
+                    None
+                };
                 let _uuid = add_completed_job(
                     db,
                     &flow_job,
@@ -1360,6 +1375,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     Json(&result),
                     logs,
                     0,
+                    canceled_by,
                     rsmq,
                 )
                 .await?;

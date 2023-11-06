@@ -17,6 +17,7 @@ use sqlx::{Pool, Postgres};
 
 pub mod apps;
 pub mod db;
+pub mod ee;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;

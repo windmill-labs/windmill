@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.197.1
+  version: 1.200.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1487,6 +1487,8 @@ paths:
                   error_handler_extra_args:
                     type: object
                     additionalProperties: &ref_14 {}
+                  error_handler_muted_on_cancel:
+                    type: boolean
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1763,6 +1765,8 @@ paths:
                 error_handler_extra_args:
                   type: object
                   additionalProperties: *ref_14
+                error_handler_muted_on_cancel:
+                  type: boolean
       responses:
         '200':
           description: status
@@ -6364,6 +6368,8 @@ paths:
                     - code
                     - identity
                     - http
+                dedicated_worker:
+                  type: boolean
               required: &ref_122
                 - args
       responses:
@@ -8768,6 +8774,8 @@ paths:
                         type: string
                     worker_group:
                       type: string
+                    wm_version:
+                      type: string
                   required: &ref_137
                     - worker
                     - worker_instance
@@ -8776,6 +8784,7 @@ paths:
                     - ip
                     - jobs_executed
                     - worker_group
+                    - wm_version
   /configs/list_worker_groups:
     get:
       summary: list worker groups

@@ -80,6 +80,7 @@
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
 
 	async function hash(message) {
 		try {
@@ -227,7 +228,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: $app,
+				value: cloneDeep($app),
 				path: path,
 				policy: policy
 			}
@@ -254,7 +255,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: $app,
+			value: cloneDeep($app),
 			path: npath,
 			policy
 		}
@@ -323,13 +324,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: $app,
+				value: cloneDeep($app),
 				path: newPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: $app,
+					value: cloneDeep($app),
 					path: newPath,
 					policy
 				}
@@ -343,7 +344,7 @@
 		draftDrawerOpen = false
 	}
 
-	async function saveDraft() {
+	async function saveDraft(forceSave = false) {
 		if ($page.params.path == undefined) {
 			// initial draft
 			draftDrawerOpen = true
@@ -359,7 +360,15 @@
 			path: newPath || savedApp.draft?.path || savedApp.path,
 			policy
 		})
-		if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			sendUserToast('No changes detected, ignoring', false, [
+				{
+					label: 'Save anyway',
+					callback: () => {
+						saveDraft(true)
+					}
+				}
+			])
 			return
 		}
 		loading.saveDraft = true
@@ -379,7 +388,7 @@
 				...savedApp,
 				draft: {
 					summary: $summary,
-					value: $app,
+					value: cloneDeep($app),
 					path,
 					policy
 				}
@@ -1122,7 +1131,7 @@
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: faSave }}
-			on:click={saveDraft}
+			on:click={() => saveDraft()}
 			disabled={$page.params.path !== undefined && !savedApp}
 			size="xs"
 		>
