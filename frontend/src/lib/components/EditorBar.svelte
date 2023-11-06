@@ -23,7 +23,16 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import { Box, DollarSign, History, Library, Link, Plus, RotateCcw, Users } from 'lucide-svelte'
+	import {
+		DollarSign,
+		History,
+		Library,
+		Link,
+		Package,
+		Plus,
+		RotateCcw,
+		Users
+	} from 'lucide-svelte'
 	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -426,7 +435,7 @@
 					color="light"
 					on:click={resourcePicker.openDrawer}
 					{iconOnly}
-					startIcon={{ icon: Box }}
+					startIcon={{ icon: Package }}
 				>
 					+Resource
 				</Button>
@@ -441,7 +450,7 @@
 					color="light"
 					on:click={resourceTypePicker.openDrawer}
 					{iconOnly}
-					startIcon={{ icon: Box }}
+					startIcon={{ icon: Package }}
 				>
 					+Type
 				</Button>
@@ -508,7 +517,7 @@
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
 							on:click={() => dispatch('collabPopup')}><Link size={12} /></button
 						>
-						<div class="isolate flex -space-x-2 overflow-hidden pl-2">
+						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"

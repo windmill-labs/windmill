@@ -11,7 +11,6 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../../inputType'
-	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
 	import type { AppViewerContext } from '../../types'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -22,7 +21,7 @@
 	import { getScriptByPath } from '$lib/scripts'
 	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
-	import { ExternalLink, Eye, Pen, RefreshCw, Trash } from 'lucide-svelte'
+	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
 
 	export let runnable: RunnableByPath
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
@@ -164,7 +163,7 @@
 			<Button
 				size="xs"
 				variant="border"
-				startIcon={{ faIcon: faCodeBranch }}
+				startIcon={{ icon: GitFork }}
 				on:click={() => {
 					fork(runnable.path)
 				}}

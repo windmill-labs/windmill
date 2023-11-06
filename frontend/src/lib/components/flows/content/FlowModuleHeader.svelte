@@ -1,12 +1,12 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { WorkerService, type FlowModule } from '$lib/gen'
-	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import {
 		Bed,
 		Database,
 		Gauge,
+		GitFork,
 		Pen,
 		PhoneIncoming,
 		Repeat,
@@ -143,7 +143,7 @@
 			size="xs"
 			color="light"
 			on:click={() => dispatch('fork')}
-			startIcon={{ faIcon: faCodeBranch }}
+			startIcon={{ faIcon: GitFork }}
 			iconOnly={false}
 		>
 			Fork

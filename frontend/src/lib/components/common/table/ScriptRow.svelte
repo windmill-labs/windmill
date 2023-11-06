@@ -28,7 +28,7 @@
 	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
-	import { Pen } from 'lucide-svelte'
+	import { GitFork, Pen } from 'lucide-svelte'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -141,7 +141,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ faIcon: faCodeFork }}
+							startIcon={{ icon: GitFork }}
 							href="/scripts/add?template={path}"
 						>
 							Fork

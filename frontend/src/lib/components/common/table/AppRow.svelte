@@ -18,7 +18,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import Badge from '../badge/Badge.svelte'
-	import { Eye, Pen } from 'lucide-svelte'
+	import { Eye, GitFork, Pen } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -117,7 +117,7 @@
 							color="light"
 							size="xs"
 							variant="border"
-							startIcon={{ faIcon: faCodeFork }}
+							startIcon={{ icon: GitFork }}
 							href="/apps/add?template={path}"
 						>
 							Fork

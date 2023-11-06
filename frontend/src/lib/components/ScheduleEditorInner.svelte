@@ -435,7 +435,7 @@
 							btnClasses="text-center"
 							color="light"
 							size="xs"
-							startIcon={{ icon: faSave }}
+							startIcon={{ icon: Save }}
 							on:click={saveAsDefaultErrorHandler}
 						>
 							Save as default
@@ -524,7 +524,7 @@
 							btnClasses="text-center"
 							color="light"
 							size="xs"
-							startIcon={{ icon: faSave }}
+							startIcon={{ icon: Save }}
 							on:click={saveAsDefaultRecoveryHandler}
 						>
 							Save as default
