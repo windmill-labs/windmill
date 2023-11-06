@@ -3,7 +3,7 @@
 	import { isObject } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
-	import type { AppViewerContext, RichConfigurations } from '../../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
@@ -15,6 +15,8 @@
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import { Loader2 } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { initCss } from '$lib/components/apps/utils'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -22,6 +24,12 @@
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
+	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
+
+	const { app, worldStore, selectedComponent, componentControl, darkMode } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	let css = initCss($app.css?.aggridcomponent, customCss)
 
 	let result: any[] | undefined = undefined
 
@@ -47,11 +55,7 @@
 		if (!loaded) {
 			loaded = true
 		}
-		console.log(resolvedConfig?.extraConfig)
 	}
-
-	const { worldStore, selectedComponent, componentControl, darkMode } =
-		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['aggridcomponent'].initialData.configuration,
@@ -139,7 +143,12 @@
 	{#if Array.isArray(value) && value.every(isObject)}
 		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
-				class="border shadow-sm divide-y flex flex-col h-full"
+				class={twMerge(
+					'border shadow-sm divide-y flex flex-col h-full',
+					css?.container?.class,
+					'wm-aggrid-container'
+				)}
+				style={css?.container?.style}
 				bind:clientHeight
 				bind:clientWidth
 			>
