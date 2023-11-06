@@ -41,7 +41,7 @@ use windmill_worker::{
 use crate::ee::verify_license_key;
 
 #[cfg(feature = "enterprise")]
-use windmill_api::LICENSE_KEY_VALID;
+use windmill_common::ee::LICENSE_KEY_VALID;
 
 use crate::ee::set_license_key;
 
@@ -714,6 +714,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             &client,
             &job,
             0,
+            None,
             error::Error::ExecutionErr(format!(
                 "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {})",
                 last_ping

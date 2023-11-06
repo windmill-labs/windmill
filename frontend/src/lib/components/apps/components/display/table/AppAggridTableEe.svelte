@@ -4,7 +4,7 @@
 <script lang="ts">
 	import AppAggridTable from './AppAggridTable.svelte'
 	import type { AppInput } from '$lib/components/apps/inputType'
-	import type { RichConfigurations } from '$lib/components/apps/types'
+	import type { ComponentCustomCSS, RichConfigurations } from '$lib/components/apps/types'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
@@ -16,6 +16,7 @@
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
+	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 
 	let loaded = false
 	async function load() {
@@ -30,7 +31,7 @@
 </script>
 
 {#if loaded}
-	<AppAggridTable {id} {componentInput} {configuration} {initializing} {render} />
+	<AppAggridTable {id} {componentInput} {configuration} {initializing} {render} {customCss} />
 {:else}
 	<Loader2 class="animate-spin" />
 {/if}

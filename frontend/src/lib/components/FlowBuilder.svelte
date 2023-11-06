@@ -109,17 +109,28 @@
 	let loadingSave = false
 	let loadingDraft = false
 
-	async function saveDraft(): Promise<void> {
-		const flow = cleanInputs($flowStore)
+	async function saveDraft(forceSave = false): Promise<void> {
+		if (!newFlow && !savedFlow) {
+			return
+		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties(flow)
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			const current = cleanValueProperties($flowStore)
+			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				sendUserToast('No changes detected, ignoring', false, [
+					{
+						label: 'Save anyway',
+						callback: () => {
+							saveDraft(true)
+						}
+					}
+				])
 				return
 			}
 		}
 		loadingDraft = true
 		try {
+			const flow = cleanInputs($flowStore)
 			localStorage.removeItem('flow')
 			localStorage.removeItem(`flow-${$pathStore}`)
 
@@ -148,10 +159,15 @@
 			})
 
 			savedFlow = {
-				...cloneDeep(flow),
-				path: newFlow ? $pathStore : initialPath,
+				...(newFlow
+					? {
+							...cloneDeep($flowStore),
+							path: $pathStore,
+							draft_only: true
+					  }
+					: savedFlow),
 				draft: {
-					...cloneDeep(flow),
+					...cloneDeep($flowStore),
 					path: newFlow ? $pathStore : initialPath
 				}
 			} as Flow & {
@@ -178,13 +194,8 @@
 
 	async function saveFlow(): Promise<void> {
 		loadingSave = true
-
-		const flow = cleanInputs($flowStore)
-		savedFlow = {
-			...cloneDeep(flow),
-			path: $pathStore
-		} as Flow
 		try {
+			const flow = cleanInputs($flowStore)
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -252,6 +263,10 @@
 					await createSchedule($pathStore)
 				}
 			}
+			savedFlow = {
+				...cloneDeep($flowStore),
+				path: $pathStore
+			} as Flow
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
@@ -1059,6 +1074,7 @@
 						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveDraft()}
+						disabled={!newFlow && !savedFlow}
 					>
 						Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 					</Button>
