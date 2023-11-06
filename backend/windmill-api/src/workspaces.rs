@@ -1454,6 +1454,8 @@ struct ScriptMetadata {
     ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     priority: Option<i16>,    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,    
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -1656,6 +1658,7 @@ async fn tarball_workspace(
                 dedicated_worker: script.dedicated_worker,
                 ws_error_handler_muted: script.ws_error_handler_muted,
                 priority: script.priority,
+                tag: script.tag,
                 
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
