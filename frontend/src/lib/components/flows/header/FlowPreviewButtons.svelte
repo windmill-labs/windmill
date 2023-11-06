@@ -52,7 +52,7 @@
 		startIcon={{ icon: Play }}
 	>
 		Test up to&nbsp;
-		<Badge baseClass="ml-1" small color="indigo">
+		<Badge baseClass="ml-1" small color="indigo" wrapperClass="max-h-[15px]">
 			{$selectedId}
 		</Badge>
 	</Button>

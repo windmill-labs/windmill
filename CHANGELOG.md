@@ -1,6 +1,49 @@
 # Changelog
 
 
+## [1.200.0](https://github.com/windmill-labs/windmill/compare/v1.199.0...v1.200.0) (2023-11-04)
+
+
+### Features
+
+* improve drafts and diffs ([#2534](https://github.com/windmill-labs/windmill/issues/2534)) ([3bfc2c8](https://github.com/windmill-labs/windmill/commit/3bfc2c81d2d405c8ea12d68622bbf7175b3947db))
+
+
+### Bug Fixes
+
+* **frontend:** fix treeview ([#2552](https://github.com/windmill-labs/windmill/issues/2552)) ([02764b1](https://github.com/windmill-labs/windmill/commit/02764b1fad7e2f44f46b49cbe7500266e9cc2f8e))
+* return non-integer sleep error directly ([#2558](https://github.com/windmill-labs/windmill/issues/2558)) ([543fae7](https://github.com/windmill-labs/windmill/commit/543fae77a75b88a1199f8d3cbb0460257ed5db95))
+
+## [1.199.0](https://github.com/windmill-labs/windmill/compare/v1.198.0...v1.199.0) (2023-11-03)
+
+
+### Features
+
+* Schedule error handler improvements ([#2555](https://github.com/windmill-labs/windmill/issues/2555)) ([668c9da](https://github.com/windmill-labs/windmill/commit/668c9da6461997c1b7907111bbfd0eff5e0ec159))
+
+
+### Bug Fixes
+
+* fail on non-integer sleep value ([#2556](https://github.com/windmill-labs/windmill/issues/2556)) ([6f47b96](https://github.com/windmill-labs/windmill/commit/6f47b9600629ec24a4e265a0ccc9eee75458229f))
+
+## [1.198.0](https://github.com/windmill-labs/windmill/compare/v1.197.1...v1.198.0) (2023-11-03)
+
+
+### Features
+
+* **frontend:** fix table when seaching with hidden columns ([#2549](https://github.com/windmill-labs/windmill/issues/2549)) ([0aaffad](https://github.com/windmill-labs/windmill/commit/0aaffadf0ca6964539011733b5d4882fdd26588a))
+* **frontend:** update displayed path for treeview ([#2551](https://github.com/windmill-labs/windmill/issues/2551)) ([0349ba5](https://github.com/windmill-labs/windmill/commit/0349ba5d567f2b52ff8058f347e501598ce4c981))
+
+
+### Bug Fixes
+
+* **frontend:** fix mobile sidebar opacity ([#2554](https://github.com/windmill-labs/windmill/issues/2554)) ([e1e48cf](https://github.com/windmill-labs/windmill/commit/e1e48cfc5f3cb68aa4bbd18a1a2ad6f0a300c374))
+* make graph rendering uniform across all rem ([#2553](https://github.com/windmill-labs/windmill/issues/2553)) ([0d4fc6a](https://github.com/windmill-labs/windmill/commit/0d4fc6a0bbc9b8e20c20bf2646eab202f795b8bd))
+* make python imports work at any nesting level ([75a5766](https://github.com/windmill-labs/windmill/commit/75a5766f8bf14c3749aff56fb94a8c04b32de4b6))
+* make timeline fit for high number of iterations for flows ([37eac60](https://github.com/windmill-labs/windmill/commit/37eac608666d903504872ce815839a7493fe876a))
+* subflow with cache can not be considered simple ([54f0812](https://github.com/windmill-labs/windmill/commit/54f08122d2837b5ee3d283733e0da403b21fadf0))
+* support results[&lt;x&gt;] + export more metatada for scripts ([0f37439](https://github.com/windmill-labs/windmill/commit/0f37439877ab498a615746357d771703db47a6d2))
+
 ## [1.197.1](https://github.com/windmill-labs/windmill/compare/v1.197.0...v1.197.1) (2023-11-02)
 
 

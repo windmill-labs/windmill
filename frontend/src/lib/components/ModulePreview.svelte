@@ -129,6 +129,7 @@
 					mem={testJob?.['mem_peak']}
 					content={testJob?.logs}
 					isLoading={testIsLoading}
+					tag={testJob?.tag}
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">

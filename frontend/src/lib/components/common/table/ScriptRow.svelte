@@ -11,6 +11,7 @@
 	import {
 		faArchive,
 		faCalendarAlt,
+		faCode,
 		faCodeFork,
 		faCopy,
 		faFileExport,
@@ -37,7 +38,9 @@
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let errorHandlerMuted: boolean
+	export let showCode: (path: string, summary: string) => void
 	export let depth: number = 0
+	export let menuOpen: boolean = false
 
 	let {
 		summary,
@@ -84,7 +87,9 @@
 	const dlt: 'delete' = 'delete'
 </script>
 
-<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+{#if menuOpen}
+	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+{/if}
 
 <Row
 	href="/scripts/get/{hash}?workspace={$workspaceStore}"
@@ -152,6 +157,13 @@
 				if (draft_only) {
 					return [
 						{
+							displayName: 'View code',
+							icon: faCode,
+							action: () => {
+								showCode(script.path, script.summary)
+							}
+						},
+						{
 							displayName: 'Delete',
 							icon: faTrashAlt,
 							action: (event) => {
@@ -169,6 +181,13 @@
 					]
 				}
 				return [
+					{
+						displayName: 'View code',
+						icon: faCode,
+						action: () => {
+							showCode(script.path, script.summary)
+						}
+					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,
@@ -266,6 +285,12 @@
 						  ]
 						: [])
 				]
+			}}
+			on:dropdownOpen={() => {
+				menuOpen = true
+			}}
+			on:dropdownClose={() => {
+				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>

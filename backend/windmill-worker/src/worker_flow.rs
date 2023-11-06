@@ -1425,6 +1425,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 };
                 match json_value {
                     Ok(serde_json::Value::Number(n)) => {
+                        if !n.is_u64() {
+                            return Err(Error::ExecutionErr(format!("Expected an integer, found: {n}")));
+                        }
+
                         n.as_u64().map(|x| from_now(Duration::from_secs(x)))
                     }
                     _ => Err(Error::ExecutionErr(format!(
@@ -2111,6 +2115,7 @@ async fn compute_next_flow_transform(
                 && modules[0].value.is_simple()
                 && modules[0].sleep.is_none()
                 && modules[0].suspend.is_none()
+                && modules[0].cache_ttl.is_none()
                 && flow.failure_module.is_none();
 
             let next_loop_status = match status_module {

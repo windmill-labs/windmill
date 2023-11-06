@@ -7,7 +7,7 @@
 	export let logs: string
 	export let col: boolean = false
 	export let noBorder = false
-	export let loading
+	export let loading: boolean
 	export let filename: string | undefined = undefined
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
@@ -28,6 +28,6 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
-		<LogViewer content={logs ?? ''} {jobId} isLoading={false} />
+		<LogViewer content={logs ?? ''} {jobId} isLoading={false} tag={undefined} />
 	</div>
 </div>

@@ -86,10 +86,10 @@ pub async fn eval_timeout(
         }
     }
 
-    if expr.starts_with("flow_input.") {
+    if expr.starts_with("flow_input.") || expr.starts_with("flow_input[") {
         if let Some(ref flow_input) = flow_input {
             for (k,v) in flow_input.iter() {
-                if &format!("flow_input.{k}") == &expr {
+                if &format!("flow_input.{k}") == &expr || &format!("flow_input[\"{k}\"]") == &expr  {
                     // tracing::error!("FLOW_INPUT");
                     return Ok(v.clone())
                 }
@@ -98,9 +98,14 @@ pub async fn eval_timeout(
     }
 
     let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
+    let p_id2 = by_id.as_ref().map(|x| format!("results[\"{}\"]", x.previous_id));
 
     if p_id.is_some() && transform_context.contains_key("previous_result") && &expr == p_id.as_ref().unwrap() {
         // tracing::error!("PREVIOUS_RESULT");
+        return Ok(transform_context.get("previous_result").unwrap().as_ref().clone())
+    }
+
+    if p_id2.is_some() && transform_context.contains_key("previous_result") && &expr == p_id2.as_ref().unwrap() {
         return Ok(transform_context.get("previous_result").unwrap().as_ref().clone())
     }
 
@@ -161,7 +166,7 @@ pub async fn eval_timeout(
                 .map(|x| x.clone())
                 .collect_vec();
 
-            if !context_keys.contains(&"previous_result".to_string()) && (p_id.is_some() && expr.contains(p_id.as_ref().unwrap()))  || expr.contains("error") {
+            if !context_keys.contains(&"previous_result".to_string()) && (p_id.is_some() && expr.contains(p_id.as_ref().unwrap()))  || expr.contains("error") || (p_id2.is_some() && expr.contains(p_id2.as_ref().unwrap())) {
                 context_keys.push("previous_result".to_string());
             }
             let has_flow_input = expr.contains("flow_input");
@@ -237,7 +242,7 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
     s
 }
 lazy_static! {
-    static ref RE: Regex = Regex::new(r"(?m)(?P<r>results\.(?:[a-z]|[A-Z]|_|[1-9])+)").unwrap();
+    static ref RE: Regex = Regex::new(r#"(?m)(?P<r>results(?:(?:\.(?:[a-z]|[A-Z]|_|[1-9])+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex = Regex::new(r"(?m)^results((?:\.(?:(?:[a-z]|[A-Z]|_|[1-9])+))+)$").unwrap();
 
 }

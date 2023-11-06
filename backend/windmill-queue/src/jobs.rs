@@ -54,9 +54,9 @@ use windmill_common::{
         JobPayload, QueuedJob, RawCode,
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
-    schedule::{schedule_to_user, Schedule},
+    schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
-    users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
+    users::SUPERADMIN_SECRET_EMAIL,
     worker::{to_raw_value, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
@@ -102,6 +102,10 @@ lazy_static::lazy_static! {
 const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "enterprise")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
+
+const ERROR_HANDLER_USERNAME: &str = "error_handler";
+const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
+const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 
 #[async_recursion]
 pub async fn cancel_job<'c: 'async_recursion>(
@@ -422,6 +426,7 @@ pub async fn add_completed_job<
     // tracing::error!("2 {:?}", start.elapsed());
 
     // tracing::error!("Added completed job {:#?}", queued_job);
+    let mut skip_downstream_error_handlers = false;
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
@@ -429,7 +434,7 @@ pub async fn add_completed_job<
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        tx = apply_schedule_handlers(
+        (skip_downstream_error_handlers, tx) = apply_schedule_handlers(
             tx,
             db,
             queued_job.schedule_path.as_ref().unwrap(),
@@ -496,7 +501,8 @@ pub async fn add_completed_job<
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
     }
 
-    if matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
+    if !skip_downstream_error_handlers
+        && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
         && queued_job.parent_job.is_none()
         && !success
     {
@@ -550,7 +556,15 @@ pub async fn run_error_handler<
         "is_flow".to_string(),
         to_raw_value(&queued_job.raw_flow.is_some()),
     );
+    extra.insert(
+        "started_at".to_string(),
+        to_raw_value(&queued_job.started_at),
+    );
     extra.insert("email".to_string(), to_raw_value(&queued_job.email));
+
+    if let Some(schedule_path) = &queued_job.schedule_path {
+        extra.insert("schedule_path".to_string(), to_raw_value(schedule_path));
+    }
 
     if let Some(extra_args) = error_handler_extra_args {
         if let serde_json::Value::Object(args_m) = extra_args {
@@ -563,11 +577,13 @@ pub async fn run_error_handler<
             ));
         }
     }
+
+    // TODO: this should be injected when the EH is defined in the BE.
     if error_handler_path
         .to_string()
-        .eq("hub/2431/slack/schedule-error-handler-slack")
+        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
     {
-        // custom slack error handler being used -> we need to inject the slack token
+        // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
         extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
@@ -580,16 +596,20 @@ pub async fn run_error_handler<
         script_w_id,
         job_payload,
         PushArgs { extra, args: result.to_owned() },
-        if is_global { "global" } else { "error_handler" },
+        if is_global {
+            "global"
+        } else {
+            ERROR_HANDLER_USERNAME
+        },
         if is_global {
             SUPERADMIN_SECRET_EMAIL
         } else {
-            "error_handler@windmill.dev"
+            ERROR_HANDLER_USER_EMAIL
         },
         if is_global {
             SUPERADMIN_SECRET_EMAIL.to_string()
         } else {
-            "g/error_handler".to_string()
+            ERROR_HANDLER_USER_GROUP.to_string()
         },
         None,
         None,
@@ -749,6 +769,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 on_recovery: schedule.on_recovery,
                 on_recovery_times: schedule.on_recovery_times,
                 on_recovery_extra_args: schedule.on_recovery_extra_args,
+                ws_error_handler_muted: schedule.ws_error_handler_muted,
             },
         )
         .await;
@@ -794,17 +815,18 @@ async fn apply_schedule_handlers<
     job_id: Uuid,
     started_at: DateTime<Utc>,
     job_priority: Option<i16>,
-) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+) -> windmill_common::error::Result<(bool, QueueTransaction<'c, R>)> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
     if schedule.is_none() {
         tracing::error!(
             "Schedule {schedule_path} in {w_id} not found. Impossible to apply schedule handlers"
         );
-        return Ok(tx);
+        return Ok((false, tx));
     }
 
     let schedule = schedule.unwrap();
+    let skip_downstream_error_handlers = schedule.ws_error_handler_muted;
 
     if !success {
         if let Some(on_failure_path) = schedule.on_failure.clone() {
@@ -831,13 +853,14 @@ async fn apply_schedule_handlers<
                 };
 
                 if !match_times {
-                    return Ok(tx);
+                    return Ok((skip_downstream_error_handlers, tx));
                 }
             }
 
             let on_failure_result = handle_on_failure(
                 db,
                 tx,
+                job_id,
                 schedule_path,
                 script_path,
                 schedule.is_flow,
@@ -848,8 +871,6 @@ async fn apply_schedule_handlers<
                 started_at,
                 schedule.on_failure_extra_args,
                 &schedule.email,
-                &schedule_to_user(&schedule.path),
-                username_to_permissioned_as(&schedule.edited_by),
                 job_priority,
             )
             .await;
@@ -890,13 +911,13 @@ async fn apply_schedule_handlers<
             ).fetch_all(&mut tx).await?;
 
             if past_jobs.len() < times as usize {
-                return Ok(tx);
+                return Ok((skip_downstream_error_handlers, tx));
             }
 
             let n_times_successful = past_jobs[..(times - 1) as usize].iter().all(|j| j.success);
 
             if !n_times_successful {
-                return Ok(tx);
+                return Ok((skip_downstream_error_handlers, tx));
             }
 
             let failed_job = past_jobs[past_jobs.len() - 1].clone();
@@ -905,6 +926,7 @@ async fn apply_schedule_handlers<
                 let on_recovery_result = handle_on_recovery(
                     db,
                     tx,
+                    job_id,
                     schedule_path,
                     script_path,
                     schedule.is_flow,
@@ -915,9 +937,6 @@ async fn apply_schedule_handlers<
                     times,
                     started_at,
                     schedule.on_recovery_extra_args,
-                    &schedule.email,
-                    &schedule_to_user(&schedule.path),
-                    username_to_permissioned_as(&schedule.edited_by),
                 )
                 .await;
 
@@ -946,7 +965,7 @@ async fn apply_schedule_handlers<
         }
     }
 
-    Ok(tx)
+    Ok((skip_downstream_error_handlers, tx))
 }
 
 pub async fn handle_on_failure<
@@ -957,6 +976,7 @@ pub async fn handle_on_failure<
 >(
     db: &Pool<Postgres>,
     tx: QueueTransaction<'c, R>,
+    job_id: Uuid,
     schedule_path: &str,
     script_path: &str,
     is_flow: bool,
@@ -966,18 +986,19 @@ pub async fn handle_on_failure<
     failed_times: i32,
     started_at: DateTime<Utc>,
     extra_args: Option<serde_json::Value>,
-    username: &str,
     email: &str,
-    permissioned_as: String,
     priority: Option<i16>,
 ) -> windmill_common::error::Result<(Uuid, QueueTransaction<'c, R>)> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
     extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&script_path));
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
+    extra.insert("email".to_string(), to_raw_value(&email));
     extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
 
     if let Some(args_v) = extra_args {
@@ -992,6 +1013,16 @@ pub async fn handle_on_failure<
         }
     }
 
+    // TODO: This should be inject when the EH is defined in the FE.
+    if on_failure_path
+        .to_string()
+        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
+    {
+        // default slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
+    }
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
@@ -999,13 +1030,13 @@ pub async fn handle_on_failure<
         w_id,
         payload,
         PushArgs { extra, args: result.to_owned() },
-        username,
-        email,
-        permissioned_as,
+        ERROR_HANDLER_USERNAME,
+        ERROR_HANDLER_USER_EMAIL,
+        ERROR_HANDLER_USER_GROUP.to_string(),
         None,
         None,
-        None,
-        None,
+        Some(job_id),
+        Some(job_id),
         None,
         false,
         false,
@@ -1041,6 +1072,7 @@ async fn handle_on_recovery<
 >(
     db: &Pool<Postgres>,
     tx: QueueTransaction<'c, R>,
+    job_id: Uuid,
     schedule_path: &str,
     script_path: &str,
     is_flow: bool,
@@ -1051,9 +1083,6 @@ async fn handle_on_recovery<
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
     extra_args: Option<serde_json::Value>,
-    username: &str,
-    email: &str,
-    permissioned_as: String,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
@@ -1086,6 +1115,15 @@ async fn handle_on_recovery<
             ));
         }
     }
+    // TODO: This should be inject when the EH is defined in the FE.
+    if on_recovery_path
+        .to_string()
+        .eq("script/hub/2430/slack/schedule-recovery-handler-slack")
+    {
+        // default slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        args.insert("slack".to_string(), json!(slack_resource));
+    }
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
@@ -1093,13 +1131,13 @@ async fn handle_on_recovery<
         w_id,
         payload,
         args,
-        username,
-        email,
-        permissioned_as,
+        ERROR_HANDLER_USERNAME,
+        ERROR_HANDLER_USER_EMAIL,
+        ERROR_HANDLER_USER_GROUP.to_string(),
         None,
         None,
-        None,
-        None,
+        Some(job_id),
+        Some(job_id),
         None,
         false,
         false,

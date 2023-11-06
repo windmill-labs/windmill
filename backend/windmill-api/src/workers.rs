@@ -39,6 +39,7 @@ struct WorkerPing {
     jobs_executed: i32,
     custom_tags: Option<Vec<String>>,
     worker_group: String,
+    wm_version: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -57,7 +58,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group, wm_version FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
         per_page as i64,
         offset as i64
     )

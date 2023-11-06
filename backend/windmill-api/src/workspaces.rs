@@ -35,6 +35,7 @@ use chrono::Utc;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
+use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::schedule::Schedule;
@@ -543,7 +544,8 @@ async fn run_slack_message_test_job(
     let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
     let (uuid, tx) = windmill_queue::handle_on_failure(
         &db, 
-        tx, 
+        tx,
+        Uuid::parse_str("00000000-0000-0000-0000-000000000000")?,
         "slack_message_test", 
         "slack_message_test", 
         false, 
@@ -553,9 +555,7 @@ async fn run_slack_message_test_job(
         0, 
         Utc::now(), 
         Some(json!(extra_args)),
-        authed.username.as_str(), 
         authed.email.as_str(), 
-        username_to_permissioned_as(authed.username.as_str()),
         None, // Note: we could mark it as high priority to return result quickly to the user
     ).await?;
     tx.commit().await?;
@@ -1440,8 +1440,28 @@ struct ScriptMetadata {
     is_template: bool,
     lock: Vec<String>,
     kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    envs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "is_none_or_false")]
+    ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    priority: Option<i16>,    
 }
 
+pub fn is_none_or_false(val: &Option<bool>) -> bool {
+    match val {
+        Some(val) => !val,
+        None => true,
+    }
+}
 enum ArchiveImpl {
     Zip(async_zip::write::ZipFileWriter<File>),
     Tar(tokio_tar::Builder<File>),
@@ -1629,6 +1649,14 @@ async fn tarball_workspace(
                 is_template: script.is_template,
                 kind: script.kind.to_string(),
                 lock,
+                envs: script.envs,
+                concurrent_limit: script.concurrent_limit,
+                concurrency_time_window_s: script.concurrency_time_window_s,
+                cache_ttl: script.cache_ttl,
+                dedicated_worker: script.dedicated_worker,
+                ws_error_handler_muted: script.ws_error_handler_muted,
+                priority: script.priority,
+                
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive

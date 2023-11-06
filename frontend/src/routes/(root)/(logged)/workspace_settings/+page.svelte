@@ -33,7 +33,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 
-	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
+	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
 
 	let initialPath: string
 	let scriptPath: string
@@ -209,7 +209,18 @@
 
 <CenteredPage>
 	{#if $userStore?.is_admin || $superadmin}
-		<PageHeader title="Workspace settings: {$workspaceStore}" />
+		<PageHeader title="Workspace settings: {$workspaceStore}"
+			>{#if $superadmin}
+				<Button
+					variant="border"
+					color="dark"
+					size="sm"
+					on:click={() => goto('#superadmin-settings')}
+				>
+					Instance settings
+				</Button>
+			{/if}</PageHeader
+		>
 
 		<div class="overflow-x-auto scrollbar-hidden">
 			<Tabs

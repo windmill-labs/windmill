@@ -1,20 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import {
-		userStore,
-		usersWorkspaceStore,
-		superadmin,
-		usageStore,
-		premiumStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { userStore, usersWorkspaceStore, superadmin, usageStore, premiumStore } from '$lib/stores'
 	import { faCog, faCrown, faHardHat, faSignOut } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/MenuV2.svelte'
-	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
+	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { switchWorkspace } from '$lib/storeUtils'
 	import { twMerge } from 'tailwind-merge'
 	import { Moon, Sun, User } from 'lucide-svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
@@ -34,12 +26,7 @@
 
 <Menu>
 	<div slot="trigger" class="w-full">
-		<MenuButton
-			class="!text-xs"
-			icon={User}
-			label={String($userStore?.username ?? ($superadmin ? $superadmin : '___'))}
-			{isCollapsed}
-		/>
+		<MenuButton class="!text-xs" icon={User} label={'User'} {isCollapsed} />
 	</div>
 	<div class="divide-y">
 		<div class="px-4 py-3" role="none">
@@ -67,35 +54,6 @@
 				</a>
 			</MenuItem>
 		</div>
-		{#if $superadmin}
-			<div class="py-1" role="none">
-				<MenuItem>
-					<a
-						href={SUPERADMIN_SETTINGS_HASH}
-						class="text-secondary block px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
-						role="menuitem"
-						tabindex="-1"
-					>
-						<Icon class="pr-0.5" data={faCog} /> Superadmin settings
-					</a>
-				</MenuItem>
-			</div>
-			<div class="py-1" role="none">
-				<button
-					on:click={() => {
-						if ($workspaceStore === 'admins') {
-							return
-						}
-						switchWorkspace('admins')
-					}}
-					class="text-secondary block text-left px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary w-full"
-					role="menuitem"
-					tabindex="-1"
-				>
-					<Icon class="pr-0.5" data={faCog} /> Superadmin workspace
-				</button>
-			</div>
-		{/if}
 
 		<div class="py-1" role="none">
 			<button

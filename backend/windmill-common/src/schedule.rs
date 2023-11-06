@@ -33,6 +33,7 @@ pub struct Schedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: bool,
 }
 
 pub fn schedule_to_user(path: &str) -> String {

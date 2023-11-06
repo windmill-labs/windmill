@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import UserMenu from '$lib/components/sidebar/UserMenu.svelte'
 	import {
 		AppService,
 		FlowService,
@@ -221,7 +220,6 @@
 
 						<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 							<WorkspaceMenu />
-							<UserMenu />
 							<FavoriteMenu {favoriteLinks} />
 						</div>
 
@@ -260,7 +258,6 @@
 				</button>
 				<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 					<WorkspaceMenu {isCollapsed} />
-					<UserMenu {isCollapsed} />
 					<FavoriteMenu {favoriteLinks} {isCollapsed} />
 				</div>
 

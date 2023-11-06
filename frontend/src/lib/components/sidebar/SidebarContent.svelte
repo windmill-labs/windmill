@@ -1,19 +1,21 @@
 <script lang="ts">
 	import MenuLink from './MenuLink.svelte'
-	import { userStore } from '$lib/stores'
+	import { superadmin, userStore } from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
 		Bot,
 		Boxes,
 		Calendar,
-		Cog,
 		DollarSign,
 		Eye,
+		FolderCog,
 		FolderOpen,
 		HelpCircle,
 		Home,
 		Play,
+		ServerCog,
+		Settings,
 		UserCog
 	} from 'lucide-svelte'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
@@ -21,6 +23,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import { Icon } from 'svelte-awesome'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import UserMenu from './UserMenu.svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -36,11 +39,44 @@
 	]
 
 	$: secondaryMenuLinks = [
+		// {
+		// 	label: 'Workspace',
+		// 	href: '/workspace_settings',
+		// 	icon: Cog,
+		// 	disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
+		// },
 		{
-			label: 'Workspace',
-			href: '/workspace_settings',
-			icon: Cog,
-			disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
+			label: 'Settings',
+			icon: Settings,
+			subItems: [
+				{
+					label: 'Account',
+					href: '#user-settings',
+					icon: UserCog,
+					faIcon: undefined
+				},
+				...($userStore?.is_admin || $superadmin
+					? [
+							{
+								label: 'Workspace',
+								href: '/workspace_settings',
+								icon: FolderCog,
+								faIcon: undefined
+							}
+					  ]
+					: []),
+				...($superadmin
+					? [
+							{
+								label: 'Instance',
+								href: '#superadmin-settings',
+								icon: ServerCog,
+								faIcon: undefined
+							}
+					  ]
+					: [])
+			],
+			disabled: $userStore?.operator
 		},
 		{ label: 'Workers', href: '/workers', icon: Bot, disabled: $userStore?.operator },
 		{
@@ -61,7 +97,8 @@
 					disabled: $userStore?.operator,
 					faIcon: undefined
 				}
-			]
+			],
+			disabled: $userStore?.operator
 		},
 		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
 	]
@@ -93,19 +130,20 @@
 	class="grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-16 justify-between"
 >
 	<div class="space-y-1 pt-4 mb-6 md:mb-10">
-		{#each mainMenuLinks as menuLink (menuLink.href)}
+		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 		{/each}
 	</div>
 	<div class="flex flex-col h-full justify-end">
 		<div class="space-y-0.5 mb-6 md:mb-10">
-			{#each secondaryMenuLinks as menuLink (menuLink.href)}
+			<UserMenu {isCollapsed} />
+			{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				{#if menuLink.subItems}
 					<Menu>
 						<div slot="trigger">
 							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
 						</div>
-						{#each menuLink.subItems as subItem (subItem.href)}
+						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
 								<div class="py-1" role="none">
 									<a
@@ -140,7 +178,7 @@
 						<div slot="trigger">
 							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
 						</div>
-						{#each menuLink.subItems as subItem (subItem.href)}
+						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
 								<div class="py-1" role="none">
 									<a

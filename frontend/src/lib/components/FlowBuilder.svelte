@@ -19,7 +19,13 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { encodeState, formatCron, sleep } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		encodeState,
+		formatCron,
+		orderedJsonStringify,
+		sleep
+	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import type { Drawer } from '$lib/components/common'
 
@@ -27,7 +33,6 @@
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, Kbd, UndoRedo } from './common'
-	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
@@ -38,7 +43,7 @@
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
-	import { Calendar, Pen, Save } from 'lucide-svelte'
+	import { Calendar, Pen, Save, DiffIcon } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -59,6 +64,9 @@
 
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
+	import type DiffDrawer from './DiffDrawer.svelte'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { cloneDeep } from 'lodash'
 
 	export let initialPath: string = ''
 	export let newFlow: boolean
@@ -67,6 +75,12 @@
 	export let loading = false
 	export let flowStore: Writable<OpenFlow>
 	export let flowStateStore: Writable<FlowState>
+	export let savedFlow:
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
+		| undefined = undefined
+	export let diffDrawer: DiffDrawer | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -95,11 +109,16 @@
 	let loadingDraft = false
 
 	async function saveDraft(): Promise<void> {
+		const flow = cleanInputs($flowStore)
+		if (savedFlow) {
+			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
+			const current = cleanValueProperties(flow)
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				return
+			}
+		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs($flowStore)
-
-			$dirtyStore = false
 			localStorage.removeItem('flow')
 			localStorage.removeItem(`flow-${$pathStore}`)
 
@@ -126,8 +145,19 @@
 					value: flow
 				}
 			})
+
+			savedFlow = {
+				...cloneDeep(flow),
+				path: newFlow ? $pathStore : initialPath,
+				draft: {
+					...cloneDeep(flow),
+					path: newFlow ? $pathStore : initialPath
+				}
+			} as Flow & {
+				draft?: Flow
+			}
+
 			if (newFlow) {
-				$dirtyStore = false
 				dispatch('saveInitial', $pathStore)
 			}
 			sendUserToast('Saved as draft')
@@ -147,13 +177,17 @@
 
 	async function saveFlow(): Promise<void> {
 		loadingSave = true
+
+		const flow = cleanInputs($flowStore)
+		savedFlow = {
+			...cloneDeep(flow),
+			path: $pathStore
+		} as Flow
 		try {
-			const flow = cleanInputs($flowStore)
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
 			const { cron, timezone, args, enabled } = $scheduleStore
-			$dirtyStore = false
 			if (newFlow) {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${$pathStore}`)
@@ -218,7 +252,6 @@
 				}
 			}
 			loadingSave = false
-			$dirtyStore = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
@@ -878,6 +911,15 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+<UnsavedConfirmationModal
+	{diffDrawer}
+	savedValue={savedFlow}
+	modifiedValue={{
+		...$flowStore,
+		path: $pathStore
+	}}
+/>
+
 {#key renderCount}
 	{#if !$userStore?.operator}
 		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
@@ -976,6 +1018,29 @@
 							renderCount += 1
 						}}
 					/>
+					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							if (!savedFlow) {
+								return
+							}
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
+								mode: 'normal',
+								deployed: savedFlow,
+								draft: savedFlow['draft'],
+								current: $flowStore
+							})
+						}}
+						disabled={!savedFlow}
+					>
+						<div class="flex flex-row gap-2 items-center">
+							<DiffIcon size={14} />
+							Diff
+						</div>
+					</Button>
 
 					<FlowCopilotStatus
 						{copilotLoading}

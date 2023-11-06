@@ -21,7 +21,7 @@
 	export let handlerPath: string | undefined
 	export let handlerExtraArgs: Record<string, any>
 
-    export let customInitialScriptPath: string | undefined
+	export let customInitialScriptPath: string | undefined
 	export let customScriptTemplate: string
 	export let customHandlerKind: 'flow' | 'script' = 'script'
 	let customHandlerSchema: Schema | undefined
@@ -121,6 +121,7 @@
 		handlerPath !== slackHandlerScriptPath &&
 		loadHandlerScriptArgs(handlerPath, [
 			'path',
+			'job_id',
 			'is_flow',
 			'schedule_path',
 			'error',
@@ -134,6 +135,7 @@
 
 	$: loadHandlerScriptArgs(slackHandlerScriptPath, [
 		'path',
+		'job_id',
 		'is_flow',
 		'schedule_path',
 		'error',
@@ -142,7 +144,8 @@
 		'started_at',
 		'success_times',
 		'success_result',
-		'success_started_at'
+		'success_started_at',
+		'slack'
 	]).then((schema) => (slackHandlerSchema = schema))
 </script>
 

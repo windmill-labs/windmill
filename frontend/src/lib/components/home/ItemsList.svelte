@@ -32,6 +32,9 @@
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
 	import ContentSearch from '../ContentSearch.svelte'
+	import Drawer from '../common/drawer/Drawer.svelte'
+	import HighlightCode from '../HighlightCode.svelte'
+	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import { groupItems } from './treeViewUtils'
 	import Item from './Item.svelte'
 
@@ -246,6 +249,18 @@
 	let treeView = false
 
 	let contentSearch: ContentSearch
+
+	let viewCodeDrawer: Drawer
+	let viewCodeTitle: string | undefined
+	let script: Script | undefined
+	async function showCode(path: string, summary: string) {
+		viewCodeTitle = summary || path
+		await viewCodeDrawer.openDrawer()
+		script = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path
+		})
+	}
 </script>
 
 <SearchItems
@@ -255,6 +270,24 @@
 	f={(x) => (x.summary ? x.summary + ' (' + x.path + ')' : x.path)}
 	{opts}
 />
+
+<Drawer
+	bind:this={viewCodeDrawer}
+	on:close={() => {
+		setTimeout(() => {
+			viewCodeTitle = undefined
+			script = undefined
+		}, 300)
+	}}
+>
+	<DrawerContent title={viewCodeTitle} on:close={viewCodeDrawer.closeDrawer}>
+		{#if script}
+			<HighlightCode language={script?.language} code={script?.content} />
+		{:else}
+			<Skeleton layout={[[40]]} />
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 <ContentSearch bind:this={contentSearch} />
 <CenteredPage>
@@ -354,10 +387,11 @@
 			{/each}
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
-		{:else}
+		{:else if treeView}
+			{@const groupedItems = groupItems(items)}
 			<div class="border rounded-md">
-				{#if treeView}
-					{#each (groupItems(items) ?? []).slice(0, nbDisplayed) as item}
+				{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
+					{#if item}
 						<TreeView
 							{item}
 							on:scriptChanged={loadScripts}
@@ -370,27 +404,37 @@
 								loadApps()
 								loadRawApps()
 							}}
+							{showCode}
 						/>
-					{/each}
-				{:else}
-					{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
-						<Item
-							{item}
-							on:scriptChanged={loadScripts}
-							on:flowChanged={loadFlows}
-							on:appChanged={loadApps}
-							on:rawAppChanged={loadRawApps}
-							on:reload={() => {
-								loadScripts()
-								loadFlows()
-								loadApps()
-								loadRawApps()
-							}}
-						/>
-					{/each}
-				{/if}
+					{/if}
+				{/each}
 			</div>
-			{#if items && items?.length > 30}
+			{#if groupedItems.length > 30 && nbDisplayed < groupedItems.length}
+				<span class="text-xs"
+					>{nbDisplayed} root nodes out of {groupedItems.length}
+					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				>
+			{/if}
+		{:else}
+			<div class="border rounded-md">
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
+					<Item
+						{item}
+						on:scriptChanged={loadScripts}
+						on:flowChanged={loadFlows}
+						on:appChanged={loadApps}
+						on:rawAppChanged={loadRawApps}
+						on:reload={() => {
+							loadScripts()
+							loadFlows()
+							loadApps()
+							loadRawApps()
+						}}
+						{showCode}
+					/>
+				{/each}
+			</div>
+			{#if items && items?.length > 30 && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span

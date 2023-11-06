@@ -27,6 +27,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import Version from './Version.svelte'
 	import { Plus } from 'lucide-svelte'
+	import DarkModeToggle from './sidebar/DarkModeToggle.svelte'
 
 	let drawer: Drawer
 
@@ -96,7 +97,9 @@
 				<div class="text-xs pt-1 pb-2 text-tertiary flex-col flex">
 					Windmill <Version />
 				</div>
-
+				<div class="font-semibold flex items-baseline">
+					Theme: <DarkModeToggle forcedDarkMode={false} />
+				</div>
 				{#if scopes == undefined}
 					<h2 class="border-b mt-4">User info</h2>
 					<div class="">

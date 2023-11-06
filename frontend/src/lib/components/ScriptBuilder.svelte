@@ -1,14 +1,26 @@
 <script lang="ts">
-	import { DraftService, NewScript, Script, ScriptService, WorkerService } from '$lib/gen'
+	import {
+		DraftService,
+		NewScript,
+		Script,
+		ScriptService,
+		WorkerService,
+		type NewScriptWithDraft
+	} from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
-	import { emptySchema, encodeState, getModifierKey } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		emptySchema,
+		encodeState,
+		getModifierKey,
+		orderedJsonStringify
+	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -21,6 +33,7 @@
 		Bug,
 		CheckCircle,
 		Code,
+		DiffIcon,
 		ExternalLink,
 		Loader2,
 		Pen,
@@ -43,6 +56,8 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
+	import type DiffDrawer from './DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -50,6 +65,8 @@
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
+	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let savedScript: NewScriptWithDraft | undefined = undefined
 
 	let metadataOpen =
 		showMeta ||
@@ -162,7 +179,6 @@
 	async function editScript(): Promise<void> {
 		loadingSave = true
 		try {
-			$dirtyStore = false
 			localStorage.removeItem(script.path)
 
 			script.schema = script.schema ?? emptySchema()
@@ -196,6 +212,7 @@
 					priority: script.priority
 				}
 			})
+			savedScript = cloneDeep(script) as NewScriptWithDraft
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 		} catch (error) {
@@ -205,9 +222,15 @@
 	}
 
 	async function saveDraft(): Promise<void> {
+		if (savedScript) {
+			const draftOrDeployed = cleanValueProperties(savedScript['draft'] || savedScript)
+			const current = cleanValueProperties(script)
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				return
+			}
+		}
 		loadingDraft = true
 		try {
-			$dirtyStore = false
 			localStorage.removeItem(script.path)
 
 			script.schema = script.schema ?? emptySchema()
@@ -250,8 +273,13 @@
 					value: script
 				}
 			})
+
+			savedScript = await ScriptService.getScriptByPathWithDraft({
+				workspace: $workspaceStore!,
+				path: script.path
+			})
+
 			if (initialPath == '') {
-				$dirtyStore = false
 				goto(`/scripts/edit/${script.path}`)
 			}
 			sendUserToast('Saved as draft')
@@ -264,23 +292,26 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems() {
-		let dropdownItems: { label: string; onClick: () => void }[] = [
-			{
-				label: 'Fork',
-				onClick: () => {
-					window.open(`/scripts/add?template=${initialPath}`)
-				}
-			},
-			{
-				label: 'Exit & See details',
-				onClick: () => {
-					goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
-				}
-			}
-		]
+	function computeDropdownItems(initialPath: string) {
+		let dropdownItems: { label: string; onClick: () => void }[] =
+			initialPath != ''
+				? [
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/scripts/add?template=${initialPath}`)
+							}
+						},
+						{
+							label: 'Exit & See details',
+							onClick: () => {
+								goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
+							}
+						}
+				  ]
+				: []
 
-		return dropdownItems
+		return dropdownItems.length > 0 ? dropdownItems : undefined
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -301,11 +332,12 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-<UnsavedConfirmationModal />
+<UnsavedConfirmationModal {diffDrawer} savedValue={savedScript} modifiedValue={script} />
 
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
+			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="metadata">Metadata</Tab>
 				<Tab value="runtime">Runtime</Tab>
@@ -786,6 +818,29 @@
 						variant="border"
 						size="xs"
 						on:click={() => {
+							if (!savedScript) {
+								return
+							}
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
+								mode: 'normal',
+								deployed: savedScript,
+								draft: savedScript['draft'],
+								current: script
+							})
+						}}
+						disabled={!savedScript || !diffDrawer}
+					>
+						<div class="flex flex-row gap-2 items-center">
+							<DiffIcon size={14} />
+							Diff
+						</div>
+					</Button>
+					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
 							metadataOpen = true
 						}}
 						startIcon={{ icon: Settings }}
@@ -808,7 +863,7 @@
 						size="xs"
 						startIcon={{ icon: Save }}
 						on:click={() => editScript()}
-						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
+						dropdownItems={computeDropdownItems(initialPath)}
 					>
 						Deploy
 					</Button>
