@@ -405,7 +405,7 @@ export const customisationByComponent: Customisation[] = [
 				comment: 'Background colour of the grid'
 			}
 		],
-		link: 'https://www.ag-grid.com/react-data-grid/global-style-customisation-variables/',
+		link: 'https://www.ag-grid.com/javascript-data-grid/global-style-customisation-variables/',
 		root: '.ag-theme-alpine'
 	},
 	{
