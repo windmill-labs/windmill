@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import { userStore, usersWorkspaceStore, superadmin, usageStore, premiumStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, usageStore, premiumStore } from '$lib/stores'
 	import { faCog, faCrown, faHardHat, faSignOut } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/MenuV2.svelte'

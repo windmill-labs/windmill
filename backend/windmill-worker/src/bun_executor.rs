@@ -577,28 +577,37 @@ pub async fn start_worker(
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
         let lockb = splitted[1];
         if lockb != EMPTY_FILE {
-            let _ = write_file_binary(
+            let has_trusted_deps = &splitted[0].contains("trustedDependencies");
+
+            if !has_trusted_deps {
+                let _ = write_file_binary(
+                    job_dir,
+                    "bun.lockb",
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(&splitted[1])
+                        .map_err(|_| {
+                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                        })?,
+                )
+                .await?;
+            }
+
+            install_lockfile(
+                &mut logs,
+                &mut mem_peak,
+                &Uuid::nil(),
+                &w_id,
+                db,
                 job_dir,
-                "bun.lockb",
-                &base64::engine::general_purpose::STANDARD
-                    .decode(&splitted[1])
-                    .map_err(|_| {
-                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                    })?,
+                worker_name,
+                common_bun_proc_envs.clone(),
             )
             .await?;
+            if !has_trusted_deps {
+                remove_dir_all(format!("{}/node_modules", job_dir)).await?;
+            }
+            tracing::info!("dedicated worker requirements installed: {reqs}");
         }
-        install_lockfile(
-            &mut logs,
-            &mut mem_peak,
-            &Uuid::nil(),
-            &w_id,
-            db,
-            job_dir,
-            worker_name,
-            common_bun_proc_envs.clone(),
-        )
-        .await?;
     } else if !*DISABLE_NSJAIL {
         let trusted_deps = get_trusted_deps(inner_content);
         logs.push_str("\n\n--- BUN INSTALL ---\n");
