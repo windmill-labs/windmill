@@ -143,6 +143,11 @@
 	]
 
 	let oauth_name = 'custom'
+
+	async function sendStats() {
+		await SettingService.sendStats()
+		sendUserToast('Usage sent')
+	}
 </script>
 
 <div class="pb-8">
@@ -166,11 +171,21 @@
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
 								<li>version</li>
-								<li>number of jobs</li>
-								<li>total duration of jobs</li>
-								<li>number of users per login type</li>
+								<li>number and total duration of jobs</li>
+								<li>login type usage</li>
+								<li>workers usage</li>
 							</ul>
 						</div>
+						{#if $enterpriseLicense}
+							<Button
+								on:click={sendStats}
+								variant="border"
+								color="light"
+								btnClasses="w-auto"
+								wrapperClasses="mb-4"
+								size="xs">Send usage</Button
+							>
+						{/if}
 					{/if}
 					{#if category == 'SSO/OAuth'}
 						<div>

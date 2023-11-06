@@ -2,8 +2,9 @@ use std::str::FromStr;
 
 use crate::{
     error::{to_anyhow, Result},
-    global_settings::{DISABLE_STATS_SETTING, UNIQUE_ID_SETTING},
-    utils::GIT_VERSION,
+    global_settings::DISABLE_STATS_SETTING,
+    scripts::ScriptLang,
+    utils::{get_uid, GIT_VERSION},
     DB,
 };
 use chrono::Utc;
@@ -73,32 +74,27 @@ pub async fn schedule_stats(db: &DB, instance_name: String, http_client: &reqwes
     });
 }
 
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+struct JobsUsage {
+    language: Option<ScriptLang>,
+    total_duration: i64,
+    count: i64,
+}
+
 pub async fn send_stats(
     instance_name: &String,
     http_client: &reqwest::Client,
     db: &DB,
 ) -> Result<()> {
-    let uid = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        UNIQUE_ID_SETTING
+    let uid = get_uid(db).await?;
+
+    let jobs_usage = sqlx::query_as::<_, JobsUsage>(
+        "SELECT language, COUNT(*) as count, SUM(duration_ms)::BIGINT as total_duration FROM completed_job GROUP BY language",
     )
-    .fetch_one(db)
+    .fetch_all(db)
     .await?;
 
-    let uid = serde_json::from_value::<String>(uid).map_err(to_anyhow)?;
-
-    let nb_of_jobs = sqlx::query_scalar!("SELECT COUNT(*) FROM completed_job")
-        .fetch_one(db)
-        .await?
-        .unwrap_or(0);
-
-    let total_duration_of_jobs =
-        sqlx::query_scalar!("SELECT SUM(duration_ms)::BIGINT FROM completed_job")
-            .fetch_one(db)
-            .await?
-            .unwrap_or(0);
-
-    let nb_of_users_per_login_type =
+    let login_type_usage =
         sqlx::query!("SELECT login_type, COUNT(*) FROM password GROUP BY login_type")
             .fetch_all(db)
             .await?
@@ -111,13 +107,21 @@ pub async fn send_stats(
             })
             .collect::<Vec<serde_json::Value>>();
 
+    let workers_usage = sqlx::query!(
+        "SELECT COUNT(*) FROM worker_ping WHERE ping_at > NOW() - INTERVAL '5 minutes'"
+    )
+    .fetch_one(db)
+    .await?
+    .count
+    .unwrap_or(0);
+
     let payload = serde_json::json!({
         "uid": uid,
         "version": GIT_VERSION,
         "instance_name": instance_name,
-        "nb_of_jobs": nb_of_jobs,
-        "total_duration_of_jobs": total_duration_of_jobs,
-        "nb_of_users_per_login_type": nb_of_users_per_login_type,
+        "jobs_usage": jobs_usage,
+        "login_type_usage": login_type_usage,
+        "workers_usage": workers_usage,
     });
 
     let request = http_client

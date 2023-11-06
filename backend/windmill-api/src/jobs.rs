@@ -1569,7 +1569,7 @@ async fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> 
 
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
-    use crate::LICENSE_KEY_VALID;
+    use windmill_common::ee::LICENSE_KEY_VALID;
 
     let valid = *LICENSE_KEY_VALID.read().await;
     if !valid {
