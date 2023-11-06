@@ -515,7 +515,6 @@ pub async fn add_completed_job<
         && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
         && queued_job.parent_job.is_none()
         && !success
-        && canceled_by.is_none()
     {
         if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, result).await {
             tracing::error!(
@@ -525,7 +524,7 @@ pub async fn add_completed_job<
             );
         }
 
-        if let Err(e) = send_error_to_workspace_handler(rsmq.clone(), &queued_job, db, result).await
+        if let Err(e) = send_error_to_workspace_handler(rsmq.clone(), &queued_job, canceled_by.is_some(), db, result).await
         {
             tracing::error!(
                 "Could not run workspace error handler for job {}: {}",
@@ -681,18 +680,23 @@ pub async fn send_error_to_workspace_handler<
 >(
     rsmq: Option<R>,
     queued_job: &QueuedJob,
+    is_canceled: bool,
     db: &Pool<Postgres>,
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
     let mut tx = db.begin().await?;
-    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
-        "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>, bool)>(
+        "SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel FROM workspace_settings WHERE workspace_id = $1",
     ).bind(&w_id)
     .fetch_optional(&mut *tx)
     .await
     .context("sending error to global handler")?
     .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
+
+    if is_canceled && error_handler_muted_on_cancel {
+        return Ok(());
+    }
 
     if let Some(error_handler) = error_handler {
         let ws_error_handler_muted: Option<bool> = match queued_job.job_kind {
