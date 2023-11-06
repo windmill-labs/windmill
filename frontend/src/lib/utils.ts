@@ -11,6 +11,7 @@ import { deepEqual } from 'fast-equals'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Script } from './gen'
+import { cloneDeep } from 'lodash'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -678,8 +679,8 @@ export function cleanValueProperties(obj: Value) {
 	} else {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
-			if (key !== 'draft' && key !== 'draft_only' && key !== 'parent_hash' && obj[key]) {
-				newObj[key] = obj[key]
+			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
+				newObj[key] = cloneDeep(obj[key])
 			}
 		}
 		return newObj
