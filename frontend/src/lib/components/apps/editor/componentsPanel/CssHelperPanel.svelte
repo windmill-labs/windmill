@@ -168,7 +168,7 @@
 												</Cell>
 												<Cell>
 													{#if comment}
-														{comment}
+														<div class="w-80 whitespace-pre-wrap">{comment}</div>
 													{/if}
 												</Cell>
 												<Cell sticky>
