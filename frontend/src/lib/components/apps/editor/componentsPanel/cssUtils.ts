@@ -127,6 +127,7 @@ interface Customisation {
 	variables: Variable[]
 	link?: string | undefined
 	variablesTooltip?: string
+	root?: string
 }
 
 export const customisationByComponent: Customisation[] = [
@@ -307,6 +308,7 @@ export const customisationByComponent: Customisation[] = [
 			},
 			{ variable: '--range-float-text', value: 'white', comment: 'text color on floating label' }
 		],
+		root: '.rangeSlider',
 		link: 'https://simeydotme.github.io/svelte-range-slider-pips/#styling'
 	},
 	{
@@ -379,6 +381,32 @@ export const customisationByComponent: Customisation[] = [
 			{ selector: '.wm-table-row', comment: 'Table row' }
 		],
 		variables: []
+	},
+	{
+		components: ['aggridcomponent', 'aggridcomponentee'],
+		selectors: [
+			{ selector: '.wm-aggrid-container', comment: 'Ag grid container', customCssKey: 'container' }
+		],
+		variables: [
+			{
+				variable: '--ag-alpine-active-color',
+				value: '#4a40d4',
+				comment:
+					'Accent colour used for checked checkboxes, range selections, row hover, row selections, selected tab underlines, and input focus outlines in the Alpine theme'
+			},
+			{
+				variable: '--ag-foreground-color',
+				value: '#ffffff',
+				comment: 'Colour of text and icons in primary UI elements like menus'
+			},
+			{
+				variable: '--ag-background-color',
+				value: '#1e1f20',
+				comment: 'Background colour of the grid'
+			}
+		],
+		link: 'https://www.ag-grid.com/react-data-grid/global-style-customisation-variables/',
+		root: '.ag-theme-alpine'
 	},
 	{
 		components: ['steppercomponent'],
@@ -775,7 +803,8 @@ export const customisationByComponent: Customisation[] = [
 				value: '#b8b8b8',
 				comment: 'Text color of disabled option in the dropdown list.'
 			}
-		]
+		],
+		root: '.multiselect'
 	}
 ]
 
