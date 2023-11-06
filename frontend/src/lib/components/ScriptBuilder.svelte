@@ -222,13 +222,17 @@
 	}
 
 	async function saveDraft(): Promise<void> {
+		if (initialPath != '' && !savedScript) {
+			return
+		}
 		if (savedScript) {
-			const draftOrDeployed = cleanValueProperties(savedScript['draft'] || savedScript)
+			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
 			const current = cleanValueProperties(script)
 			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				return
 			}
 		}
+
 		loadingDraft = true
 		try {
 			localStorage.removeItem(script.path)
@@ -274,10 +278,10 @@
 				}
 			})
 
-			savedScript = await ScriptService.getScriptByPathWithDraft({
-				workspace: $workspaceStore!,
-				path: script.path
-			})
+			savedScript = {
+				...(initialPath == '' ? { ...cloneDeep(script), draft_only: true } : savedScript),
+				draft: cloneDeep(script)
+			} as NewScriptWithDraft
 
 			if (initialPath == '') {
 				goto(`/scripts/edit/${script.path}`)
@@ -854,6 +858,7 @@
 						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveDraft()}
+						disabled={initialPath != '' && !savedScript}
 					>
 						<span class="hidden sm:flex">
 							Save draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
