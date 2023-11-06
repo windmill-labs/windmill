@@ -7452,7 +7452,8 @@ components:
         kind:
           type: string
           enum: [code, identity, http]
-
+        dedicated_worker:
+          type: boolean
       required:
         - args
 

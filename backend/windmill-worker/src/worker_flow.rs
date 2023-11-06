@@ -1426,7 +1426,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 match json_value {
                     Ok(serde_json::Value::Number(n)) => {
                         if !n.is_u64() {
-                            return Err(Error::ExecutionErr(format!("Expected an integer, found: {n}")));
+                            return Err(Error::ExecutionErr(format!(
+                                "Expected an integer, found: {n}"
+                            )));
                         }
 
                         n.as_u64().map(|x| from_now(Duration::from_secs(x)))
@@ -2554,6 +2556,7 @@ fn raw_script_to_payload(
             concurrent_limit: *concurrent_limit,
             concurrency_time_window_s: *concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
+            dedicated_worker: None,
         }),
         tag: tag.clone(),
     }
