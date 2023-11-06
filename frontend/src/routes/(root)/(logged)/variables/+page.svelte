@@ -3,34 +3,27 @@
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Row from '$lib/components/table/Row.svelte'
 	import TableSimple from '$lib/components/TableSimple.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import VariableMenu from '$lib/components/variables/VariableMenu.svelte'
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
 	import { OauthService, VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
-	import {
-		faChain,
-		faCircle,
-		faEdit,
-		faEyeSlash,
-		faFileExport,
-		faPlus,
-		faRefresh,
-		faShare,
-		faTrash
-	} from '@fortawesome/free-solid-svg-icons'
-	import { Building, DollarSign } from 'lucide-svelte'
+	import { faCircle, faEyeSlash, faPlus, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { Building, DollarSign, FileUp, Link, Pen, RefreshCw, Share, Trash } from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
@@ -140,12 +133,13 @@
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
 				<DollarSign size={18} />
-				Contextual <Tooltip
+				Contextual
+				<Tooltip
 					documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
 				>
 					Contextual variables are passed as environment variables when running a script and depends
-					on the execution context.</Tooltip
-				>
+					on the execution context.
+				</Tooltip>
 			</div>
 		</Tab>
 	</Tabs>
@@ -153,8 +147,9 @@
 		<div class="pt-2">
 			<input placeholder="Search Variable" bind:value={filter} class="input mt-1" />
 		</div>
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-
+		<div class="min-h-[56px]">
+			<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		</div>
 		<div class="relative overflow-x-auto pb-40 pr-4">
 			{#if !filteredItems}
 				<Skeleton layout={[0.5, [2], 1]} />
@@ -162,32 +157,38 @@
 					<Skeleton layout={[[3.5], 0.5]} />
 				{/each}
 			{:else}
-				<TableCustom>
-					<tr slot="header-row">
-						<th class="!px-0" />
-						<th>Path</th>
-						<th>Value</th>
-						<th>Description</th>
-						<th />
-						<th />
-					</tr>
-					<tbody slot="body">
+				<DataTable>
+					<Head>
+						<tr>
+							<Cell head first class="!px-0" />
+							<Cell head>Path</Cell>
+							<Cell head>Value</Cell>
+							<Cell head>Description</Cell>
+							<Cell head />
+							<Cell head last />
+						</tr>
+					</Head>
+					<tbody class="divide-y">
 						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
-							<tr>
-								<td class="!px-0 text-center">
+							<Row>
+								<Cell class="!px-0 text-center w-12" first>
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-								</td>
-								<td>
+								</Cell>
+								<Cell>
 									<a
 										class="break-all"
 										id="edit-{path}"
 										on:click={() => variableEditor.editVariable(path)}
 										href="#{path}"
 									>
-										{#if marked}{@html marked}{:else}{path}{/if}
+										{#if marked}
+											{@html marked}
+										{:else}
+											{path}
+										{/if}
 									</a>
-								</td>
-								<td>
+								</Cell>
+								<Cell>
 									<span class="inline-flex flex-row">
 										<span class="text-sm break-words">
 											{truncate(value ?? '****', 20)}
@@ -204,17 +205,17 @@
 											</Popover>
 										{/if}
 									</span>
-								</td>
-								<td class="break-words"
-									><span class="text-xs text-tertiary">{truncate(description ?? '', 50)}</span></td
-								>
+								</Cell>
+								<Cell class="break-words">
+									<span class="text-xs text-tertiary">{truncate(description ?? '', 50)} </span>
+								</Cell>
 
-								<td class="text-center">
+								<Cell class="text-center">
 									<div class="flex flex-row">
 										<div class="w-10">
 											{#if is_linked}
 												<Popover notClickable>
-													<Icon data={faChain} />
+													<Link size={16} />
 													<div slot="text">
 														This variable is linked with a resource of the same path. They are
 														deleted and renamed together.
@@ -286,25 +287,24 @@
 											</div>
 										{/if}
 									</div>
-								</td>
-								<td>
-									<Dropdown
-										placement="bottom-end"
-										dropdownItems={() => {
+								</Cell>
+								<Cell last shouldStopPropagation>
+									<VariableMenu
+										items={() => {
 											let owner = isOwner(path, $userStore, $workspaceStore)
 											return [
 												{
 													displayName: 'Edit',
-													icon: faEdit,
-													action: () => variableEditor.editVariable(path),
+													icon: Pen,
+													onClick: () => variableEditor.editVariable(path),
 													disabled: !canWrite
 												},
 												{
 													displayName: 'Delete',
-													icon: faTrash,
+													icon: Trash,
 													type: 'delete',
-													action: (event) => {
-														if (event?.shiftKey) {
+													onClick: (event) => {
+														if (event['shiftKey']) {
 															deleteVariable(path, account)
 														} else {
 															deleteConfirmedCallback = () => {
@@ -316,24 +316,24 @@
 												},
 												{
 													displayName: 'Deploy to prod/staging',
-													icon: faFileExport,
-													action: () => {
+													icon: FileUp,
+													onClick: () => {
 														deploymentDrawer.openDrawer(path, 'variable')
 													}
 												},
 												{
 													displayName: owner ? 'Share' : 'See Permissions',
-													action: () => {
+													onClick: () => {
 														shareModal.openDrawer(path, 'variable')
 													},
-													icon: faShare
+													icon: Share
 												},
 												...(account != undefined
 													? [
 															{
 																displayName: 'Refresh token',
-																icon: faRefresh,
-																action: async () => {
+																icon: RefreshCw,
+																onClick: async () => {
 																	await OauthService.refreshToken({
 																		workspace: $workspaceStore ?? '',
 																		id: account ?? 0,
@@ -350,11 +350,11 @@
 											]
 										}}
 									/>
-								</td>
-							</tr>
+								</Cell>
+							</Row>
 						{/each}
 					</tbody>
-				</TableCustom>
+				</DataTable>
 			{/if}
 		</div>
 	{:else if tab == 'contextual'}
