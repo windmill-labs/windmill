@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
-	import Menu from '../common/menu/MenuV2.svelte'
+	import Menu from './common/menu/MenuV2.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { twMerge } from 'tailwind-merge'
 
 	type Item = {
 		displayName: string
-		onClick?: (e: CustomEvent<any>) => void
+		action?: (e: CustomEvent<any>) => void
 		icon: any
 		href?: string
 		disabled?: boolean
@@ -32,7 +32,7 @@
 	<div class="flex flex-col">
 		{#each computeItems() ?? [] as item}
 			<MenuItem
-				on:click={(e) => item?.onClick?.(e)}
+				on:click={(e) => item?.action?.(e)}
 				href={item?.href}
 				disabled={item?.disabled}
 				class={twMerge(

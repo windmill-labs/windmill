@@ -3,6 +3,7 @@
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -16,7 +17,6 @@
 	import TableSimple from '$lib/components/TableSimple.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import VariableMenu from '$lib/components/variables/VariableMenu.svelte'
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
 	import { OauthService, VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -289,21 +289,21 @@
 									</div>
 								</Cell>
 								<Cell last shouldStopPropagation>
-									<VariableMenu
+									<Dropdown
 										items={() => {
 											let owner = isOwner(path, $userStore, $workspaceStore)
 											return [
 												{
 													displayName: 'Edit',
 													icon: Pen,
-													onClick: () => variableEditor.editVariable(path),
+													action: () => variableEditor.editVariable(path),
 													disabled: !canWrite
 												},
 												{
 													displayName: 'Delete',
 													icon: Trash,
 													type: 'delete',
-													onClick: (event) => {
+													action: (event) => {
 														if (event['shiftKey']) {
 															deleteVariable(path, account)
 														} else {
@@ -317,13 +317,13 @@
 												{
 													displayName: 'Deploy to prod/staging',
 													icon: FileUp,
-													onClick: () => {
+													action: () => {
 														deploymentDrawer.openDrawer(path, 'variable')
 													}
 												},
 												{
 													displayName: owner ? 'Share' : 'See Permissions',
-													onClick: () => {
+													action: () => {
 														shareModal.openDrawer(path, 'variable')
 													},
 													icon: Share
@@ -333,7 +333,7 @@
 															{
 																displayName: 'Refresh token',
 																icon: RefreshCw,
-																onClick: async () => {
+																action: async () => {
 																	await OauthService.refreshToken({
 																		workspace: $workspaceStore ?? '',
 																		id: account ?? 0,
