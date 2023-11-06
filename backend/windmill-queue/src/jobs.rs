@@ -107,6 +107,12 @@ const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 
+#[derive(Clone, Debug)]
+pub struct CanceledBy {
+    pub username: Option<String>,
+    pub reason: Option<String>,
+}
+
 #[async_recursion]
 pub async fn cancel_job<'c: 'async_recursion>(
     username: &str,
@@ -130,14 +136,14 @@ pub async fn cancel_job<'c: 'async_recursion>(
         && !force_cancel
     {
         let id = sqlx::query_scalar!(
-        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
-        username,
-        reason,
-        id,
-        w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
+            username,
+            reason,
+            id,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
         if let Some(id) = id {
             tracing::info!("Soft cancelling job {}", id);
         }
@@ -151,6 +157,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             &job_running,
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             job_running.mem_peak.unwrap_or(0),
+            Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
             e,
             rsmq.clone(),
             "server",
@@ -238,6 +245,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     queued_job: &QueuedJob,
     logs: String,
     mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
     e: serde_json::Value,
     rsmq: Option<R>,
     worker_name: &str,
@@ -274,6 +282,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         Json(&result),
         logs,
         mem_peak,
+        canceled_by,
         rsmq,
     )
     .await?;
@@ -314,6 +323,7 @@ pub async fn add_completed_job<
     result: Json<&T>,
     logs: String,
     mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
@@ -402,9 +412,9 @@ pub async fn add_completed_job<
         logs,
         queued_job.raw_code,
         queued_job.raw_lock,
-        queued_job.canceled,
-        queued_job.canceled_by,
-        queued_job.canceled_reason,
+        canceled_by.is_some(),
+        canceled_by.clone().map(|cb| cb.username).flatten(),
+        canceled_by.clone().map(|cb| cb.reason).flatten(),
         queued_job.job_kind.clone() as JobKind,
         queued_job.schedule_path,
         queued_job.permissioned_as,
@@ -505,6 +515,7 @@ pub async fn add_completed_job<
         && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
         && queued_job.parent_job.is_none()
         && !success
+        && canceled_by.is_none()
     {
         if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, result).await {
             tracing::error!(

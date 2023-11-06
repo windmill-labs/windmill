@@ -5,6 +5,7 @@ use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
 use uuid::Uuid;
+use windmill_queue::CanceledBy;
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -53,6 +54,7 @@ lazy_static::lazy_static! {
 pub async fn gen_lockfile(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -100,6 +102,7 @@ pub async fn gen_lockfile(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child_process,
         false,
         worker_name,
@@ -144,6 +147,7 @@ pub async fn gen_lockfile(
     install_lockfile(
         logs,
         mem_peak,
+        canceled_by,
         job_id,
         w_id,
         db,
@@ -180,6 +184,7 @@ pub async fn gen_lockfile(
 pub async fn install_lockfile(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -202,6 +207,7 @@ pub async fn install_lockfile(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child_process,
         false,
         worker_name,
@@ -236,6 +242,7 @@ pub async fn handle_bun_job(
     requirements_o: Option<String>,
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -279,6 +286,7 @@ pub async fn handle_bun_job(
             install_lockfile(
                 logs,
                 mem_peak,
+                canceled_by,
                 &job.id,
                 &job.workspace_id,
                 db,
@@ -302,6 +310,7 @@ pub async fn handle_bun_job(
             let _ = gen_lockfile(
                 logs,
                 mem_peak,
+                canceled_by,
                 &job.id,
                 &job.workspace_id,
                 db,
@@ -489,6 +498,7 @@ plugin(p)
         db,
         logs,
         mem_peak,
+        canceled_by,
         child,
         false,
         worker_name,
@@ -549,6 +559,7 @@ pub async fn start_worker(
 ) -> Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
+    let mut canceled_by: Option<CanceledBy> = None;
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
@@ -595,6 +606,7 @@ pub async fn start_worker(
             install_lockfile(
                 &mut logs,
                 &mut mem_peak,
+                &mut canceled_by,
                 &Uuid::nil(),
                 &w_id,
                 db,
@@ -614,6 +626,7 @@ pub async fn start_worker(
         let _ = gen_lockfile(
             &mut logs,
             &mut mem_peak,
+            &mut canceled_by,
             &Uuid::nil(),
             &w_id,
             db,
