@@ -109,14 +109,22 @@
 	let loadingSave = false
 	let loadingDraft = false
 
-	async function saveDraft(): Promise<void> {
+	async function saveDraft(forceSave = false): Promise<void> {
 		if (!newFlow && !savedFlow) {
 			return
 		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
 			const current = cleanValueProperties($flowStore)
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				sendUserToast('No changes detected, ignoring', false, [
+					{
+						label: 'Save anyway',
+						callback: () => {
+							saveDraft(true)
+						}
+					}
+				])
 				return
 			}
 		}

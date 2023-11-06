@@ -221,14 +221,22 @@
 		loadingSave = false
 	}
 
-	async function saveDraft(): Promise<void> {
+	async function saveDraft(forceSave = false): Promise<void> {
 		if (initialPath != '' && !savedScript) {
 			return
 		}
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
 			const current = cleanValueProperties(script)
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				sendUserToast('No changes detected, ignoring', false, [
+					{
+						label: 'Save anyway',
+						callback: () => {
+							saveDraft(true)
+						}
+					}
+				])
 				return
 			}
 		}
