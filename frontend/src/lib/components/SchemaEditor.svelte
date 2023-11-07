@@ -138,7 +138,6 @@
 		syncOrders()
 		schemaString = JSON.stringify(schema, null, '\t')
 		jsonEditor?.setCode(schemaString)
-		sendUserToast('FOO')
 		dispatch('change', schema)
 	}
 
