@@ -96,6 +96,8 @@
 		connectWs()
 	}
 
+	let lockChanges = false
+	let timeout: NodeJS.Timeout | undefined = undefined
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
 		if (event.data.type == 'runTest') {
@@ -105,9 +107,14 @@
 			replaceScript(event.data)
 		} else if (event.data.type == 'replaceFlow') {
 			mode = 'flow'
+			lockChanges = true
 			replaceFlow(event.data)
+			timeout && clearTimeout(timeout)
+			timeout = setTimeout(() => {
+				lockChanges = false
+			}, 500)
 		} else if (event.data.type == 'error') {
-			sendUserToast(event.data.error, true)
+			sendUserToast(event.data.error.message, true)
 		}
 	}
 
@@ -124,6 +131,11 @@
 				metaKey: e.metaKey,
 				repeat: e.repeat,
 				shiftKey: e.shiftKey
+			}
+
+			if (obj.ctrlKey && obj.key == 'a') {
+				e.stopPropagation()
+				return
 			}
 			window.parent?.postMessage({ type: 'keydown', key: JSON.stringify(obj) }, '*')
 		})
@@ -165,17 +177,21 @@
 	}
 
 	function runTest() {
-		if (!currentScript) {
-			return
+		if (mode == 'script') {
+			if (!currentScript) {
+				return
+			}
+			//@ts-ignore
+			testJobLoader.runPreview(
+				currentScript.path,
+				currentScript.content,
+				currentScript.language,
+				args,
+				undefined
+			)
+		} else {
+			flowPreviewButtons?.openPreview()
 		}
-		//@ts-ignore
-		testJobLoader.runPreview(
-			currentScript.path,
-			currentScript.content,
-			currentScript.language,
-			args,
-			undefined
-		)
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -276,14 +292,16 @@
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateCode(flow: OpenFlow) {
-		sendUserToast('FOO')
-
+		if (lockChanges) {
+			return
+		}
 		if (!deepEqual(flow, lastSent)) {
-			sendUserToast('BAR')
 			lastSent = JSON.parse(JSON.stringify(flow))
 			window?.parent.postMessage({ type: 'flow', flow, uriPath: lastUriPath }, '*')
 		}
 	}
+
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -371,14 +389,6 @@
 	{:else}
 		<!-- <div class="h-full w-full grid grid-cols-2"> -->
 		<div class="h-full w-full">
-			<!-- <SimpleEditor
-				bind:this={editor}
-				code={initialCode}
-				lang="json"
-				on:change={(e) => {
-					updateFromCode(e.detail.code)
-				}}
-			/> -->
 			<div class="flex flex-col max-h-screen h-full relative">
 				<div class="absolute top-0 left-2">
 					<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
@@ -390,7 +400,7 @@
 				</div>
 
 				<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-					<FlowPreviewButtons />
+					<FlowPreviewButtons bind:this={flowPreviewButtons} />
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
