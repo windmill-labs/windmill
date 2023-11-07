@@ -127,6 +127,7 @@
 			}
 			window.parent?.postMessage({ type: 'keydown', key: JSON.stringify(obj) }, '*')
 		})
+		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
 	onDestroy(() => {
