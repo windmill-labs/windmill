@@ -57,7 +57,7 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 
-<Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:clickAway={removeHash}>
+<Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:close={removeHash}>
 	<DrawerContent overflow_y={true} title="Instance Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
