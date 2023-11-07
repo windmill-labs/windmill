@@ -135,17 +135,35 @@
 		</div>
 	{:else if resolvedConfig.tabsKind == 'sidebar'}
 		<div
-			class="flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400"
+			class={twMerge(
+				'flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400',
+				css?.tabRow?.class,
+				'wm-tabs-tabRow'
+			)}
+			style={css?.tabRow?.style}
 		>
 			{#each tabs ?? [] as res}
 				<button
-					class="rounded-sm !truncate text-sm hover:bg-gray-100 hover:border-gray-300 border border-transparent hover:text-black px-1 py-2 {selected ==
-					res
-						? 'outline outline-gray-500 outline-1 bg-surface text-black'
-						: ''}"
 					on:pointerdown|stopPropagation
-					on:click={() => (selected = res)}>{res}</button
+					on:click={() => (selected = res)}
+					class={twMerge(
+						'rounded-sm !truncate text-sm hover:bg-gray-100 hover:border-gray-300 border border-transparent hover:text-black px-1 py-2',
+						css?.allTabs?.class,
+						'wm-tabs-alltabs',
+						selected == res
+							? twMerge(
+									'outline outline-gray-500 outline-1 bg-surface text-black',
+									css?.selectedTab?.class,
+									'wm-tabs-selectedTab'
+							  )
+							: ''
+					)}
+					style={selected == res
+						? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
+						: css?.allTabs?.style}
 				>
+					{res}
+				</button>
 			{/each}
 		</div>
 	{/if}
