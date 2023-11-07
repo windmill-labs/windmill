@@ -230,21 +230,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81953c529336010edd6d8e358f886d9581267795c61b19475b71314bffa46d35"
 dependencies = [
  "concurrent-queue",
- "event-listener 2.5.3",
+ "event-listener",
  "futures-core",
-]
-
-[[package]]
-name = "async-channel"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d37875bd9915b7d67c2f117ea2c30a0989874d0b2cb694fe25403c85763c0c9e"
-dependencies = [
- "concurrent-queue",
- "event-listener 3.0.1",
- "event-listener-strategy",
- "futures-core",
- "pin-project-lite",
 ]
 
 [[package]]
@@ -284,11 +271,11 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b0c4a4f319e45986f347ee47fef8bf5e81c9abc3f6f58dc2391439f30df65f0"
 dependencies = [
- "async-lock 2.8.0",
+ "async-lock",
  "async-task",
  "concurrent-queue",
  "fastrand 2.0.1",
- "futures-lite 1.13.0",
+ "futures-lite",
  "slab",
 ]
 
@@ -298,12 +285,12 @@ version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1b6f5d7df27bd294849f8eec66ecfc63d11814df7a4f5d74168a2394467b776"
 dependencies = [
- "async-channel 1.9.0",
+ "async-channel",
  "async-executor",
  "async-io",
- "async-lock 2.8.0",
+ "async-lock",
  "blocking",
- "futures-lite 1.13.0",
+ "futures-lite",
  "once_cell",
 ]
 
@@ -313,11 +300,11 @@ version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fc5b45d93ef0529756f812ca52e44c221b35341892d3dcc34132ac02f3dd2af"
 dependencies = [
- "async-lock 2.8.0",
+ "async-lock",
  "autocfg",
  "cfg-if",
  "concurrent-queue",
- "futures-lite 1.13.0",
+ "futures-lite",
  "log",
  "parking",
  "polling",
@@ -333,18 +320,7 @@ version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "287272293e9d8c41773cec55e365490fe034813a2f172f502d6ddcf75b2f582b"
 dependencies = [
- "event-listener 2.5.3",
-]
-
-[[package]]
-name = "async-lock"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45e900cdcd39bb94a14487d3f7ef92ca222162e6c7c3fe7cb3550ea75fb486ed"
-dependencies = [
- "event-listener 3.0.1",
- "event-listener-strategy",
- "pin-project-lite",
+ "event-listener",
 ]
 
 [[package]]
@@ -383,15 +359,15 @@ version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62565bb4402e926b29953c785397c6dc0391b7b446e45008b0049eb43cec6f5d"
 dependencies = [
- "async-channel 1.9.0",
+ "async-channel",
  "async-global-executor",
  "async-io",
- "async-lock 2.8.0",
+ "async-lock",
  "crossbeam-utils",
  "futures-channel",
  "futures-core",
  "futures-io",
- "futures-lite 1.13.0",
+ "futures-lite",
  "gloo-timers",
  "kv-log-macro",
  "log",
@@ -758,16 +734,16 @@ checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
 
 [[package]]
 name = "blocking"
-version = "1.5.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "864b30e660d766b7e9b47347d9b6558a17f1cfa22274034fa6f55b274b3e4620"
+checksum = "8c36a4d0d48574b3dd360b4b7d95cc651d2b6557b6402848a27d4b228a473e2a"
 dependencies = [
- "async-channel 2.1.0",
- "async-lock 3.0.0",
+ "async-channel",
+ "async-lock",
  "async-task",
  "fastrand 2.0.1",
  "futures-io",
- "futures-lite 2.0.1",
+ "futures-lite",
  "piper",
  "tracing",
 ]
@@ -2087,9 +2063,9 @@ checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
 name = "errno"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3e13f66a2f95e32a39eaa81f6b95d42878ca0e1db0c7543723dfe12557e860"
+checksum = "7c18ee0ed65a5f1f81cac6b1d213b69c35fa47d4252ad41f1486dbd8226fe36e"
 dependencies = [
  "libc",
  "windows-sys 0.48.0",
@@ -2120,27 +2096,6 @@ name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
-
-[[package]]
-name = "event-listener"
-version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01cec0252c2afff729ee6f00e903d479fba81784c8e2bd77447673471fdfaea1"
-dependencies = [
- "concurrent-queue",
- "parking",
- "pin-project-lite",
-]
-
-[[package]]
-name = "event-listener-strategy"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d96b852f1345da36d551b9473fa1e2b1eb5c5195585c6c018118bc92a8d91160"
-dependencies = [
- "event-listener 3.0.1",
- "pin-project-lite",
-]
 
 [[package]]
 name = "fallible-iterator"
@@ -2397,16 +2352,6 @@ dependencies = [
  "parking",
  "pin-project-lite",
  "waker-fn",
-]
-
-[[package]]
-name = "futures-lite"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3831c2651acb5177cbd83943f3d9c8912c5ad03c76afcc0e9511ba568ec5ebb"
-dependencies = [
- "futures-core",
- "pin-project-lite",
 ]
 
 [[package]]
@@ -2792,9 +2737,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e9b187a72d63adbfba487f48095306ac823049cb504ee195541e91c7775f5ad"
 dependencies = [
  "anyhow",
- "async-channel 1.9.0",
+ "async-channel",
  "base64 0.13.1",
- "futures-lite 1.13.0",
+ "futures-lite",
  "http",
  "infer",
  "pin-project-lite",
@@ -5248,7 +5193,7 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror",
- "toml 0.8.6",
+ "toml 0.8.8",
  "toolchain_find",
 ]
 
@@ -5573,9 +5518,9 @@ checksum = "a3f0bf26fd526d2a95683cd0f87bf103b8539e2ca1ef48ce002d67aad59aa0b4"
 
 [[package]]
 name = "serde"
-version = "1.0.190"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91d3c334ca1ee894a2c6f6ad698fe8c435b76d504b13d436f0685d648d6d96f7"
+checksum = "bca2a08484b285dcb282d0f67b26cadc0df8b19f8c12502c13d966bf9482f001"
 dependencies = [
  "serde_derive",
 ]
@@ -5613,9 +5558,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.190"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67c5609f394e5c2bd7fc51efda478004ea80ef42fee983d5c67a65e34f32c0e3"
+checksum = "d6c7207fbec9faa48073f3e3074cbe553af6ea512d7c21ba46e434e70ea9fbc1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6061,7 +6006,7 @@ dependencies = [
  "dirs 4.0.0",
  "dotenvy",
  "either",
- "event-listener 2.5.3",
+ "event-listener",
  "futures-channel",
  "futures-core",
  "futures-intrusive 0.4.2",
@@ -6113,7 +6058,7 @@ dependencies = [
  "crossbeam-queue",
  "dotenvy",
  "either",
- "event-listener 2.5.3",
+ "event-listener",
  "futures-channel",
  "futures-core",
  "futures-intrusive 0.5.0",
@@ -7206,14 +7151,14 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.6"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ff9e3abce27ee2c9a37f9ad37238c1bdd4e789c84ba37df76aa4d528f5072cc"
+checksum = "a1a195ec8c9da26928f773888e0742ca3ca1040c6cd859c919c9f59c1954ab35"
 dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.20.7",
+ "toml_edit 0.21.0",
 ]
 
 [[package]]
@@ -7240,9 +7185,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.20.7"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70f427fce4d84c72b5b732388bf4a9f4531b53f74e2887e3ecb2481f68f66d81"
+checksum = "d34d383cd00a163b4a5b85053df514d45bc330f6de7737edfe0a93311d1eaa03"
 dependencies = [
  "indexmap 2.1.0",
  "serde",
@@ -8061,7 +8006,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -8096,7 +8041,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -8163,7 +8108,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -8181,7 +8126,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "chrono",
  "serde",
@@ -8194,7 +8139,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -8225,7 +8170,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -8233,7 +8178,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -8244,7 +8189,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -8256,7 +8201,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -8267,7 +8212,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -8278,7 +8223,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -8295,7 +8240,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -8306,7 +8251,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -8323,7 +8268,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -8341,7 +8286,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -8372,7 +8317,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.201.0"
+version = "1.202.0"
 dependencies = [
  "anyhow",
  "async-recursion",

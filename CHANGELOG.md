@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.202.0](https://github.com/windmill-labs/windmill/compare/v1.201.0...v1.202.0) (2023-11-07)
+
+
+### Features
+
+* add diffs when editing workspace script inside a flow ([#2581](https://github.com/windmill-labs/windmill/issues/2581)) ([e84e38d](https://github.com/windmill-labs/windmill/commit/e84e38d3bd4e3cb95fc71f91b3bd133740d82b05))
+* Add override all schedule handlers button ([#2579](https://github.com/windmill-labs/windmill/issues/2579)) ([f2bff84](https://github.com/windmill-labs/windmill/commit/f2bff8450223d29d3de8edd2e60d483f6ced5caa))
+* add support for flows in vscode extension ([#2585](https://github.com/windmill-labs/windmill/issues/2585)) ([8a7fe93](https://github.com/windmill-labs/windmill/commit/8a7fe93559209e7aa5427f5b6a8b9e03df9da406))
+* **frontend:** Rework variable table ([#2576](https://github.com/windmill-labs/windmill/issues/2576)) ([b040a89](https://github.com/windmill-labs/windmill/commit/b040a89b27f6dca41049e4bceeae4e3665c005ae))
+
+
+### Bug Fixes
+
+* add tag support for CLI ([0ede0f4](https://github.com/windmill-labs/windmill/commit/0ede0f4c972eb1b65dcb542ea6facf5ee2c74cfd))
+* add tag sync for cli ([6c12c6e](https://github.com/windmill-labs/windmill/commit/6c12c6e7846c8be3f843ca7a98b8bac6fac1d7e8))
+* **frontend:** add missing classes when tabs are in sidebar mode ([#2577](https://github.com/windmill-labs/windmill/issues/2577)) ([dd3594c](https://github.com/windmill-labs/windmill/commit/dd3594c5e5624b712564126f046fde4fc06c42ca))
+* **frontend:** escape wasn't removing the hash when closing a drawer ([#2583](https://github.com/windmill-labs/windmill/issues/2583)) ([0951431](https://github.com/windmill-labs/windmill/commit/0951431e419c127cc562158447012960feb6d3af))
+* handle graphql invalid response ([#2582](https://github.com/windmill-labs/windmill/issues/2582)) ([12e731b](https://github.com/windmill-labs/windmill/commit/12e731b5c03fa788c9f0d00a955b7b01b4c570a0))
+
 ## [1.201.0](https://github.com/windmill-labs/windmill/compare/v1.200.0...v1.201.0) (2023-11-06)
 
 
