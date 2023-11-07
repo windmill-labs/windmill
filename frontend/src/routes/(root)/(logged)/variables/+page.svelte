@@ -22,7 +22,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
-	import { faCircle, faEyeSlash, faPlus, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { faCircle, faEyeSlash, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Building, DollarSign, FileUp, Link, Pen, RefreshCw, Share, Trash } from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 
@@ -218,37 +218,33 @@
 								</Cell>
 
 								<Cell class="text-center">
-									<div class="flex flex-row">
-										<div class="w-10">
-											{#if is_linked}
-												<Popover notClickable>
-													<Link size={16} />
-													<div slot="text">
-														This variable is linked with a resource of the same path. They are
-														deleted and renamed together.
-													</div>
-												</Popover>
-											{/if}
-										</div>
-										<div class="w-10">
-											{#if account}
-												<Popover notClickable>
-													<Icon data={faRefresh} />
-													<div slot="text">
-														This OAuth token will be kept up-to-date in the background by Windmill
-														using its refresh token
-													</div>
-												</Popover>
-											{/if}
-										</div>
+									<div class="flex flex-row items-center gap-4">
+										{#if is_linked}
+											<Popover notClickable>
+												<Link size={16} />
+												<div slot="text">
+													This variable is linked with a resource of the same path. They are deleted
+													and renamed together.
+												</div>
+											</Popover>
+										{/if}
+										{#if account}
+											<Popover notClickable>
+												<RefreshCw size={16} />
+												<div slot="text">
+													This OAuth token will be kept up-to-date in the background by Windmill
+													using its refresh token
+												</div>
+											</Popover>
+										{/if}
 
 										{#if is_refreshed}
-											<div class="w-10">
+											<div class="">
 												{#if refresh_error}
 													<Popover notClickable>
-														<span class="flex h-4 w-4">
+														<div class="relative inline-flex justify-center items-center w-4 h-4">
 															<Icon
-																class="text-red-600 animate-ping absolute inline-flex "
+																class="text-red-600 animate-ping absolute z-50 w-4 h-4"
 																data={faCircle}
 																scale={0.7}
 																label="Error during exchange of the refresh token"
@@ -259,7 +255,8 @@
 																scale={0.7}
 																label="Error during exchange of the refresh token"
 															/>
-														</span>
+														</div>
+
 														<div slot="text">
 															Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 														</div>
