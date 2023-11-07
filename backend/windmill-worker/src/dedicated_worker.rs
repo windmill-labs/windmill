@@ -8,7 +8,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
 };
-use windmill_common::{error, jobs::QueuedJob, variables};
+use windmill_common::{error, jobs::QueuedJob, variables, worker::to_raw_value};
 
 use std::{collections::VecDeque, process::Stdio, sync::Arc};
 
@@ -82,7 +82,14 @@ pub async fn handle_dedicated_process(
         .take()
         .expect("child did not have a handle to stdout");
 
+    let stderr = child
+        .stderr
+        .take()
+        .expect("child did not have a handle to stderr");
+
     let mut reader = BufReader::new(stdout).lines();
+
+    let mut err_reader = BufReader::new(stderr).lines();
 
     let mut stdin = child
         .stdin
@@ -115,6 +122,14 @@ pub async fn handle_dedicated_process(
                     tracing::info!("Could not write end message to stdin: {e:?}")
                 }
             },
+            line = err_reader.next_line() => {
+                if let Some(line) = line.expect("line is ok") {
+                    tracing::error!("dedicated worker process stderr: {:?}", line);
+                } else {
+                    tracing::info!("dedicated worker process exited");
+                    break;
+                }
+            },
             line = reader.next_line() => {
                 // j += 1;
 
@@ -123,11 +138,16 @@ pub async fn handle_dedicated_process(
                         tracing::info!("dedicated worker process started");
                         continue;
                     }
-                    tracing::debug!("processed job");
+                    tracing::debug!("processed job: {line}");
 
-                    let result = serde_json::from_str(&line).expect("json is ok");
                     let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
-                    job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                    match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line) {
+                        Ok(result) => job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap(),
+                        Err(e) => {
+                            tracing::error!("Could not deserialize job result `{line}`: {e:?}");
+                            job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                        },
+                    };
                 } else {
                     tracing::info!("dedicated worker process exited");
                     break;

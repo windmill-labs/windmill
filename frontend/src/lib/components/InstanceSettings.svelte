@@ -142,6 +142,11 @@
 	]
 
 	let oauth_name = 'custom'
+
+	async function sendStats() {
+		await SettingService.sendStats()
+		sendUserToast('Usage sent')
+	}
 </script>
 
 <div class="pb-8">
@@ -163,8 +168,23 @@
 						<div class="text-secondary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
-							<ul class="list-disc list-inside pl-2"><li>version</li></ul>
+							<ul class="list-disc list-inside pl-2">
+								<li>version</li>
+								<li>number and total duration of jobs</li>
+								<li>login type usage</li>
+								<li>workers usage</li>
+							</ul>
 						</div>
+						{#if $enterpriseLicense}
+							<Button
+								on:click={sendStats}
+								variant="border"
+								color="light"
+								btnClasses="w-auto"
+								wrapperClasses="mb-4"
+								size="xs">Send usage</Button
+							>
+						{/if}
 					{/if}
 					{#if category == 'SSO/OAuth'}
 						<div>

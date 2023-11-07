@@ -12,6 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     ee::validate_license_key,
     utils::require_super_admin,
+    HTTP_CLIENT,
 };
 
 use axum::{
@@ -24,7 +25,7 @@ use mail_send::{mail_builder::MessageBuilder, SmtpClientBuilder};
 use serde::Deserialize;
 use tokio::time::timeout;
 use windmill_common::{
-    error::{self, to_anyhow, JsonResult},
+    error::{self, to_anyhow, JsonResult, Result},
     global_settings::ENV_SETTINGS,
     server::Smtp,
 };
@@ -38,6 +39,7 @@ pub fn global_service() -> Router {
         )
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
+        .route("/send_stats", post(send_stats))
 }
 
 #[derive(Deserialize)]
@@ -123,25 +125,32 @@ pub async fn set_global_setting(
     Json(value): Json<Value>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed.email).await?;
-    match value.value {
+    set_global_setting_internal(&db, key, value.value).await
+}
+
+pub async fn set_global_setting_internal(
+    db: &DB,
+    key: String,
+    value: serde_json::Value,
+) -> error::Result<()> {
+    match value {
         serde_json::Value::Null => {
-            delete_global_setting(&db, &key).await?;
+            delete_global_setting(db, &key).await?;
         }
         serde_json::Value::String(x) if x.is_empty() => {
-            delete_global_setting(&db, &key).await?;
+            delete_global_setting(db, &key).await?;
         }
         v => {
             sqlx::query!(
-            "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
-            key,
-            v
-        )
-        .execute(&db)
-        .await?;
+                "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+                key,
+                v
+            )
+            .execute(db)
+            .await?;
             tracing::info!("Set global setting {} to {}", key, v);
         }
     };
-
     Ok(())
 }
 
@@ -157,4 +166,11 @@ pub async fn get_global_setting(
         .map(|x| x.value);
 
     Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
+}
+
+pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    windmill_common::stats::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
+
+    Ok("Sent stats".to_string())
 }

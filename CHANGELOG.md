@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.201.0](https://github.com/windmill-labs/windmill/compare/v1.200.0...v1.201.0) (2023-11-06)
+
+
+### Features
+
+* add new stats ([#2568](https://github.com/windmill-labs/windmill/issues/2568)) ([1ed52ab](https://github.com/windmill-labs/windmill/commit/1ed52ab4c96988847c74c0672497dce1dd24ff6d))
+* Add toggle to optionally mute error handler for cancelled jobs ([#2567](https://github.com/windmill-labs/windmill/issues/2567)) ([83f9ef3](https://github.com/windmill-labs/windmill/commit/83f9ef34e6f7bb207f3410cbe2cceca7b52a4dea))
+* **frontend:** Ag grid styling ([#2565](https://github.com/windmill-labs/windmill/issues/2565)) ([97c5fe8](https://github.com/windmill-labs/windmill/commit/97c5fe8985166c9dae063de7e9d122914b190a4e))
+* telemetry disclosure ([#2562](https://github.com/windmill-labs/windmill/issues/2562)) ([1bb8b60](https://github.com/windmill-labs/windmill/commit/1bb8b606ed2e8ade12d5278072cc2b57c8d3ca27))
+
+
+### Bug Fixes
+
+* add no changes popup when saving draft ([#2571](https://github.com/windmill-labs/windmill/issues/2571)) ([d3dbb18](https://github.com/windmill-labs/windmill/commit/d3dbb188156cfd98e6cb1348d40e8854c008559e))
+* apps diffs ([#2570](https://github.com/windmill-labs/windmill/issues/2570)) ([3ed7ae7](https://github.com/windmill-labs/windmill/commit/3ed7ae7ffa28cb8b8c4799034ae8f0c8822fd519))
+* flow diffs ([#2561](https://github.com/windmill-labs/windmill/issues/2561)) ([aa5b71c](https://github.com/windmill-labs/windmill/commit/aa5b71ca05429788078547b3249eb1c3cd375ccc))
+* **frontend:** fix label event issues ([#2574](https://github.com/windmill-labs/windmill/issues/2574)) ([8935d22](https://github.com/windmill-labs/windmill/commit/8935d2272fcd630ccb1ab70ba0fa334934640fcb))
+* improve dedicated workers ([141f45b](https://github.com/windmill-labs/windmill/commit/141f45bf95388c0547e84980096a99607f3dba2f))
+* minor bug fixes ([#2566](https://github.com/windmill-labs/windmill/issues/2566)) ([e195202](https://github.com/windmill-labs/windmill/commit/e19520295f41784aae66df0d686b22fec810d57b))
+
 ## [1.200.0](https://github.com/windmill-labs/windmill/compare/v1.199.0...v1.200.0) (2023-11-04)
 
 

@@ -5,6 +5,7 @@ use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
 use uuid::Uuid;
+use windmill_queue::CanceledBy;
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -53,6 +54,7 @@ lazy_static::lazy_static! {
 pub async fn gen_lockfile(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -100,6 +102,7 @@ pub async fn gen_lockfile(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child_process,
         false,
         worker_name,
@@ -144,6 +147,7 @@ pub async fn gen_lockfile(
     install_lockfile(
         logs,
         mem_peak,
+        canceled_by,
         job_id,
         w_id,
         db,
@@ -180,6 +184,7 @@ pub async fn gen_lockfile(
 pub async fn install_lockfile(
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -202,6 +207,7 @@ pub async fn install_lockfile(
         db,
         logs,
         mem_peak,
+        canceled_by,
         child_process,
         false,
         worker_name,
@@ -236,6 +242,7 @@ pub async fn handle_bun_job(
     requirements_o: Option<String>,
     logs: &mut String,
     mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -279,6 +286,7 @@ pub async fn handle_bun_job(
             install_lockfile(
                 logs,
                 mem_peak,
+                canceled_by,
                 &job.id,
                 &job.workspace_id,
                 db,
@@ -302,6 +310,7 @@ pub async fn handle_bun_job(
             let _ = gen_lockfile(
                 logs,
                 mem_peak,
+                canceled_by,
                 &job.id,
                 &job.workspace_id,
                 db,
@@ -489,6 +498,7 @@ plugin(p)
         db,
         logs,
         mem_peak,
+        canceled_by,
         child,
         false,
         worker_name,
@@ -549,6 +559,7 @@ pub async fn start_worker(
 ) -> Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
+    let mut canceled_by: Option<CanceledBy> = None;
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
@@ -577,34 +588,45 @@ pub async fn start_worker(
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
         let lockb = splitted[1];
         if lockb != EMPTY_FILE {
-            let _ = write_file_binary(
+            let has_trusted_deps = &splitted[0].contains("trustedDependencies");
+
+            if !has_trusted_deps {
+                let _ = write_file_binary(
+                    job_dir,
+                    "bun.lockb",
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(&splitted[1])
+                        .map_err(|_| {
+                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                        })?,
+                )
+                .await?;
+            }
+
+            install_lockfile(
+                &mut logs,
+                &mut mem_peak,
+                &mut canceled_by,
+                &Uuid::nil(),
+                &w_id,
+                db,
                 job_dir,
-                "bun.lockb",
-                &base64::engine::general_purpose::STANDARD
-                    .decode(&splitted[1])
-                    .map_err(|_| {
-                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                    })?,
+                worker_name,
+                common_bun_proc_envs.clone(),
             )
             .await?;
+            if !has_trusted_deps {
+                remove_dir_all(format!("{}/node_modules", job_dir)).await?;
+            }
+            tracing::info!("dedicated worker requirements installed: {reqs}");
         }
-        install_lockfile(
-            &mut logs,
-            &mut mem_peak,
-            &Uuid::nil(),
-            &w_id,
-            db,
-            job_dir,
-            worker_name,
-            common_bun_proc_envs.clone(),
-        )
-        .await?;
     } else if !*DISABLE_NSJAIL {
         let trusted_deps = get_trusted_deps(inner_content);
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
             &mut logs,
             &mut mem_peak,
+            &mut canceled_by,
             &Uuid::nil(),
             &w_id,
             db,

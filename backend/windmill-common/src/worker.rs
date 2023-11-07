@@ -209,10 +209,14 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
         .worker_tags
         .or_else(|| {
             if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
-                Some(vec![format!(
+                let mut dedi_tags = vec![format!(
                     "{}:{}",
                     dedicated_worker.workspace_id, dedicated_worker.path
-                )])
+                )];
+                if std::env::var("ADD_FLOW_TAG").is_ok() {
+                    dedi_tags.push("flow".to_string());
+                }
+                Some(dedi_tags)
             } else {
                 std::env::var("WORKER_TAGS")
                     .ok()
@@ -220,6 +224,7 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
             }
         })
         .unwrap_or_else(|| DEFAULT_TAGS.clone());
+
     let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
     let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);
     if priority_tags_map.len() > 0 {

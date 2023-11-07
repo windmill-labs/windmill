@@ -48,6 +48,7 @@
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
+	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
@@ -166,6 +167,7 @@
 		openaiResourceInitialPath = settings.openai_resource_path
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
+		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -190,7 +192,8 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
-					error_handler_extra_args: errorHandlerExtraArgs
+					error_handler_extra_args: errorHandlerExtraArgs,
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -199,7 +202,8 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					error_handler: undefined,
-					error_handler_extra_args: undefined
+					error_handler_extra_args: undefined,
+					error_handler_muted_on_cancel: undefined
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
@@ -492,7 +496,14 @@
 				</svelte:fragment>
 			</ErrorOrRecoveryHandler>
 
-			<div class="flex mt-5 justify-start">
+			<div class="flex flex-col mt-5 gap-5 items-start">
+				<Toggle
+					disabled={errorHandlerSelected === 'slack' &&
+						!emptyString(errorHandlerScriptPath) &&
+						emptyString(errorHandlerExtraArgs['channel'])}
+					bind:checked={errorHandlerMutedOnCancel}
+					options={{ right: 'Do not run error handler for canceled jobs' }}
+				/>
 				<Button
 					disabled={errorHandlerSelected === 'slack' &&
 						!emptyString(errorHandlerScriptPath) &&

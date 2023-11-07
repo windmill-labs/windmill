@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::ee::LICENSE_KEY_ID;
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
@@ -103,13 +104,7 @@ pub async fn http_get_from_hub(
     query_params: Option<Vec<(&str, String)>>,
     db: &Pool<Postgres>,
 ) -> Result<reqwest::Response> {
-    let uid = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        UNIQUE_ID_SETTING
-    )
-    .fetch_optional(db)
-    .await?
-    .map(|v| serde_json::from_value::<String>(v));
+    let uid = get_uid(db).await;
 
     let mut request = http_client.get(url).header(
         "Accept",
@@ -120,12 +115,10 @@ pub async fn http_get_from_hub(
         },
     );
 
-    if let Some(uid) = uid {
-        if let Ok(uid) = uid {
-            request = request.header("X-uid", uid);
-        } else {
-            tracing::info!("Invalid uid in global settings: {}", uid.err().unwrap())
-        }
+    if let Ok(uid) = uid {
+        request = request.header("X-uid", uid);
+    } else {
+        tracing::info!("No valid uid found: {}", uid.err().unwrap())
     }
 
     if let Some(query_params) = query_params {
@@ -151,4 +144,21 @@ pub fn calculate_hash(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s);
     format!("{:x}", hasher.finalize())
+}
+
+pub async fn get_uid(db: &DB) -> Result<String> {
+    let mut uid = LICENSE_KEY_ID.read().await.clone();
+
+    if uid == "" {
+        let uid_value = sqlx::query_scalar!(
+            "SELECT value FROM global_settings WHERE name = $1",
+            UNIQUE_ID_SETTING
+        )
+        .fetch_one(db)
+        .await?;
+
+        uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
+    }
+
+    Ok(uid)
 }

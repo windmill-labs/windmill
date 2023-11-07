@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.197.1
+  version: 1.201.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -875,6 +875,19 @@ paths:
             'text/plain:':
               schema:
                 type: string
+  /settings/send_stats:
+    post:
+      summary: send stats
+      operationId: sendStats
+      tags:
+        - setting
+      responses:
+        '200':
+          description: status
+          content:
+            'text/plain:':
+              schema:
+                type: string
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -1487,6 +1500,8 @@ paths:
                   error_handler_extra_args:
                     type: object
                     additionalProperties: &ref_14 {}
+                  error_handler_muted_on_cancel:
+                    type: boolean
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1763,6 +1778,8 @@ paths:
                 error_handler_extra_args:
                   type: object
                   additionalProperties: *ref_14
+                error_handler_muted_on_cancel:
+                  type: boolean
       responses:
         '200':
           description: status
@@ -6364,6 +6381,8 @@ paths:
                     - code
                     - identity
                     - http
+                dedicated_worker:
+                  type: boolean
               required: &ref_122
                 - args
       responses:
@@ -8144,6 +8163,49 @@ paths:
                               - id
                               - success
                               - duration_ms
+  /w/{workspace}/schedules/setdefaulthandler:
+    post:
+      summary: Set default error or recoevery handler
+      operationId: setDefaultErrorOrRecoveryHandler
+      tags:
+        - schedule
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: Handler description
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handler_type:
+                  type: string
+                  enum:
+                    - error
+                    - recovery
+                override_existing:
+                  type: boolean
+                path:
+                  type: string
+                extra_args:
+                  type: object
+                number_of_occurence:
+                  type: integer
+                number_of_occurence_exact:
+                  type: boolean
+                workspace_handler_muted:
+                  type: boolean
+              required:
+                - handler_type
+                - override_existing
+                - path
+      responses:
+        '201':
+          description: default error handler set
   /groups/list:
     get:
       summary: list instance groups
@@ -8768,6 +8830,8 @@ paths:
                         type: string
                     worker_group:
                       type: string
+                    wm_version:
+                      type: string
                   required: &ref_137
                     - worker
                     - worker_instance
@@ -8776,6 +8840,7 @@ paths:
                     - ip
                     - jobs_executed
                     - worker_group
+                    - wm_version
   /configs/list_worker_groups:
     get:
       summary: list worker groups

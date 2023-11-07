@@ -499,7 +499,9 @@ const aggridcomponentconst = {
 	icon: Table2,
 	documentationLink: `${documentationBaseUrl}/aggrid_table`,
 	dims: '3:10-6:10' as AppComponentDimensions,
-	customCss: {},
+	customCss: {
+		container: { class: '', style: '' }
+	},
 	initialData: {
 		configuration: {
 			columnDefs: {

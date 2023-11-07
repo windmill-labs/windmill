@@ -128,7 +128,7 @@
 	$: updateContentType(data, diffType)
 </script>
 
-<Drawer bind:this={diffViewer} size="1200px">
+<Drawer bind:this={diffViewer} size="1200px" on:close>
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
 			{#if diffType && data}

@@ -81,6 +81,7 @@
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
 
 	async function hash(message) {
 		try {
@@ -226,24 +227,11 @@
 					policy
 				}
 			})
-			const app_w_draft = await AppService.getAppByPathWithDraft({
-				workspace: $workspaceStore!,
-				path
-			})
 			savedApp = {
-				summary: app_w_draft.summary,
-				value: app_w_draft.value,
-				path: app_w_draft.path,
-				policy: app_w_draft.policy,
-				draft_only: app_w_draft.draft_only,
-				draft: app_w_draft.draft
-					? {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-					: undefined
+				summary: $summary,
+				value: cloneDeep($app),
+				path: path,
+				policy: policy
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -266,24 +254,11 @@
 				path: npath
 			}
 		})
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			workspace: $workspaceStore!,
-			path: npath
-		})
 		savedApp = {
-			summary: app_w_draft.summary,
-			value: app_w_draft.value,
-			path: app_w_draft.path,
-			policy: app_w_draft.policy,
-			draft_only: app_w_draft.draft_only,
-			draft: app_w_draft.draft
-				? {
-						summary: app_w_draft.summary,
-						value: app_w_draft.draft,
-						path: app_w_draft.path,
-						policy: app_w_draft.policy
-				  }
-				: undefined
+			summary: $summary,
+			value: cloneDeep($app),
+			path: npath,
+			policy
 		}
 
 		closeSaveDrawer()
@@ -328,18 +303,6 @@
 	}
 
 	async function saveInitialDraft() {
-		if (savedApp) {
-			const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-			const current = cleanValueProperties({
-				summary: $summary,
-				value: $app,
-				path: newPath || savedApp.draft?.path || savedApp.path,
-				policy
-			})
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				return
-			}
-		}
 		await computeTriggerables()
 		try {
 			await AppService.createApp({
@@ -360,24 +323,18 @@
 					value: $app!
 				}
 			})
-			const app_w_draft = await AppService.getAppByPathWithDraft({
-				workspace: $workspaceStore!,
-				path: newPath
-			})
 			savedApp = {
-				summary: app_w_draft.summary,
-				value: app_w_draft.value,
-				path: app_w_draft.path,
-				policy: app_w_draft.policy,
-				draft_only: app_w_draft.draft_only,
-				draft: app_w_draft.draft
-					? {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-					: undefined
+				summary: $summary,
+				value: cloneDeep($app),
+				path: newPath,
+				policy,
+				draft_only: true,
+				draft: {
+					summary: $summary,
+					value: cloneDeep($app),
+					path: newPath,
+					policy
+				}
 			}
 
 			draftDrawerOpen = false
@@ -388,21 +345,31 @@
 		draftDrawerOpen = false
 	}
 
-	async function saveDraft() {
-		if (savedApp) {
-			const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-			const current = cleanValueProperties({
-				summary: $summary,
-				value: $app,
-				path: newPath || savedApp.draft?.path || savedApp.path,
-				policy
-			})
-			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				return
-			}
-		}
+	async function saveDraft(forceSave = false) {
 		if ($page.params.path == undefined) {
+			// initial draft
 			draftDrawerOpen = true
+			return
+		}
+		if (!savedApp) {
+			return
+		}
+		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+		const current = cleanValueProperties({
+			summary: $summary,
+			value: $app,
+			path: newPath || savedApp.draft?.path || savedApp.path,
+			policy
+		})
+		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			sendUserToast('No changes detected, ignoring', false, [
+				{
+					label: 'Save anyway',
+					callback: () => {
+						saveDraft(true)
+					}
+				}
+			])
 			return
 		}
 		loading.saveDraft = true
@@ -417,24 +384,15 @@
 					value: $app!
 				}
 			})
-			const app_w_draft = await AppService.getAppByPathWithDraft({
-				workspace: $workspaceStore!,
-				path
-			})
+
 			savedApp = {
-				summary: app_w_draft.summary,
-				value: app_w_draft.value,
-				path: app_w_draft.path,
-				policy: app_w_draft.policy,
-				draft_only: app_w_draft.draft_only,
-				draft: app_w_draft.draft
-					? {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-					: undefined
+				...savedApp,
+				draft: {
+					summary: $summary,
+					value: cloneDeep($app),
+					path,
+					policy
+				}
 			}
 
 			sendUserToast('Draft saved')
@@ -1171,7 +1129,13 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		<Button loading={loading.save} startIcon={{ icon: Save }} on:click={saveDraft} size="xs">
+		<Button
+			loading={loading.save}
+			startIcon={{ icon: Save }}
+			on:click={() => saveDraft()}
+			size="xs"
+			disabled={$page.params.path !== undefined && !savedApp}
+		>
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
 		<Button

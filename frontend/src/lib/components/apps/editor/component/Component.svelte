@@ -300,6 +300,7 @@
 				configuration={component.configuration}
 				bind:initializing
 				componentInput={component.componentInput}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponentee'}
@@ -309,6 +310,7 @@
 				configuration={component.configuration}
 				bind:initializing
 				componentInput={component.componentInput}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'textcomponent'}
