@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.202.1](https://github.com/windmill-labs/windmill/compare/v1.202.0...v1.202.1) (2023-11-07)
+
+
+### Bug Fixes
+
+* remove the FOO ([f89a01f](https://github.com/windmill-labs/windmill/commit/f89a01ff2fb26224884e59599f72da0b83fa4a0f))
+
 ## [1.202.0](https://github.com/windmill-labs/windmill/compare/v1.201.0...v1.202.0) (2023-11-07)
 
 
