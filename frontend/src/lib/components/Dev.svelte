@@ -253,6 +253,12 @@
 		// return
 		try {
 			if (!deepEqual(lastEdit.flow, $flowStore)) {
+				if (!lastEdit.flow.summary) {
+					lastEdit.flow.summary = 'New flow'
+				}
+				if (!lastEdit.flow.value?.modules) {
+					lastEdit.flow.value = { modules: [] }
+				}
 				$flowStore = lastEdit.flow
 				inferModuleArgs($selectedIdStore)
 			}
