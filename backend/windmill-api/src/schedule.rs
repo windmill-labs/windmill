@@ -8,7 +8,9 @@
 
 use crate::{
     db::{ApiAuthed, DB},
+    settings::set_global_setting_internal,
     users::maybe_refresh_folders,
+    utils::require_super_admin,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -40,6 +42,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(edit_schedule))
         .route("/delete/*path", delete(delete_schedule))
         .route("/setenabled/*path", post(set_enabled))
+        .route("/setdefaulthandler", post(set_default_error_handler))
 }
 
 pub fn global_service() -> Router {
@@ -63,6 +66,18 @@ pub struct NewSchedule {
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
     pub ws_error_handler_muted: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ErrorOrRecoveryHandler {
+    pub handler_type: String, // 'error' or 'recovery'
+    pub override_existing: bool,
+
+    pub path: String,
+    pub extra_args: Option<serde_json::Value>,
+    pub number_of_occurence: Option<i32>,
+    pub number_of_occurence_exact: Option<bool>,
+    pub workspace_handler_muted: Option<bool>,
 }
 
 async fn check_path_conflict<'c>(
@@ -484,6 +499,77 @@ async fn delete_schedule(
     tx.commit().await?;
 
     Ok(format!("schedule {} deleted", path))
+}
+
+async fn set_default_error_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<ErrorOrRecoveryHandler>,
+) -> Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+    let (key, value) = match payload.handler_type.as_str() {
+        "error" => {
+            let key = format!("default_error_handler_{}", w_id);
+            let value = serde_json::json!({
+                "wsErrorHandlerMuted": payload.workspace_handler_muted,
+                "errorHandlerPath": payload.path,
+                "errorHandlerExtraArgs": payload.extra_args,
+                "failedTimes": payload.number_of_occurence,
+                "failedExact": payload.number_of_occurence_exact,
+            });
+            Ok((key, value))
+        }
+        "recovery" => {
+            let key = format!("default_recovery_handler_{}", w_id);
+            let value = serde_json::json!({
+                "recoveryHandlerPath": payload.path,
+                "recoveryHandlerExtraArgs": payload.extra_args,
+                "recoveredTimes": payload.number_of_occurence,
+            });
+            Ok((key, value))
+        }
+        _ => Err(Error::BadRequest(
+            "handler_type must be either 'error' or 'recovery'".to_string(),
+        )),
+    }?;
+
+    set_global_setting_internal(&db, key, value).await?;
+
+    if payload.override_existing {
+        match payload.handler_type.as_str() {
+            "error" => {
+                sqlx::query!(
+                    "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6",
+                    payload.workspace_handler_muted,
+                    payload.path,
+                    payload.extra_args,
+                    payload.number_of_occurence,
+                    payload.number_of_occurence_exact,
+                    w_id,
+                )
+                .execute(&db)
+                .await?;
+                Ok(())
+            }
+            "recovery" => {
+                sqlx::query!(
+                    "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4",
+                    payload.path,
+                    payload.extra_args,
+                    payload.number_of_occurence,
+                    w_id,
+                )
+                .execute(&db)
+                .await?;
+                Ok(())
+            }
+            _ => Err(Error::BadRequest(
+                "handler_type must be either 'error' or 'recovery'".to_string(),
+            )),
+        }?;
+    }
+    Ok(())
 }
 
 async fn check_flow_conflict<'c>(
