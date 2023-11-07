@@ -8188,7 +8188,7 @@ paths:
                     - error
                     - recovery
                 override_existing:
-                  type: bool
+                  type: boolean
                 path:
                   type: string
                 extra_args:

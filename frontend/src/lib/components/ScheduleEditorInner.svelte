@@ -437,10 +437,12 @@
 							name="Save as default"
 							dropdownItems={[
 								{
+									disabled: emptyString(errorHandlerPath),
 									displayName: `Future schedules only`,
 									action: () => saveAsDefaultErrorHandler(false)
 								},
 								{
+									disabled: emptyString(errorHandlerPath),
 									displayName: 'Override all existing',
 									type: 'delete',
 									action: () => saveAsDefaultErrorHandler(true)
@@ -536,10 +538,12 @@
 							name="Save as default"
 							dropdownItems={[
 								{
+									disabled: emptyString(errorHandlerPath),
 									displayName: `Future schedules only`,
 									action: () => saveAsDefaultRecoveryHandler(false)
 								},
 								{
+									disabled: emptyString(errorHandlerPath),
 									displayName: 'Override all existing',
 									type: 'delete',
 									action: () => saveAsDefaultRecoveryHandler(true)

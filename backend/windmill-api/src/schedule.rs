@@ -554,12 +554,10 @@ async fn set_default_error_handler(
             }
             "recovery" => {
                 sqlx::query!(
-                    "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6",
-                    payload.workspace_handler_muted,
+                    "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4",
                     payload.path,
                     payload.extra_args,
                     payload.number_of_occurence,
-                    payload.number_of_occurence_exact,
                     w_id,
                 )
                 .execute(&db)
