@@ -30,6 +30,8 @@
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history'
 	import type { FlowEditorContext } from './flows/types'
+	import { dfs } from './flows/dfs'
+	import { loadSchemaFromModule } from './flows/flowInfers'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -252,6 +254,7 @@
 		try {
 			if (!deepEqual(lastEdit.flow, $flowStore)) {
 				$flowStore = lastEdit.flow
+				inferModuleArgs($selectedIdStore)
 			}
 		} catch (e) {
 			console.error('issue setting new flowstore', e)
@@ -301,7 +304,40 @@
 		}
 	}
 
+	$: $selectedIdStore && inferModuleArgs($selectedIdStore)
+
 	let flowPreviewButtons: FlowPreviewButtons
+	let reload = 0
+
+	async function inferModuleArgs(selectedIdStore: string) {
+		if (selectedIdStore == '') {
+			return
+		}
+		dfs($flowStore.value.modules, async (mod) => {
+			if (mod.id == selectedIdStore) {
+				if (
+					mod.value.type == 'rawscript' ||
+					mod.value.type === 'script' ||
+					mod.value.type === 'flow'
+				) {
+					const { input_transforms, schema } = await loadSchemaFromModule(mod)
+					if (mod.value.type == 'rawscript' && mod.value.lock != undefined) {
+						mod.value.lock = undefined
+					}
+
+					mod.value.input_transforms = input_transforms
+					if (!deepEqual(schema, $flowStateStore[mod.id]?.schema)) {
+						if (!$flowStateStore[mod.id]) {
+							$flowStateStore[mod.id] = { schema }
+						} else {
+							$flowStateStore[mod.id].schema = schema
+						}
+						reload++
+					}
+				}
+			}
+		})
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -417,7 +453,9 @@
 						{/if}
 					</Pane>
 					<Pane size={33}>
-						<FlowEditorPanel noEditor />
+						{#key reload}
+							<FlowEditorPanel noEditor />
+						{/key}
 					</Pane>
 				</Splitpanes>
 			</div>
