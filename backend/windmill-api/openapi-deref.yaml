@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.200.0
+  version: 1.201.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -868,6 +868,19 @@ paths:
                   type: string
               required:
                 - license_key
+      responses:
+        '200':
+          description: status
+          content:
+            'text/plain:':
+              schema:
+                type: string
+  /settings/send_stats:
+    post:
+      summary: send stats
+      operationId: sendStats
+      tags:
+        - setting
       responses:
         '200':
           description: status
@@ -8150,6 +8163,49 @@ paths:
                               - id
                               - success
                               - duration_ms
+  /w/{workspace}/schedules/setdefaulthandler:
+    post:
+      summary: Set default error or recoevery handler
+      operationId: setDefaultErrorOrRecoveryHandler
+      tags:
+        - schedule
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: Handler description
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handler_type:
+                  type: string
+                  enum:
+                    - error
+                    - recovery
+                override_existing:
+                  type: bool
+                path:
+                  type: string
+                extra_args:
+                  type: object
+                number_of_occurence:
+                  type: integer
+                number_of_occurence_exact:
+                  type: boolean
+                workspace_handler_muted:
+                  type: boolean
+              required:
+                - handler_type
+                - override_existing
+                - path
+      responses:
+        '201':
+          description: default error handler set
   /groups/list:
     get:
       summary: list instance groups

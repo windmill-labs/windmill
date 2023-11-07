@@ -10,6 +10,7 @@
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
 	import {
 		FlowService,
 		ScheduleService,
@@ -21,6 +22,7 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { Save } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 
@@ -164,42 +166,42 @@
 		}
 	}
 
-	async function saveAsDefaultErrorHandler() {
+	async function saveAsDefaultErrorHandler(overrideExisting: boolean) {
 		if (!$enterpriseLicense) {
 			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
 			return
 		}
 		if ($workspaceStore && errorHandlerPath !== undefined) {
-			await SettingService.setGlobal({
-				key: 'default_error_handler_' + $workspaceStore!,
+			await ScheduleService.setDefaultErrorOrRecoveryHandler({
+				workspace: $workspaceStore!,
 				requestBody: {
-					value: {
-						wsErrorHandlerMuted: wsErrorHandlerMuted,
-						errorHandlerPath: `${errorHandleritemKind}/${errorHandlerPath}`,
-						errorHandlerExtraArgs: errorHandlerExtraArgs,
-						failedTimes: failedTimes,
-						failedExact: failedExact
-					}
+					handler_type: 'error',
+					override_existing: overrideExisting,
+					path: `${errorHandleritemKind}/${errorHandlerPath}`,
+					extra_args: errorHandlerExtraArgs,
+					number_of_occurence: failedTimes,
+					number_of_occurence_exact: failedExact,
+					workspace_handler_muted: wsErrorHandlerMuted
 				}
 			})
 			sendUserToast(`Default error handler saved to ${errorHandlerPath}`, false)
 		}
 	}
 
-	async function saveAsDefaultRecoveryHandler() {
+	async function saveAsDefaultRecoveryHandler(overrideExisting: boolean) {
 		if (!$enterpriseLicense) {
 			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
 			return
 		}
 		if ($workspaceStore && errorHandlerPath !== undefined) {
-			await SettingService.setGlobal({
-				key: 'default_recovery_handler_' + $workspaceStore!,
+			await ScheduleService.setDefaultErrorOrRecoveryHandler({
+				workspace: $workspaceStore!,
 				requestBody: {
-					value: {
-						recoveryHandlerPath: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
-						recoveryHandlerExtraArgs: recoveryHandlerExtraArgs,
-						recoveredTimes: recoveredTimes
-					}
+					handler_type: 'recovery',
+					override_existing: overrideExisting,
+					path: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+					extra_args: recoveryHandlerExtraArgs,
+					number_of_occurence: recoveredTimes
 				}
 			})
 			sendUserToast(`Default recovery handler saved to ${errorHandlerPath}`, false)
@@ -430,16 +432,26 @@
 			<Section label="Error handler">
 				<svelte:fragment slot="action">
 					<div class="flex flex-row items-center gap-2">
-						<Button
-							disabled={emptyString(errorHandlerPath)}
-							btnClasses="text-center"
-							color="light"
-							size="xs"
-							startIcon={{ icon: faSave }}
-							on:click={saveAsDefaultErrorHandler}
+						<Dropdown
+							placement="bottom-end"
+							name="Save as default"
+							dropdownItems={[
+								{
+									displayName: `Future schedules only`,
+									action: () => saveAsDefaultErrorHandler(false)
+								},
+								{
+									displayName: 'Override all existing',
+									type: 'delete',
+									action: () => saveAsDefaultErrorHandler(true)
+								}
+							]}
 						>
-							Save as default
-						</Button>
+							<svelte:fragment>
+								<Save size={12} class="mr-1" />
+								Set as default
+							</svelte:fragment>
+						</Dropdown>
 					</div>
 				</svelte:fragment>
 				<div class="flex flex-row">
@@ -519,16 +531,26 @@
 				</svelte:fragment>
 				<svelte:fragment slot="action">
 					<div class="flex flex-row items-center gap-2">
-						<Button
-							disabled={emptyString(recoveryHandlerPath)}
-							btnClasses="text-center"
-							color="light"
-							size="xs"
-							startIcon={{ icon: faSave }}
-							on:click={saveAsDefaultRecoveryHandler}
+						<Dropdown
+							placement="bottom-end"
+							name="Save as default"
+							dropdownItems={[
+								{
+									displayName: `Future schedules only`,
+									action: () => saveAsDefaultRecoveryHandler(false)
+								},
+								{
+									displayName: 'Override all existing',
+									type: 'delete',
+									action: () => saveAsDefaultRecoveryHandler(true)
+								}
+							]}
 						>
-							Save as default
-						</Button>
+							<svelte:fragment>
+								<Save size={12} class="mr-1" />
+								Set as default
+							</svelte:fragment>
+						</Dropdown>
 					</div>
 				</svelte:fragment>
 
