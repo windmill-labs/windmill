@@ -205,9 +205,16 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 									publicOnly: !!schema.public || !!schema.PUBLIC
 								}
 							} else {
-								$dbSchemas[resourcePath] = {
-									lang: 'graphql',
-									schema: testResult.result
+								if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
+									console.error('Invalid GraphQL schema')
+									if (drawer?.isOpen()) {
+										sendUserToast('Invalid GraphQL schema', true)
+									}
+								} else {
+									$dbSchemas[resourcePath] = {
+										lang: 'graphql',
+										schema: testResult.result
+									}
 								}
 							}
 						}
