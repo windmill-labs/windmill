@@ -125,25 +125,32 @@ pub async fn set_global_setting(
     Json(value): Json<Value>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed.email).await?;
-    match value.value {
+    set_global_setting_internal(&db, key, value.value).await
+}
+
+pub async fn set_global_setting_internal(
+    db: &DB,
+    key: String,
+    value: serde_json::Value,
+) -> error::Result<()> {
+    match value {
         serde_json::Value::Null => {
-            delete_global_setting(&db, &key).await?;
+            delete_global_setting(db, &key).await?;
         }
         serde_json::Value::String(x) if x.is_empty() => {
-            delete_global_setting(&db, &key).await?;
+            delete_global_setting(db, &key).await?;
         }
         v => {
             sqlx::query!(
-            "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
-            key,
-            v
-        )
-        .execute(&db)
-        .await?;
+                "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+                key,
+                v
+            )
+            .execute(db)
+            .await?;
             tracing::info!("Set global setting {} to {}", key, v);
         }
     };
-
     Ok(())
 }
 
