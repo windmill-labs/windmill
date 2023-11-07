@@ -226,10 +226,11 @@
 
 	type LastEditFlow = {
 		flow: OpenFlow
-		path: string
+		uriPath: string
 	}
+	let lastUriPath: string | undefined = undefined
 	async function replaceFlow(lastEdit: LastEditFlow) {
-		console.log('replaceFlow', lastEdit.flow)
+		lastUriPath = lastEdit.uriPath
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
 		try {
@@ -275,9 +276,12 @@
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateCode(flow: OpenFlow) {
+		sendUserToast('FOO')
+
 		if (!deepEqual(flow, lastSent)) {
-			lastSent = flow
-			window?.parent.postMessage(JSON.stringify({ type: 'flow', flow }))
+			sendUserToast('BAR')
+			lastSent = JSON.parse(JSON.stringify(flow))
+			window?.parent.postMessage({ type: 'flow', flow, uriPath: lastUriPath }, '*')
 		}
 	}
 </script>
