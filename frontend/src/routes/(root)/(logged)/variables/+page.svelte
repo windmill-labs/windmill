@@ -164,7 +164,7 @@
 					</div>
 				</div>
 			{:else}
-				<DataTable>
+				<DataTable size="xs">
 					<Head>
 						<tr>
 							<Cell head first class="!px-0" />
