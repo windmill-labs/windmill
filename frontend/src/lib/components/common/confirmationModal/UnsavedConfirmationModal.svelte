@@ -61,6 +61,8 @@
 			<Button
 				wrapperClasses="self-start"
 				color="light"
+				variant="border"
+				size="xs"
 				on:click={() => {
 					if (!savedValue || !modifiedValue) {
 						return
