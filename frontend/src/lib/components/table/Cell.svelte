@@ -34,10 +34,10 @@
 		numeric ? 'text-right' : '',
 		head ? 'font-semibold ' : '',
 		$$restProps.class,
+		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-3.5',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
 		size === 'lg' ? 'px-3 py-4' : '',
-		size === 'xs' ? 'px-1 py-1.5' : '',
-		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-3.5'
+		size === 'xs' ? 'px-1 py-1.5' : ''
 	)}
 >
 	{#if sticky}

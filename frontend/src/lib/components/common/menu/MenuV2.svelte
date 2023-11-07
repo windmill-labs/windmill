@@ -3,8 +3,10 @@
 	import Portal from 'svelte-portal'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
+	import { twMerge } from 'tailwind-merge'
 
 	export let placement: any = 'bottom-start'
+	export let justifyEnd: boolean = false
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'fixed',
@@ -15,7 +17,7 @@
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-8">
 	<div use:floatingRef class="w-full">
-		<MenuButton class="w-full">
+		<MenuButton class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')}>
 			<slot name="trigger" />
 		</MenuButton>
 	</div>
