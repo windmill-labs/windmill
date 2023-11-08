@@ -11,6 +11,7 @@
 		Eye,
 		FolderCog,
 		FolderOpen,
+		Github,
 		HelpCircle,
 		Home,
 		Play,
@@ -18,7 +19,7 @@
 		Settings,
 		UserCog
 	} from 'lucide-svelte'
-	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
+	import { faDiscord } from '@fortawesome/free-brands-svg-icons'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { Icon } from 'svelte-awesome'
@@ -117,7 +118,7 @@
 				{
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
-					faIcon: faGithub
+					icon: Github
 				}
 			]
 		}

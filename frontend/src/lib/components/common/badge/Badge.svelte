@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { type BadgeColor, type BadgeIconProps, ColorModifier } from './model'
+	import { X } from 'lucide-svelte'
 
 	export let color: BadgeColor = 'gray'
 	export let large = false
@@ -79,7 +79,9 @@
 			<Icon {...iconProps} />
 		{/if}
 		{#if dismissable}
-			<Icon data={faClose} on:click={handleHide} class={classNames('mx-0.5')} />
+			<button on:click={handleHide}>
+				<X size={10} />
+			</button>
 		{/if}
 	</svelte:element>
 </span>

@@ -13,7 +13,8 @@
 		"generate-backend-client": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/lib/gen/core/request.ts",
 		"generate-backend-client-mac": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
-		"test": "playwright test --config=tests-out/playwright.config.js"
+		"test": "playwright test --config=tests-out/playwright.config.js",
+		"delele-orphan-components": "sh scripts/delete-orphan-components.sh"
 	},
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",

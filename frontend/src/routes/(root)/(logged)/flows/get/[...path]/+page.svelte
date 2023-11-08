@@ -2,7 +2,6 @@
 	import { page } from '$app/stores'
 	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
 	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
-	import { faCodeFork, faEdit, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -16,7 +15,19 @@
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import { FolderOpen, Archive, Trash, Server, Share, Badge, Loader2 } from 'lucide-svelte'
+	import {
+		FolderOpen,
+		Archive,
+		Trash,
+		Server,
+		Share,
+		Badge,
+		Loader2,
+		GitFork,
+		History,
+		Columns,
+		Pen
+	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
@@ -110,7 +121,7 @@
 					variant: 'border',
 					color: 'light',
 					size: 'xs',
-					startIcon: faCodeFork
+					startIcon: GitFork
 				}
 			})
 		}
@@ -125,7 +136,7 @@
 				href: `/runs/${flow.path}`,
 				size: 'xs',
 				color: 'light',
-				startIcon: faHistory
+				startIcon: History
 			}
 		})
 
@@ -141,7 +152,7 @@
 
 					size: 'xs',
 					color: 'light',
-					startIcon: faTableColumns
+					startIcon: Columns
 				}
 			})
 
@@ -153,7 +164,7 @@
 					size: 'sm',
 					color: 'dark',
 					disabled: !can_write,
-					startIcon: faEdit
+					startIcon: Pen
 				}
 			})
 		}

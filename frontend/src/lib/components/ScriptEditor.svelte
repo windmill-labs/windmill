@@ -5,14 +5,12 @@
 	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
-	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
-	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -23,9 +21,8 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
-	import { Icon } from 'svelte-awesome'
 	import DiffEditor from './DiffEditor.svelte'
-	import { Play } from 'lucide-svelte'
+	import { Clipboard, Github, Play } from 'lucide-svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -222,9 +219,13 @@
 	<div>Have others join by sharing the following url:</div>
 	<div class="flex gap-2 pr-4">
 		<input type="text" disabled value={collabUrl()} />
-		<button on:click={() => copyToClipboard(collabUrl())} class="text-secondary ml-2">
-			<Icon data={faClipboard} />
-		</button>
+
+		<Button
+			color="light"
+			startIcon={{ icon: Clipboard }}
+			iconOnly
+			on:click={() => copyToClipboard(collabUrl())}
+		/>
 	</div>
 </Modal>
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
@@ -261,7 +262,7 @@
 					size="xs"
 					btnClasses="hidden lg:block"
 					startIcon={{
-						faIcon: faGithub
+						icon: Github
 					}}
 				>
 					Use VScode

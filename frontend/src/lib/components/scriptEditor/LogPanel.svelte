@@ -2,8 +2,6 @@
 	import { CompletedJob, Job, JobService, Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
-	import { faTimes } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'

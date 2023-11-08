@@ -5,16 +5,15 @@
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/Dropdownv2.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { canWrite } from '$lib/utils'
-	import { Plus } from 'lucide-svelte'
+	import { Pen, Plus, Trash } from 'lucide-svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -148,11 +147,10 @@
 							<td><GroupInfo {name} /></td>
 							<td>
 								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
+									items={[
 										{
 											displayName: 'Manage group',
-											icon: faEdit,
+											icon: Pen,
 											disabled: !canWrite,
 											action: () => {
 												editGroupName = name
@@ -162,7 +160,7 @@
 										{
 											displayName: 'Delete',
 
-											icon: faTrash,
+											icon: Trash,
 											type: 'delete',
 											disabled: !canWrite,
 											action: async () => {

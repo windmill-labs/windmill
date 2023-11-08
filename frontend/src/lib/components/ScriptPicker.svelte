@@ -13,10 +13,8 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Code2, ExternalLink } from 'lucide-svelte'
+	import { Code2, ExternalLink, RefreshCw } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
-	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { truncate } from '$lib/utils'
@@ -122,9 +120,14 @@
 	{/if}
 
 	{#if allowRefresh}
-		<Button variant="border" color="light" wrapperClasses="self-stretch" on:click={loadItems}
-			><Icon scale={0.8} data={faRotateRight} /></Button
-		>
+		<Button
+			variant="border"
+			color="light"
+			wrapperClasses="self-stretch"
+			on:click={loadItems}
+			startIcon={{ icon: RefreshCw }}
+			iconOnly
+		/>
 	{/if}
 
 	{#if scriptPath !== undefined && scriptPath !== ''}

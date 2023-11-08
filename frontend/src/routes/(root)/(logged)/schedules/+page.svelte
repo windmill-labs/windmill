@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate } from '$lib/utils'
-
+	import { faCircle } from '@fortawesome/free-solid-svg-icons'
+	import { Icon } from 'svelte-awesome'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
@@ -12,17 +13,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faCircle,
-		faEdit,
-		faEye,
-		faList,
-		faPlay,
-		faShare,
-		faTrash
-	} from '@fortawesome/free-solid-svg-icons'
-	import { Icon } from 'svelte-awesome'
-	import { List, Loader2, Pen, Plus } from 'lucide-svelte'
+	import { Eye, List, Loader2, Pen, Play, Plus, Share, Trash } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -241,11 +232,10 @@
 									Edit
 								</Button>
 								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
+									items={[
 										{
 											displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-											icon: faEye,
+											icon: Eye,
 											action: () => {
 												goto(href)
 											}
@@ -253,7 +243,7 @@
 										{
 											displayName: 'Delete',
 											type: 'delete',
-											icon: faTrash,
+											icon: Trash,
 											disabled: !canWrite,
 											action: async () => {
 												await ScheduleService.deleteSchedule({
@@ -265,7 +255,7 @@
 										},
 										{
 											displayName: 'Edit',
-											icon: faEdit,
+											icon: Pen,
 											disabled: !canWrite,
 											action: () => {
 												scheduleEditor?.openEdit(path, is_flow)
@@ -273,19 +263,19 @@
 										},
 										{
 											displayName: 'View Runs',
-											icon: faList,
+											icon: List,
 											href: '/runs/?schedule_path=' + path
 										},
 										{
 											displayName: 'Run now',
-											icon: faPlay,
+											icon: Play,
 											action: () => {
 												runScheduleNow(script_path, args, is_flow)
 											}
 										},
 										{
 											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: faShare,
+											icon: Share,
 											action: () => {
 												shareModal.openDrawer(path, 'schedule')
 											}

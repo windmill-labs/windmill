@@ -22,7 +22,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
-	import { faCircle, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
+	import { faCircle } from '@fortawesome/free-solid-svg-icons'
 	import {
 		Plus,
 		FileUp,
@@ -32,7 +32,8 @@
 		Share,
 		Trash,
 		Building,
-		DollarSign
+		DollarSign,
+		EyeOff
 	} from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 
@@ -206,18 +207,17 @@
 									</a>
 								</Cell>
 								<Cell>
-									<span class="inline-flex flex-row">
-										<span class="text-sm break-words">
-											{truncate(value ?? '****', 20)}
-										</span>
+									<span class="inline-flex flex-row items-center gap-2">
+										<div class="text-sm break-words">
+											{#if value}
+												{truncate(value, 20)}
+											{:else}
+												&lowast;&lowast;&lowast;&lowast;
+											{/if}
+										</div>
 										{#if is_secret}
 											<Popover notClickable>
-												<Icon
-													label="Secret"
-													class="text-secondary mb-2 ml-2"
-													data={faEyeSlash}
-													scale={0.8}
-												/>
+												<EyeOff size={12} />
 												<span slot="text">This item is secret</span>
 											</Popover>
 										{/if}

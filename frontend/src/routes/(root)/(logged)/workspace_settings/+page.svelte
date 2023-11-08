@@ -25,7 +25,6 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
-	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { Scroll, Slack } from 'lucide-svelte'
 
@@ -300,7 +299,7 @@
 					<div class="flex flex-col gap-2 max-w-sm">
 						<Button
 							size="sm"
-							endIcon={{ faIcon: faSlack }}
+							endIcon={{ icon: Slack }}
 							btnClasses="mt-2"
 							variant="border"
 							on:click={async () => {

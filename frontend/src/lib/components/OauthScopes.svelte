@@ -1,8 +1,6 @@
 <script lang="ts">
-	import { faMinus } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import { Button } from './common'
-	import { Plus } from 'lucide-svelte'
+	import { Minus, Plus } from 'lucide-svelte'
 
 	export let scopes: string[] = []
 </script>
@@ -18,9 +16,9 @@
 			on:click={() => {
 				scopes = scopes.filter((el) => el != v)
 			}}
-		>
-			<Icon data={faMinus} />
-		</Button>
+			startIcon={{ icon: Minus }}
+			iconOnly
+		/>
 	</div>
 {/each}
 <div class="flex items-center mt-1">
