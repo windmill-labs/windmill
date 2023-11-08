@@ -74,9 +74,7 @@
 				sendUserToast('Flow loaded from browser storage', false, [
 					{
 						label: 'Discard browser stored autosave and reload',
-						callback: () => {
-							reloadAction
-						}
+						callback: reloadAction
 					},
 					{
 						label: 'Show diff',
