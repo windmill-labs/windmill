@@ -1706,14 +1706,33 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 iterator: None,
                 ..
             } => args.as_ref().map(|args| args.clone()),
-            NextStatus::NextLoopIteration(NextIteration { new_args, .. }) => {
+            NextStatus::NextLoopIteration(
+                NextIteration { new_args, .. },
+                simple_input_transforms,
+            ) => {
                 let mut args = if let Ok(args) = args.as_ref() {
                     args.clone()
                 } else {
                     HashMap::new()
                 };
                 args.insert("iter".to_string(), to_raw_value(new_args));
-                Ok(args)
+                if let Some(input_transforms) = simple_input_transforms {
+                    let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
+                    transform_inp = transform_input(
+                        Arc::new(args),
+                        arc_last_job_result.clone(),
+                        input_transforms,
+                        resumes.clone(),
+                        resume.clone(),
+                        approvers.clone(),
+                        &ctx,
+                        client,
+                    )
+                    .await;
+                    transform_inp.as_ref().map(|args| args.clone())
+                } else {
+                    Ok(args)
+                }
                 // tracing::error!(
                 //     "{a:?} {new_args:?} {:?}",
                 //     to_raw_value(&MergeArgs { a: HashMap::new(), b: new_args.to_owned() })
@@ -1831,7 +1850,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     };
     let first_uuid = uuids[0];
     let new_status = match next_status {
-        NextStatus::NextLoopIteration(NextIteration { index, itered, mut flow_jobs, .. }) => {
+        NextStatus::NextLoopIteration(NextIteration { index, itered, mut flow_jobs, .. }, ..) => {
             let uuid = one_uuid?;
 
             flow_jobs.push(uuid);
@@ -2027,7 +2046,7 @@ enum NextStatus {
     NextStep,
     BranchChosen(BranchChosen),
     NextBranchStep(NextBranch),
-    NextLoopIteration(NextIteration),
+    NextLoopIteration(NextIteration, Option<HashMap<String, InputTransform>>),
     AllFlowJobs {
         branchall: Option<BranchAllStatus>,
         iterator: Option<windmill_common::flow_status::Iterator>,
@@ -2260,7 +2279,7 @@ async fn compute_next_flow_transform(
                     }
                     let modules = (*modules).clone();
                     let inner_path = Some(format!("{}/loop-{}", flow_job.script_path(), ns.index));
-                    let continue_payload = if is_simple {
+                    if is_simple {
                         let payload = match &modules[0].value {
                             FlowModuleValue::Flow { path, .. } => flow_to_payload(path),
                             FlowModuleValue::Script {
@@ -2292,31 +2311,47 @@ async fn compute_next_flow_transform(
                             ),
                             _ => unreachable!("is simple flow"),
                         };
-                        ContinuePayload::SingleJob(payload)
-                    } else {
-                        ContinuePayload::SingleJob(JobPayloadWithTag {
-                            payload: JobPayload::RawFlow {
-                                value: FlowValue {
-                                    modules,
-                                    failure_module: fm,
-                                    same_worker: flow.same_worker,
-                                    concurrent_limit: None,
-                                    concurrency_time_window_s: None,
-                                    skip_expr: None,
-                                    cache_ttl: None,
-                                    ws_error_handler_muted: None,
-                                    priority: None,
+                        Ok(NextFlowTransform::Continue(
+                            ContinuePayload::SingleJob(payload),
+                            NextStatus::NextLoopIteration(
+                                ns,
+                                if is_simple {
+                                    match &modules[0].value {
+                                        FlowModuleValue::Script { input_transforms, .. }
+                                        | FlowModuleValue::RawScript { input_transforms, .. }
+                                        | FlowModuleValue::Flow { input_transforms, .. } => {
+                                            Some(input_transforms.clone())
+                                        }
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
                                 },
-                                path: inner_path,
-                                restarted_from: None,
-                            },
-                            tag: None,
-                        })
-                    };
-                    Ok(NextFlowTransform::Continue(
-                        continue_payload,
-                        NextStatus::NextLoopIteration(ns),
-                    ))
+                            ),
+                        ))
+                    } else {
+                        Ok(NextFlowTransform::Continue(
+                            ContinuePayload::SingleJob(JobPayloadWithTag {
+                                payload: JobPayload::RawFlow {
+                                    value: FlowValue {
+                                        modules,
+                                        failure_module: fm,
+                                        same_worker: flow.same_worker,
+                                        concurrent_limit: None,
+                                        concurrency_time_window_s: None,
+                                        skip_expr: None,
+                                        cache_ttl: None,
+                                        ws_error_handler_muted: None,
+                                        priority: None,
+                                    },
+                                    path: inner_path,
+                                    restarted_from: None,
+                                },
+                                tag: None,
+                            }),
+                            NextStatus::NextLoopIteration(ns, None),
+                        ))
+                    }
                 }
                 LoopStatus::ParallelIteration { itered, .. } => {
                     let inner_path = Some(format!("{}/loop-parrallel", flow_job.script_path(),));
