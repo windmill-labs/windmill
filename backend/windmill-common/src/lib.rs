@@ -6,25 +6,34 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use error::Error;
+use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
 pub mod db;
+pub mod ee;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
+pub mod global_settings;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
 pub mod schedule;
 pub mod scripts;
+pub mod server;
+pub mod stats;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod worker;
 
 #[cfg(feature = "tracing_init")]
 pub mod tracing_init;
@@ -33,18 +42,27 @@ pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 
 lazy_static::lazy_static! {
-    pub static ref METRICS_ADDR: Option<SocketAddr> = std::env::var("METRICS_ADDR")
+    pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")
+    .ok()
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(8001);
+
+    pub static ref METRICS_ADDR: SocketAddr = std::env::var("METRICS_ADDR")
     .ok()
     .map(|s| {
         s.parse::<bool>()
-            .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
+            .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT))))
             .or_else(|_| s.parse::<SocketAddr>().map(Some))
     })
     .transpose().ok()
     .flatten()
-    .flatten();
-    pub static ref METRICS_ENABLED: bool = METRICS_ADDR.is_some();
-    pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+    .flatten()
+    .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT)));
+
+    pub static ref METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("METRICS_PORT").is_ok() || std::env::var("METRICS_ADDR").is_ok());
+    pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+    pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
 
@@ -75,17 +93,26 @@ pub async fn shutdown_signal(
     Ok(())
 }
 
+use tokio::sync::RwLock;
+#[cfg(feature = "prometheus")]
+use tokio::task::JoinHandle;
+
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     ready_worker_endpoint: bool,
-) -> Result<(), hyper::Error> {
+) -> JoinHandle<()> {
     use std::sync::atomic::Ordering;
 
-    use axum::{routing::get, Router};
+    use axum::{
+        routing::{get, post},
+        Router,
+    };
     use hyper::StatusCode;
-    let router = Router::new().route("/metrics", get(metrics));
+    let router = Router::new()
+        .route("/metrics", get(metrics))
+        .route("/reset", post(reset));
 
     let router = if ready_worker_endpoint {
         router.route(
@@ -102,13 +129,19 @@ pub async fn serve_metrics(
         router
     };
 
-    axum::Server::bind(&addr)
-        .serve(router.into_make_service())
-        .with_graceful_shutdown(async {
-            rx.recv().await.ok();
-            println!("Graceful shutdown of metrics");
-        })
-        .await
+    tokio::spawn(async move {
+        tracing::info!("Serving metrics at: {addr}");
+        if let Err(e) = axum::Server::bind(&addr)
+            .serve(router.into_make_service())
+            .with_graceful_shutdown(async {
+                rx.recv().await.ok();
+                println!("Graceful shutdown of metrics");
+            })
+            .await
+        {
+            tracing::error!("Error serving metrics: {}", e);
+        }
+    })
 }
 
 async fn metrics() -> Result<String, Error> {
@@ -118,12 +151,30 @@ async fn metrics() -> Result<String, Error> {
         .map_err(anyhow::Error::from)?)
 }
 
+async fn reset() -> () {
+    todo!()
+}
+
 #[cfg(feature = "sqlx")]
 pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
+    use std::env::var;
+    use tokio::fs::File;
+    use tokio::io::AsyncReadExt;
 
-    let database_url = std::env::var("DATABASE_URL")
-        .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
+    let database_url = match var("DATABASE_URL_FILE") {
+        Ok(file_path) => {
+            let mut file = File::open(file_path).await?;
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).await?;
+            contents.trim().to_string()
+        }
+        Err(_) => var("DATABASE_URL").map_err(|_| {
+            Error::BadConfig(
+                "Either DATABASE_URL_FILE or DATABASE_URL env var is missing".to_string(),
+            )
+        })?,
+    };
 
     let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
         Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
@@ -132,6 +183,11 @@ pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Po
                 DEFAULT_MAX_CONNECTIONS_SERVER
             } else {
                 DEFAULT_MAX_CONNECTIONS_WORKER
+                    * std::env::var("NUM_WORKERS")
+                        .ok()
+                        .map(|x| x.parse().ok())
+                        .flatten()
+                        .unwrap_or(1)
             }
         }
     };
@@ -163,24 +219,37 @@ pub async fn get_latest_deployed_hash_for_path(
     db: &DB,
     w_id: &str,
     script_path: &str,
-) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    scripts::ScriptHash,
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    ScriptLang,
+    Option<bool>,
+    Option<i16>,
+)> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
-    deleted = false AND archived = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
         w_id
     )
     .fetch_optional(db)
     .await?;
 
-    let script = utils::not_found_if_none(r_o, "script", script_path)?;
+    let script = utils::not_found_if_none(r_o, "deployed script", script_path)?;
 
     Ok((
         scripts::ScriptHash(script.hash),
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
+        script.priority,
     ))
 }
 
@@ -188,9 +257,18 @@ pub async fn get_latest_hash_for_path<'c>(
     db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     w_id: &str,
     script_path: &str,
-) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    scripts::ScriptHash,
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    ScriptLang,
+    Option<bool>,
+    Option<i16>,
+)> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -206,5 +284,9 @@ pub async fn get_latest_hash_for_path<'c>(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
+        script.priority,
     ))
 }

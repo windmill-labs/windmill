@@ -7,17 +7,19 @@ const bo = await Bun.build({
 
 const fs = require("fs/promises");
 
+const captureVersion = /(^\@?[^\@]+)(?:\@(.+))?/;
+
 if (!bo.success) {
   bo.logs.forEach((l) => console.log(l));
   process.exit(1);
 } else {
   let content = await fs.readFile("./out/main.js", { encoding: "utf8" });
-  const imports = new Bun.Transpiler().scanImports(content);
+  const imports = new Bun.Transpiler().scanImports(content.replaceAll("__require", "require"));
 
   const { intersect } = require("semver-intersect");
   const dependencies: Record<string, string[]> = {};
   for (const i of imports) {
-    let [name, version] = i.path.split("@");
+    let [_, name, version] = i.path.match(captureVersion) ?? [];
     if (version == undefined) {
       if (dependencies[name] == undefined) {
         dependencies[name] = [];

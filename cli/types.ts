@@ -159,7 +159,9 @@ export function getTypeStrFromPath(
     parsed.ext == ".ts" ||
     parsed.ext == ".sh" ||
     parsed.ext == ".py" ||
-    parsed.ext == ".sql"
+    parsed.ext == ".sql" ||
+    parsed.ext == ".gql" ||
+    parsed.ext == ".ps1"
   ) {
     return "script";
   }

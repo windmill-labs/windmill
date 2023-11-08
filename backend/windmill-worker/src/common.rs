@@ -1,16 +1,31 @@
 use async_recursion::async_recursion;
+use itertools::Itertools;
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
+use regex::Regex;
+use serde::Serialize;
+use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
+use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
+    variables::ContextualVariable,
 };
-use windmill_queue::CLOUD_HOSTED;
 
 use anyhow::Result;
+use windmill_queue::CanceledBy;
+
 use std::{
-    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
+    borrow::Borrow,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    io,
+    os::unix::process::ExitStatusExt,
+    panic,
     time::Duration,
 };
 
@@ -30,21 +45,61 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::{AuthedClient, MAX_RESULT_SIZE, TIMEOUT_DURATION, WHITELIST_ENVS};
+use crate::{
+    AuthedClient, AuthedClientBackgroundTask, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM,
+    ROOT_CACHE_DIR, TIMEOUT_DURATION, WHITELIST_ENVS,
+};
+
+pub async fn build_args_map<'a>(
+    job: &'a QueuedJob,
+    client: &AuthedClientBackgroundTask,
+    db: &Pool<Postgres>,
+) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
+    if let Some(args) = &job.args {
+        return transform_json(client, &job.workspace_id, &args.0, &job, db).await;
+    }
+    return Ok(None);
+}
+
+pub async fn build_args_values(
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
+    db: &Pool<Postgres>,
+) -> error::Result<HashMap<String, serde_json::Value>> {
+    if let Some(args) = &job.args {
+        transform_json_as_values(client, &job.workspace_id, &args.0, &job, db).await
+    } else {
+        Ok(HashMap::new())
+    }
+}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
-    client: &AuthedClient,
+    client: &AuthedClientBackgroundTask,
     job: &QueuedJob,
     job_dir: &str,
+    db: &Pool<Postgres>,
 ) -> Result<(), Error> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+    if let Some(args) = &job.args {
+        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
+            write_file(
+                job_dir,
+                "args.json",
+                &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
+            )
+            .await?;
+        } else {
+            write_file(
+                job_dir,
+                "args.json",
+                &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
+            )
+            .await?;
+        }
     } else {
-        None
+        write_file(job_dir, "args.json", "{}").await?;
     };
-    let ser_args = serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    write_file(job_dir, "args.json", &ser_args).await?;
+
     write_file(job_dir, "result.json", "").await?;
     Ok(())
 }
@@ -67,22 +122,99 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
     Ok(file)
 }
 
+lazy_static::lazy_static! {
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res)\:"#).unwrap();
+}
+
+pub async fn transform_json<'a>(
+    client: &AuthedClientBackgroundTask,
+    workspace: &str,
+    vs: &'a HashMap<String, Box<RawValue>>,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
+) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
+    let mut has_match = false;
+    for (_, v) in vs {
+        let inner_vs = v.get();
+        if (*RE_RES_VAR).is_match(inner_vs) {
+            has_match = true;
+            break;
+        }
+    }
+    if !has_match {
+        return Ok(None);
+    }
+    let mut r = HashMap::new();
+    for (k, v) in vs {
+        let inner_vs = v.get();
+        if (*RE_RES_VAR).is_match(inner_vs) {
+            let value = serde_json::from_str(inner_vs).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            let transformed =
+                transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
+                    .await?;
+            let as_raw = serde_json::from_value(transformed).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            r.insert(k.to_string(), as_raw);
+        } else {
+            r.insert(k.to_string(), v.to_owned());
+        }
+    }
+    Ok(Some(r))
+}
+
+pub async fn transform_json_as_values<'a>(
+    client: &AuthedClientBackgroundTask,
+    workspace: &str,
+    vs: &'a HashMap<String, Box<RawValue>>,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
+) -> error::Result<HashMap<String, serde_json::Value>> {
+    let mut r: HashMap<String, serde_json::Value> = HashMap::new();
+    for (k, v) in vs {
+        let inner_vs = v.get();
+        if (*RE_RES_VAR).is_match(inner_vs) {
+            let value = serde_json::from_str(inner_vs).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            let transformed =
+                transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
+                    .await?;
+            let as_raw = serde_json::from_value(transformed).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            r.insert(k.to_string(), as_raw);
+        } else {
+            r.insert(
+                k.to_string(),
+                serde_json::from_str(v.get()).unwrap_or_else(|_| serde_json::Value::Null),
+            );
+        }
+    }
+    Ok(r)
+}
+
 #[async_recursion]
 pub async fn transform_json_value(
     name: &str,
     client: &AuthedClient,
     workspace: &str,
     v: Value,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
             client
-                .get_client()
-                .get_variable_value(workspace, path)
+                .get_variable_value(path)
                 .await
-                .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
-                .map(|v| json!(v.into_inner()))
+                .map(|x| json!(x))
+                .map_err(|e| {
+                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e}"))
+                })
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -91,18 +223,55 @@ pub async fn transform_json_value(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
-            Ok(client
-                .get_client()
-                .get_resource_value_interpolated(workspace, path)
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    path,
+                    Some(job.id.to_string()),
+                )
                 .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
-                .into_inner())
+                .map_err(|e| {
+                    Error::NotFound(format!("Resource {path} not found for `{name}`: {e}"))
+                })
+        }
+        Value::String(y) if y.starts_with("$") => {
+            let flow_path = if let Some(uuid) = job.parent_job {
+                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+            } else {
+                None
+            };
+
+            let variables = variables::get_reserved_variables(
+                &job.workspace_id,
+                &client.token,
+                &job.email,
+                &job.created_by,
+                &job.id.to_string(),
+                &job.permissioned_as,
+                job.script_path.clone(),
+                job.parent_job.map(|x| x.to_string()),
+                flow_path,
+                job.schedule_path.clone(),
+                job.flow_step_id.clone(),
+            )
+            .await;
+
+            let name = y.strip_prefix("$").unwrap();
+
+            let value = variables
+                .iter()
+                .find(|x| x.name == name)
+                .map(|x| x.value.clone())
+                .unwrap_or_else(|| y);
+            Ok(json!(value))
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(&a, client, workspace, b).await?,
+                    transform_json_value(&a, client, workspace, b, job, &db).await?,
                 );
             }
             Ok(Value::Object(m))
@@ -117,16 +286,31 @@ pub async fn read_file_content(path: &str) -> error::Result<String> {
     file.read_to_string(&mut content).await?;
     Ok(content)
 }
-pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
-    let content = read_file_content(path).await?;
-    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
-        return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
-        If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
-    }
-    serde_json::from_str(&content)
-        .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+
+pub async fn read_file_bytes(path: &str) -> error::Result<Vec<u8>> {
+    let mut file = File::open(path).await?;
+    let mut content = Vec::new();
+    file.read_to_end(&mut content).await?;
+    Ok(content)
 }
-pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
+
+//this skips more steps than from_str at the cost of being unsafe. The source must ALWAUS gemerate valid json or this can cause UB in the worst case
+pub fn unsafe_raw(json: String) -> Box<RawValue> {
+    unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
+}
+
+pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
+    let content = read_file_content(path).await?;
+
+    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
+        return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
+        If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
+    };
+
+    let r = unsafe_raw(content);
+    return Ok(r);
+}
+pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
     return read_file(&format!("{job_dir}/result.json")).await;
 }
 
@@ -181,12 +365,15 @@ pub async fn get_reserved_variables(
         job.schedule_path.clone(),
         job.flow_step_id.clone(),
     )
+    .await
     .to_vec();
 
-    let mut r: HashMap<String, String> = variables
-        .into_iter()
-        .map(|rv| (rv.name, rv.value))
-        .collect();
+    Ok(build_envs_map(variables))
+}
+
+pub fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String, String> {
+    let mut r: HashMap<String, String> =
+        context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
     if let Some(ref envs) = *WHITELIST_ENVS {
         for e in envs {
@@ -194,9 +381,8 @@ pub async fn get_reserved_variables(
         }
     }
 
-    Ok(r)
+    r
 }
-
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -236,12 +422,15 @@ pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     logs: &mut String,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
     _w_id: &str,
     child_name: &str,
     custom_timeout: Option<i32>,
+    sigterm: bool,
 ) -> error::Result<()> {
     let start = Instant::now();
     let update_job_interval = Duration::from_millis(500);
@@ -267,12 +456,16 @@ pub async fn handle_child(
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
     let update_job = async {
+        if job_id == Uuid::nil() {
+            return;
+        }
         let db = db.clone();
 
         let mut interval = interval(update_job_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        let mut i = 1;
+        let mut i = 0;
+
         loop {
             tokio::select!(
                 _ = rx.recv() => break,
@@ -288,18 +481,26 @@ pub async fn handle_child(
                         .await
                         .expect("update worker ping");
                     }
-                    let mem_peak = get_mem_peak(pid, nsjail).await;
-                    tracing::info!("{job_id} still running. mem peak: {}kB", mem_peak);
-                    let mem_peak = if mem_peak > 0 { Some(mem_peak) } else { None };
-                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled", mem_peak, job_id)
+                    let current_mem = get_mem_peak(pid, nsjail).await;
+                    if current_mem > *mem_peak {
+                        *mem_peak = current_mem
+                    }
+                    tracing::info!("{worker_name}/{job_id} in {_w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                    let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
+                        .bind(*mem_peak)
+                        .bind(job_id)
                         .fetch_optional(&db)
                         .await
-                        .map(|v| Some(true) == v)
-                        .unwrap_or_else(|err| {
-                            tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
-                            false
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id}: {e}");
+                            Some((false, None, None))
                         })
-                    {
+                        .unwrap_or((false, None, None));
+                    if canceled {
+                        canceled_by_ref.replace(CanceledBy {
+                            username: canceled_by.clone(),
+                            reason: canceled_reason.clone(),
+                        });
                         break;
                     }
                 },
@@ -351,7 +552,7 @@ pub async fn handle_child(
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout,
-            _ = update_job => KillReason::Cancelled,
+            _ = update_job, if job_id != Uuid::nil() => KillReason::Cancelled,
         };
         tx.send(()).expect("rx should never be dropped");
         drop(tx);
@@ -377,6 +578,21 @@ pub async fn handle_child(
             }
         };
 
+        if sigterm {
+            if let Some(id) = child.id() {
+                signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+                for _ in 0..*MAX_WAIT_FOR_SIGTERM {
+                    if child.try_wait().is_ok_and(|x| x.is_some()) {
+                        break;
+                    }
+                    sleep(Duration::from_secs(1)).await;
+                }
+                if child.try_wait().is_ok_and(|x| x.is_some()) {
+                    set_reason.await;
+                    return Ok(Err(kill_reason));
+                }
+            }
+        }
         /* send SIGKILL and reap child process */
         let (_, kill) = future::join(set_reason, child.kill()).await;
         kill.map(|()| Err(kill_reason))
@@ -485,7 +701,7 @@ pub async fn handle_child(
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
-    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms", start.elapsed().as_millis());
+    tracing::info!(%job_id, "child process '{child_name}' for {worker_name}/{job_id} took {}ms, mem_peak: {:?}", start.elapsed().as_millis(), mem_peak);
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
@@ -511,6 +727,12 @@ pub async fn handle_child(
     }
 }
 
+pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
+    return cmd
+        .spawn()
+        .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+}
+
 /// takes stdout and stderr from Child, panics if either are not present
 ///
 /// builds a stream joining both stdout and stderr each read line by line
@@ -532,7 +754,7 @@ fn child_joined_output_stream(
     stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
 }
 
-fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
+pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
@@ -566,6 +788,54 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
+pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> String {
+    if let Some(vs) = v {
+        let mut dh = DefaultHasher::new();
+        let hm = &vs.0;
+        for k in hm.keys().sorted() {
+            k.hash(&mut dh);
+            hm.get(k).unwrap().get().hash(&mut dh);
+        }
+        hex::encode(dh.finish().to_be_bytes())
+    } else {
+        "empty_args".to_string()
+    }
+}
+
+#[derive(Serialize)]
+struct StoreCachedResource<'a> {
+    expire: i64,
+    value: &'a RawValue,
+}
+
+pub async fn save_in_cache<'a>(
+    db: &Pool<Postgres>,
+    job: &QueuedJob,
+    cached_path: String,
+    r: &'a RawValue,
+) {
+    let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
+
+    let store_cache_resource = StoreCachedResource { expire, value: r };
+    let raw_json = sqlx::types::Json(store_cache_resource);
+
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO resource
+    (workspace_id, path, value, resource_type)
+    VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path)
+    DO UPDATE SET value = $3",
+        job.workspace_id,
+        cached_path,
+        raw_json as sqlx::types::Json<StoreCachedResource>,
+        "cache"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error creating cache resource {e}")
+    }
+}
+
 /* TODO retry this? */
 #[tracing::instrument(level = "trace", skip_all)]
 async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<Pool<Postgres>>) {
@@ -583,4 +853,21 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     {
         tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
+}
+
+fn tentatively_improve_error(err: Error, executable: &str) -> Error {
+    if err
+        .to_string()
+        .contains("No such file or directory (os error 2)")
+    {
+        return Error::InternalErr(format!("Executable {executable} not found on worker"));
+    }
+    return err;
+}
+
+pub async fn clean_cache() -> error::Result<()> {
+    tracing::info!("Started cleaning cache");
+    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tracing::info!("Finished cleaning cache");
+    Ok(())
 }

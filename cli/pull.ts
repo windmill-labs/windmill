@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import { colors, Command, JSZip } from "./deps.ts";
+import { colors, Command, JSZip, log } from "./deps.ts";
 import { Workspace } from "./workspace.ts";
 import { getHeaders } from "./utils.ts";
 
@@ -45,6 +45,8 @@ export async function downloadZip(
       colors.red("Failed to request tarball from API " + zipResponse.statusText)
     );
     throw new Error(await zipResponse.text());
+  } else {
+    log.debug(`Downloaded zip/tarball successfully`);
   }
   const blob = await zipResponse.blob();
   return await JSZip.loadAsync(blob as any);

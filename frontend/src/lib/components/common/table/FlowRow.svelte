@@ -34,6 +34,9 @@
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let deploymentDrawer: DeployWorkspaceDrawer
+	export let errorHandlerMuted: boolean
+	export let depth: number = 0
+	export let menuOpen: boolean = false
 
 	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
 
@@ -65,7 +68,9 @@
 	let scheduleEditor: ScheduleEditor
 </script>
 
-<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+{#if menuOpen}
+	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+{/if}
 <Row
 	href="/flows/get/{path}?workspace={$workspaceStore}"
 	kind="flow"
@@ -74,8 +79,10 @@
 	{path}
 	{summary}
 	{starred}
+	{errorHandlerMuted}
 	on:change
 	canFavorite={!draft_only}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		{#if archived}
@@ -231,6 +238,12 @@
 						disabled: !owner
 					}
 				]
+			}}
+			on:dropdownOpen={() => {
+				menuOpen = true
+			}}
+			on:dropdownClose={() => {
+				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>

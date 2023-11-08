@@ -69,7 +69,7 @@ ${Object.entries(args)
 
 		<tbody class="divide-y">
 			{#if args && Object.keys(args).length > 0}
-				{#each Object.entries(args) as [arg, value]}
+				{#each Object.entries(args).sort((a, b) => a[0].localeCompare(b[0])) as [arg, value]}
 					<Row>
 						<Cell first>{arg}</Cell>
 						<Cell last><ArgInfo {value} /></Cell>
@@ -80,10 +80,10 @@ ${Object.entries(args)
 			{:else}
 				<Row>
 					<Cell first>
-						<Skeleton layout={[[3], 0.5, [3]]} />
+						<Skeleton layout={[[1], 0.5, [1]]} />
 					</Cell>
 					<Cell last>
-						<Skeleton layout={[[3], 0.5, [3]]} />
+						<Skeleton layout={[[1], 0.5, [1]]} />
 					</Cell>
 				</Row>
 			{/if}

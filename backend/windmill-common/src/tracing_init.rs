@@ -41,10 +41,35 @@ pub fn initialize_tracing() {
 
     let ts_base = tracing_subscriber::registry().with(env_filter);
 
+    #[cfg(feature = "loki")]
+    let ts_base = {
+        let (layer, task) = tracing_loki::builder()
+            .build_url(reqwest::Url::parse("http://127.0.0.1:3100").unwrap())
+            .expect("build loki url");
+        tokio::spawn(task);
+        ts_base.with(layer)
+    };
+
     match json_fmt {
         true => ts_base.with(json_layer().flatten_event(true)).init(),
         false => ts_base
             .with(compact_layer().with_ansi(style.to_lowercase() != "never"))
             .init(),
     }
+}
+
+#[cfg(feature = "flamegraph")]
+use tracing_flame::FlameLayer;
+
+#[cfg(feature = "flamegraph")]
+pub fn setup_flamegraph() -> impl Drop {
+    // let fmt_layer = Layer::default();
+
+    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+    tracing_subscriber::registry()
+        // .with(fmt_layer)
+        .with(flame_layer)
+        .init();
+    _guard
 }

@@ -15,7 +15,7 @@ import type {
 export const BG_PREFIX = 'bg_'
 
 export function migrateApp(app: App) {
-	app?.hiddenInlineScripts.forEach((x) => {
+	(app?.hiddenInlineScripts ?? []).forEach((x) => {
 		if (x.type == undefined) {
 			//@ts-ignore
 			x.type = 'runnableByName'
@@ -172,20 +172,86 @@ export function buildExtraLib(
 	return `${cs}
 ${
 	goto
-		? `declare async function goto(path: string, newTab?: boolean): Promise<void>;
+		? `
+/** open a window or tab
+ * @param path path/url to go to
+ * @param open in a tab?
+*/
+declare async function goto(path: string, newTab?: boolean): Promise<void>;
+
+/** set tab
+ * @param id component's id
+ * @param index index of the tab to set
+*/
 declare function setTab(id: string, index: string): void;
+
+/** recompute a component's runnable or background runnable
+ * @param id component's id
+*/
 declare function recompute(id: string): void;
+
+/** get the ag grid api from an AgGridTable
+ * @param id component's id
+*/
 declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
+
+
+/** set value of a component
+ * @param id component's id
+ * @param value value to set
+ */
 declare function setValue(id: string, value: any): void;
+
+/** set selected index of a table
+ * @param id component's id
+ * @param index index to set
+ */
 declare function setSelectedIndex(id: string, index: number): void;
-declare function openModal(id: string): void;
-declare function closeModal(id: string): void;
+
+/** close a drawer or modal
+  * @param id component's id
+ */
+declare function open(id: string): void;
+
+/** close a drawer or modal
+  * @param id component's id
+ */
+declare function close(id: string): void;
+
+
+/** validate form field property 'key'
+ * @param id component's id
+ * @param key property's key to validate
+ */
+declare function validate(id: string, key: number): void;
+
+/** validate form field property 'key'
+ * @param id component's id
+ * @param key property's key to validate
+ */
+declare function invalidate(id: string, key: number, error: string): void;
+
+/** validate all form's properties
+ * @param id component's id
+ */
+declare function validateAll(id: string, key: number): void;
+
 `
 		: ''
 }
+
+/** The current's app state */
 declare const state: ${JSON.stringify(state)};
+
+/** The iterator within the context of a list */
 declare const iter: {index: number, value: any};
-declare const row: {index: number, value: any};
+
+/** The row within the context of a table */
+declare const row: Record<string, any>;
+
+/** The group fields within the context of a container's group */
+declare const group: Record<string, any>;
+
 `
 }
 
@@ -231,11 +297,11 @@ export function toKebabCase(text: string) {
 	return text.replace(/[A-Z]+(?![a-z])|[A-Z]/g, ($, ofs) => (ofs ? '-' : '') + $.toLowerCase())
 }
 
-export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
+export function initCss<T extends Record<string, ComponentCssProperty>>(
 	appCss?: Record<string, ComponentCssProperty>,
 	componentCss?: T
-): T | undefined {
-	if (!componentCss) return undefined
+): T {
+	if (!componentCss) return {} as T
 
 	return Object.fromEntries(
 		Object.entries(componentCss).map(([key, v]) => {
@@ -251,7 +317,8 @@ export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
 				key,
 				{
 					style: (appStyle + appEnding + compStyle + compEnding).trim(),
-					class: twMerge(appCss?.[key]?.class, v?.class)
+					class: twMerge(appCss?.[key]?.class, v?.class),
+					evalClass: appCss?.[key]?.evalClass || v?.evalClass
 				}
 			]
 		})

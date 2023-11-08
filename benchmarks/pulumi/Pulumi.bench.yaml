@@ -1,0 +1,5 @@
+config:
+  aws:region: us-east-2
+  tailscale:apiKey:
+    secure: AAABAMGx6JDiUSM4/2M7ZLmws26KJYAGVmCb+BdURSGdO32scaf96Xy3Ocu/Ncv7G1y1W6K1EwZieN6L0/cTAZDGCJpRcMrMmuDyqE8u8Uuv2uRLKRA0
+  tailscale:tailnet: windmill.dev

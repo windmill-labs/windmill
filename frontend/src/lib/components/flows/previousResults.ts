@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
 import { schemaToObject } from '$lib/schema'
 import { getAllSubmodules, getSubModules } from './flowExplorer'
 import type { FlowState } from './flowState'
@@ -18,7 +18,7 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
-function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
+export function dfs(id: string | undefined, flow: OpenFlow, getParents: boolean = true): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -55,16 +55,19 @@ function getFlowInput(
 ) {
 	const parentModule = parentModules.shift()
 
+	const topFlowInput = schemaToObject(schema, args)
+
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
 	if (parentState && parentModule) {
 		if (parentState.previewArgs) {
-			return parentState.previewArgs
+			return {...topFlowInput, ...parentState.previewArgs }
 		} else {
 			const parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 
 			if (parentModule.value.type === 'forloopflow') {
 				return {
+					...topFlowInput,
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
@@ -72,31 +75,22 @@ function getFlowInput(
 					...parentFlowInput
 				}
 			} else {
-				return parentFlowInput
+
+				return {...topFlowInput,  ...parentFlowInput }
 			}
 		}
 	} else {
-		return schemaToObject(schema, args)
+
+		return topFlowInput
 	}
 }
 
-export function getStepPropPicker(
-	flowState: FlowState,
-	parentModule: FlowModule | undefined,
-	previousModule: FlowModule | undefined,
-	id: string,
-	flow: Flow,
-	args: any,
-	include_node: boolean
-): StepPropPicker {
-	const flowInput = getFlowInput(
-		dfs(parentModule?.id, flow),
-		flowState,
-		args,
-		flow.schema as Schema
-	)
-
-	const previousIds = dfs(id, flow, false)
+export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean): string[] {
+	const df = dfs(id, flow, false)
+	if (!include_node) {
+		df.shift()
+	}
+	return df
 		.map((x) => {
 			let submodules = getAllSubmodules(x)
 				.flat()
@@ -109,9 +103,25 @@ export function getStepPropPicker(
 			}
 		})
 		.flat()
-	if (!include_node) {
-		previousIds.shift()
-	}
+}
+
+export function getStepPropPicker(
+	flowState: FlowState,
+	parentModule: FlowModule | undefined,
+	previousModule: FlowModule | undefined,
+	id: string,
+	flow: OpenFlow,
+	args: any,
+	include_node: boolean
+): StepPropPicker {
+	const flowInput = getFlowInput(
+		dfs(parentModule?.id, flow),
+		flowState,
+		args,
+		flow.schema as Schema
+	)
+
+	const previousIds = getPreviousIds(id, flow, include_node)
 
 	let priorIds = Object.fromEntries(
 		previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()

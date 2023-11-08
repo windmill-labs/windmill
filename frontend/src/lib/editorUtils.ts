@@ -67,6 +67,8 @@ export function langToExt(lang: string): string {
 			return 'ts'
 		case 'graphql':
 			return 'gql'
+		case 'css':
+			return 'css'
 
 		default:
 			return 'unknown'

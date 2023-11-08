@@ -191,7 +191,7 @@ def get_result(job_id: str) -> Dict[str, Any]:
     if not res.result:
         raise Exception(f"Unexpected result not found for completed job {job_id}")
     else:
-        return res.result.to_dict()  # type: ignore
+        return res.result
 
 
 def get_resource(path: str | None = None, none_if_undefined: bool = False) -> Any:

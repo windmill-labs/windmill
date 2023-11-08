@@ -10,6 +10,11 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import { LogIn, AlertTriangle } from 'lucide-svelte'
+
+	$workspaceStore = $page.params.workspace
+	let rd = $page.url.href.replace($page.url.origin, '')
 
 	let job: Job | undefined = undefined
 	let currentApprovers: { resume_id: number; approver: string }[] = []
@@ -111,91 +116,112 @@
 
 <CenteredModal title="Approval for resuming of flow" disableLogo>
 	{#if error}
-		<p class="text-red-400 text-lg">{error}</p>
-	{/if}
-	<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
-		<div class="w-full">
-			<h2 class="mt-4">Current approvers</h2>
-			<p class="text-xs italic"
-				>Each approver can only approve once and cannot change his approver name set by the approval
-				sender</p
-			>
-			<div class="my-4">
-				{#if currentApprovers.length > 0}
-					<ul>
-						{#each currentApprovers as approver}
-							<li
-								><b
-									>{approver.approver}<Tooltip>Unique id of approval: {approver.resume_id}</Tooltip
-									></b
-								></li
-							>
-						{/each}
-					</ul>
-				{:else}
-					<p class="text-sm"
-						>No current approvers for this step (approval steps can require more than one approval)</p
-					>
+		<div class="space-y-6">
+			{#if error.startsWith('Not authorized:')}
+				<div class="flex flex-row gap-4 justify-center">
+					<AlertTriangle />
+					<p class="text-lg">Not Authorized</p>
+				</div>
+				<p class="text-sm">{error.replace(/^(Not authorized: )/, '')}</p>
+				<Button href={`/user/login?${rd ? 'rd=' + encodeURIComponent(rd) : ''}`}>
+					Sign in
+					<LogIn class="w-8" size={18} />
+				</Button>
+			{:else}
+				<div class="flex flex-row gap-4 justify-center">
+					<AlertTriangle class="" />
+					<p class="text-lg">Permission denied</p>
+				</div>
+				<p class="text-sm">{error.replace(/^(Permission denied: )/, '')}</p>
+			{/if}
+		</div>
+	{:else}
+		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
+			<div class="w-full">
+				<h2 class="mt-4">Current approvers</h2>
+				<p class="text-xs italic"
+					>Each approver can only approve once and cannot change his approver name set by the
+					approval sender</p
+				>
+				<div class="my-4">
+					{#if currentApprovers.length > 0}
+						<ul>
+							{#each currentApprovers as approver}
+								<li
+									><b
+										>{approver.approver}<Tooltip
+											>Unique id of approval: {approver.resume_id}</Tooltip
+										></b
+									></li
+								>
+							{/each}
+						</ul>
+					{:else}
+						<p class="text-sm"
+							>No current approvers for this step (approval steps can require more than one
+							approval)</p
+						>
+					{/if}
+				</div>
+			</div>
+			<div class="w-full">
+				{#if job && job.raw_flow}
+					<FlowMetadata {job} />
 				{/if}
 			</div>
 		</div>
-		<div class="w-full">
-			{#if job && job.raw_flow}
-				<FlowMetadata {job} />
+		<h2 class="mt-4 mb-2">Flow arguments</h2>
+
+		<JobArgs args={job?.args} />
+		<div class="mt-8">
+			{#if approver}
+				<p>Dis/approving as: <b>{approver}</b></p>
 			{/if}
 		</div>
-	</div>
-	<h2 class="mt-4">Flow arguments</h2>
-
-	<JobArgs args={job?.args} />
-	<div class="mt-8">
-		{#if approver}
-			<p>Dis/approving as: <b>{approver}</b></p>
+		{#if completed}
+			<div class="my-2"
+				><p><b>The flow is not running anymore. You cannot cancel or resume it.</b></p></div
+			>
+		{:else if alreadyResumed}
+			<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
 		{/if}
-	</div>
-	{#if completed}
-		<div class="my-2"
-			><p><b>The flow is not running anymore. You cannot cancel or resume it.</b></p></div
-		>
-	{:else if alreadyResumed}
-		<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
-	{/if}
 
-	{#if schema}
-		<SchemaForm bind:isValid={valid} {schema} bind:args={payload} />
-	{/if}
+		{#if schema}
+			<SchemaForm bind:isValid={valid} {schema} bind:args={payload} />
+		{/if}
 
-	<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-		<Button
-			btnClasses="grow"
-			color="red"
-			on:click|once={cancel}
-			size="md"
-			disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
-		>
-		<Button
-			btnClasses="grow"
-			color="green"
-			on:click|once={resume}
-			size="md"
-			disabled={completed || alreadyResumed || !valid}>Approve/Resume</Button
-		>
-	</div>
-
-	<div class="mt-4 flex flex-row flex-wrap justify-between"
-		><a href="https://windmill.dev">Learn more about Windmill</a>
-		<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
-			>Flow run details (require auth)</a
-		>
-	</div>
-	{#if job && job.raw_flow}
-		<h2 class="mt-10">Flow details</h2>
-		<div class="border border-gray-700">
-			<FlowGraph
-				modules={job.raw_flow?.modules}
-				failureModule={job.raw_flow?.failure_module}
-				notSelectable
-			/>
+		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
+			<Button
+				btnClasses="grow"
+				color="red"
+				on:click|once={cancel}
+				size="md"
+				disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
+			>
+			<Button
+				btnClasses="grow"
+				color="green"
+				on:click|once={resume}
+				size="md"
+				disabled={completed || alreadyResumed || !valid}>Approve/Resume</Button
+			>
 		</div>
+
+		<div class="mt-4 flex flex-row flex-wrap justify-between"
+			><a href="https://windmill.dev">Learn more about Windmill</a>
+			<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
+				>Flow run details (require auth)</a
+			>
+		</div>
+		{#if job && job.raw_flow}
+			<h2 class="mt-10">Flow details</h2>
+			<div class="border border-gray-700">
+				<FlowGraph
+					modules={job.raw_flow?.modules}
+					failureModule={job.raw_flow?.failure_module}
+					notSelectable
+				/>
+			</div>
+		{/if}
 	{/if}
 </CenteredModal>

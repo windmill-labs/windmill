@@ -15,6 +15,7 @@ use axum::{
     Json, Router,
 };
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -23,7 +24,6 @@ use windmill_common::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::{query_scalar, FromRow, Postgres, Transaction};
-use windmill_queue::CLOUD_HOSTED;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -200,8 +200,22 @@ pub async fn require_is_owner(
     }
 }
 
+async fn _check_nb_of_groups(db: &DB) -> Result<()> {
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack'",)
+        .fetch_one(db)
+        .await?;
+    if nb_groups.unwrap_or(0) >= 5 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of groups (5 outside of native groups 'all', 'slack' and 'error_handler') without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 async fn create_group(
     authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
@@ -209,6 +223,9 @@ async fn create_group(
     let mut tx = user_db.begin(&authed).await?;
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
+
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_groups(&_db).await?;
 
     sqlx::query!(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4)",
@@ -520,8 +537,7 @@ struct IGroup {
     name: String,
     emails: Option<Vec<String>>,
 }
-async fn list_igroups(authed: ApiAuthed, Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
-    require_super_admin(&db, &authed.email).await?;
+async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let groups = sqlx::query_as!(

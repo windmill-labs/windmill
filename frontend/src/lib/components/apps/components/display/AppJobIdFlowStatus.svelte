@@ -5,10 +5,11 @@
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -31,7 +32,7 @@
 
 	initializing = false
 
-	$: css = concatCustomCss($app.css?.jobidflowstatuscomponent, customCss)
+	let css = initCss($app.css?.jobidflowstatuscomponent, customCss)
 
 	$: jobId = resolvedConfig.jobId
 </script>
@@ -42,6 +43,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.jobidflowstatuscomponent}
 	/>
 {/each}
 

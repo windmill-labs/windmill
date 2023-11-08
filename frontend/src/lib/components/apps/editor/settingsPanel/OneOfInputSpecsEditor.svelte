@@ -38,6 +38,14 @@
 			}
 		}
 	}
+
+	function getValueOfDeprecated(obj: object): boolean {
+		if (!obj) return false
+
+		let innerObject = obj[Object.keys(obj)[0]]
+
+		return innerObject?.deprecated
+	}
 </script>
 
 <div class="p-2 border">
@@ -55,7 +63,9 @@
 		}}
 	>
 		{#each Object.keys(inputSpecsConfiguration ?? {}) as choice}
-			<option value={choice}>{labels?.[choice] ?? choice}</option>
+			{#if !getValueOfDeprecated(inputSpecsConfiguration[choice]) || oneOf.selected === choice}
+				<option value={choice}>{labels?.[choice] ?? choice}</option>
+			{/if}
 		{/each}
 	</select>
 	{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}

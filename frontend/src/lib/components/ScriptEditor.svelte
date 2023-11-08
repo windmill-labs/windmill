@@ -249,6 +249,7 @@
 			kind={asKind(kind)}
 			{template}
 			{diffEditor}
+			{args}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
@@ -302,6 +303,7 @@
 						deno={lang == 'deno'}
 						automaticLayout={true}
 						{fixedOverflowWidgets}
+						{args}
 					/>
 					<DiffEditor
 						bind:this={diffEditor}
@@ -342,7 +344,7 @@
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+								Test&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 								<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 							{/if}
 						</Button>
@@ -352,7 +354,7 @@
 					<Pane size={33}>
 						<div class="px-2">
 							<div class="break-words relative font-sans">
-								<SchemaForm compact {schema} bind:args bind:isValid />
+								<SchemaForm compact {schema} bind:args bind:isValid showSchemaExplorer />
 							</div>
 						</div>
 					</Pane>
@@ -364,6 +366,7 @@
 							previewIsLoading={testIsLoading}
 							{editor}
 							{diffEditor}
+							{args}
 						/>
 					</Pane>
 				</Splitpanes>

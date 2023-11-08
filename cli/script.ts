@@ -83,7 +83,9 @@ export async function handleFile(
     log.debug(`Processing local script ${path}`);
 
     alreadySynced.push(path);
-    const remotePath = path.substring(0, path.length - 3);
+    const remotePath = path
+      .substring(0, path.indexOf("."))
+      .replaceAll("\\", "/");
     const metaPath = remotePath + ".script.json";
     let typed = undefined;
     try {
@@ -105,7 +107,7 @@ export async function handleFile(
     try {
       remote = await ScriptService.getScriptByPath({
         workspace,
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
       });
       log.debug(`Script ${remotePath} exists on remote`);
     } catch {
@@ -142,13 +144,19 @@ export async function handleFile(
           content,
           description: typed?.description ?? "",
           language: language as NewScript.language,
-          path: remotePath,
+          path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           is_template: typed?.is_template,
           kind: typed?.kind,
           lock: typed?.lock,
           parent_hash: remote.hash,
           schema: typed?.schema,
+          tag: typed?.tag,
+          ws_error_handler_muted: typed?.ws_error_handler_muted,
+          dedicated_worker: typed?.dedicated_worker,
+          cache_ttl: typed?.cache_ttl,
+          concurrency_time_window_s: typed?.concurrency_time_window_s,
+          concurrent_limit: typed?.concurrent_limit,
         },
       });
     } else {
@@ -162,13 +170,19 @@ export async function handleFile(
           content,
           description: typed?.description ?? "",
           language: language as NewScript.language,
-          path: remotePath,
+          path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           is_template: typed?.is_template,
           kind: typed?.kind,
           lock: typed?.lock,
           parent_hash: undefined,
           schema: typed?.schema,
+          tag: typed?.tag,
+          ws_error_handler_muted: typed?.ws_error_handler_muted,
+          dedicated_worker: typed?.dedicated_worker,
+          cache_ttl: typed?.cache_ttl,
+          concurrency_time_window_s: typed?.concurrency_time_window_s,
+          concurrent_limit: typed?.concurrent_limit,
         },
       });
     }
@@ -180,6 +194,8 @@ export async function handleFile(
 export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? [
+        filePath.replace(".script.json", ".fetch.ts"),
+        filePath.replace(".script.json", ".bun.ts"),
         filePath.replace(".script.json", ".ts"),
         filePath.replace(".script.json", ".py"),
         filePath.replace(".script.json", ".go"),
@@ -188,12 +204,12 @@ export async function findContentFile(filePath: string) {
         filePath.replace(".script.json", "my.sql"),
         filePath.replace(".script.json", "bq.sql"),
         filePath.replace(".script.json", "sf.sql"),
-        filePath.replace(".script.json", ".fetch.ts"),
-        filePath.replace(".script.json", ".bun.ts"),
         filePath.replace(".script.json", ".gql"),
         filePath.replace(".script.json", ".ps1"),
       ]
     : [
+        filePath.replace(".script.yaml", ".fetch.ts"),
+        filePath.replace(".script.yaml", ".bun.ts"),
         filePath.replace(".script.yaml", ".ts"),
         filePath.replace(".script.yaml", ".py"),
         filePath.replace(".script.yaml", ".go"),
@@ -201,8 +217,6 @@ export async function findContentFile(filePath: string) {
         filePath.replace(".script.yaml", "pg.sql"),
         filePath.replace(".script.yaml", "bq.sql"),
         filePath.replace(".script.yaml", "sf.sql"),
-        filePath.replace(".script.yaml", ".fetch.ts"),
-        filePath.replace(".script.yaml", ".bun.ts"),
         filePath.replace(".script.yaml", ".gql"),
         filePath.replace(".script.yaml", ".ps1"),
       ];

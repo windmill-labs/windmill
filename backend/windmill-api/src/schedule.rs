@@ -8,7 +8,9 @@
 
 use crate::{
     db::{ApiAuthed, DB},
+    settings::set_global_setting_internal,
     users::maybe_refresh_folders,
+    utils::require_super_admin,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -40,6 +42,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(edit_schedule))
         .route("/delete/*path", delete(delete_schedule))
         .route("/setenabled/*path", post(set_enabled))
+        .route("/setdefaulthandler", post(set_default_error_handler))
 }
 
 pub fn global_service() -> Router {
@@ -62,6 +65,19 @@ pub struct NewSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ErrorOrRecoveryHandler {
+    pub handler_type: String, // 'error' or 'recovery'
+    pub override_existing: bool,
+
+    pub path: String,
+    pub extra_args: Option<serde_json::Value>,
+    pub number_of_occurence: Option<i32>,
+    pub number_of_occurence_exact: Option<bool>,
+    pub workspace_handler_muted: Option<bool>,
 }
 
 async fn check_path_conflict<'c>(
@@ -95,6 +111,32 @@ async fn create_schedule(
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+
+    #[cfg(not(feature = "enterprise"))]
+    if ns.on_recovery.is_some() {
+        return Err(Error::BadRequest(
+            "on_recovery is only available in enterprise version".to_string(),
+        ));
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    if ns.on_failure.is_some()
+        && ns.on_failure.as_ref().unwrap()
+            == "script/hub/5792/workspace-or-schedule-error-handler-slack"
+    {
+        return Err(Error::BadRequest(
+            "Slack error handler is only available in enterprise version".to_string(),
+        ));
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    if ns.on_failure_times.is_some() && ns.on_failure_times.unwrap() > 1 {
+        return Err(Error::BadRequest(
+            "on_failure with a number of times > 1 is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -111,7 +153,7 @@ async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-         is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *",
+         is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, ws_error_handler_muted) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -129,6 +171,7 @@ async fn create_schedule(
         ns.on_recovery,
         ns.on_recovery_times,
         ns.on_recovery_extra_args,
+        ns.ws_error_handler_muted.unwrap_or(false),
     )
     .fetch_one(&mut tx)
     .await
@@ -190,8 +233,8 @@ async fn edit_schedule(
     clear_schedule(tx.transaction_mut(), path, is_flow, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10 WHERE path \
-         = $11 AND workspace_id = $12 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10, ws_error_handler_muted = $11 
+        WHERE path  = $12 AND workspace_id = $13 RETURNING *",
         es.schedule,
         es.timezone,
         es.args,
@@ -202,6 +245,7 @@ async fn edit_schedule(
         es.on_recovery,
         es.on_recovery_times,
         es.on_recovery_extra_args,
+        es.ws_error_handler_muted.unwrap_or(false),
         path,
         w_id,
     )
@@ -292,6 +336,7 @@ pub struct ScheduleWJobs {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: bool,
     pub jobs: Option<Vec<serde_json::Value>>,
 }
 
@@ -456,6 +501,77 @@ async fn delete_schedule(
     Ok(format!("schedule {} deleted", path))
 }
 
+async fn set_default_error_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<ErrorOrRecoveryHandler>,
+) -> Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+    let (key, value) = match payload.handler_type.as_str() {
+        "error" => {
+            let key = format!("default_error_handler_{}", w_id);
+            let value = serde_json::json!({
+                "wsErrorHandlerMuted": payload.workspace_handler_muted,
+                "errorHandlerPath": payload.path,
+                "errorHandlerExtraArgs": payload.extra_args,
+                "failedTimes": payload.number_of_occurence,
+                "failedExact": payload.number_of_occurence_exact,
+            });
+            Ok((key, value))
+        }
+        "recovery" => {
+            let key = format!("default_recovery_handler_{}", w_id);
+            let value = serde_json::json!({
+                "recoveryHandlerPath": payload.path,
+                "recoveryHandlerExtraArgs": payload.extra_args,
+                "recoveredTimes": payload.number_of_occurence,
+            });
+            Ok((key, value))
+        }
+        _ => Err(Error::BadRequest(
+            "handler_type must be either 'error' or 'recovery'".to_string(),
+        )),
+    }?;
+
+    set_global_setting_internal(&db, key, value).await?;
+
+    if payload.override_existing {
+        match payload.handler_type.as_str() {
+            "error" => {
+                sqlx::query!(
+                    "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6",
+                    payload.workspace_handler_muted,
+                    payload.path,
+                    payload.extra_args,
+                    payload.number_of_occurence,
+                    payload.number_of_occurence_exact,
+                    w_id,
+                )
+                .execute(&db)
+                .await?;
+                Ok(())
+            }
+            "recovery" => {
+                sqlx::query!(
+                    "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4",
+                    payload.path,
+                    payload.extra_args,
+                    payload.number_of_occurence,
+                    w_id,
+                )
+                .execute(&db)
+                .await?;
+                Ok(())
+            }
+            _ => Err(Error::BadRequest(
+                "handler_type must be either 'error' or 'recovery'".to_string(),
+            )),
+        }?;
+    }
+    Ok(())
+}
+
 async fn check_flow_conflict<'c>(
     tx: &mut Transaction<'c, Postgres>,
     w_id: &str,
@@ -494,6 +610,7 @@ pub struct EditSchedule {
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
     pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 pub async fn clear_schedule<'c>(

@@ -67,6 +67,21 @@
         "ordinal": 12,
         "name": "openai_resource_path",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "code_completion_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "error_handler_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 15,
+        "name": "error_handler_muted_on_cancel",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -87,7 +102,10 @@
       true,
       true,
       true,
-      true
+      true,
+      false,
+      true,
+      false
     ]
   },
   "hash": "1730f39fd1793d45fbb41b21389c61296a3ff7489ae12f52a19f9543173ac597"

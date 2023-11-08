@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.156.1
+  version: 1.202.1
   title: Windmill API
 
   contact:
@@ -522,6 +522,148 @@ paths:
               schema:
                 type: boolean
 
+  /settings/global/{key}:
+    get:
+      summary: get global settings
+      operationId: getGlobal
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+    post:
+      summary: post global settings
+      operationId: setGlobal
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      requestBody:
+        description: value set
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value: {}
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/local:
+    get:
+      summary: get local settings
+      operationId: getLocal
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /settings/test_smtp:
+    post:
+      summary: test smtp
+      operationId: testSmtp
+      tags:
+        - setting
+      requestBody:
+        description: test smtp payload
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                smtp:
+                  type: object
+                  properties:
+                    host:
+                      type: string
+                    username:
+                      type: string
+                    password:
+                      type: string
+                    port:
+                      type: integer
+                    from:
+                      type: string
+                    tls_implicit:
+                      type: boolean
+                  required:
+                    - host
+                    - username
+                    - password
+                    - port
+                    - from
+                    - tls_implicit
+              required:
+                - to
+                - smtp
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
+
+  /settings/test_license_key:
+    post:
+      summary: test license key
+      operationId: testLicenseKey
+      tags:
+        - setting
+      requestBody:
+        description: test license key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                license_key:
+                  type: string
+              required:
+                - license_key
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
+
+  /settings/send_stats:
+    post:
+      summary: send stats
+      operationId: sendStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -545,6 +687,45 @@ paths:
       responses:
         "200":
           description: free usage
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tutorial_progress:
+    get:
+      summary: get tutorial progress
+      operationId: getTutorialProgress
+      tags:
+        - user
+      responses:
+        "200":
+          description: tutorial progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  progress:
+                    type: integer
+    post:
+      summary: update tutorial progress
+      operationId: updateTutorialProgress
+      tags:
+        - user
+      requestBody:
+        description: progress update
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                progress:
+                  type: integer
+      responses:
+        "200":
+          description: tutorial progress
           content:
             text/plain:
               schema:
@@ -987,8 +1168,16 @@ paths:
                     type: string
                   openai_resource_path:
                     type: string
+                  code_completion_enabled:
+                    type: boolean
                   error_handler:
                     type: string
+                  error_handler_extra_args:
+                    $ref: "#/components/schemas/ScriptArgs"
+                  error_handler_muted_on_cancel:
+                    type: boolean
+                required:
+                  - code_completion_enabled
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -1060,6 +1249,40 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/run_slack_message_test_job:
+    post:
+      summary: run a job that sends a message to Slack
+      operationId: runSlackMessageTestJob
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: path to hub script to run and its corresponding args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hub_script_path:
+                  type: string
+                channel:
+                  type: string
+                test_msg:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/json:
+              schema:
+                type: object
+                properties:
+                  job_uuid:
+                    type: string
 
   /w/{workspace}/workspaces/edit_deploy_to:
     post:
@@ -1141,24 +1364,28 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/edit_openai_resource_path:
+  /w/{workspace}/workspaces/edit_copilot_config:
     post:
-      summary: edit OpenAI resource path
-      operationId: editOpenaiResourcePath
+      summary: edit copilot config
+      operationId: editCopilotConfig
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: WorkspaceOpenaiResourcePath
+        description: WorkspaceCopilotConfig
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - code_completion_enabled
               properties:
                 openai_resource_path:
                   type: string
+                code_completion_enabled:
+                  type: boolean
       responses:
         "200":
           description: status
@@ -1167,10 +1394,10 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/exists_openai_resource_path:
+  /w/{workspace}/workspaces/get_copilot_info:
     get:
-      summary: OpenAI resource path exists
-      operationId: existsOpenaiResourcePath
+      summary: get copilot info
+      operationId: getCopilotInfo
       tags:
         - workspace
       parameters:
@@ -1182,7 +1409,15 @@ paths:
           content:
             text/plain:
               schema:
-                type: boolean
+                type: object
+                properties:
+                  exists_openai_resource_path:
+                    type: boolean
+                  code_completion_enabled:
+                    type: boolean
+                required:
+                  - exists_openai_resource_path
+                  - code_completion_enabled
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -1202,6 +1437,10 @@ paths:
               properties:
                 error_handler:
                   type: string
+                error_handler_extra_args:
+                  $ref: "#/components/schemas/ScriptArgs"
+                error_handler_muted_on_cancel:
+                  type: boolean
 
       responses:
         "200":
@@ -1880,6 +2119,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: job_id
+          description: job id
+          in: query
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: resource value
@@ -1949,6 +2194,58 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ListableResource"
+
+  /w/{workspace}/resources/list_search:
+    get:
+      summary: list resources for search
+      operationId: listSearchResource
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: resource list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                  required:
+                    - path
+                    - value
+
+  /w/{workspace}/resources/list_names/{name}:
+    get:
+      summary: list resource names
+      operationId: listResourceNames
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: resource list names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    path:
+                      type: string
+                  required:
+                    - name
+                    - path
 
   /w/{workspace}/resources/type/create:
     post:
@@ -2084,55 +2381,76 @@ paths:
                 items:
                   type: string
 
-  /scripts/hub/list:
+  /w/{workspace}/embeddings/query_resource_types:
     get:
-      summary: list all available hub scripts
-      operationId: listHubScripts
+      summary: query resource types by similarity
+      operationId: queryResourceTypes
       tags:
-        - script
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: text
+          description: query text
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
       responses:
         "200":
-          description: hub scripts list
+          description: resource type details
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  asks:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: number
-                        ask_id:
-                          type: number
-                        summary:
-                          type: string
-                        app:
-                          type: string
-                        approved:
-                          type: boolean
-                        kind:
-                          type: string
-                          enum: [script, failure, trigger, command, approval]
-                        votes:
-                          type: number
-                        views:
-                          type: number
-                      required:
-                        - id
-                        - ask_id
-                        - summary
-                        - app
-                        - approved
-                        - kind
-                        - views
-                        - votes
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    score:
+                      type: number
+                    schema: {}
+                  required:
+                    - name
+                    - score
+
+  /integrations/hub/list:
+    get:
+      summary: list hub integrations
+      operationId: listHubIntegrations
+      tags:
+        - integration
+      parameters:
+        - name: kind
+          description: query integrations kind
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: integrations details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
 
   /flows/hub/list:
     get:
-      summary: list all available hub flows
+      summary: list all hub flows
       operationId: listHubFlows
       tags:
         - flow
@@ -2193,7 +2511,7 @@ paths:
 
   /apps/hub/list:
     get:
-      summary: list all available hub apps
+      summary: list all hub apps
       operationId: listHubApps
       tags:
         - app
@@ -2305,9 +2623,163 @@ paths:
                   - content
                   - language
 
+  /scripts/hub/top:
+    get:
+      summary: get top hub scripts
+      operationId: getTopHubScripts
+      tags:
+        - script
+      parameters:
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: app
+          description: query scripts app
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: kind
+          description: query scripts kind
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: hub scripts list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        ask_id:
+                          type: number
+                        summary:
+                          type: string
+                        app:
+                          type: string
+                        version_id:
+                          type: number
+                        kind:
+                          $ref: "#/components/schemas/HubScriptKind"
+                        votes:
+                          type: number
+                        views:
+                          type: number
+                      required:
+                        - id
+                        - ask_id
+                        - summary
+                        - app
+                        - version_id
+                        - kind
+                        - views
+                        - votes
+
+  /embeddings/query_hub_scripts:
+    get:
+      summary: query hub scripts by similarity
+      operationId: queryHubScripts
+      tags:
+        - script
+      parameters:
+        - name: text
+          description: query text
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: kind
+          description: query scripts kind
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: app
+          description: query scripts app
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ask_id:
+                      type: number
+                    id:
+                      type: number
+                    version_id:
+                      type: number
+                    summary:
+                      type: string
+                    app:
+                      type: string
+                    kind:
+                      $ref: "#/components/schemas/HubScriptKind"
+                    score:
+                      type: number
+                  required:
+                    - ask_id
+                    - id
+                    - version_id
+                    - summary
+                    - app
+                    - kind
+                    - score
+
+  /w/{workspace}/scripts/list_search:
+    get:
+      summary: list scripts for search
+      operationId: listSearchScript
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: script list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    content:
+                      type: string
+                  required:
+                    - path
+                    - content
+
   /w/{workspace}/scripts/list:
     get:
-      summary: list all available scripts
+      summary: list all scripts
       operationId: listScripts
       tags:
         - script
@@ -2369,10 +2841,10 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: kind
+        - name: kinds
           description: |
             (default regardless)
-            script kind
+            script kinds to filter, split by comma
           in: query
           schema:
             type: string
@@ -2385,7 +2857,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available scripts
+          description: All scripts
           content:
             application/json:
               schema:
@@ -2395,7 +2867,7 @@ paths:
 
   /w/{workspace}/scripts/list_paths:
     get:
-      summary: list all available scripts paths
+      summary: list all scripts paths
       operationId: listScriptPaths
       tags:
         - script
@@ -2489,6 +2961,33 @@ paths:
       responses:
         "201":
           description: script created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/scripts/toggle_workspace_error_handler/p/{path}:
+    post:
+      summary: Toggle ON and OFF the workspace error handler for a given script
+      operationId: toggleWorkspaceErrorHandlerForScript
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Workspace error handler enabled
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                muted:
+                  type: boolean
+      responses:
+        "200":
+          description: error handler toggled
           content:
             text/plain:
               schema:
@@ -2929,7 +3428,7 @@ paths:
 
   /w/{workspace}/flows/list_paths:
     get:
-      summary: list all available flow paths
+      summary: list all flow paths
       operationId: listFlowPaths
       tags:
         - flow
@@ -2945,9 +3444,34 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/flows/list_search:
+    get:
+      summary: list flows for search
+      operationId: listSearchFlow
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: flow list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                  required:
+                    - path
+                    - value
+
   /w/{workspace}/flows/list:
     get:
-      summary: list all available flows
+      summary: list all flows
       operationId: listFlows
       tags:
         - flow
@@ -2985,7 +3509,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available flow
+          description: All flow
           content:
             application/json:
               schema:
@@ -3016,6 +3540,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
+    post:
+      summary: Toggle ON and OFF the workspace error handler for a given flow
+      operationId: toggleWorkspaceErrorHandlerForFlow
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Workspace error handler enabled
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                muted:
+                  type: boolean
+      responses:
+        "200":
+          description: error handler toggled
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flows/get/draft/{path}:
     get:
@@ -3176,7 +3727,7 @@ paths:
 
   /w/{workspace}/raw_apps/list:
     get:
-      summary: list all available raw apps
+      summary: list all raw apps
       operationId: listRawApps
       tags:
         - raw_app
@@ -3205,7 +3756,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available raw apps
+          description: All raw apps
           content:
             application/json:
               schema:
@@ -3248,9 +3799,34 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/list_search:
+    get:
+      summary: list apps for search
+      operationId: listSearchApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: app list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                  required:
+                    - path
+                    - value
+
   /w/{workspace}/apps/list:
     get:
-      summary: list all available apps
+      summary: list all apps
       operationId: listApps
       tags:
         - app
@@ -3279,7 +3855,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available apps
+          description: All apps
           content:
             application/json:
               schema:
@@ -3392,6 +3968,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps_u/public_resource/{path}:
+    get:
+      summary: get public resource
+      operationId: get public resource
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource value
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/apps/secret_of/{path}:
     get:
@@ -3591,6 +4183,8 @@ paths:
                       type: string
                     path:
                       type: string
+                    cache_ttl:
+                      type: integer
                   required:
                     - content
                     - language
@@ -3617,6 +4211,66 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: scheduled_for
+          description: when to schedule this job (leave empty for immediate run)
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_in_secs
+          description: schedule the script to execute in the number of seconds starting now
+          in: query
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - name: invisible_to_owner
+          description: make the run invisible to the the flow owner (default false)
+          in: query
+          schema:
+            type: boolean
+
+      requestBody:
+        description: flow args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
+    post:
+      summary: restart a completed flow at a given step
+      operationId: restartFlowAtStep
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: step_id
+          description: step id to restart the flow from
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: branch_or_iteration_n
+          description:
+            for branchall or loop, the iteration at which the flow should
+            restart
+          required: true
+          in: path
+          schema:
+            type: integer
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -3767,7 +4421,7 @@ paths:
 
   /w/{workspace}/jobs/queue/list:
     get:
-      summary: list all available queued jobs
+      summary: list all queued jobs
       operationId: listQueue
       tags:
         - job
@@ -3791,7 +4445,7 @@ paths:
         - $ref: "#/components/parameters/Tag"
       responses:
         "200":
-          description: All available queued jobs
+          description: All queued jobs
           content:
             application/json:
               schema:
@@ -3810,6 +4464,27 @@ paths:
       responses:
         "200":
           description: queue count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database_length:
+                    type: integer
+                required:
+                  - database_length
+
+  /w/{workspace}/jobs/completed/count:
+    get:
+      summary: get completed count
+      operationId: getCompletedCount
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: completed count
           content:
             application/json:
               schema:
@@ -3840,7 +4515,7 @@ paths:
 
   /w/{workspace}/jobs/completed/list:
     get:
-      summary: list all available completed jobs
+      summary: list all completed jobs
       operationId: listCompletedJobs
       tags:
         - job
@@ -3872,7 +4547,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: All available completed jobs
+          description: All completed jobs
           content:
             application/json:
               schema:
@@ -3882,7 +4557,7 @@ paths:
 
   /w/{workspace}/jobs/list:
     get:
-      summary: list all available jobs
+      summary: list all jobs
       operationId: listJobs
       tags:
         - job
@@ -3897,6 +4572,7 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -4052,6 +4728,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/GetStarted"
       responses:
         "200":
           description: result
@@ -4063,6 +4740,8 @@ paths:
                   completed:
                     type: boolean
                   result: {}
+                  started:
+                    type: boolean
                 required:
                   - completed
                   - result
@@ -4619,6 +5298,45 @@ paths:
                 items:
                   $ref: "#/components/schemas/ScheduleWJobs"
 
+  /w/{workspace}/schedules/setdefaulthandler:
+    post:
+      summary: Set default error or recoevery handler
+      operationId: setDefaultErrorOrRecoveryHandler
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Handler description
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handler_type:
+                  type: string
+                  enum: ["error", "recovery"]
+                override_existing:
+                  type: boolean
+                path:
+                  type: string
+                extra_args:
+                  type: object
+                number_of_occurence:
+                  type: integer
+                number_of_occurence_exact:
+                  type: boolean
+                workspace_handler_muted:
+                  type: boolean
+              required:
+                - handler_type
+                - override_existing
+                - path
+      responses:
+        "201":
+          description: default error handler set
+
   /groups/list:
     get:
       summary: list instance groups
@@ -5093,6 +5811,80 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
+  /configs/list_worker_groups:
+    get:
+      summary: list worker groups
+      operationId: listWorkerGroups
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of worker group configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    config: {}
+                  required:
+                    - name
+                    - config
+
+  /configs/get/{name}:
+    get:
+      summary: get config
+      operationId: get config
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: a config
+          content:
+            application/json:
+              schema: {}
+
+  /configs/update/{name}:
+    post:
+      summary: Update config
+      operationId: updateConfig
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: worker group
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: Update a worker group
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: Delete Config
+      operationId: deleteConfig
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: Delete config
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -5432,6 +6224,12 @@ components:
       name: token
 
   parameters:
+    Key:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
     WorkspaceId:
       name: workspace
       in: path
@@ -5726,6 +6524,11 @@ components:
       required: true
       schema:
         type: string
+    GetStarted:
+      name: get_started
+      in: query
+      schema:
+        type: boolean
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
@@ -5805,14 +6608,17 @@ components:
           items:
             type: string
         concurrent_limit:
-          type: array
-          items:
-            type: integer
+          type: integer
         concurrency_time_window_s:
-          type: array
-          items:
-            type: integer
-
+          type: integer
+        cache_ttl:
+          type: number
+        dedicated_worker:
+          type: boolean
+        ws_error_handler_muted:
+          type: boolean
+        priority:
+          type: integer
       required:
         - hash
         - path
@@ -5879,13 +6685,17 @@ components:
           items:
             type: string
         concurrent_limit:
-          type: array
-          items:
-            type: integer
+          type: integer
         concurrency_time_window_s:
-          type: array
-          items:
-            type: integer
+          type: integer
+        cache_ttl:
+          type: number
+        dedicated_worker:
+          type: boolean
+        ws_error_handler_muted:
+          type: boolean
+        priority:
+          type: integer
       required:
         - path
         - summary
@@ -6016,6 +6826,7 @@ components:
               "preview",
               "dependencies",
               "flowdependencies",
+              "appdependencies",
               "flow",
               "flowpreview",
               "script_hub",
@@ -6059,6 +6870,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - running
@@ -6121,6 +6934,7 @@ components:
               "dependencies",
               "flow",
               "flowdependencies",
+              "appdependencies",
               "flowpreview",
               "script_hub",
               "identity",
@@ -6165,6 +6979,8 @@ components:
           type: integer
         tag:
           type: string
+        priority:
+          type: integer
       required:
         - id
         - created_by
@@ -6500,7 +7316,7 @@ components:
             - "workspaces.edit_deploy_to"
             - "workspaces.edit_auto_invite_domain"
             - "workspaces.edit_webhook"
-            - "workspaces.edit_openai_resource_path"
+            - "workspaces.edit_copilot_config"
             - "workspaces.edit_error_handler"
             - "workspaces.create"
             - "workspaces.update"
@@ -6672,7 +7488,8 @@ components:
         kind:
           type: string
           enum: [code, identity, http]
-
+        dedicated_worker:
+          type: boolean
       required:
         - args
 
@@ -6823,6 +7640,8 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        ws_error_handler_muted:
+          type: boolean
       required:
         - path
         - edited_by
@@ -6888,6 +7707,8 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        ws_error_handler_muted:
+          type: boolean
       required:
         - path
         - schedule
@@ -6920,6 +7741,8 @@ components:
           type: number
         on_recovery_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
+        ws_error_handler_muted:
+          type: boolean
       required:
         - schedule
         - timezone
@@ -6995,6 +7818,10 @@ components:
           type: array
           items:
             type: string
+        worker_group:
+          type: string
+        wm_version:
+          type: string
       required:
         - worker
         - worker_instance
@@ -7002,7 +7829,8 @@ components:
         - started_at
         - ip
         - jobs_executed
-
+        - worker_group
+        - wm_version
     UserWorkspaceList:
       type: object
       properties:
@@ -7126,6 +7954,10 @@ components:
           type: boolean
         tag:
           type: string
+        ws_error_handler_muted:
+          type: boolean
+        priority:
+          type: integer
       required:
         - path
         - edited_by
@@ -7142,6 +7974,10 @@ components:
               type: string
             tag:
               type: string
+            ws_error_handler_muted:
+              type: boolean
+            priority:
+              type: integer
           required:
             - path
 
@@ -7156,11 +7992,24 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         tag:
           type: string
+        restarted_from:
+          $ref: "#/components/schemas/RestartedFrom"
 
       required:
         - value
         - content
         - args
+
+    RestartedFrom:
+      type: object
+      properties:
+        flow_job_id:
+          type: string
+          format: uuid
+        step_id:
+          type: string
+        branch_or_iteration_n:
+          type: integer
 
     Policy:
       type: object
@@ -7328,3 +8177,9 @@ components:
 
       required:
         - access_token
+
+    HubScriptKind:
+      name: kind
+      schema:
+        type: string
+        enum: [script, failure, trigger, approval]

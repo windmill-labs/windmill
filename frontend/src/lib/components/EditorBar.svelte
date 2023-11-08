@@ -37,7 +37,7 @@
 	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import { ScriptGen } from './codeGen'
+	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import type { Script } from '$lib/gen'
@@ -62,6 +62,7 @@
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
+	export let args: Record<string, any>
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -112,8 +113,6 @@
 		codeViewer?.openDrawer?.()
 		codeObj = await getScriptByPath(e.detail.path ?? '')
 	}
-
-	let version = __pkg__.version
 
 	const dispatch = createEventDispatcher()
 
@@ -257,19 +256,15 @@
 		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
-				)
+				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes(`import { getVariable } from "windmill-client@${__pkg__.version}`)) {
-				editor.insertAtBeginning(
-					`import { getVariable } from "windmill-client@${__pkg__.version}"\n`
-				)
+			if (!code.includes(`import * as wmill from`)) {
+				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
 			}
-			editor.insertAtCursor(`(await getVariable('${path}'))`)
+			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -314,19 +309,15 @@
 		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
-				)
+				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes(`import { getResource } from "windmill-client@${__pkg__.version}`)) {
-				editor.insertAtBeginning(
-					`import { getResource } from "windmill-client@${__pkg__.version}"\n`
-				)
+			if (!code.includes(`import * as wmill from`)) {
+				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
 			}
-			editor.insertAtCursor(`(await getResource('${path}'))`)
+			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -407,26 +398,25 @@
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		/>
-		<div class="flex items-center">
+		<div class="flex items-center gap-0.5">
 			{#if showContextVarPicker}
 				<Button
 					title="Add context variable"
 					color="light"
-					btnClasses="!font-medium text-scondary"
 					on:click={contextualVariablePicker.openDrawer}
 					size="xs"
+					btnClasses="!font-medium text-tertiary"
 					spacingSize="md"
 					startIcon={{ icon: faDollarSign }}
 					{iconOnly}
-				>
-					+Context Var
+					>+Context Var
 				</Button>
 			{/if}
 			{#if showVarPicker}
 				<Button
 					title="Add variable"
 					color="light"
-					btnClasses="!font-medium text-scondary"
+					btnClasses="!font-medium text-tertiary"
 					on:click={variablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
@@ -440,7 +430,7 @@
 			{#if showResourcePicker}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-scondary"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -454,8 +444,8 @@
 
 			{#if showResourceTypePicker}
 				<Button
-					title="Add resource"
-					btnClasses="!font-medium text-scondary"
+					title="Add resource type"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -463,13 +453,13 @@
 					{iconOnly}
 					startIcon={{ icon: faCube }}
 				>
-					+Resource Type
+					+Type
 				</Button>
 			{/if}
 
 			<Button
 				title="Reset Content"
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -481,12 +471,15 @@
 			</Button>
 
 			<Button
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
 				on:click={() => editor?.reloadWebsocket()}
-				startIcon={{ icon: faRotate }}
+				startIcon={{
+					icon: faRotate,
+					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
+				}}
 				title="Reload assistants"
 			>
 				{#if !iconOnly}
@@ -541,7 +534,7 @@
 				</div>
 			{/if}
 
-			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} />
+			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 
 			<!-- <Popover
 				notClickable
@@ -573,7 +566,7 @@
 	<div class="flex flex-row items-center gap-2">
 		{#if scriptPath}
 			<Button
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -587,7 +580,7 @@
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 			<Button
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"

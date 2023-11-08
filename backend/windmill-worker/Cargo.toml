@@ -10,8 +10,9 @@ path = "src/lib.rs"
 
 [features]
 default = []
-deno-lock = []
 enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2"]
+benchmark = ["windmill-queue/benchmark"]
+flamegraph = []
 
 [dependencies]
 windmill-queue.workspace = true
@@ -22,7 +23,6 @@ windmill-common = { workspace = true, features = [
     "prometheus",
     "tracing_init",
 ] }
-windmill-api-client.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
@@ -70,6 +70,10 @@ jsonwebtoken = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 pem = { workspace = true, optional = true }
 urlencoding.workspace = true
+nix.workspace = true
+bytes.workspace = true
+reqwest.workspace = true
+hex.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

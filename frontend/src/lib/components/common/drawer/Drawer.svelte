@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+	let openedDrawers: string[] = []
+</script>
+
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -9,17 +13,27 @@
 	export let size = '600px'
 	export let alwaysOpen = false
 
+	let id = (Math.random() + 1).toString(36).substring(10)
+
 	$: durationMs = duration * 1000
 
 	export function toggleDrawer() {
 		open = !open
+		if (open) {
+			openedDrawers.push(id)
+		} else {
+			openedDrawers = openedDrawers.filter((x) => x != id)
+		}
 	}
 
 	export function openDrawer() {
+		openedDrawers.push(id)
 		open = true
 	}
 	export function closeDrawer() {
 		open = false
+		openedDrawers = openedDrawers.filter((x) => x != id)
+
 		setTimeout(() => {
 			dispatch('afterClose')
 		}, durationMs)
@@ -55,11 +69,14 @@
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
-					event.preventDefault()
-					event.stopPropagation()
-					event.stopImmediatePropagation()
-					open = false
-					break
+					if (id == openedDrawers[openedDrawers.length - 1]) {
+						openedDrawers.pop()
+						event.preventDefault()
+						event.stopPropagation()
+						event.stopImmediatePropagation()
+						open = false
+						break
+					}
 			}
 		}
 	}

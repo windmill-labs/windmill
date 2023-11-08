@@ -14,12 +14,14 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::{
+    body::StreamBody,
     extract::{Extension, Path, Query},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use hyper::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
@@ -41,10 +43,12 @@ use windmill_common::{
     },
     users::username_to_permissioned_as,
     utils::{
-        list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
+        not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{
+    self, schedule::push_scheduled_job, PushArgs, PushIsolationLevel, QueueTransaction,
+};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -69,25 +73,36 @@ pub struct ScriptWDraft {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
 }
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/hub/list", get(list_hub_scripts))
+        .route("/hub/top", get(get_top_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
-    Router::new().route(
-        "/tokened_raw/:workspace/:token/*path",
-        get(get_tokened_raw_script_by_path),
-    )
+    Router::new()
+        .route(
+            "/tokened_raw/:workspace/:token/*path",
+            get(get_tokened_raw_script_by_path),
+        )
+        .route("/empty_ts/*path", get(get_empty_ts_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_scripts))
+        .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
@@ -101,6 +116,41 @@ pub fn workspaced_service() -> Router {
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
+        .route(
+            "/toggle_workspace_error_handler/p/*path",
+            post(toggle_workspace_error_handler),
+        )
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchScript {
+    path: String,
+    content: String,
+}
+async fn list_search_scripts(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchScript>> {
+    let mut tx = user_db.begin(&authed).await?;
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 10;
+
+    let rows = sqlx::query_as!(
+        SearchScript,
+        "SELECT path, content from script WHERE workspace_id = $1 AND archived = false LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_scripts(
@@ -125,7 +175,8 @@ async fn list_scripts(
             "favorite.path IS NOT NULL as starred",
             "tag",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only"
+            "draft_only",
+            "ws_error_handler_muted"
         ])
         .left()
         .join("favorite")
@@ -177,8 +228,15 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(k) = &lq.kind {
-        sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
+    if let Some(kinds_val) = &lq.kinds {
+        let lowercased_kinds: Vec<String> = kinds_val
+            .split(",")
+            .map(&str::to_lowercase)
+            .map(sql_builder::quote)
+            .collect();
+        if lowercased_kinds.len() > 0 {
+            sqlb.and_where_in("kind", lowercased_kinds.as_slice());
+        }
     }
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
@@ -193,14 +251,40 @@ async fn list_scripts(
     Ok(Json(rows))
 }
 
-async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
-    let asks = list_elems_from_hub(
+#[derive(Deserialize)]
+struct TopHubScriptsQuery {
+    limit: Option<i64>,
+    app: Option<String>,
+    kind: Option<String>,
+}
+
+async fn get_top_hub_scripts(
+    Query(query): Query<TopHubScriptsQuery>,
+    Extension(db): Extension<DB>,
+) -> impl IntoResponse {
+    let mut query_params = vec![];
+    if let Some(query_limit) = query.limit {
+        query_params.push(("limit", query_limit.to_string().clone()));
+    }
+    if let Some(query_app) = query.app {
+        query_params.push(("app", query_app.to_string().clone()));
+    }
+    if let Some(query_kind) = query.kind {
+        query_params.push(("kind", query_kind.to_string().clone()));
+    }
+
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        "https://hub.windmill.dev/searchData?approved=true",
-        &email,
+        "https://hub.windmill.dev/scripts/top",
+        Some(query_params),
+        &db,
     )
     .await?;
-    Ok(Json(asks))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 fn hash_script(ns: &NewScript) -> i64 {
@@ -218,6 +302,14 @@ async fn create_script(
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    #[cfg(not(feature = "enterprise"))]
+    if ns.ws_error_handler_muted.is_some_and(|val| val) {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain script is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -347,7 +439,8 @@ async fn create_script(
 
     let lock = if !(ns.language == ScriptLang::Python3
         || ns.language == ScriptLang::Go
-        || ns.language == ScriptLang::Bun)
+        || ns.language == ScriptLang::Bun
+        || ns.language == ScriptLang::Deno)
     {
         Some(String::new())
     } else {
@@ -369,8 +462,9 @@ async fn create_script(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
+         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+         dedicated_worker, ws_error_handler_muted, priority) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
         &w_id,
         &hash.0,
         ns.path,
@@ -389,7 +483,11 @@ async fn create_script(
         ns.draft_only,
         envs,
         ns.concurrent_limit,
-        ns.concurrency_time_window_s
+        ns.concurrency_time_window_s,
+        ns.cache_ttl,
+        ns.dedicated_worker,
+        ns.ws_error_handler_muted.unwrap_or(false),
+        ns.priority,
     )
     .execute(&mut tx)
     .await?;
@@ -505,7 +603,7 @@ async fn create_script(
             tx,
             &w_id,
             JobPayload::Dependencies { hash, dependencies, language: ns.language, path: ns.path },
-            serde_json::Map::new(),
+            PushArgs::empty(),
             &authed.username,
             &authed.email,
             username_to_permissioned_as(&authed.username),
@@ -519,6 +617,7 @@ async fn create_script(
             None,
             true,
             ns.tag,
+            None,
             None,
             None,
         )
@@ -539,18 +638,18 @@ async fn create_script(
 }
 
 pub async fn get_hub_script_by_path(
-    authed: ApiAuthed,
     Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
 ) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(&authed.email, path, &HTTP_CLIENT).await
+    windmill_common::scripts::get_hub_script_by_path(path, &HTTP_CLIENT, &db).await
 }
 
 pub async fn get_full_hub_script_by_path(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(&email, path, &HTTP_CLIENT).await?,
+        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, &db).await?,
     ))
 }
 
@@ -586,7 +685,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, draft.value as draft FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -620,6 +719,56 @@ async fn list_paths(
     Ok(Json(scripts))
 }
 
+#[derive(Deserialize)]
+pub struct ToggleWorkspaceErrorHandler {
+    pub muted: Option<bool>,
+}
+async fn toggle_workspace_error_handler(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(req): Json<ToggleWorkspaceErrorHandler>,
+) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain script is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let error_handler_maybe: Option<String> = sqlx::query_scalar!(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(None);
+
+    match error_handler_maybe {
+        Some(_) => {
+            sqlx::query_scalar!(
+                "UPDATE script SET ws_error_handler_muted = $3 WHERE workspace_id = $2 AND path = $1 AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+                path.to_path(),
+                w_id,
+                req.muted,
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok("".to_string())
+        }
+        None => {
+            tx.commit().await?;
+            Err(Error::ExecutionErr(
+                "Workspace error handler needs to be defined".to_string(),
+            ))
+        }
+    }
+}
+
 async fn get_tokened_raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, token, path)): Path<(String, String, StripPath)>,
@@ -630,6 +779,10 @@ async fn get_tokened_raw_script_by_path(
         .await
         .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
     return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
+}
+
+async fn get_empty_ts_script_by_path() -> String {
+    return String::new();
 }
 
 async fn raw_script_by_path(

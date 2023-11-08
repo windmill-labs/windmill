@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
@@ -17,7 +17,8 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import { concatCustomCss } from '../../utils'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { initCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -58,15 +59,14 @@
 
 	if (rowContext && rowInputs) {
 		const inputOutput = { result: outputs.result.peak(), loading: false }
-		rowInputs(id, inputOutput)
+		rowInputs.set(id, inputOutput)
 	}
 
 	if (iterContext && listInputs) {
 		const inputOutput = { result: outputs.result.peak(), loading: false }
-		listInputs(id, inputOutput)
+		listInputs.set(id, inputOutput)
 	}
 
-	console.log('FOO')
 	if (controls) {
 		$componentControl[id] = controls
 	}
@@ -91,6 +91,11 @@
 		}
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+		rowInputs?.remove(id)
+	})
+
 	let errors: Record<string, string> = {}
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
@@ -104,10 +109,10 @@
 		$selectedComponent = [id]
 		const inputOutput = { result: outputs.result.peak(), loading: true }
 		if (rowContext && rowInputs) {
-			rowInputs(id, inputOutput)
+			rowInputs.set(id, inputOutput)
 		}
 		if (iterContext && listInputs) {
-			listInputs(id, inputOutput)
+			listInputs.set(id, inputOutput)
 		}
 		if (preclickAction) {
 			await preclickAction()
@@ -119,12 +124,12 @@
 			await runnableComponent?.runComponent()
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, { result: outputs.result.peak(), loading: false })
+			rowInputs.set(id, { result: outputs.result.peak(), loading: false })
 		}
 	}
 	let loading = false
 
-	$: css = concatCustomCss($app.css?.buttoncomponent, customCss)
+	let css = initCss($app.css?.buttoncomponent, customCss)
 </script>
 
 {#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
@@ -134,6 +139,17 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{extraKey}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.buttoncomponent}
 	/>
 {/each}
 
@@ -155,36 +171,39 @@
 	{extraKey}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
-	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
 		{#if errorsMessage}
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
-		<Button
-			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={css?.button?.class}
-			wrapperClasses={twMerge(
-				css?.container?.class,
-				resolvedConfig.fillContainer ? 'w-full h-full' : ''
-			)}
-			wrapperStyle={css?.container?.style}
-			style={css?.button?.style}
-			disabled={resolvedConfig.disabled}
-			on:click={handleClick}
-			size={resolvedConfig.size}
-			color={resolvedConfig.color}
-			{loading}
-		>
-			<span class="truncate inline-flex gap-2 items-center">
-				{#if resolvedConfig.beforeIcon && beforeIconComponent}
-					<svelte:component this={beforeIconComponent} size={14} />
-				{/if}
-				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
-					<div>{resolvedConfig.label.toString()}</div>
-				{/if}
-				{#if resolvedConfig.afterIcon && afterIconComponent}
-					<svelte:component this={afterIconComponent} size={14} />
-				{/if}
-			</span>
-		</Button>
+		{#key css}
+			<Button
+				on:pointerdown={(e) => e.stopPropagation()}
+				btnClasses={twMerge(css?.button?.class ?? '', 'wm-button')}
+				style={css?.button?.style}
+				wrapperClasses={twMerge(
+					css?.container?.class ?? '',
+					resolvedConfig.fillContainer ? 'w-full h-full' : '',
+					'wm-button-container'
+				)}
+				wrapperStyle={css?.container?.style}
+				disabled={resolvedConfig.disabled}
+				on:click={handleClick}
+				size={resolvedConfig.size}
+				color={resolvedConfig.color}
+				{loading}
+			>
+				<span class="truncate inline-flex gap-2 items-center">
+					{#if resolvedConfig.beforeIcon && beforeIconComponent}
+						<svelte:component this={beforeIconComponent} size={14} />
+					{/if}
+					{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
+						<div>{resolvedConfig.label.toString()}</div>
+					{/if}
+					{#if resolvedConfig.afterIcon && afterIconComponent}
+						<svelte:component this={afterIconComponent} size={14} />
+					{/if}
+				</span>
+			</Button>
+		{/key}
 	</AlignWrapper>
 </RunnableWrapper>

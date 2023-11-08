@@ -131,6 +131,7 @@
 					</div>
 					<!-- svelte-ignore a11y-autofocus -->
 					<input
+						id="schema-modal-name"
 						autofocus
 						autocomplete="off"
 						type="text"
@@ -160,8 +161,8 @@
 						<Button
 							size="sm"
 							variant="border"
-							color={isSelected ? 'blue' : 'dark'}
-							btnClasses={isSelected ? '!bg-blue-50/75 dark:!bg-frost-900/50 ' : ''}
+							color={isSelected ? 'blue' : 'light'}
+							btnClasses={isSelected ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
 								property.selectedType = argType
 								property.format = undefined
@@ -175,6 +176,7 @@
 									property.items = undefined
 								}
 							}}
+							id={`schema-modal-type-${argType}`}
 						>
 							{argType}
 						</Button>
@@ -182,8 +184,8 @@
 					<Button
 						size="sm"
 						variant="border"
-						color={!property.selectedType ? 'blue' : 'dark'}
-						btnClasses={!property.selectedType ? '!bg-blue-50/75 dark:!bg-frost-900/50' : ']'}
+						color={!property.selectedType ? 'blue' : 'light'}
+						btnClasses={!property.selectedType ? '!border-2' : 'm-[1px]'}
 						on:click={() => {
 							property.selectedType = undefined
 						}}
@@ -255,10 +257,11 @@
 		<svelte:fragment slot="actions">
 			<Button
 				color="blue"
-				disabled={!property.name || !property.selectedType || error != ''}
+				disabled={!property.name || error != ''}
 				on:click={() => {
 					dispatch('save', property)
 				}}
+				id="schema-modal-save"
 			>
 				Save
 			</Button>

@@ -19,6 +19,7 @@ export interface UserExt {
 
 const persistedWorkspace = BROWSER && localStorage.getItem('workspace')
 
+export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
@@ -56,18 +57,13 @@ export const userWorkspaces: Readable<
 		return originalWorkspaces
 	}
 })
-export const hubScripts = writable<
-	| Array<{
-			path: string
-			summary: string
-			approved: boolean
-			kind: string
-			app: string
-			ask_id: number
-	  }>
-	| undefined
->(undefined)
-export const existsOpenaiResourcePath = writable<boolean>(false)
+export const copilotInfo = writable<{
+	exists_openai_resource_path: boolean
+	code_completion_enabled: boolean
+}>({
+	exists_openai_resource_path: false,
+	code_completion_enabled: false
+})
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
@@ -81,15 +77,10 @@ type SQLBaseSchema = {
 	}
 }
 
-export interface MysqlSchema {
-	lang: 'mysql'
+export interface SQLSchema {
+	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake'
 	schema: SQLBaseSchema
-}
-
-export interface PostgresqlSchema {
-	lang: 'postgresql'
-	schema: SQLBaseSchema
-	publicOnly: boolean
+	publicOnly: boolean | undefined
 }
 
 export interface GraphqlSchema {
@@ -97,26 +88,9 @@ export interface GraphqlSchema {
 	schema: IntrospectionQuery
 }
 
-export type DBSchema = MysqlSchema | PostgresqlSchema | GraphqlSchema
+export type DBSchema = SQLSchema | GraphqlSchema
 
-interface DBSchemas {
-	[resourcePath: string]: DBSchema
-}
+type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
 
-export function switchWorkspace(workspace: string | undefined) {
-	localStorage.removeItem('flow')
-	localStorage.removeItem('app')
-	workspaceStore.set(workspace)
-}
-
-export function clearStores(): void {
-	localStorage.removeItem('flow')
-	localStorage.removeItem('app')
-	localStorage.removeItem('workspace')
-	userStore.set(undefined)
-	workspaceStore.set(undefined)
-	usersWorkspaceStore.set(undefined)
-	superadmin.set(undefined)
-}

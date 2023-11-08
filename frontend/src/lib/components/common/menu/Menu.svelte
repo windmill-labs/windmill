@@ -4,7 +4,7 @@
 
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import { fade } from 'svelte/transition'
 
 	export let noMinW = false
@@ -12,6 +12,7 @@
 	export let wrapperClasses = ''
 	export let popupClasses = ''
 	export let transitionDuration = 25
+	export let pointerDown = false
 	let menu: HTMLDivElement
 
 	type Alignment = 'start' | 'end' | 'center'
@@ -55,17 +56,35 @@
 		'top-start': 'origin-bottom-left left-0 bottom-0',
 		'top-end': 'origin-bottom-right right-0 bottom-0'
 	}
+	const dispatch = createEventDispatcher()
 </script>
 
 <div class="relative {wrapperClasses}" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		on:click|stopPropagation={() => {
-			if (!show) {
-				current && current()
-				current = close
+		on:click={() => {
+			if (!pointerDown) {
+				if (!show) {
+					current && current()
+					current = close
+				}
+				show = !show
+				if (show) {
+					dispatch('dropdownOpen')
+				} else {
+					dispatch('dropdownClose')
+				}
 			}
-			show = !show
+		}}
+		on:pointerdown={() => {
+			if (pointerDown) {
+				if (!show) {
+					current && current()
+					current = close
+				}
+				show = !show
+			}
 		}}
 		class="relative"
 	>

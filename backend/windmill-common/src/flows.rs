@@ -36,6 +36,7 @@ pub struct Flow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -53,6 +54,7 @@ pub struct ListableFlow {
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -60,11 +62,12 @@ pub struct ListableFlow {
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
-    pub description: String,
+    pub description: Option<String>,
     pub value: serde_json::Value,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -76,6 +79,20 @@ pub struct FlowValue {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub same_worker: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_expr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // Priority at the flow level
+    pub priority: Option<i16>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -156,6 +173,10 @@ pub struct Suspend {
     pub timeout: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_form: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_auth_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_groups_required: Option<InputTransform>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -186,6 +207,9 @@ pub struct FlowModule {
     pub cache_ttl: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // Priority at the flow step level
+    pub priority: Option<i16>,
 }
 
 impl FlowModule {
@@ -194,7 +218,7 @@ impl FlowModule {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -256,6 +280,8 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(default = "default_false")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parallelism: Option<u16>,
     },
     BranchOne {
         branches: Vec<BranchOneModules>,
@@ -284,6 +310,17 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
     },
     Identity,
+}
+
+impl FlowModuleValue {
+    pub fn is_simple(&self) -> bool {
+        match self {
+            FlowModuleValue::Script { .. } => true,
+            FlowModuleValue::Flow { .. } => true,
+            FlowModuleValue::RawScript { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>

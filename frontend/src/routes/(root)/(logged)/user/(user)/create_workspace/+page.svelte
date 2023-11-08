@@ -1,16 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { ResourceService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { switchWorkspace, usersWorkspaceStore } from '$lib/stores'
+	import { usersWorkspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import { switchWorkspace } from '$lib/storeUtils'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -20,6 +22,8 @@
 
 	let errorId = ''
 	let errorUser = ''
+	let openAiKey = ''
+	let codeCompletionEnabled = true
 	let checking = false
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
@@ -54,6 +58,24 @@
 				requestBody: { operator: operatorOnly }
 			})
 		}
+		if (openAiKey != '') {
+			let path = `u/${username}/openai_windmill_codegen`
+			await ResourceService.createResource({
+				workspace: id,
+				requestBody: {
+					path,
+					value: {
+						api_key: openAiKey
+					},
+					resource_type: 'openai'
+				}
+			})
+			await WorkspaceService.editCopilotConfig({
+				workspace: id,
+				requestBody: { openai_resource_path: path, code_completion_enabled: codeCompletionEnabled }
+			})
+		}
+
 		sendUserToast(`Created workspace id: ${id}`)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -86,12 +108,13 @@
 		loadWorkspaces()
 
 		UserService.globalWhoami().then((x) => {
+			let uname = ''
 			if (x.name) {
-				username = x.name.split(' ')[0]
+				uname = x.name.split(' ')[0]
 			} else {
-				username = x.email.split('@')[0]
+				uname = x.email.split('@')[0]
 			}
-			username = username.toLowerCase()
+			username = uname.toLowerCase()
 		})
 
 		WorkspaceService.isDomainAllowed().then((x) => {
@@ -108,23 +131,51 @@
 </script>
 
 <CenteredModal title="New Workspace">
-	<label class="block pb-2 pt-4">
+	<label class="block pb-4 pt-4">
 		<span class="text-secondary text-sm">Workspace name</span>
-		<input type="text" bind:value={name} />
+		<span class="ml-4 text-tertiary text-xs">Displayable name</span>
+
+		<input autofocus type="text" bind:value={name} />
 	</label>
-	<label class="block pb-2">
+	<label class="block pb-4">
 		<span class="text-secondary text-sm">Workspace ID</span>
+		<span class="ml-10 text-tertiary text-xs">Slug to uniquely identify your workspace</span>
 		{#if errorId}
 			<span class="text-red-500 text-xs">{errorId}</span>
 		{/if}
 		<input type="text" bind:value={id} class:input-error={errorId != ''} />
 	</label>
-	<label class="block pb-2">
+	<label class="block pb-4">
 		<span class="text-secondary text-sm">Your username in that workspace</span>
+		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
-		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
+	</label>
+	<label class="block pb-4">
+		<span class="text-secondary text-sm">
+			OpenAI key for Windmill AI
+			<Tooltip>
+				Find out how it can help you <a
+					href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+					target="_blank"
+					rel="noopener noreferrer">in the docs</a
+				>
+			</Tooltip>
+			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
+		</span>
+		<div class="flex flex-row gap-1">
+			<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
+			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
+		</div>
+		{#if openAiKey}
+			<Toggle
+				disabled={!openAiKey}
+				size="xs"
+				bind:checked={codeCompletionEnabled}
+				options={{ right: 'Enable code completion' }}
+			/>
+		{/if}
 	</label>
 	<Toggle
 		disabled={!isDomainAllowed}

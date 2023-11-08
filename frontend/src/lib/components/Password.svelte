@@ -40,7 +40,7 @@
 		>
 	</div>
 	<input
-		class="block w-full py-2 px-2 {red ? '!border-red-500' : ''} text-sm js-password h-12"
+		class="block w-full px-2 py-1 {red ? '!border-red-500' : ''} text-sm js-password h-9"
 		id="password"
 		type="password"
 		bind:value={password}

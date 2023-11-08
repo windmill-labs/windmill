@@ -24,11 +24,13 @@
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
+
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-	import { dbSchemas, type DBSchema } from '$lib/stores'
+	import { dbSchemas, type DBSchema, copilotInfo } from '$lib/stores'
 
 	import {
 		createHash as randomHash,
@@ -38,18 +40,27 @@
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
-	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
+	import { sleep } from '$lib/utils'
+	import { editorCodeCompletion } from './copilot/completion'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'powershell'
+	export let lang:
+		| 'typescript'
+		| 'python'
+		| 'go'
+		| 'shell'
+		| 'sql'
+		| 'graphql'
+		| 'powershell'
+		| 'css'
 	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -70,6 +81,9 @@
 	export let yContent: Text | undefined = undefined
 	export let awareness: any | undefined = undefined
 	export let folding = false
+	export let args: Record<string, any> | undefined = undefined
+	export let useWebsockets: boolean = true
+	export let listenEmptyChanges = false
 
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
@@ -188,11 +202,33 @@
 		}
 	}
 
-	export function format() {
+	export function append(code): void {
+		if (editor) {
+			const lineCount = editor.getModel()?.getLineCount() || 0
+			const lastLineLength = editor.getModel()?.getLineLength(lineCount) || 0
+			const range: IRange = {
+				startLineNumber: lineCount,
+				startColumn: lastLineLength + 1,
+				endLineNumber: lineCount,
+				endColumn: lastLineLength + 1
+			}
+			editor.executeEdits('append', [
+				{
+					range,
+					text: code,
+					forceMoveMarkers: true
+				}
+			])
+			editor.revealLine(lineCount)
+		}
+	}
+
+	export async function format() {
 		if (editor) {
 			code = getCode()
 			if (lang != 'shell') {
-				editor?.getAction('editor.action.formatDocument')?.run()
+				await editor?.getAction('editor.action.formatDocument')?.run()
+				code = getCode()
 			}
 			if (formatAction) {
 				formatAction()
@@ -203,7 +239,14 @@
 	let command: Disposable | undefined = undefined
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
-	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
+
+	function updateSchema(lang, args) {
+		const schemaRes = lang === 'graphql' ? args.api : args.database
+		if (typeof schemaRes === 'string') {
+			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
+		}
+	}
+	$: args && updateSchema(lang, args)
 	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
 	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
@@ -221,7 +264,7 @@
 					introspectionJSON: schema
 				}
 			])
-		} else if (schemaLang === 'mysql' || schemaLang === 'postgresql') {
+		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()
 			}
@@ -314,6 +357,78 @@
 			})
 		}
 	}
+
+	let copilotCompletor: Disposable | undefined = undefined
+	let copilotTs = Date.now()
+	let abortController: AbortController | undefined = undefined
+	function addCopilotSuggestions() {
+		if (copilotCompletor) {
+			copilotCompletor.dispose()
+		}
+		copilotCompletor = languages.registerInlineCompletionsProvider(
+			{ pattern: '**' },
+			{
+				freeInlineCompletions(completions) {},
+				async provideInlineCompletions(model, position, context, token) {
+					abortController?.abort()
+					const textUntilPosition = model.getValueInRange({
+						startLineNumber: 1,
+						startColumn: 1,
+						endLineNumber: position.lineNumber,
+						endColumn: position.column
+					})
+
+					let items: languages.InlineCompletions<languages.InlineCompletion>['items'] = []
+
+					const lastChar = textUntilPosition[textUntilPosition.length - 1]
+					if (textUntilPosition.trim().length > 5 && lastChar.match(/[\(\{\s:=]/)) {
+						const textAfterPosition = model.getValueInRange({
+							startLineNumber: position.lineNumber,
+							startColumn: position.column,
+							endLineNumber: model.getLineCount() + 1,
+							endColumn: 1
+						})
+						const thisTs = Date.now()
+						copilotTs = thisTs
+						await sleep(500)
+						if (copilotTs === thisTs) {
+							abortController?.abort()
+							abortController = new AbortController()
+							const insertText = await editorCodeCompletion(
+								textUntilPosition,
+								textAfterPosition,
+								lang,
+								abortController
+							)
+							if (insertText) {
+								items = [
+									{
+										insertText,
+										range: {
+											startLineNumber: position.lineNumber,
+											startColumn: position.column,
+											endLineNumber: position.lineNumber,
+											endColumn: position.column
+										},
+										completeBracketPairs: false
+									}
+								]
+							}
+						}
+					}
+
+					return {
+						items,
+						commands: []
+					}
+				}
+			}
+		)
+	}
+
+	$: $copilotInfo.exists_openai_resource_path &&
+		$copilotInfo.code_completion_enabled &&
+		addCopilotSuggestions()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -516,8 +631,8 @@
 		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
-		if (lang == 'typescript' && deno) {
-			if (filePath && filePath.split('/').length > 2) {
+		if (useWebsockets) {
+			if (lang == 'typescript' && deno) {
 				let expiration = new Date()
 				expiration.setHours(expiration.getHours() + 2)
 				const token = await UserService.createToken({
@@ -529,207 +644,209 @@
 						'file:///': root + '/'
 					}
 				}
-				let path_splitted = filePath.split('/')
-				for (let c = 0; c < path_splitted.length; c++) {
-					let key = 'file://./'
-					for (let i = 0; i < c; i++) {
-						key += '../'
+				if (filePath && filePath.split('/').length > 2) {
+					let path_splitted = filePath.split('/')
+					for (let c = 0; c < path_splitted.length; c++) {
+						let key = 'file://./'
+						for (let i = 0; i < c; i++) {
+							key += '../'
+						}
+						let url = path_splitted.slice(0, -c - 1).join('/')
+						let ending = c == path_splitted.length - 1 ? '' : '/'
+						importMap['imports'][key] = `${root}/${url}${ending}`
 					}
-					let url = path_splitted.slice(0, -c - 1).join('/')
-					let ending = c == path_splitted.length - 1 ? '' : '/'
-					importMap['imports'][key] = `${root}/${url}${ending}`
 				}
 				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
-			}
-			await connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/deno`,
-				'deno',
-				{
-					certificateStores: null,
-					enablePaths: [],
-					config: null,
-					importMap: encodedImportMap,
-					internalDebug: false,
-					lint: false,
-					path: null,
-					tlsCertificate: null,
-					unsafelyIgnoreCertificateErrors: null,
-					unstable: true,
-					enable: true,
-					codeLens: {
-						implementations: true,
-						references: true,
-						referencesAllFunction: false
-					},
-					suggest: {
-						autoImports: true,
-						completeFunctionCalls: false,
-						names: true,
-						paths: true,
-						imports: {
-							autoDiscover: true,
-							hosts: {
-								'https://deno.land': true
+				await connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/deno`,
+					'deno',
+					{
+						certificateStores: null,
+						enablePaths: [],
+						config: null,
+						importMap: encodedImportMap,
+						internalDebug: false,
+						lint: false,
+						path: null,
+						tlsCertificate: null,
+						unsafelyIgnoreCertificateErrors: null,
+						unstable: true,
+						enable: true,
+						codeLens: {
+							implementations: true,
+							references: true,
+							referencesAllFunction: false
+						},
+						suggest: {
+							autoImports: true,
+							completeFunctionCalls: false,
+							names: true,
+							paths: true,
+							imports: {
+								autoDiscover: true,
+								hosts: {
+									'https://deno.land': true
+								}
 							}
 						}
-					}
-				},
-				() => {
-					return [
-						{
-							enable: true
-						}
-					]
-				}
-			)
-		} else if (lang === 'typescript' && !deno) {
-			await connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/bun`,
-				'bun',
-				{},
-				(params, token, next) => {
-					return [
-						{
-							diagnostics: {
-								ignoredCodes: [2307]
-							},
-							enable: true
-						}
-					]
-				}
-			)
-		} else if (lang === 'python') {
-			await connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/pyright`,
-				'pyright',
-				{},
-				(params, token, next) => {
-					if (params.items.find((x) => x.section === 'python')) {
+					},
+					() => {
 						return [
 							{
-								analysis: {
+								enable: true
+							}
+						]
+					}
+				)
+			} else if (lang === 'typescript' && !deno) {
+				await connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/bun`,
+					'bun',
+					{},
+					(params, token, next) => {
+						return [
+							{
+								diagnostics: {
+									ignoredCodes: [2307]
+								},
+								enable: true
+							}
+						]
+					}
+				)
+			} else if (lang === 'python') {
+				await connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/pyright`,
+					'pyright',
+					{},
+					(params, token, next) => {
+						if (params.items.find((x) => x.section === 'python')) {
+							return [
+								{
+									analysis: {
+										useLibraryCodeForTypes: true,
+										autoImportCompletions: true,
+										diagnosticSeverityOverrides: { reportMissingImports: 'none' },
+										typeCheckingMode: 'basic'
+									}
+								}
+							]
+						}
+						if (params.items.find((x) => x.section === 'python.analysis')) {
+							return [
+								{
 									useLibraryCodeForTypes: true,
 									autoImportCompletions: true,
 									diagnosticSeverityOverrides: { reportMissingImports: 'none' },
 									typeCheckingMode: 'basic'
 								}
-							}
-						]
+							]
+						}
+						return next(params, token)
 					}
-					if (params.items.find((x) => x.section === 'python.analysis')) {
-						return [
-							{
-								useLibraryCodeForTypes: true,
-								autoImportCompletions: true,
-								diagnosticSeverityOverrides: { reportMissingImports: 'none' },
-								typeCheckingMode: 'basic'
-							}
-						]
-					}
-					return next(params, token)
-				}
-			)
+				)
 
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/ruff`,
-				'ruff',
-				{},
-				undefined
-			)
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
-				'black',
-				{
-					formatters: {
-						black: {
-							command: 'black',
-							args: ['--quiet', '-']
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/ruff`,
+					'ruff',
+					{},
+					undefined
+				)
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+					'black',
+					{
+						formatters: {
+							black: {
+								command: 'black',
+								args: ['--quiet', '-']
+							}
+						},
+						formatFiletypes: {
+							python: 'black'
 						}
 					},
-					formatFiletypes: {
-						python: 'black'
-					}
-				},
-				undefined
-			)
-		} else if (lang === 'go') {
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/go`,
-				'go',
-				{
-					'build.allowImplicitNetworkAccess': true
-				},
-				undefined
-			)
-		} else if (lang === 'shell') {
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
-				'shellcheck',
-				{
-					linters: {
-						shellcheck: {
-							command: 'shellcheck',
-							debounce: 100,
-							args: ['--format=gcc', '-'],
-							offsetLine: 0,
-							offsetColumn: 0,
-							sourceName: 'shellcheck',
-							formatLines: 1,
-							formatPattern: [
-								'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
-								{
-									line: 1,
-									column: 2,
-									message: 4,
-									security: 3
+					undefined
+				)
+			} else if (lang === 'go') {
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/go`,
+					'go',
+					{
+						'build.allowImplicitNetworkAccess': true
+					},
+					undefined
+				)
+			} else if (lang === 'shell') {
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+					'shellcheck',
+					{
+						linters: {
+							shellcheck: {
+								command: 'shellcheck',
+								debounce: 100,
+								args: ['--format=gcc', '-'],
+								offsetLine: 0,
+								offsetColumn: 0,
+								sourceName: 'shellcheck',
+								formatLines: 1,
+								formatPattern: [
+									'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
+									{
+										line: 1,
+										column: 2,
+										message: 4,
+										security: 3
+									}
+								],
+								securities: {
+									error: 'error',
+									warning: 'warning',
+									note: 'info'
 								}
-							],
-							securities: {
-								error: 'error',
-								warning: 'warning',
-								note: 'info'
 							}
+						},
+						filetypes: {
+							shell: 'shellcheck'
 						}
 					},
-					filetypes: {
-						shell: 'shellcheck'
-					}
-				},
-				undefined
-			)
-		} else {
-			closeWebsockets()
-		}
+					undefined
+				)
+			} else {
+				closeWebsockets()
+			}
 
-		websocketInterval && clearInterval(websocketInterval)
-		websocketInterval = setInterval(() => {
-			if (document.visibilityState == 'visible') {
-				if (
-					!lastWsAttempt ||
-					(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
-				) {
+			websocketInterval && clearInterval(websocketInterval)
+			websocketInterval = setInterval(() => {
+				if (document.visibilityState == 'visible') {
 					if (
-						!websocketAlive.black &&
-						!websocketAlive.deno &&
-						!websocketAlive.pyright &&
-						!websocketAlive.go &&
-						!websocketAlive.bun &&
-						!websocketAlive.shellcheck &&
-						!websocketAlive.ruff
+						!lastWsAttempt ||
+						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
-						console.log('reconnecting to language servers')
-						lastWsAttempt = new Date()
-						nbWsAttempt++
-						reloadWebsocket()
-					} else {
-						if (nbWsAttempt >= 2) {
-							sendUserToast('Giving up on establishing smart assistant connection', true)
-							clearInterval(websocketInterval)
+						if (
+							!websocketAlive.black &&
+							!websocketAlive.deno &&
+							!websocketAlive.pyright &&
+							!websocketAlive.go &&
+							!websocketAlive.bun &&
+							!websocketAlive.shellcheck &&
+							!websocketAlive.ruff
+						) {
+							console.log('reconnecting to language servers')
+							lastWsAttempt = new Date()
+							nbWsAttempt++
+							reloadWebsocket()
+						} else {
+							if (nbWsAttempt >= 2) {
+								sendUserToast('Giving up on establishing smart assistant connection', true)
+								clearInterval(websocketInterval)
+							}
 						}
 					}
 				}
-			}
-		}, 5000)
+			}, 5000)
+		}
 	}
 
 	let pathTimeout: NodeJS.Timeout | undefined = undefined
@@ -799,12 +916,10 @@
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
-			$dirtyStore = true
-
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
-				if (ncode != '') {
+				if (ncode != '' || listenEmptyChanges) {
 					code = ncode
 					dispatch('change', code)
 				}
@@ -883,6 +998,7 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
+		copilotCompletor && copilotCompletor.dispose()
 	})
 </script>
 

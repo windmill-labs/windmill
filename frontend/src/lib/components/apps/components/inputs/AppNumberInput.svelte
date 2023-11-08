@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
@@ -9,11 +9,12 @@
 		ListInputs,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { components } from '../../editor/component'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -39,6 +40,10 @@
 		}
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as number | undefined
 	})
@@ -48,7 +53,7 @@
 	$: {
 		outputs?.result.set(value)
 		if (iterContext && listInputs) {
-			listInputs(id, value)
+			listInputs.set(id, value)
 		}
 	}
 
@@ -56,7 +61,7 @@
 		value = defaultValue
 	}
 
-	$: css = concatCustomCss($app.css?.numberinputcomponent, customCss)
+	let css = initCss($app.css?.numberinputcomponent, customCss)
 </script>
 
 {#each Object.keys(components['numberinputcomponent'].initialData.configuration) as key (key)}
@@ -68,6 +73,16 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.numberinputcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
@@ -76,7 +91,8 @@
 		on:focus={() => ($selectedComponent = [id])}
 		class={twMerge(
 			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2',
-			css?.input?.class ?? ''
+			css?.input?.class ?? '',
+			'wm-number-input'
 		)}
 		style={css?.input?.style ?? ''}
 		bind:value

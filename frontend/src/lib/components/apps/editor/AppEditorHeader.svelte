@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { Alert, Badge, Drawer, DrawerContent, Kbd, UndoRedo } from '$lib/components/common'
+	import {
+		Alert,
+		Badge,
+		Drawer,
+		DrawerContent,
+		Kbd,
+		Tab,
+		Tabs,
+		UndoRedo
+	} from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
-	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -17,26 +23,33 @@
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import {
-		faClipboard,
-		faFileExport,
-		faHistory,
-		faSave,
-		faSlidersH
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard, faSave } from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
 		Bug,
+		DiffIcon,
 		Expand,
+		FileJson,
+		FileUp,
+		FormInput,
+		History,
 		Laptop2,
 		Loader2,
+		MoreVertical,
+		RefreshCw,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard } from '../../../utils'
+	import {
+		classNames,
+		cleanValueProperties,
+		copyToClipboard,
+		orderedJsonStringify,
+		truncateRev
+	} from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -45,7 +58,7 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../inputType'
-	import type { AppEditorContext, AppViewerContext } from '../types'
+	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
@@ -61,6 +74,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
+	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
+	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import AppEditorTutorial from './AppEditorTutorial.svelte'
+	import AppTimeline from './AppTimeline.svelte'
+	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { cloneDeep } from 'lodash'
 
 	async function hash(message) {
 		try {
@@ -82,6 +102,17 @@
 	export let policy: Policy
 	export let fromHub: boolean = false
 	export let versions: number[]
+	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let savedApp:
+		| {
+				value: App
+				draft?: any
+				path: string
+				summary: string
+				policy: any
+				draft_only?: boolean
+		  }
+		| undefined = undefined
 
 	const {
 		app,
@@ -89,12 +120,14 @@
 		breakpoint,
 		appPath,
 		jobs,
+		jobsById,
 		staticExporter,
 		errorByComponent,
 		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, jobsDrawerOpen } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, jobsDrawerOpen, refreshComponents } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
 		publish: false,
@@ -103,13 +136,9 @@
 	}
 
 	$: if ($openDebugRun == undefined) {
-		$openDebugRun = (componentId: string) => {
+		$openDebugRun = (jobId: string) => {
 			$jobsDrawerOpen = true
-
-			const job = $jobs.find((job) => job.component === componentId)
-			if (job) {
-				selectedJobId = job.job
-			}
+			selectedJobId = jobId
 		}
 	}
 
@@ -197,7 +226,12 @@
 					policy
 				}
 			})
-			$dirtyStore = false
+			savedApp = {
+				summary: $summary,
+				value: cloneDeep($app),
+				path: path,
+				policy: policy
+			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
 			localStorage.removeItem(`app-${path}`)
@@ -219,8 +253,13 @@
 				path: npath
 			}
 		})
+		savedApp = {
+			summary: $summary,
+			value: cloneDeep($app),
+			path: npath,
+			policy
+		}
 
-		$dirtyStore = false
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		if (appPath !== npath) {
@@ -255,7 +294,9 @@
 	}
 
 	async function save() {
-		$dirtyStore = false
+		$secondaryMenuLeftStore.isOpen = false
+		$secondaryMenuRightStore.isOpen = false
+
 		saveDrawerOpen = true
 		return
 	}
@@ -281,8 +322,21 @@
 					value: $app!
 				}
 			})
+			savedApp = {
+				summary: $summary,
+				value: cloneDeep($app),
+				path: newPath,
+				policy,
+				draft_only: true,
+				draft: {
+					summary: $summary,
+					value: cloneDeep($app),
+					path: newPath,
+					policy
+				}
+			}
+
 			draftDrawerOpen = false
-			$dirtyStore = false
 			goto(`/apps/edit/${newPath}`)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -290,16 +344,36 @@
 		draftDrawerOpen = false
 	}
 
-	async function saveDraft() {
-		$dirtyStore = false
+	async function saveDraft(forceSave = false) {
 		if ($page.params.path == undefined) {
+			// initial draft
 			draftDrawerOpen = true
+			return
+		}
+		if (!savedApp) {
+			return
+		}
+		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
+		const current = cleanValueProperties({
+			summary: $summary,
+			value: $app,
+			path: newPath || savedApp.draft?.path || savedApp.path,
+			policy
+		})
+		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			sendUserToast('No changes detected, ignoring', false, [
+				{
+					label: 'Save anyway',
+					callback: () => {
+						saveDraft(true)
+					}
+				}
+			])
 			return
 		}
 		loading.saveDraft = true
 		try {
 			await computeTriggerables()
-			$dirtyStore = false
 			let path = $page.params.path
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
@@ -309,6 +383,17 @@
 					value: $app!
 				}
 			})
+
+			savedApp = {
+				...savedApp,
+				draft: {
+					summary: $summary,
+					value: cloneDeep($app),
+					path,
+					policy
+				}
+			}
+
 			sendUserToast('Draft saved')
 			localStorage.removeItem(`app-${path}`)
 			loading.saveDraft = false
@@ -389,13 +474,95 @@
 
 	let dirtyPath = false
 	let path: Path | undefined = undefined
+
+	let moreItems = [
+		{
+			displayName: 'Deployment History',
+			icon: History,
+			action: () => {
+				historyBrowserDrawerOpen = true
+			}
+		},
+		{
+			displayName: 'JSON',
+			icon: FileJson,
+			action: () => {
+				appExport.open($app)
+			}
+		},
+		// {
+		// 	displayName: 'Publish to Hub',
+		// 	icon: faGlobe,
+		// 	action: () => {
+		// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+		// 		window.open(url.toString(), '_blank')
+		// 	}
+		// },
+		{
+			displayName: 'Hub compatible JSON',
+			icon: FileUp,
+			action: () => {
+				appExport.open(toStatic($app, $staticExporter, $summary).app)
+			}
+		},
+		{
+			displayName: 'App Inputs',
+			icon: FormInput,
+			action: () => {
+				inputsDrawerOpen = true
+			}
+		},
+
+		...(savedApp
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => {
+							if (!savedApp) {
+								return
+							}
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
+								mode: 'normal',
+								deployed: savedApp,
+								draft: savedApp.draft,
+								current: {
+									summary: $summary,
+									value: $app,
+									path: newPath || savedApp.draft?.path || savedApp.path,
+									policy
+								}
+							})
+						}
+					}
+			  ]
+			: [])
+	]
+
+	let appEditorTutorial: AppEditorTutorial | undefined = undefined
+
+	export function toggleTutorial() {
+		appEditorTutorial?.toggleTutorial()
+	}
+
+	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 
-<UnsavedConfirmationModal />
+<UnsavedConfirmationModal
+	{diffDrawer}
+	savedValue={savedApp}
+	modifiedValue={{
+		summary: $summary,
+		value: $app,
+		path: newPath || savedApp?.draft?.path || savedApp?.path,
+		policy
+	}}
+/>
 
 {#if appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
@@ -405,6 +572,7 @@
 			</Alert>
 			<h3>Summary</h3>
 			<div class="w-full pt-2">
+				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					autofocus
 					type="text"
@@ -453,6 +621,7 @@
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
+			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus
 				type="text"
@@ -485,7 +654,45 @@
 			autofocus={false}
 		/>
 
-		<div slot="actions">
+		<div slot="actions" class="flex flex-row gap-4">
+			<Button
+				variant="border"
+				color="light"
+				disabled={!savedApp || savedApp.draft_only}
+				on:click={() => {
+					if (!savedApp) {
+						return
+					}
+					saveDrawerOpen = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
+						mode: 'normal',
+						deployed: savedApp,
+						draft: savedApp.draft,
+						current: {
+							summary: $summary,
+							value: $app,
+							path: newPath || savedApp.draft?.path || savedApp.path,
+							policy
+						},
+						button: {
+							text: 'Looks good, deploy',
+							onClick: () => {
+								if (appPath == '') {
+									createApp(newPath)
+								} else {
+									updateApp(newPath)
+								}
+							}
+						}
+					})
+				}}
+			>
+				<div class="flex flex-row gap-2 items-center">
+					<DiffIcon size={14} />
+					Diff
+				</div>
+			</Button>
 			<Button
 				startIcon={{ icon: faSave }}
 				disabled={pathError != ''}
@@ -588,22 +795,33 @@
 				<PanelSection title="Past Runs">
 					<div class="flex flex-col gap-2 w-full">
 						{#if $jobs.length > 0}
-							<div class="flex gap-2 flex-col">
-								{#each $jobs ?? [] as { job, component } (job)}
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<div
-										class={classNames(
-											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-											$errorByComponent[job] ? 'border border-red-500 bg-red-100' : '',
-											selectedJobId == job && !$errorByComponent[component]
-												? 'bg-blue-100 text-blue-600'
-												: ''
-										)}
-										on:click={() => (selectedJobId = job)}
-									>
-										<span class="text-xs truncate">{job}</span>
-										<Badge color="indigo">{component}</Badge>
-									</div>
+							<div class="flex gap-2 flex-col-reverse">
+								{#each $jobs ?? [] as id}
+									{@const selectedJob = $jobsById[id]}
+									{#if selectedJob}
+										<!-- svelte-ignore a11y-click-events-have-key-events -->
+										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<div
+											class={classNames(
+												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
+												selectedJob.error ? 'border border-red-500 text-primary' : '',
+												selectedJob.error && $errorByComponent[selectedJob.component]?.id == id
+													? selectedJobId == id
+														? 'bg-red-600 !border-blue-600'
+														: 'bg-red-400'
+													: selectedJobId == id
+													? 'text-blue-600'
+													: ''
+											)}
+											on:click={() => {
+												selectedJobId = id
+												rightColumnSelect = 'detail'
+											}}
+										>
+											<span class="text-xs truncate">{truncateRev(selectedJob.job, 20)}</span>
+											<Badge color="indigo">{selectedJob.component}</Badge>
+										</div>
+									{/if}
 								{/each}
 							</div>
 						{:else}
@@ -613,100 +831,102 @@
 				</PanelSection>
 			</Pane>
 			<Pane size={75}>
-				<div class="h-full w-full overflow-auto">
-					{#if selectedJobId}
-						{#if !job}
-							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
-
-							{#if jobResult?.error !== undefined}
-								<Splitpanes horizontal class="grow border w-full">
-									<Pane size={50} minSize={10}>
-										<LogViewer
-											content={`Logs are avaiable in the browser console directly`}
-											isLoading={false}
-										/>
-									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-secondary">
-										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult
-												result={{
-													error: { name: 'Frontend execution error', message: jobResult.error }
-												}}
-											/>
-										</pre>
-									</Pane>
-								</Splitpanes>
-							{:else if jobResult !== undefined}
-								<Splitpanes horizontal class="grow border w-full">
-									<Pane size={50} minSize={10}>
-										<LogViewer
-											content={`Logs are avaiable in the browser console directly`}
-											isLoading={false}
-										/>
-									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-secondary">
-										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={jobResult.result} />
-										</pre>
-									</Pane>
-								</Splitpanes>
-							{:else}
-								<Skeleton layout={[[40]]} />
-							{/if}
-						{:else}
-							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
-							<div class="flex flex-col h-full w-full gap-4 p-2 mb-4">
-								{#if job?.['running']}
-									<div class="flex flex-row-reverse w-full">
-										<Button
-											color="red"
-											variant="border"
-											on:click={() => testJobLoader?.cancelJob()}
-										>
-											<Loader2 size={14} class="animate-spin mr-2" />
-
-											Cancel
-										</Button>
-									</div>
-								{/if}
-								<div class="p-2">
-									<JobArgs args={job?.args} />
-								</div>
-								{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+				<Tabs bind:selected={rightColumnSelect}>
+					<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+					<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+				</Tabs>
+				{#if rightColumnSelect == 'timeline'}
+					<div class="p-2">
+						<AppTimeline />
+					</div>
+				{:else if rightColumnSelect == 'detail'}
+					<div class="h-full flex flex-col w-full overflow-auto">
+						{#if selectedJobId}
+							{#if selectedJobId?.includes('Frontend')}
+								{@const jobResult = $jobsById[selectedJobId]}
+								{#if jobResult?.error !== undefined}
 									<Splitpanes horizontal class="grow border w-full">
-										<Pane size={50} minSize={10}>
-											<LogViewer jobId={job?.id} content={job?.logs} isLoading={testIsLoading} />
+										<Pane size={10} minSize={10}>
+											<LogViewer
+												content={`Logs are avaiable in the browser console directly`}
+												isLoading={false}
+												tag={undefined}
+											/>
 										</Pane>
-										<Pane size={50} minSize={10} class="text-sm text-secondary">
-											{#if job != undefined && 'result' in job && job.result != undefined}
-												<pre class="overflow-x-auto break-words relative h-full px-2"
-													><DisplayResult
-														workspaceId={$workspaceStore}
-														jobId={selectedJobId}
-														result={job.result}
-													/></pre
-												>
-											{:else if testIsLoading}
-												<div class="p-2"><Loader2 class="animate-spin" /> </div>
-											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-												<div class="p-2 text-tertiary">Result is undefined</div>
-											{:else}
-												<div class="p-2 text-tertiary">
-													<Loader2 size={14} class="animate-spin mr-2" />
-												</div>
-											{/if}
+										<Pane size={90} minSize={10} class="text-sm text-secondary">
+											<div class="relative h-full px-2">
+												<DisplayResult
+													result={{
+														error: { name: 'Frontend execution error', message: jobResult.error }
+													}}
+												/>
+											</div>
 										</Pane>
-										{#if jobResult?.transformer}
-											<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
-												<div class="font-bold mb-4">Transformer results</div>
+									</Splitpanes>
+								{:else if jobResult !== undefined}
+									<Splitpanes horizontal class="grow border w-full">
+										<Pane size={10} minSize={10}>
+											<LogViewer
+												content={`Logs are avaiable in the browser console directly`}
+												isLoading={false}
+												tag={undefined}
+											/>
+										</Pane>
+										<Pane size={90} minSize={10} class="text-sm text-secondary">
+											<div class="relative h-full px-2">
+												<DisplayResult
+													workspaceId={$workspaceStore}
+													jobId={selectedJobId}
+													result={jobResult.result}
+												/>
+											</div>
+										</Pane>
+									</Splitpanes>
+								{:else}
+									<Loader2 class="animate-spin" />
+								{/if}
+							{:else}
+								<div class="flex flex-col h-full w-full gap-4 mb-4">
+									{#if job?.['running']}
+										<div class="flex flex-row-reverse w-full">
+											<Button
+												color="red"
+												variant="border"
+												on:click={() => testJobLoader?.cancelJob()}
+											>
+												<Loader2 size={14} class="animate-spin mr-2" />
+
+												Cancel
+											</Button>
+										</div>
+									{/if}
+									{#if job?.args}
+										<div class="p-2">
+											<JobArgs args={job?.args} />
+										</div>
+									{/if}
+
+									{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+										{@const jobResult = $jobsById[selectedJobId]}
+										<Splitpanes horizontal class="grow border w-full">
+											<Pane size={50} minSize={10}>
+												<LogViewer
+													duration={job?.['duration_ms']}
+													jobId={job?.id}
+													content={job?.logs}
+													isLoading={testIsLoading}
+													tag={job?.tag}
+												/>
+											</Pane>
+											<Pane size={50} minSize={10} class="text-sm text-secondary">
 												{#if job != undefined && 'result' in job && job.result != undefined}
-													<pre class="overflow-x-auto break-words relative h-full px-2">
+													<div class="relative h-full px-2">
 														<DisplayResult
 															workspaceId={$workspaceStore}
 															jobId={selectedJobId}
-															result={jobResult?.transformer}
-														/>
-													</pre>
+															result={job.result}
+														/></div
+													>
 												{:else if testIsLoading}
 													<div class="p-2"><Loader2 class="animate-spin" /> </div>
 												{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
@@ -717,33 +937,84 @@
 													</div>
 												{/if}
 											</Pane>
-										{/if}
-									</Splitpanes>
-								{:else}
-									<div class="mt-10" />
-									<FlowProgressBar {job} class="py-4" />
-									<div class="w-full mt-10 mb-20">
-										<FlowStatusViewer
-											jobId={job.id}
-											on:jobsLoaded={({ detail }) => {
-												job = detail
-											}}
-										/>
-									</div>
-								{/if}
-							</div>
+											{#if jobResult?.transformer}
+												<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
+													<div class="font-bold">Transformer results</div>
+													{#if job != undefined && 'result' in job && job.result != undefined}
+														<div class="relative h-full px-2">
+															<DisplayResult
+																workspaceId={$workspaceStore}
+																jobId={selectedJobId}
+																result={jobResult?.transformer}
+															/>
+														</div>
+													{:else if testIsLoading}
+														<div class="p-2"><Loader2 class="animate-spin" /> </div>
+													{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
+														<div class="p-2 text-tertiary">Result is undefined</div>
+													{:else}
+														<div class="p-2 text-tertiary">
+															<Loader2 size={14} class="animate-spin mr-2" />
+														</div>
+													{/if}
+												</Pane>
+											{/if}
+										</Splitpanes>
+									{:else}
+										<div class="mt-10" />
+										<FlowProgressBar {job} class="py-4" />
+										<div class="w-full mt-10 mb-20">
+											<FlowStatusViewer
+												jobId={job.id}
+												on:jobsLoaded={({ detail }) => {
+													job = detail
+												}}
+											/>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						{:else}
+							<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
 						{/if}
-					{:else}
-						<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</Pane>
 		</Splitpanes>
+		<svelte:fragment slot="actions">
+			<Button
+				size="md"
+				color="light"
+				variant="border"
+				on:click={() => {
+					$refreshComponents?.()
+				}}
+				title="Refresh App"
+			>
+				Refresh app&nbsp;<RefreshCw size={16} />
+			</Button>
+
+			<Button
+				size="md"
+				color="light"
+				variant="border"
+				on:click={() => {
+					errorByComponent.set({})
+					jobs.set([])
+				}}
+				>Clear jobs
+			</Button>
+			{#if hasErrors}
+				<Button size="md" color="light" variant="border" on:click={() => errorByComponent.set({})}
+					>Clear Errors &nbsp;<BellOff size={14} />
+				</Button>
+			{/if}
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
 >
 	<div class="min-w-64 w-64">
 		<input
@@ -791,48 +1062,30 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown
-			placement="bottom-end"
-			btnClasses="!rounded-md"
-			dropdownItems={[
-				{
-					displayName: 'Deployment History',
-					icon: faHistory,
-					action: () => {
-						historyBrowserDrawerOpen = true
-					}
-				},
-				{
-					displayName: 'JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open($app)
-					}
-				},
-				// {
-				// 	displayName: 'Publish to Hub',
-				// 	icon: faGlobe,
-				// 	action: () => {
-				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-				// 		window.open(url.toString(), '_blank')
-				// 	}
-				// },
-				{
-					displayName: 'Hub compatible JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open(toStatic($app, $staticExporter, $summary).app)
-					}
-				},
-				{
-					displayName: 'App Inputs',
-					icon: faSlidersH,
-					action: () => {
-						inputsDrawerOpen = true
-					}
-				}
-			]}
-		/>
+		<AppEditorTutorial bind:this={appEditorTutorial} />
+		<ButtonDropdown hasPadding={false}>
+			<svelte:fragment slot="buttonReplacement">
+				<Button nonCaptureEvent size="xs" color="light">
+					<div class="flex flex-row items-center">
+						<MoreVertical size={14} />
+					</div>
+				</Button>
+			</svelte:fragment>
+			<svelte:fragment slot="items">
+				{#each moreItems as item}
+					<MenuItem on:click={item.action}>
+						<div
+							class={classNames(
+								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+							)}
+						>
+							<svelte:component this={item.icon} size={14} />
+							{item.displayName}
+						</div>
+					</MenuItem>
+				{/each}
+			</svelte:fragment>
+		</ButtonDropdown>
 		<div class="hidden md:inline relative overflow-visible">
 			{#if hasErrors}
 				<span
@@ -845,7 +1098,7 @@
 			<Button
 				on:click={() => {
 					if (selectedJobId == undefined && $jobs.length > 0) {
-						selectedJobId = $jobs[0].job
+						selectedJobId = $jobs[$jobs.length - 1]
 					}
 					$jobsDrawerOpen = true
 				}}
@@ -875,7 +1128,13 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		<Button loading={loading.save} startIcon={{ icon: faSave }} on:click={saveDraft} size="xs">
+		<Button
+			loading={loading.save}
+			startIcon={{ icon: faSave }}
+			on:click={() => saveDraft()}
+			disabled={$page.params.path !== undefined && !savedApp}
+			size="xs"
+		>
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
 		<Button

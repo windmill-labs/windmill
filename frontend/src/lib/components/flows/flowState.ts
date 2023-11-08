@@ -18,7 +18,6 @@ export type FlowState = Record<string, FlowModuleState>
  * We also hold the data of the results of a test job, ran by the user.
  */
 
-
 export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowState>) {
 	const modulesState: FlowState = {}
 
@@ -63,7 +62,6 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 		const flowModuleState = await loadFlowModuleState(flowModule)
 		modulesState[flowModule.id] = flowModuleState
 	}
-
 }
 
 async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {

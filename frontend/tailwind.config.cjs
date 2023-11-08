@@ -9,10 +9,10 @@ const lightTheme = {
 
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
-	textTertiary: '#718096',
+	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
-	border: '#ccc',
+	border: '#ddd',
 	borderHover: '#ccc'
 }
 
@@ -27,7 +27,7 @@ const darkTheme = {
 
 	textPrimary: '#f3f6f8',
 	textSecondary: '#e0e7ed',
-	textTertiary: '#d8dee9',
+	textTertiary: '#c7ccd6',
 	textDisabled: '#a0aec0',
 
 	border: '#3e4c60',
@@ -478,7 +478,7 @@ const config = {
 
 					'--color-text-primary': lightThemeRgb.textPrimary,
 					'--color-text-secondary': lightThemeRgb.textSecondary,
-					'--color-text-tetiary': lightThemeRgb.textTertiary,
+					'--color-text-tertiary': lightThemeRgb.textTertiary,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
 
 					'--color-surface-inverse': darkThemeRgb.surface,
@@ -499,6 +499,9 @@ const config = {
 					'--vscode-editorHoverWidget-foreground': '#616161',
 					'--vscode-editorHoverWidget-border': '#c8c8c8',
 					'--vscode-editorHoverWidget-statusBarBackground': '#e7e7e7',
+					'--vscode-editorSuggestWidget-foreground': '#eeffff',
+					'--vscode-editorSuggestWidget-highlightForeground': '#80cbc4',
+					'--vscode-editorSuggestWidget-selectedBackground': 'rgba(0, 0, 0, 0.31)',
 
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
@@ -516,7 +519,7 @@ const config = {
 
 						'--color-text-primary': darkThemeRgb.textPrimary,
 						'--color-text-secondary': darkThemeRgb.textSecondary,
-						'--color-text-tetiary': darkThemeRgb.textTertiary,
+						'--color-text-tertiary': darkThemeRgb.textTertiary,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
 
 						'--color-surface-inverse': lightThemeRgb.surface,
@@ -583,7 +586,6 @@ const config = {
 					fontSize: '18px',
 					fontWeight: theme('fontWeight.semibold'),
 					lineHeight: '1.3',
-					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: '20px'
 					}
@@ -592,7 +594,6 @@ const config = {
 					fontSize: '16px',
 					fontWeight: theme('fontWeight.semibold'),
 					lineHeight: '1.5',
-					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: '18px'
 					}
@@ -601,7 +602,6 @@ const config = {
 					fontSize: '16px',
 					fontWeight: theme('fontWeight.medium'),
 					lineHeight: '1.5',
-					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: '18px'
 					}
@@ -866,7 +866,12 @@ const config = {
 					justifyContent: 'center',
 					alignItems: 'center'
 				},
-
+				'.inner-border': {
+					boxShadow: `inset 0 0 0 1px ${lightTheme.border}`
+				},
+				'.dark .inner-border': {
+					boxShadow: `inset 0 0 0 1px ${darkTheme.border}`
+				},
 				'.ellipsize': {
 					overflow: 'hidden',
 					whiteSpace: 'nowrap',

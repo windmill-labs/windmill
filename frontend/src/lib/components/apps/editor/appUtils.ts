@@ -13,7 +13,8 @@ import {
 	getRecommendedDimensionsByComponent,
 	type AppComponent,
 	type BaseComponent,
-	type InitialAppComponent
+	type InitialAppComponent,
+	type TypedComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
@@ -25,12 +26,36 @@ import { get, type Writable } from 'svelte/store'
 import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
+import { enterpriseLicense } from '$lib/stores'
 
+export function findComponentSettings(app: App, id: string | undefined) {
+	if (!id) return undefined
+	if (app?.grid) {
+		const gridItem = app.grid.find((x) => x.data?.id === id)
+		if (gridItem) {
+			return { item: gridItem, parent: undefined }
+		}
+	}
+
+	if (app?.subgrids) {
+		for (const key of Object.keys(app.subgrids ?? {})) {
+			const gridItem = app.subgrids[key].find((x) => x.data?.id === id)
+			if (gridItem) {
+				return { item: gridItem, parent: key }
+			}
+		}
+	}
+
+	return undefined
+}
 export function dfs(
 	grid: GridItem[],
 	id: string,
 	subgrids: Record<string, GridItem[]>
 ): string[] | undefined {
+	if (!grid) {
+		return undefined
+	}
 	for (const item of grid) {
 		if (item.id === id) {
 			return [id]
@@ -83,6 +108,19 @@ export function selectId(
 	}
 }
 
+export function connectOutput(
+	connectingInput: Writable<ConnectingInput>,
+	typ: TypedComponent['type'],
+	id: string,
+	spath: string
+) {
+	if (get(connectingInput).opened) {
+		let splitted = spath?.split('.')
+		let componentId = typ == 'containercomponent' ? splitted?.[0] : id
+		let path = typ == 'containercomponent' ? splitted?.[1] : spath
+		connectingInput.set(connectInput(get(connectingInput), componentId, path, typ))
+	}
+}
 function findGridItemById(
 	root: GridItem[],
 	subGrids: Record<string, GridItem[]> | undefined,
@@ -260,7 +298,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
-			customCss: {},
+			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
@@ -280,6 +318,10 @@ export function insertNewGridItem(
 	const id = keepId ?? getNextGridItemId(app)
 
 	const data = builddata(id)
+	if (data.type == 'aggridcomponentee' && !get(enterpriseLicense)) {
+		sendUserToast('AgGrid Enterprise Edition require Windmill Enterprise Edition', true)
+		throw Error('AgGrid Enterprise Edition require Windmill Enterprise Edition')
+	}
 	if (!app.subgrids) {
 		app.subgrids = {}
 	}
@@ -294,12 +336,66 @@ export function insertNewGridItem(
 	const key = focusedGrid
 		? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}`
 		: undefined
+
+	if (key && app.subgrids[key] === undefined) {
+		// If ever the subgrid is undefined, we want to make sure it is defined
+		app.subgrids[key] = []
+	}
+
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
 	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
 
 	return id
+}
+
+export function copyComponent(
+	app: App,
+	item: GridItem,
+	parentGrid: FocusedGrid | undefined,
+	subgrids: Record<string, GridItem[]>,
+	alreadyVisited: string[]
+) {
+	if (alreadyVisited.includes(item.id)) {
+		return
+	} else {
+		alreadyVisited.push(item.id)
+	}
+	const newItem = insertNewGridItem(
+		app,
+		(id) => {
+			if (item.data.type === 'tablecomponent') {
+				return {
+					...item.data,
+					id,
+					actionButtons:
+						item.data.actionButtons.map((x) => ({
+							...x,
+							id: x.id.replace(`${item.id}_`, `${id}_`)
+						})) ?? []
+				}
+			} else {
+				return { ...item.data, id }
+			}
+		},
+		parentGrid,
+		Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
+	)
+
+	for (let i = 0; i < (item?.data?.numberOfSubgrids ?? 0); i++) {
+		subgrids[`${item.id}-${i}`].forEach((subgridItem) => {
+			copyComponent(
+				app,
+				subgridItem,
+				{ parentComponentId: newItem, subGridIndex: i },
+				subgrids,
+				alreadyVisited
+			)
+		})
+	}
+
+	return newItem
 }
 
 export function getAllSubgridsAndComponentIds(
@@ -326,6 +422,12 @@ export function getAllSubgridsAndComponentIds(
 		}
 	}
 	return [subgrids, components]
+}
+
+export function getAllGridItems(
+	app: App
+	): GridItem[] {
+	return app.grid.concat(Object.values(app.subgrids ?? {}).flat())
 }
 
 export function deleteGridItem(
@@ -490,7 +592,7 @@ export function initConfig<
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput | boolean>>
 		  }
 		| any
 	>
@@ -598,7 +700,8 @@ export function sortGridItemsPosition<T>(
 export function connectInput(
 	connectingInput: ConnectingInput,
 	componentId: string,
-	path: string
+	path: string,
+	componentType?: TypedComponent['type']
 ): ConnectingInput {
 	if (connectingInput) {
 		if (connectingInput.onConnect) {
@@ -610,7 +713,8 @@ export function connectInput(
 			input: {
 				connection: {
 					componentId,
-					path
+					path,
+					componentType
 				},
 				type: 'connected'
 			},
@@ -652,57 +756,4 @@ export function recursivelyFilterKeyInJSON(
 		}
 	})
 	return filteredJSON
-}
-
-export function clearErrorByComponentId(
-	id: string,
-	errorByComponent: Record<
-		string,
-		{
-			error: string
-			componentId: string
-		}
-	>
-) {
-	return Object.entries(errorByComponent).reduce((acc, [key, value]) => {
-		if (value.componentId !== id) {
-			acc[key] = value
-		}
-		return acc
-	}, {})
-}
-
-export function clearJobsByComponentId(
-	id: string,
-	jobs: {
-		job: string
-		component: string
-	}[]
-) {
-	return jobs.filter((job) => job.component !== id)
-}
-
-// Returns the error message for the latest job for a component if an error occurred, otherwise undefined
-export function getErrorFromLatestResult(
-	id: string,
-	errorByComponent: Record<
-		string, // job id
-		{
-			error: string
-			componentId: string
-		}
-	>,
-	jobs: {
-		job: string
-		component: string
-	}[]
-) {
-	// find last jobId for component id
-	const lastJob = jobs.find((job) => job.component === id)
-
-	if (lastJob?.job && errorByComponent[lastJob.job]) {
-		return errorByComponent[lastJob.job].error
-	} else {
-		return undefined
-	}
 }

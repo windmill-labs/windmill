@@ -4,6 +4,7 @@
 	export let format: string
 	export let value: any
 	export let disablePortal = false
+	export let showSchemaExplorer = false
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -41,5 +42,6 @@
 		}}
 		bind:value={path}
 		resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
+		{showSchemaExplorer}
 	/>
 </div>

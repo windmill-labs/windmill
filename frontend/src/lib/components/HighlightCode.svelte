@@ -42,6 +42,7 @@
 				return sql
 			case 'powershell':
 				return powershell
+
 			default:
 				return typescript
 		}

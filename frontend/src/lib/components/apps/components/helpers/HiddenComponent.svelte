@@ -34,6 +34,7 @@
 
 {#if runnable && (runnable.type == 'runnableByPath' || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined))}
 	<RunnableComponent
+		hasChildrens={false}
 		render={false}
 		{id}
 		fields={runnable.fields}

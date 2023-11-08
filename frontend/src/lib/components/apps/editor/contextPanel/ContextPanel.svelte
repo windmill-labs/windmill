@@ -20,14 +20,14 @@
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
 	<div
 		class={classNames(
-			'bg-surface w-full h-full z-30',
+			'bg-surface w-full h-full z-30 overflow-auto',
 			$connectingInput.opened
 				? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 dark:bg-frost-900/50 z-50'
 				: ''
 		)}
 	>
 		<div class="min-w-[150px]">
-			<div class="sticky z-10 top-0 left-0 w-full p-1.5">
+			<div class="sticky z-10 top-0 left-0 w-full p-1.5 bg-surface">
 				<ClearableInput bind:value={$search} placeholder="Search outputs..." />
 			</div>
 

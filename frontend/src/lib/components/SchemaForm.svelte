@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, VariableService } from '$lib/gen'
+	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -8,8 +8,13 @@
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { getResourceTypes } from './resourceTypesStore'
 
 	export let schema: Schema | any
+	export let schemaSkippedValues: string[] = []
+	export let schemaFieldTooltip: Record<string, string> = {}
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false
@@ -20,12 +25,14 @@
 
 	export let shouldHideNoInputs: boolean = false
 	export let compact = false
-	export let password: string | undefined = undefined
+	export let linkedSecret: string | undefined = undefined
+	export let linkedSecretCandidates: string[] | undefined = undefined
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
 	export let prettifyHeader = false
 	export let disablePortal = false
+	export let showSchemaExplorer = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -66,15 +73,16 @@
 	let resourceTypes: string[] | undefined = undefined
 
 	async function loadResourceTypes() {
-		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+		resourceTypes = await getResourceTypes()
 	}
+
 	loadResourceTypes()
 </script>
 
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
-			{#if Object.keys(schema?.properties ?? {}).includes(argName)}
+			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
@@ -99,11 +107,11 @@
 								disabled={disabledArgs.includes(argName) || disabled}
 								{editableSchema}
 								{compact}
-								password={argName == password}
 								{variableEditor}
 								{itemPicker}
 								bind:pickForField
 								bind:extra={schema.properties[argName]}
+								simpleTooltip={schemaFieldTooltip[argName]}
 							/>
 						{:else}
 							<ArgInput
@@ -125,14 +133,45 @@
 								properties={schema.properties[argName].properties}
 								itemsType={schema.properties[argName].items}
 								disabled={disabledArgs.includes(argName) || disabled}
-								{editableSchema}
 								{compact}
-								password={argName == password}
 								{variableEditor}
 								{itemPicker}
 								bind:pickForField
+								password={linkedSecret == argName}
 								extra={schema.properties[argName]}
-							/>
+								{showSchemaExplorer}
+								simpleTooltip={schemaFieldTooltip[argName]}
+							>
+								<svelte:fragment slot="actions">
+									{#if linkedSecretCandidates?.includes(argName)}
+										<div>
+											<ToggleButtonGroup
+												selected={linkedSecret == argName}
+												on:selected={(e) => {
+													if (e.detail) {
+														linkedSecret = argName
+													} else if (linkedSecret == argName) {
+														linkedSecret = undefined
+													}
+												}}
+											>
+												<ToggleButton
+													value={false}
+													size="sm"
+													label="Inlined"
+													tooltip="The value is inlined in the resource and thus has no special treatment."
+												/>
+												<ToggleButton
+													position="right"
+													value={true}
+													size="sm"
+													label="Secret"
+													tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+												/>
+											</ToggleButtonGroup>
+										</div>{/if}</svelte:fragment
+								>
+							</ArgInput>
 						{/if}
 					{/if}
 				</div>

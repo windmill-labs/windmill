@@ -18,16 +18,20 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 	}
 }
 
-function create_context_function_template(eval_string, context, noReturn: boolean) {
+function create_context_function_template(eval_string: string, context, noReturn: boolean) {
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal) {
+return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll) {
 "use strict";
 ${
 	Object.keys(context).length > 0
 		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
 		: ``
 }
-${noReturn ? `return ${eval_string}` : eval_string}
+${
+	noReturn
+		? `return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
+		: eval_string
+}
 }                                                                                                                   
 `
 }
@@ -46,7 +50,12 @@ function make_context_evaluator(
 	setValue,
 	setSelectedIndex,
 	openModal,
-	closeModal
+	closeModal,
+	open,
+	close,
+	validate,
+	invalidate,
+	validateAll
 ) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
@@ -100,6 +109,11 @@ export async function eval_like(
 			setSelectedIndex?: (index: number) => void
 			openModal?: () => void
 			closeModal?: () => void
+			open?: () => void
+			close?: () => void
+			validate?: (key: string) => void
+			invalidate?: (key: string, error: string) => void
+			validateAll?: () => void
 		}
 	>,
 	worldStore: World | undefined,
@@ -110,13 +124,13 @@ export async function eval_like(
 			if (typeof key !== 'string') {
 				throw new Error('Invalid key')
 			}
+			target[key] = value
 			let o = worldStore?.newOutput('state', key, value)
 			if (isSerializable(value)) {
 				o?.set(value, true)
 			} else {
 				o?.set('Not serializable object usable only by frontend scripts', true)
 			}
-			target[key] = value
 			return true
 		}
 	})
@@ -156,6 +170,21 @@ export async function eval_like(
 		},
 		(id) => {
 			controlComponents[id]?.closeModal?.()
+		},
+		(id) => {
+			controlComponents[id]?.open?.()
+		},
+		(id) => {
+			controlComponents[id]?.close?.()
+		},
+		(id, key) => {
+			controlComponents[id]?.validate?.(key)
+		},
+		(id, key, error) => {
+			controlComponents[id]?.invalidate?.(key, error)
+		},
+		(id) => {
+			controlComponents[id]?.validateAll?.()
 		}
 	)
 }

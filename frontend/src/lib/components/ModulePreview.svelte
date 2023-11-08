@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job, Script } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job, Script, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getModifierKey } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
@@ -19,7 +19,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
-	import ScriptFix from './codeGen/ScriptFix.svelte'
+	import ScriptFix from './copilot/ScriptFix.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema
@@ -28,7 +28,7 @@
 	export let editor: Editor
 	export let diffEditor: DiffEditor
 
-	const { flowStore, flowStateStore, testStepStore } =
+	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
@@ -54,7 +54,7 @@
 		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
 			await testJobLoader?.runPreview(
-				val.path ?? ($flowStore?.path ?? '') + '/' + mod.id,
+				val.path ?? ($pathStore ?? '') + '/' + mod.id,
 				val.content,
 				val.language,
 				args,
@@ -71,8 +71,12 @@
 				args,
 				$flowStore?.tag ?? script.tag
 			)
+		} else if (val.type == 'flow') {
+			await testJobLoader?.abstractRun(() =>
+				JobService.runFlowByPath({ workspace: $workspaceStore!, path: val.path, requestBody: args })
+			)
 		} else {
-			throw Error('not testable module type')
+			throw Error('Not supported module type')
 		}
 	}
 
@@ -108,7 +112,7 @@
 				</Button>
 			{:else}
 				<Button color="dark" btnClasses="truncate" size="sm" on:click={() => runTest(stepArgs)}
-					>Run&nbsp; <Kbd small>{getModifierKey()}</Kbd>
+					>Run&nbsp; <Kbd small isModifier>{getModifierKey()}</Kbd>
 					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd></Button
 				>
 			{/if}
@@ -125,19 +129,24 @@
 					mem={testJob?.['mem_peak']}
 					content={testJob?.logs}
 					isLoading={testIsLoading}
+					tag={testJob?.tag}
 				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<pre class="overflow-x-auto break-words relative h-full px-2">
-						<DisplayResult workspaceId={testJob?.workspace_id} jobId={testJob?.id} result={testJob.result}>
+					<pre class="overflow-x-auto break-words relative h-full px-2"
+						><DisplayResult
+							workspaceId={testJob?.workspace_id}
+							jobId={testJob?.id}
+							result={testJob.result}>
 							<svelte:fragment slot="copilot-fix">
-								{#if lang && editor && diffEditor && testJob?.result?.error}
+								{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
 									<ScriptFix
 										error={JSON.stringify(testJob.result.error)}
 										{lang}
 										{editor}
 										{diffEditor}
+										args={stepArgs}
 									/>
 								{/if}
 							</svelte:fragment>

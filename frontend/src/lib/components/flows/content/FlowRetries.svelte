@@ -96,7 +96,7 @@
 				<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
 				<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
 				<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
-				<input bind:value={flowModule.retry.exponential.seconds} type="number" />
+				<input bind:value={flowModule.retry.exponential.seconds} type="number" step="1" />
 			{:else}
 				<div class="text-xs font-bold !mt-2">Attempts</div>
 				<input type="number" disabled />

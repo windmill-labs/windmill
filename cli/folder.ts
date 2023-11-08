@@ -1,5 +1,13 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, Command, Folder, FolderService, log, Table } from "./deps.ts";
+import {
+  colors,
+  Command,
+  Folder,
+  FolderService,
+  log,
+  SEP,
+  Table,
+} from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions, isSuperset, parseFromFile } from "./types.ts";
 
@@ -38,13 +46,13 @@ export async function pushFolder(
   localFolder: FolderFile,
   raw: boolean
 ): Promise<void> {
-  if (name.startsWith("/")) {
+  if (name.startsWith(SEP)) {
     name = name.substring(1);
   }
-  if (name.startsWith("f/")) {
+  if (name.startsWith("f" + SEP)) {
     name = name.substring(2);
   }
-  name = name.split("/")[0];
+  name = name.split(SEP)[0];
   log.debug(`Processing local folder ${name}`);
 
   if (raw) {

@@ -21,7 +21,6 @@ import {
 	Underline
 } from 'lucide-svelte'
 import type { components } from '../component'
-import type { SvelteComponent } from 'svelte'
 
 export const STYLE_STORE_KEY = 'style_store' as const
 
@@ -100,7 +99,7 @@ export type TopColors = [] | [string] | [string, string] | [string, string, stri
 
 export type StylePropertyOption = {
 	text: string
-	icon: string | typeof SvelteComponent
+	icon: string | any
 }
 
 export type BaseStylePropertyValue<T extends StylePropertyType> = {
@@ -610,6 +609,7 @@ export const quickStyleProperties: Record<
 		container: containerDefaultProps
 	},
 	aggridcomponent: {},
+	aggridcomponentee: {},
 	buttoncomponent: {
 		button: buttonDefaultProps
 	},
@@ -623,6 +623,7 @@ export const quickStyleProperties: Record<
 		container: containerDefaultProps
 	},
 	plotlycomponent: {},
+	plotlycomponentv2: {},
 	selectcomponent: {
 		input: inputDefaultProps
 	},
@@ -668,6 +669,9 @@ export const quickStyleProperties: Record<
 		container: containerDefaultProps
 	},
 	chartjscomponent: {
+		container: containerDefaultProps
+	},
+	chartjscomponentv2: {
 		container: containerDefaultProps
 	},
 	vegalitecomponent: {},

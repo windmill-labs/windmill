@@ -10,6 +10,7 @@
 	export let style = ''
 	export let selectedClass = ''
 	export let selectedStyle = ''
+	export let id: string | undefined = undefined
 
 	export let disabled: boolean = false
 
@@ -26,14 +27,14 @@
 
 <button
 	class={twMerge(
-		'border-b-2 py-1 px-4 cursor-pointer transition-all z-10 ease-linear font-medium text-tertiary',
+		'border-b-2 py-1 px-4 cursor-pointer transition-all z-10 ease-linear font-normal text-primary',
 		$selected?.startsWith(value)
-			? 'wm-tab-active'
+			? 'wm-tab-active font-main'
 			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',
 		fontSizeClasses[size],
 		c,
 		$selected?.startsWith(value) ? selectedClass : '',
-		disabled ? 'cursor-not-allowed text-gray-400' : ''
+		disabled ? 'cursor-not-allowed text-tertiary' : ''
 	)}
 	style={`${style} ${$selected?.startsWith(value) ? selectedStyle : ''}`}
 	on:click={() => {
@@ -45,6 +46,7 @@
 	}}
 	on:pointerdown|stopPropagation
 	{disabled}
+	{id}
 >
 	<slot />
 </button>

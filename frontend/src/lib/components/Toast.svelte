@@ -10,6 +10,7 @@
 	export let error: boolean = false
 	export let actions: ToastAction[] = []
 	export let errorMessage: string | undefined = undefined
+	export let duration = 5000
 
 	function handleClose() {
 		toast.pop(toastId)
@@ -19,7 +20,7 @@
 	onMount(() => {
 		setTimeout(() => {
 			toast.pop(toastId)
-		}, 5000)
+		}, duration)
 	})
 </script>
 
@@ -36,7 +37,7 @@
 				{/if}
 			</div>
 			<div class="ml-3 flex-1 w-0">
-				<p class="text-sm text-secondary">{message}</p>
+				<p class="text-sm text-secondary break-words">{message}</p>
 				{#if errorMessage}
 					<p
 						class="text-sm text-secondary border bg-surface-secondary p-2 w-full overflow-auto mt-2"
@@ -61,7 +62,7 @@
 				</button>
 			</div>
 		</div>
-		<div class="mt-2 flex flex-col gap-2 h-15">
+		<div class="mt-2 flex flex-col gap-2 h-15 items-center">
 			{#each actions as action, index (index)}
 				<Button
 					on:click={() => {

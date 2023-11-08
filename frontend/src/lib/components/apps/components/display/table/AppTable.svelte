@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import type {
 		AppViewerContext,
 		BaseAppComponent,
@@ -26,13 +26,18 @@
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { components, type ButtonComponent } from '../../../editor/component'
-	import { concatCustomCss } from '../../../utils'
+	import { initCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
-	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import { connectOutput, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
 	import AppSelect from '../../inputs/AppSelect.svelte'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
+	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
+	import { Popup } from '$lib/components/common'
+	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
+	import { Plug2 } from 'lucide-svelte'
+	import AppCell from './AppCell.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -49,8 +54,15 @@
 
 	let result: Record<string, any>[] | undefined = undefined
 
-	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		worldStore,
+		componentControl,
+		selectedComponent,
+		hoverStore,
+		mode,
+		connectingInput
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let searchValue = ''
 
@@ -88,20 +100,27 @@
 
 	let selectedRowIndex = -1
 
-	function toggleRow(row: Record<string, any>, rowIndex: number, force: boolean = false) {
+	function toggleRow(row: Record<string, any>, force: boolean = false) {
+		let data = { ...row.original }
+		let index = data['__index']
+		delete data['__index']
 		if (
-			selectedRowIndex !== rowIndex ||
-			JSON.stringify(row.original) !== JSON.stringify(result?.[rowIndex]) ||
+			selectedRowIndex !== index ||
+			JSON.stringify(data) !== JSON.stringify(result?.[index]) ||
 			force
 		) {
-			selectedRowIndex = rowIndex
-			outputs?.selectedRow.set(row.original, force)
-			outputs?.selectedRowIndex.set(rowIndex, force)
+			selectedRowIndex = index
+			outputs?.selectedRow.set(data, force)
+			outputs?.selectedRowIndex.set(index, force)
 			if (iterContext && listInputs) {
-				listInputs(id, { selectedRow: row.original, selectedRowIndex: rowIndex })
+				listInputs.set(id, { selectedRow: data, selectedRowIndex: index })
 			}
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
 
 	let mounted = false
 	onMount(() => {
@@ -114,7 +133,7 @@
 		// We need to wait until the component is mounted so the world is created
 		mounted &&
 		outputs &&
-		toggleRow({ original: result[0] }, 0)
+		toggleRow({ original: { ...result[0], __index: 0 } })
 
 	function searchInResult(result: Array<Record<string, any>>, searchValue: string) {
 		if (searchValue === '') {
@@ -133,17 +152,17 @@
 		}
 	}
 
-	function cellIsObject(x: (any) => any, props: any): boolean {
-		return typeof x != 'string' && typeof x(props) == 'object'
-	}
-
 	let filteredResult: Array<Record<string, any>> = []
 
 	function setFilteredResult() {
+		const wIndex = Array.isArray(result)
+			? (result as any[]).map((x, i) => ({ ...x, __index: i }))
+			: [{ error: 'input was not an array' }]
+
 		if (resolvedConfig.search === 'By Runnable' || resolvedConfig.search === 'Disabled') {
-			filteredResult = result ?? []
+			filteredResult = wIndex ?? []
 		} else {
-			filteredResult = searchInResult(result ?? [], searchValue)
+			filteredResult = searchInResult(wIndex ?? [], searchValue)
 		}
 	}
 	$: (result || resolvedConfig.search || searchValue || resolvedConfig.pagination) &&
@@ -157,7 +176,7 @@
 		}
 
 		const headers = Array.from(
-			new Set(result.flatMap((row) => (typeof row == 'object' ? Object.keys(row) : [])))
+			new Set(result.flatMap((row) => (typeof row == 'object' ? Object.keys(row ?? {}) : [])))
 		)
 
 		$options = {
@@ -189,7 +208,7 @@
 
 		if (result) {
 			//console.log('rerendering table', result[0])
-			toggleRow({ original: filteredResult[0] }, 0, true)
+			toggleRow({ original: filteredResult[0] }, true)
 		}
 
 		if (outputs.page.peak()) {
@@ -197,9 +216,9 @@
 		}
 	}
 
-	$: filteredResult && rerender()
+	$: filteredResult != undefined && rerender()
 
-	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
+	let css = initCss($app.css?.tablecomponent, customCss)
 
 	$componentControl[id] = {
 		right: (skipActions: boolean | undefined) => {
@@ -217,7 +236,7 @@
 		},
 		setSelectedIndex: (index: number) => {
 			if (filteredResult) {
-				toggleRow({ original: filteredResult[index] }, index, true)
+				toggleRow({ original: filteredResult[index] }, true)
 			}
 		}
 	}
@@ -232,6 +251,11 @@
 		}
 	}
 
+	function getDisplayNameById(id: string) {
+		const component = resolvedConfig?.columnDefs?.find((columnDef) => columnDef.field === id)
+		return component?.headerName
+	}
+
 	function safeVisibleCell<T>(row: Row<T>) {
 		try {
 			return row.getVisibleCells()
@@ -241,6 +265,27 @@
 			return []
 		}
 	}
+
+	function updateTable(resolvedConfig, searchValue) {
+		if (resolvedConfig?.columnDefs) {
+			$table.getAllLeafColumns().map((column) => {
+				const columnConfig = resolvedConfig.columnDefs.find(
+					// @ts-ignore
+					(columnDef) => columnDef.field === column.columnDef.accessorKey
+				)
+
+				if (columnConfig?.hideColumn === column.getIsVisible()) {
+					column.toggleVisibility()
+				}
+			})
+
+			$table.setColumnOrder(() =>
+				resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
+			)
+		}
+	}
+
+	$: updateTable(resolvedConfig, searchValue)
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -249,6 +294,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.tablecomponent}
 	/>
 {/each}
 
@@ -266,6 +321,7 @@
 			class={twMerge(
 				'border  shadow-sm divide-y h-full',
 				css?.container?.class ?? '',
+				'wm-table-container',
 				'flex flex-col'
 			)}
 			style={css?.container?.style ?? ''}
@@ -286,6 +342,7 @@
 						class={twMerge(
 							'bg-surface-secondary text-left',
 							css?.tableHeader?.class ?? '',
+							'wm-table-header',
 							'sticky top-0 z-40'
 						)}
 						style={css?.tableHeader?.style ?? ''}
@@ -297,9 +354,12 @@
 										{@const context = header?.getContext()}
 										{#if context}
 											{@const component = renderCell(header.column.columnDef.header, context)}
+											{@const displayName = getDisplayNameById(header.id)}
 											<th class="!p-0">
 												<span class="block px-4 py-4 text-sm font-semibold border-b">
-													{#if !header.isPlaceholder && component}
+													{#if displayName}
+														{displayName}
+													{:else if !header.isPlaceholder && component}
 														<svelte:component this={component} />
 													{/if}
 												</span>
@@ -316,38 +376,37 @@
 						{/each}
 					</thead>
 					<tbody
-						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '')}
+						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '', 'wm-table-body')}
 						style={css?.tableBody?.style ?? ''}
 					>
-						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
+						{#each $table.getRowModel().rows as row (row.id)}
+							{@const rowIndex = row.original['__index']}
 							<tr
 								class={classNames(
-									'last-of-type:!border-b-0',
+									'last-of-type:!border-b-0 divide-x w-full',
 									selectedRowIndex === rowIndex
-										? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover'
-										: 'hover:bg-blue-50 dark:hover:bg-surface-hover',
-									'divide-x w-full',
-									selectedRowIndex === rowIndex
-										? 'divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700'
-										: ''
+										? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700 wm-table-row-selected'
+										: 'hover:bg-blue-50 dark:hover:bg-surface-hover wm-table-row'
 								)}
 							>
 								{#each safeVisibleCell(row) as cell, index (index)}
 									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}
-											{@const component = renderCell(cell.column.columnDef.cell, context)}
 											<td
-												on:keydown={() => toggleRow(row, rowIndex)}
-												on:click={() => toggleRow(row, rowIndex)}
+												on:keydown={() => toggleRow(row)}
+												on:click={() => toggleRow(row)}
 												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
 												style={'width: ' + cell.column.getSize() + 'px'}
 											>
-												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
-													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
-												{:else if component != undefined}
-													<svelte:component this={component} />
-												{/if}
+												<AppCell
+													type={resolvedConfig.columnDefs?.find(
+														// TS types are wrong here
+														// @ts-ignore
+														(c) => c.field === cell.column.columnDef.accessorKey
+													)?.type ?? 'text'}
+													value={cell.getValue()}
+												/>
 											</td>
 										{/if}
 									{/if}
@@ -356,17 +415,37 @@
 								{#if actionButtons.length > 0}
 									<td
 										class="p-2"
-										on:keypress={() => toggleRow(row, rowIndex)}
-										on:click={() => toggleRow(row, rowIndex)}
+										on:keypress={() => toggleRow(row)}
+										on:click={() => toggleRow(row)}
+										style="width: {(actionButtons ?? []).length * 130}px"
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1.5">
+										<div class="center-center h-full w-full flex-wrap gap-2">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
+												<!-- svelte-ignore a11y-no-static-element-interactions -->
 												<RowWrapper
-													bind:inputs
 													value={row.original}
 													index={rowIndex}
-
-													onInputsChange={() => {
+													on:set={(e) => {
+														const { id, value } = e.detail
+														if (!inputs[id]) {
+															inputs[id] = { [rowIndex]: value }
+														} else {
+															inputs[id] = { ...inputs[id], [rowIndex]: value }
+														}
+														outputs?.inputs.set(inputs, true)
+													}}
+													on:remove={(e) => {
+														const id = e.detail
+														if (inputs?.[id] == undefined) {
+															return
+														}
+														if (rowIndex == 0) {
+															delete inputs[id]
+															inputs = { ...inputs }
+														} else {
+															delete inputs[id][rowIndex]
+															inputs[id] = { ...inputs[id] }
+														}
 														outputs?.inputs.set(inputs, true)
 													}}
 												>
@@ -387,11 +466,12 @@
 																$hoverStore === actionButton.id) &&
 																$mode !== 'preview'
 																? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
-																: ''
+																: 'relative'
 														)}
 													>
 														{#if $mode !== 'preview'}
 															<!-- svelte-ignore a11y-click-events-have-key-events -->
+															<!-- svelte-ignore a11y-no-static-element-interactions -->
 															<span
 																title={`Id: ${actionButton.id}`}
 																class={classNames(
@@ -408,6 +488,35 @@
 															>
 																{actionButton.id}
 															</span>
+
+															{#if $connectingInput.opened}
+																<div class="absolute z-50 left-8 -top-[10px]">
+																	<Popup
+																		floatingConfig={{
+																			strategy: 'absolute',
+																			placement: 'bottom-start'
+																		}}
+																	>
+																		<svelte:fragment slot="button">
+																			<button
+																				class="bg-red-500/70 border border-red-600 px-1 py-0.5"
+																				title="Outputs"
+																				aria-label="Open output"><Plug2 size={12} /></button
+																			>
+																		</svelte:fragment>
+																		<ComponentOutputViewer
+																			on:select={({ detail }) =>
+																				connectOutput(
+																					connectingInput,
+																					'buttoncomponent',
+																					actionButton.id,
+																					detail
+																				)}
+																			componentId={actionButton.id}
+																		/>
+																	</Popup>
+																</div>
+															{/if}
 														{/if}
 														{#if rowIndex == 0}
 															{@const controls = {
@@ -437,7 +546,7 @@
 																	{render}
 																	noWFull
 																	preclickAction={async () => {
-																		toggleRow(row, rowIndex)
+																		toggleRow(row)
 																	}}
 																	id={actionButton.id}
 																	customCss={actionButton.customCss}
@@ -456,7 +565,7 @@
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
 																	preclickAction={async () => {
-																		toggleRow(row, rowIndex)
+																		toggleRow(row)
 																	}}
 																	{controls}
 																/>
@@ -470,7 +579,7 @@
 																		configuration={actionButton.configuration}
 																		recomputeIds={actionButton.recomputeIds}
 																		preclickAction={async () => {
-																			toggleRow(row, rowIndex)
+																			toggleRow(row)
 																		}}
 																		{controls}
 																	/>
@@ -486,7 +595,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row)
 																}}
 																extraQueryParams={{ row: row.original }}
 																componentInput={actionButton.componentInput}
@@ -500,7 +609,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row)
 																}}
 															/>
 														{:else if actionButton.type == 'selectcomponent'}
@@ -514,7 +623,7 @@
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
 																	preclickAction={async () => {
-																		toggleRow(row, rowIndex)
+																		toggleRow(row)
 																	}}
 																/>
 															</div>
@@ -537,7 +646,7 @@
 				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
 				result={filteredResult}
 				{table}
-				class={css?.tableFooter?.class}
+				class={twMerge(css?.tableFooter?.class, 'wm-table-footer')}
 				style={css?.tableFooter?.style}
 				{loading}
 			/>
@@ -546,9 +655,9 @@
 		<div class="flex flex-col h-full w-full overflow-auto">
 			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
 				The result should be an array of objects. Received:
-				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
-					>{JSON.stringify(result, null, 4)}</pre
-				>
+				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap mt-2"
+					>{JSON.stringify(result, null, 4)}
+				</pre>
 			</Alert>
 		</div>
 	{/if}

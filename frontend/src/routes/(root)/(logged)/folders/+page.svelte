@@ -3,12 +3,12 @@
 	import { FolderService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { canWrite } from '$lib/utils'
@@ -16,6 +16,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
+	import { Pen, Trash } from 'lucide-svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
@@ -29,11 +30,12 @@
 		})
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyUp(event: KeyboardEvent, close: () => void) {
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
 			addFolder()
+			close()
 		}
 	}
 	async function addFolder() {
@@ -77,22 +79,37 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 	>
 		<div class="flex flex-row">
-			<input
-				class="mr-2"
-				on:keyup={handleKeyUp}
-				placeholder="New folder name"
-				bind:value={newFolderName}
-			/>
-			<div>
-				<Button
-					size="md"
-					startIcon={{ icon: faPlus }}
-					disabled={!newFolderName}
-					on:click={addFolder}
-				>
-					New&nbsp;folder
-				</Button>
-			</div>
+			<Popup
+				let:close
+				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+			>
+				<svelte:fragment slot="button">
+					<Button size="md" startIcon={{ icon: faPlus }} nonCaptureEvent>New folder name</Button>
+				</svelte:fragment>
+				<div class="flex flex-col gap-2">
+					<input
+						class="mr-2"
+						on:keyup={(e) => handleKeyUp(e, () => close(null))}
+						placeholder="New folder name"
+						bind:value={newFolderName}
+					/>
+
+					<div>
+						<Button
+							size="md"
+							startIcon={{ icon: faPlus }}
+							disabled={!newFolderName}
+							on:click={() => {
+								addFolder()
+								close(null)
+							}}
+						>
+							Create
+						</Button>
+					</div>
+				</div>
+			</Popup>
 		</div>
 	</PageHeader>
 
@@ -141,13 +158,12 @@
 							<FolderUsageInfo {name} tabular />
 
 							<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-							<Cell>
+							<Cell shouldStopPropagation>
 								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
+									items={[
 										{
 											displayName: 'Manage folder',
-											icon: faEdit,
+											icon: Pen,
 											disabled: !canWrite,
 											action: () => {
 												editFolderName = name
@@ -156,8 +172,7 @@
 										},
 										{
 											displayName: 'Delete',
-
-											icon: faTrash,
+											icon: Trash,
 											type: 'delete',
 											disabled: !canWrite,
 											action: async () => {

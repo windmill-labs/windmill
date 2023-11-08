@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import SchemaForm from './SchemaForm.svelte'
+	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 
-	export let is_owner: boolean
+	export let isOwner: boolean
 	export let workspaceId: string | undefined
 	export let job: Job
 
@@ -31,7 +31,7 @@
 <div class="w-full h-full mt-2 text-sm text-tertiary">
 	<p>Waiting to be resumed</p>
 	<div>
-		{#if is_owner}
+		{#if isOwner}
 			<div class="flex flex-row gap-2 mt-2">
 				<div>
 					<Button
@@ -51,10 +51,9 @@
 				</div>
 				{#if job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
-						<SchemaForm
-							noVariablePicker
+						<LightweightSchemaForm
 							bind:args={payload}
-							schema={job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
+							schema={job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {}}
 						/>
 					</div>
 				{/if}

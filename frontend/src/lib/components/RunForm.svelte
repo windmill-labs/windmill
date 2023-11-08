@@ -158,7 +158,7 @@
 				>
 					{#if viewKeybinding}
 						<div class="inline-flex gap-0 items-center">
-							<Kbd small>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd>
+							<Kbd small isModifier>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd>
 						</div>{/if}
 					<div>
 						{scheduledForStr ? 'Schedule to run later' : buttonText}
@@ -226,7 +226,7 @@
 		>
 			{#if viewKeybinding}
 				<div>
-					<Kbd small>{getModifierKey()}</Kbd>+<Kbd small>Enter</Kbd>
+					<Kbd small isModifier>{getModifierKey()}</Kbd>+<Kbd small>Enter</Kbd>
 				</div>{/if}
 			{buttonText}
 		</Button>

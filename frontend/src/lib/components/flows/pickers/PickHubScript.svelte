@@ -1,49 +1,134 @@
 <script lang="ts">
-	import { hubScripts } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
-	import type { HubItem } from './model'
-	import { Badge, Skeleton } from '$lib/components/common'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import { capitalize, classNames } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
-	import { loadHubScripts } from '$lib/scripts'
+	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
+	import { Loader2 } from 'lucide-svelte'
 
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let kind: HubScriptKind & string = 'script'
 	export let filter = ''
 	export let syncQuery = false
 
+	let loading = false
+	let hubNotAvailable = false
+
 	const dispatch = createEventDispatcher()
 
-	let filteredItems: (HubItem & { marked?: string })[] = []
 	let appFilter: string | undefined = undefined
+	let items: {
+		path: string
+		summary: string
+		id: number
+		version_id: number
+		ask_id: number
+		app: string
+		kind: HubScriptKind
+	}[] = []
 
-	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
-	$: prefilteredItems = appFilter ? (items ?? []).filter((i) => i.app == appFilter) : items ?? []
-	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? [])).sort()
+	let allApps: string[] = []
+	let apps: string[] = []
 
-	onMount(() => {
-		if (!$hubScripts) {
-			loadHubScripts()
+	$: apps = filter.length > 0 ? Array.from(new Set(items?.map((x) => x.app) ?? [])).sort() : allApps
+
+	$: applyFilter(filter, kind, appFilter)
+	$: getAllApps(kind)
+
+	async function getAllApps(filterKind: typeof kind) {
+		try {
+			hubNotAvailable = false
+			allApps = (
+				await IntegrationService.listHubIntegrations({
+					kind: filterKind
+				})
+			).map((x) => x.name)
+		} catch (err) {
+			console.error('Hub is not available')
+			allApps = []
+			hubNotAvailable = true
 		}
-	})
-	const maxItems = 40
+	}
+
+	let startTs = 0
+	async function applyFilter(
+		filter: string,
+		filterKind: typeof kind,
+		appFilter: string | undefined
+	) {
+		try {
+			loading = true
+			hubNotAvailable = false
+			const ts = Date.now()
+			startTs = ts
+			await new Promise((r) => setTimeout(r, 100))
+			if (ts < startTs) return
+			const scripts =
+				filter.length > 0
+					? await ScriptService.queryHubScripts({
+							text: `${filter}`,
+							limit: 40,
+							kind: filterKind,
+							app: appFilter
+					  })
+					: (
+							await ScriptService.getTopHubScripts({
+								limit: 40,
+								app: appFilter,
+								kind: filterKind
+							})
+					  ).asks ?? []
+			if (ts === startTs) {
+				loading = false
+			}
+			items = scripts.map(
+				(x: {
+					summary: string
+					version_id: number
+					id: number
+					ask_id: number
+					app: string
+					kind: HubScriptKind
+				}) => ({
+					...x,
+					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					summary: `${x.summary} (${x.app})`
+				})
+			)
+		} catch (err) {
+			hubNotAvailable = true
+			console.error('Hub not available')
+			loading = false
+		}
+	}
 </script>
 
-<SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
 <div class="w-full flex mt-1 items-center gap-2">
 	<slot />
-	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
+	<div class="relative w-full">
+		<input
+			type="text"
+			placeholder="Search Hub Scripts"
+			bind:value={filter}
+			class="text-2xl grow !pr-9"
+		/>
+		{#if loading}
+			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />
+		{/if}
+	</div>
 </div>
-<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
-{#if $hubScripts}
-	{#if filteredItems.length == 0}
+{#if hubNotAvailable}
+	<div class="mt-2" />
+	<Alert type="error" title="Hub not available" />
+{:else if items.length > 0 && apps.length > 0}
+	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
+	{#if items.length == 0}
 		<NoItemFound />
 	{:else}
 		<ul class="divide-y border rounded-md">
-			{#each filteredItems.slice(0, maxItems) as item (item.path)}
+			{#each items as item (item.path)}
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
@@ -56,20 +141,18 @@
 									'bg-surface border'
 								)}
 							>
-								<svelte:component
-									this={APP_TO_ICON_COMPONENT[item['app']]}
-									height={18}
-									width={18}
-								/>
+								{#if item['app'] in APP_TO_ICON_COMPONENT}
+									<svelte:component
+										this={APP_TO_ICON_COMPONENT[item['app']]}
+										height={18}
+										width={18}
+									/>
+								{/if}
 							</div>
 
 							<div class="w-full text-left font-normal">
 								<div class="text-primary flex-wrap text-md font-semibold mb-1">
-									{#if item.marked}
-										{@html item.marked ?? ''}
-									{:else}
-										{item.summary ?? ''}
-									{/if}
+									{item.summary ?? ''}
 								</div>
 								<div class="text-secondary text-xs">
 									{item.path}
@@ -84,9 +167,9 @@
 			{/each}
 		</ul>
 	{/if}
-	{#if filteredItems.length > maxItems}
+	{#if items.length == 40}
 		<div class="text-tertiary text-sm py-4">
-			There are more items ({filteredItems.length}) than being displayed. Refine your search.
+			There are more items than being displayed. Refine your search.
 		</div>
 	{/if}
 {:else}

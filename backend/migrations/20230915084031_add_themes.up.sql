@@ -1,0 +1,3 @@
+-- Add up migration script here
+INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) SELECT id, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{"g/all": false}' FROM workspace ON CONFLICT DO NOTHING;
+INSERT INTO resource (workspace_id, path, value, description, resource_type) SELECT id, 'f/app_themes/theme_0', '{"name": "Default Theme", "value": ""}', 'The default app theme', 'app_theme' FROM workspace ON CONFLICT DO NOTHING

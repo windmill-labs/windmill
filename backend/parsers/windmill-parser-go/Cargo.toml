@@ -13,3 +13,5 @@ windmill-parser.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
 gosyn.workspace = true
+lazy_static.workspace = true
+regex.workspace = true

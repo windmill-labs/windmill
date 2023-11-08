@@ -2,11 +2,15 @@
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { faBolt } from '@fortawesome/free-solid-svg-icons'
-	import { ClipboardCopy, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
+	import { ClipboardCopy, ExternalLink, X } from 'lucide-svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { copilotInfo } from '$lib/stores'
+	import Menu from '$lib/components/common/menu/Menu.svelte'
+	import InsertTriggerButton from './InsertTriggerButton.svelte'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -15,11 +19,11 @@
 	export let bgColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
-	export let whereInsert: 'before' | 'after' = 'after'
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
 	export let center = true
+	export let disableAi = false
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -31,28 +35,37 @@
 		deleteBranch: { module: FlowModule; index: number }
 	}>()
 	let openMenu = false
+	let triggerOpenMenu = false
+	let openNoCopilot = false
+
+	const { drawerStore: copilotDrawerStore, currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 {#if insertable && deleteBranch}
-	<div class="w-7 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2">
+	<div class="w-[27px] absolute -top-[40px] left-[50%] right-[50%] -translate-x-1/2">
 		<button
 			title="Delete branch"
 			on:click|stopPropagation={() => {
-				dispatch('deleteBranch', deleteBranch)
+				if (deleteBranch) {
+					dispatch('deleteBranch', deleteBranch)
+				}
 			}}
 			type="button"
-			class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 		>
-			<X size={14} />
+			<X class="m-[5px]" size={15} />
 		</button>
 	</div>
 {/if}
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
 		'w-full flex relative overflow-hidden rounded-sm',
 		selectable ? 'cursor-pointer' : '',
-		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
+		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
+		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : ''
 	)}
 	style="min-width: 275px; max-height: 80px; background-color: {bgColor};"
 	on:click={() => {
@@ -64,6 +77,7 @@
 			}
 		}
 	}}
+	id={`flow-editor-virtual-${label}`}
 >
 	<div
 		class="flex gap-1 justify-between {center
@@ -86,9 +100,9 @@
 
 {#if insertable && modules && (label != 'Input' || modules.length == 0)}
 	<div
-		class="{openMenu ? 'z-10' : ''} w-7 absolute {whereInsert == 'after'
-			? 'top-12'
-			: '-top-10'} left-[50%] right-[50%] -translate-x-1/2"
+		class="{openMenu
+			? 'z-20'
+			: ''} w-[27px] absolute top-[49px] left-[50%] right-[50%] -translate-x-1/2"
 	>
 		{#if moving}
 			<button
@@ -103,41 +117,92 @@
 					}
 				}}
 				type="button"
-				class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+				class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 			>
 				<ClipboardCopy size={12} />
 			</button>
 		{:else}
 			<InsertModuleButton
+				{disableAi}
 				bind:open={openMenu}
 				trigger={label == 'Input'}
 				on:new={(e) => {
 					if (modules) {
 						dispatch('insert', {
 							modules,
-							index: whereInsert == 'after' ? index : index - 1,
+							index: index,
 							detail: e.detail
 						})
 					}
 				}}
+				{index}
+				modules={modules ?? []}
 			/>
 		{/if}
 	</div>
 {/if}
 
 {#if insertable && modules && label == 'Input'}
-	<div class="w-7 absolute top-12 left-[65%] right-[35%] -translate-x-1/2">
-		<button
-			title="Add a Trigger"
-			on:click={() => {
+	{#if !disableAi}
+		<div
+			class="{openNoCopilot
+				? 'z-10'
+				: ''} w-9 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2"
+		>
+			<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
+				<button
+					title="AI Flow Builder"
+					on:pointerdown={$copilotInfo.exists_openai_resource_path
+						? (ev) => {
+								ev.preventDefault()
+								ev.stopPropagation()
+								$copilotDrawerStore?.openDrawer()
+						  }
+						: undefined}
+					slot="trigger"
+					type="button"
+					class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+				>
+					<Icon data={faMagicWandSparkles} scale={1} />
+				</button>
+				{#if !$copilotInfo.exists_openai_resource_path}
+					<div class="text-primary p-4">
+						<p class="text-sm w-80"
+							>Enable Windmill AI in the <a
+								href="/workspace_settings?tab=openai"
+								target="_blank"
+								class="inline-flex flex-row items-center gap-1"
+								on:click={() => {
+									close()
+								}}
+								>workspace settings
+								<ExternalLink size={16} /></a
+							></p
+						>
+					</div>
+				{/if}
+			</Menu>
+		</div>
+	{/if}
+	<div
+		class="{triggerOpenMenu
+			? 'z-10'
+			: ''} w-[27px] absolute top-[50px] left-[65%] right-[35%] -translate-x-1/2"
+	>
+		<InsertTriggerButton
+			{disableAi}
+			bind:open={triggerOpenMenu}
+			on:new={(e) => {
 				if (modules) {
-					dispatch('insert', { modules, index: 0, detail: 'trigger' })
+					dispatch('insert', {
+						modules,
+						index: 0,
+						detail: e.detail
+					})
 				}
 			}}
-			type="button"
-			class="text-primary bg-surface border mx-0.5 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
-		>
-			<Icon data={faBolt} scale={0.8} />
-		</button>
+			index={0}
+			modules={modules ?? []}
+		/>
 	</div>
 {/if}

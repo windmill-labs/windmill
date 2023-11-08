@@ -76,6 +76,7 @@
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
+						<slot name="actions" />
 						<Button
 							on:click={() => {
 								dispatch('canceled')

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { buildWorld } from '../rx'
 	import type {
@@ -15,15 +15,16 @@
 	import { Unlock } from 'lucide-svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import GridViewer from './GridViewer.svelte'
-	import { Component } from './component'
+	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { getTheme } from './componentsPanel/themeUtils'
 
 	export let app: App
 	export let appPath: string = ''
@@ -67,6 +68,9 @@
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const state = writable({})
+
+	let parentContext = getContext<AppViewerContext>('AppViewerContext')
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(ncontext),
 		initialized: writable({ initialized: false, initializedComponents: [] }),
@@ -81,7 +85,8 @@
 		workspace,
 		onchange: undefined,
 		isEditor,
-		jobs: writable([]),
+		jobs: parentContext?.jobs ?? writable([]),
+		jobsById: parentContext?.jobsById ?? writable({}),
 		staticExporter: writable({}),
 		noBackend,
 		errorByComponent: writable({}),
@@ -93,7 +98,9 @@
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
 		allIdsInPath,
-		darkMode
+		darkMode,
+		cssEditorOpen: writable(false),
+		previewTheme: writable(undefined)
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -109,6 +116,46 @@
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
+	const cssId = 'wm-global-style'
+
+	let css: string | undefined = undefined
+
+	appStore.subscribe(loadTheme)
+
+	async function loadTheme(currentAppStore: App) {
+		if (!currentAppStore.theme) {
+			return
+		}
+
+		if (currentAppStore.theme.type === 'inlined') {
+			css = currentAppStore.theme.css
+		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme.path) {
+			let loadedCss = await getTheme(workspace, currentAppStore.theme.path)
+			css = loadedCss.value
+		}
+	}
+
+	$: addOrRemoveCss($enterpriseLicense !== undefined || isEditor, css)
+
+	function addOrRemoveCss(isPremium: boolean, cssString: string | undefined) {
+		const existingElement = document.getElementById(cssId)
+
+		if (!isPremium) {
+			if (existingElement) {
+				existingElement.remove()
+			}
+		} else {
+			if (!existingElement && cssString) {
+				const head = document.head
+				const link = document.createElement('style')
+				link.id = cssId
+				link.innerHTML = cssString
+				head.appendChild(link)
+			} else if (existingElement && cssString) {
+				existingElement.innerHTML = cssString
+			}
+		}
+	}
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -122,7 +169,7 @@
 	<div
 		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen
 			? ''
-			: 'max-w-6xl'} mx-auto"
+			: 'max-w-7xl'} mx-auto"
 	>
 		{#if $appStore.grid}
 			<div
@@ -145,7 +192,11 @@
 
 		<div
 			style={app.css?.['app']?.['grid']?.style}
-			class={twMerge('px-4 pt-4 pb-2 overflow-visible', app.css?.['app']?.['grid']?.class ?? '')}
+			class={twMerge(
+				'p-2 overflow-visible',
+				app.css?.['app']?.['grid']?.class ?? '',
+				'wm-app-grid  subgrid'
+			)}
 			bind:clientWidth={$parentWidth}
 		>
 			<div>

@@ -1,0 +1,3 @@
+name: aws-bench
+runtime: nodejs
+description: Windmill Benchmarks on AWS

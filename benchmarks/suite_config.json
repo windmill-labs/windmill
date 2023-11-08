@@ -1,0 +1,69 @@
+{
+  "benchmarks": [
+    {
+      "graph_title": "noop throughput benchmark (single worker)",
+      "kind": "noop",
+      "jobs": 30000
+    },
+    {
+      "graph_title": "flow throughput benchmark (single worker)",
+      "kind": "2steps",
+      "jobs": 250
+    },
+    {
+      "graph_title": "dedicated throughput benchmark (single worker)",
+      "kind": "dedicated",
+      "jobs": 30000
+    },
+    {
+      "graph_title": "deno throughput benchmark (single worker)",
+      "kind": "deno",
+      "jobs": 500
+    },
+    {
+      "graph_title": "bun throughput benchmark (single worker)",
+      "kind": "bun",
+      "jobs": 500
+    },
+    {
+      "graph_title": "python throughput benchmark (single worker)",
+      "kind": "python",
+      "jobs": 500
+    },
+    {
+      "graph_title": "go throughput benchmark (single worker)",
+      "kind": "go",
+      "jobs": 500
+    },
+    {
+      "graph_title": "bash throughput benchmark (single worker)",
+      "kind": "bash",
+      "jobs": 500
+    },
+    {
+      "graph_title": "nativets throughput benchmark (single worker)",
+      "kind": "nativets",
+      "jobs": 500
+    }
+  ],
+  "extra_graphs": [
+    {
+      "graph_title": "go vs python vs deno vs bun vs bash",
+      "kinds": [
+        "go",
+        "python",
+        "deno",
+        "bun",
+        "bash"
+      ]
+    },
+    {
+      "graph_title": "bun vs dedicated vs noop",
+      "kinds": [
+        "bun",
+        "dedicated",
+        "noop"
+      ]
+    }
+  ]
+}

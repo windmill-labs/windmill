@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres, Transaction};
+use serde_json::value::RawValue;
+use sqlx::{types::Json, Pool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
     error::{self, Error},
-    flow_status::FlowStatus,
+    flow_status::{FlowStatus, RestartedFrom},
     flows::FlowValue,
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
@@ -23,10 +26,11 @@ pub enum JobKind {
     FlowPreview,
     Identity,
     FlowDependencies,
+    AppDependencies,
     Noop,
 }
 
-#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
+#[derive(sqlx::FromRow, Debug, Serialize, Clone)]
 pub struct QueuedJob {
     pub workspace_id: String,
     pub id: Uuid,
@@ -42,7 +46,7 @@ pub struct QueuedJob {
     pub script_hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
+    pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,9 +65,9 @@ pub struct QueuedJob {
     pub schedule_path: Option<String>,
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<serde_json::Value>,
+    pub flow_status: Option<Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<serde_json::Value>,
+    pub raw_flow: Option<Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
@@ -89,28 +93,49 @@ pub struct QueuedJob {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_step_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
 }
 
 impl QueuedJob {
+    pub fn get_args(&self) -> HashMap<String, Box<RawValue>> {
+        if let Some(args) = self.args.as_ref() {
+            args.0.clone()
+        } else {
+            HashMap::new()
+        }
+    }
+
     pub fn script_path(&self) -> &str {
         self.script_path
             .as_ref()
             .map(String::as_str)
             .unwrap_or("tmp/main")
     }
-}
+    pub fn is_flow(&self) -> bool {
+        matches!(self.job_kind, JobKind::Flow | JobKind::FlowPreview)
+    }
 
-impl QueuedJob {
+    pub fn full_path(&self) -> String {
+        format!(
+            "{}/{}",
+            if self.is_flow() { "flow" } else { "script" },
+            self.script_path()
+        )
+    }
+
     pub fn parse_raw_flow(&self) -> Option<FlowValue> {
         self.raw_flow
             .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
     }
 
     pub fn parse_flow_status(&self) -> Option<FlowStatus> {
         self.flow_status
             .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
     }
 }
 
@@ -155,8 +180,86 @@ impl Default for QueuedJob {
             concurrency_time_window_s: None,
             timeout: None,
             flow_step_id: None,
+            cache_ttl: None,
+            priority: None,
         }
     }
+}
+
+#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
+pub struct CompletedJob {
+    pub workspace_id: String,
+    pub id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_job: Option<Uuid>,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub duration_ms: i64,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
+    pub args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<String>,
+    pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_code: Option<String>,
+    pub canceled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_reason: Option<String>,
+    pub job_kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_path: Option<String>,
+    pub permissioned_as: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub is_flow_step: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<ScriptLang>,
+    pub is_skipped: bool,
+    pub email: String,
+    pub visible_to_owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_peak: Option<i32>,
+    pub tag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
+}
+
+impl CompletedJob {
+    pub fn json_result(&self) -> Option<serde_json::Value> {
+        self.result
+            .as_ref()
+            .map(|r| serde_json::from_str(r.get()).ok())
+            .flatten()
+    }
+
+    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.raw_flow
+            .as_ref()
+            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
+    }
+
+    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct BranchResults<'a> {
+    pub result: &'a RawValue,
+    pub id: Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +272,10 @@ pub enum JobPayload {
         path: String,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
+        cache_ttl: Option<i32>,
+        dedicated_worker: Option<bool>,
+        language: ScriptLang,
+        priority: Option<i16>,
     },
     Code(RawCode),
     Dependencies {
@@ -180,10 +287,20 @@ pub enum JobPayload {
     FlowDependencies {
         path: String,
     },
+    AppDependencies {
+        path: String,
+        version: i64,
+    },
     Flow(String),
+    RestartedFlow {
+        completed_job_id: Uuid,
+        step_id: String,
+        branch_or_iteration_n: Option<usize>,
+    },
     RawFlow {
         value: FlowValue,
         path: Option<String>,
+        restarted_from: Option<RestartedFrom>,
     },
     Identity,
     Noop,
@@ -197,6 +314,8 @@ pub struct RawCode {
     pub lock: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    pub cache_ttl: Option<i32>,
+    pub dedicated_worker: Option<bool>,
 }
 
 type Tag = String;
@@ -211,14 +330,26 @@ pub async fn script_path_to_payload(
     let (job_payload, tag) = if script_path.starts_with("hub/") {
         (JobPayload::ScriptHub { path: script_path.to_owned() }, None)
     } else {
-        let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
-            get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        let (
+            script_hash,
+            tag,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            language,
+            dedicated_worker,
+            priority,
+        ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
                 hash: script_hash,
                 path: script_path.to_owned(),
                 concurrent_limit,
                 concurrency_time_window_s,
+                cache_ttl: cache_ttl,
+                language,
+                dedicated_worker,
+                priority,
             },
             tag,
         )
@@ -230,9 +361,17 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     script_hash: &ScriptHash,
     db: &mut Transaction<'c, Postgres>,
     w_id: &String,
-) -> error::Result<(Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    ScriptLang,
+    Option<bool>,
+    Option<i16>,
+)> {
     let script = sqlx::query!(
-        "select tag, concurrent_limit, concurrency_time_window_s from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -247,6 +386,10 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
+        script.priority,
     ))
 }
 
@@ -269,9 +412,4 @@ pub async fn get_payload_tag_from_prefixed_path(
         )));
     };
     Ok((payload, tag))
-}
-
-#[derive(Clone)]
-pub struct Metrics {
-    pub worker_execution_failed: prometheus::IntCounter,
 }

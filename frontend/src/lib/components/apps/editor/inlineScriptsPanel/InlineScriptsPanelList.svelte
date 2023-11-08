@@ -7,6 +7,10 @@
 	import { BG_PREFIX, getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
+	import AppTutorials from '$lib/components/AppTutorials.svelte'
+	import { tutorialsToDo } from '$lib/stores'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import { tutorialInProgress } from '$lib/tutorialUtils'
 
 	const PREFIX = 'script-selector-' as const
 
@@ -35,6 +39,10 @@
 	}
 
 	function createBackgroundScript() {
+		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5) && !tutorialInProgress()) {
+			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
+		}
+
 		for (const [index, script] of $app.hiddenInlineScripts.entries()) {
 			if (script.hidden) {
 				delete script.hidden
@@ -68,9 +76,11 @@
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
 	}
+
+	let appTutorials: AppTutorials | undefined = undefined
 </script>
 
-<PanelSection title="Runnables">
+<PanelSection title="Runnables" id="app-editor-runnable-panel">
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-2 w-full">
@@ -161,10 +171,9 @@
 
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
-				<div class="text-xs text-tertiary font-semibold truncate">
+				<div class="text-xs text-secondary font-semibold truncate">
 					Background runnables
 					<Tooltip
-						class="mb-0.5"
 						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
 					>
 						Background runnables can be triggered on app refresh or when their input changes. The
@@ -179,6 +188,7 @@
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
+					id="create-background-runnable"
 				>
 					<Plus size={14} class="!text-primary" />
 				</Button>
@@ -222,6 +232,8 @@
 		</div>
 	</div>
 </PanelSection>
+
+<AppTutorials bind:this={appTutorials} on:reload />
 
 <style lang="postcss">
 	.panel-item {

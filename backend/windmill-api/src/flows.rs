@@ -14,6 +14,8 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
+use axum::body::StreamBody;
+use axum::response::IntoResponse;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -24,8 +26,9 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
-use sqlx::{Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::utils::query_elems_from_hub;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
@@ -33,15 +36,15 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
-    utils::{
-        http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
-    },
+    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
 };
+use windmill_queue::PushArgs;
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_flows))
+        .route("/list_search", get(list_search_flows))
         .route("/create", post(create_flow))
         .route("/update/*path", post(update_flow))
         .route("/archive/*path", post(archive_flow_by_path))
@@ -50,12 +53,48 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
+        .route(
+            "/toggle_workspace_error_handler/*path",
+            post(toggle_workspace_error_handler),
+        )
 }
 
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_flows))
         .route("/hub/get/:id", get(get_hub_flow_by_id))
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchFlow {
+    path: String,
+    value: serde_json::Value,
+}
+async fn list_search_flows(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchFlow>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
+    let rows = sqlx::query_as!(
+        SearchFlow,
+        "SELECT path, value from flow WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_flows(
@@ -79,7 +118,8 @@ async fn list_flows(
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only"
+            "draft_only",
+            "ws_error_handler_muted"
         ])
         .left()
         .join("favorite")
@@ -123,14 +163,19 @@ async fn list_flows(
     Ok(Json(rows))
 }
 
-async fn list_hub_flows(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
-    let flows = list_elems_from_hub(
+async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchFlowData?approved=true",
-        &email,
+        None,
+        &db,
     )
     .await?;
-    Ok(Json(flows))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 async fn list_paths(
@@ -152,20 +197,71 @@ async fn list_paths(
 }
 
 pub async fn get_hub_flow_by_id(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("https://hub.windmill.dev/flows/{id}/json"),
-        &email,
         false,
+        None,
+        &db,
     )
     .await?
     .json()
     .await
     .map_err(to_anyhow)?;
     Ok(Json(value))
+}
+
+#[derive(Deserialize)]
+pub struct ToggleWorkspaceErrorHandler {
+    pub muted: Option<bool>,
+}
+async fn toggle_workspace_error_handler(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(req): Json<ToggleWorkspaceErrorHandler>,
+) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let error_handler_maybe: Option<String> = sqlx::query_scalar!(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(None);
+
+    return match error_handler_maybe {
+        Some(_) => {
+            sqlx::query_scalar!(
+                "UPDATE flow SET ws_error_handler_muted = $3 WHERE path = $1 AND workspace_id = $2",
+                path.to_path(),
+                w_id,
+                req.muted,
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok("".to_string())
+        }
+        None => {
+            tx.commit().await?;
+            Err(Error::ExecutionErr(
+                "Workspace error handler needs to be defined".to_string(),
+            ))
+        }
+    };
 }
 
 async fn check_path_conflict<'c>(
@@ -196,6 +292,19 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    #[cfg(not(feature = "enterprise"))]
+    if nf
+        .value
+        .get("ws_error_handler_muted")
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
@@ -210,7 +319,7 @@ async fn create_flow(
         w_id,
         nf.path,
         nf.summary,
-        nf.description,
+        nf.description.unwrap_or_else(String::new),
         nf.value,
         &authed.username,
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
@@ -244,18 +353,13 @@ async fn create_flow(
     )
     .await?;
 
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
-    );
-
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
-        serde_json::Map::new(),
+        PushArgs::empty(),
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -271,6 +375,7 @@ async fn create_flow(
         nf.tag,
         None,
         None,
+        None,
     )
     .await?;
 
@@ -283,6 +388,11 @@ async fn create_flow(
     .execute(&mut tx)
     .await?;
     tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
+    );
 
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }
@@ -331,6 +441,19 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    if nf
+        .value
+        .get("ws_error_handler_muted")
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
     let flow_path = flow_path.to_path();
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
 
@@ -352,7 +475,7 @@ async fn update_flow(
          edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9 WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
-        nf.description,
+        nf.description.unwrap_or_else(String::new),
         nf.value,
         &authed.username,
         schema.and_then(|x| serde_json::to_string(&x).ok()),
@@ -442,7 +565,7 @@ async fn update_flow(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
-        serde_json::Map::new(),
+        PushArgs::empty(),
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -455,6 +578,7 @@ async fn update_flow(
         false,
         None,
         true,
+        None,
         None,
         None,
         None,
@@ -513,6 +637,7 @@ pub struct FlowWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -524,7 +649,7 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft, flow.tag FROM flow
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, draft.value as draft, flow.tag FROM flow
         LEFT JOIN draft ON 
         flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
         WHERE flow.path = $1 AND flow.workspace_id = $2",
@@ -682,6 +807,7 @@ mod tests {
                     cache_ttl: None,
                     mock: None,
                     timeout: None,
+                    priority: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -706,6 +832,7 @@ mod tests {
                     cache_ttl: None,
                     mock: None,
                     timeout: None,
+                    priority: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -714,6 +841,7 @@ mod tests {
                         modules: vec![],
                         skip_failures: true,
                         parallel: false,
+                        parallelism: None,
                     },
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
@@ -726,6 +854,7 @@ mod tests {
                     cache_ttl: None,
                     mock: None,
                     timeout: None,
+                    priority: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -746,8 +875,15 @@ mod tests {
                 cache_ttl: None,
                 mock: None,
                 timeout: None,
+                priority: None,
             }),
             same_worker: false,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            skip_expr: None,
+            cache_ttl: None,
+            ws_error_handler_muted: None,
+            priority: None,
         };
         let expect = serde_json::json!({
           "modules": [

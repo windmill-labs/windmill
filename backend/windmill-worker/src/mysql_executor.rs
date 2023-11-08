@@ -3,14 +3,15 @@ use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue, Value};
+use sqlx::types::Json;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
 };
 use windmill_parser_sql::parse_mysql_sig;
 
-use crate::{common::transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
 #[derive(Deserialize)]
 struct MysqlDatabase {
@@ -23,22 +24,24 @@ struct MysqlDatabase {
 }
 
 pub async fn do_mysql(
-    job: QueuedJob,
-    client: &AuthedClient,
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> windmill_common::error::Result<Box<RawValue>> {
+    let args = build_args_map(job, client, db).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
     } else {
-        None
+        job.args.as_ref()
     };
 
-    let mysql_args: serde_json::Value = serde_json::from_value(args.unwrap_or_else(|| json!({})))
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let database = serde_json::from_value::<MysqlDatabase>(
-        mysql_args.get("database").unwrap_or(&json!({})).clone(),
-    )
-    .map_err(|e: serde_json::Error| Error::ExecutionErr(e.to_string()))?;
+    let database = if let Some(db) = job_args.and_then(|x| x.get("database")) {
+        serde_json::from_str::<MysqlDatabase>(db.get())
+            .map_err(|e| Error::ExecutionErr(e.to_string()))?
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
 
     let opts = OptsBuilder::default()
         .db_name(Some(database.database))
@@ -60,13 +63,6 @@ pub async fn do_mysql(
     let pool = mysql_async::Pool::new(opts);
     let mut conn = pool.get_conn().await.map_err(to_anyhow)?;
 
-    let args = &job
-        .args
-        .clone()
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .map(|x| x.to_owned())
-        .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
     let mut statement_values: Vec<mysql_async::Value> = vec![];
 
     let sig = parse_mysql_sig(&query)
@@ -75,9 +71,18 @@ pub async fn do_mysql(
 
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
-        let mysql_v = match args.get(arg.name.as_str()).unwrap_or_else(|| &json!(null)) {
+        let mysql_v = match job
+            .args
+            .as_ref()
+            .and_then(|x| {
+                x.get(arg.name.as_str())
+                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
+            })
+            .flatten()
+            .unwrap_or_else(|| json!(null))
+        {
             Value::Null => mysql_async::Value::NULL,
-            Value::Bool(b) => mysql_async::Value::Int(if *b { 1 } else { 0 }),
+            Value::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
             Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
             Value::Number(n)
                 if n.is_i64() && (arg_t == "int" || arg_t == "integer" || arg_t == "smallint") =>
@@ -114,7 +119,7 @@ pub async fn do_mysql(
     pool.disconnect().await.map_err(to_anyhow)?;
 
     // And then check that we got back the same string we sent over.
-    return Ok(JobCompleted { job: job, result: json!(rows), logs: "".to_string(), success: true });
+    return Ok(windmill_common::worker::to_raw_value(&json!(rows)));
 }
 
 fn convert_row_to_value(row: Row) -> serde_json::Value {

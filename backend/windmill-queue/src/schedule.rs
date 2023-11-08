@@ -72,21 +72,41 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     }
 
     let (payload, tag) = if schedule.is_flow {
-        (JobPayload::Flow(schedule.script_path), None)
+        let tag = sqlx::query_scalar!(
+            "SELECT tag from flow WHERE path = $1 and workspace_id = $2",
+            &schedule.script_path,
+            &schedule.workspace_id,
+        )
+        .fetch_optional(&mut tx)
+        .await?
+        .flatten();
+        (JobPayload::Flow(schedule.script_path), tag)
     } else {
-        let (hash, tag, concurrent_limit, concurrency_time_window_s) =
-            windmill_common::get_latest_hash_for_path(
-                tx.transaction_mut(),
-                &schedule.workspace_id,
-                &schedule.script_path,
-            )
-            .await?;
+        let (
+            hash,
+            tag,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            language,
+            dedicated_worker,
+            priority,
+        ) = windmill_common::get_latest_hash_for_path(
+            tx.transaction_mut(),
+            &schedule.workspace_id,
+            &schedule.script_path,
+        )
+        .await?;
         (
             JobPayload::ScriptHash {
                 hash,
                 path: schedule.script_path,
                 concurrent_limit: concurrent_limit,
                 concurrency_time_window_s: concurrency_time_window_s,
+                cache_ttl: cache_ttl,
+                dedicated_worker,
+                language,
+                priority,
             },
             tag,
         )
@@ -119,6 +139,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         None,
         true,
         tag,
+        None,
         None,
         None,
     )

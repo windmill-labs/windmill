@@ -20,7 +20,7 @@
 	// Prevent interaction with the component when connecting an input
 	// We let the event bubble up if the component is a container, so we can select a tab for example
 	function preventInteraction(event: Event, isContainer: boolean = false) {
-		if ($connectingInput.opened && !isContainer) {
+		if ($connectingInput.opened && !isContainer && event.type != 'click') {
 			event.stopPropagation()
 		}
 	}
@@ -42,6 +42,7 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={$$props.class}
 	on:pointerover={(e) => {

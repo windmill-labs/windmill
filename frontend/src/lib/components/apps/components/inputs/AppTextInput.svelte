@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type {
@@ -9,11 +9,12 @@
 		ListInputs,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -44,6 +45,10 @@
 		result: ''
 	})
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			value = nvalue
@@ -56,7 +61,7 @@
 		let val = value ?? ''
 		outputs?.result.set(val)
 		if (iterContext && listInputs) {
-			listInputs(id, val)
+			listInputs.set(id, val)
 		}
 	}
 
@@ -64,7 +69,14 @@
 		value = defaultValue
 	}
 
-	$: css = concatCustomCss($app.css?.[appCssKey], customCss)
+	let css = initCss($app.css?.[appCssKey], customCss)
+
+	$: classInput = twMerge(
+		'windmillapp w-full  py-1.5 text-sm focus:ring-indigo-100 px-2',
+		css?.input?.class ?? '',
+		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
+		'wm-text-input'
+	)
 </script>
 
 {#each Object.keys(components['textinputcomponent'].initialData.configuration) as key (key)}
@@ -75,29 +87,35 @@
 		configuration={configuration[key]}
 	/>
 {/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.textinputcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 {#if render}
 	{#if inputType === 'textarea'}
 		<textarea
-			class={twMerge(
-				'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-				css?.input?.class ?? ''
-			)}
+			class={twMerge(classInput, 'h-full')}
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			on:keydown|stopPropagation
 			bind:value
 			placeholder={resolvedConfig.placeholder}
+			disabled={resolvedConfig.disabled}
 		/>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
 			{#if inputType === 'password'}
 				<input
-					class={twMerge(
-						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? ''
-					)}
+					class={classInput}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -105,13 +123,11 @@
 					type="password"
 					bind:value
 					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
 				/>
 			{:else if inputType === 'text'}
 				<input
-					class={twMerge(
-						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? ''
-					)}
+					class={classInput}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -119,13 +135,11 @@
 					type="text"
 					bind:value
 					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
 				/>
 			{:else if inputType === 'email'}
 				<input
-					class={twMerge(
-						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? ''
-					)}
+					class={classInput}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -133,6 +147,7 @@
 					type="email"
 					bind:value
 					placeholder={resolvedConfig.placeholder}
+					disabled={resolvedConfig.disabled}
 				/>
 			{/if}
 		</AlignWrapper>

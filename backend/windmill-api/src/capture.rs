@@ -6,23 +6,24 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Path},
     routing::{get, post, put},
-    Json, Router,
+    Router,
 };
-use hyper::{HeaderMap, StatusCode};
-use serde::Deserialize;
+use hyper::StatusCode;
+use serde_json::value::RawValue;
+use sqlx::types::Json;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
+use windmill_queue::PushArgs;
 
-use crate::{
-    db::{ApiAuthed, DB},
-    jobs::add_include_headers,
-};
+use crate::db::{ApiAuthed, DB};
 
 const KEEP_LAST: i64 = 8;
 
@@ -85,21 +86,13 @@ pub async fn new_payload(
     Ok(StatusCode::CREATED)
 }
 
-#[derive(Deserialize, Clone)]
-pub struct IncludeHeaderQuery {
-    include_header: Option<String>,
-}
-
 pub async fn update_payload(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(run_query): Query<IncludeHeaderQuery>,
-    headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    args: PushArgs<HashMap<String, Box<RawValue>>>,
 ) -> Result<StatusCode> {
     let mut tx = db.begin().await?;
 
-    let args = add_include_headers(&run_query.include_header, headers, args.unwrap_or_default());
     sqlx::query!(
         "
        UPDATE capture
@@ -109,7 +102,7 @@ pub async fn update_payload(
         ",
         &w_id,
         &path.to_path(),
-        serde_json::json!(args),
+        Json(args) as Json<PushArgs<HashMap<String, Box<RawValue>>>>,
     )
     .execute(&mut *tx)
     .await?;

@@ -4,13 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
-	import {
-		superadmin,
-		switchWorkspace,
-		usersWorkspaceStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -18,9 +12,9 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { onMount } from 'svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import { switchWorkspace } from '$lib/storeUtils'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -75,10 +69,12 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
 
-	onMount(() => {
-		loadInvites()
-		loadWorkspaces()
-	})
+	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
+	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
+
+	loadInvites()
+	loadWorkspaces()
+
 	let loading = false
 </script>
 
@@ -123,7 +119,7 @@
 				workspace.
 			</p>
 		{/if}
-		{#each workspaces.filter((x) => x.id != 'admins') as workspace}
+		{#each nonAdminWorkspaces as workspace}
 			<label class="block pb-2">
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
@@ -165,8 +161,10 @@
 	<div class="flex flex-row-reverse pt-4">
 		<Button
 			size="sm"
+			btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
+			color={noWorkspaces ? 'dark' : 'blue'}
 			href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-			variant="border"
+			variant={noWorkspaces ? 'contained' : 'border'}
 			>+&nbsp;Create a new workspace
 		</Button>
 	</div>
@@ -217,13 +215,14 @@
 		{#if $superadmin}
 			<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
 				<Icon data={faCrown} class="mr-1" scale={1} />
-				Superadmin settings
+				Instance settings
 			</Button>
 		{/if}
 		<Button variant="border" size="sm" on:click={userSettings.openDrawer}>
 			<Icon data={faUserCog} class="mr-1" scale={1} />
 			User settings
 		</Button>
+
 		<Button
 			variant="border"
 			color="blue"

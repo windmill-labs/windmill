@@ -17,18 +17,16 @@
 
 	export let canDisableTabs: boolean = false
 
-	// Migration code
-	$: if (tabs?.length !== disabledTabs?.length && canDisableTabs) {
-		disabledTabs = Array(tabs.length).fill({
-			type: 'static',
-			value: false,
-			fieldType: 'boolean'
-		})
-	}
-
 	export let word: string = 'Tab'
 
 	export let component: AppComponent
+
+	$: if (disabledTabs == undefined) {
+		disabledTabs = [
+			{ type: 'static', value: false, fieldType: 'boolean' },
+			{ type: 'static', value: false, fieldType: 'boolean' }
+		]
+	}
 
 	let items = tabs.map((tab, index) => {
 		return { value: tab, id: generateRandomString(), originalIndex: index }
@@ -57,7 +55,7 @@
 		]
 		component.numberOfSubgrids = items.length
 
-		disabledTabs = [...disabledTabs, { type: 'static', value: false, fieldType: 'boolean' }]
+		disabledTabs = [...(disabledTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -78,7 +76,7 @@
 		items = items.filter((item) => item.originalIndex !== index)
 
 		// Delete the item in the disabledTabs array
-		disabledTabs = disabledTabs.filter((_, i) => i !== index)
+		disabledTabs = (disabledTabs ?? []).filter((_, i) => i !== index)
 
 		component.numberOfSubgrids = items.length
 		// Update the originalIndex of the remaining items
@@ -156,8 +154,8 @@
 	}
 </script>
 
-<PanelSection title={`${word}s ${tabs.length > 0 ? `(${tabs.length})` : ''}`}>
-	{#if tabs.length == 0}
+<PanelSection title={`${word}s ${tabs && tabs.length > 0 ? `(${tabs.length})` : ''}`}>
+	{#if !tabs || tabs.length == 0}
 		<span class="text-xs text-tertiary">No Tabs</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
@@ -196,7 +194,7 @@
 						</div>
 					</div>
 
-					{#if canDisableTabs}
+					{#if canDisableTabs && disabledTabs}
 						<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
 					{/if}
 				</div>

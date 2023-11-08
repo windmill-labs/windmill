@@ -44,7 +44,7 @@
 		requestType = 'hash'
 	}
 
-	let token = 'YOUR_TOKEN'
+	let token = 'TOKEN_TO_CREATE'
 
 	$: url =
 		webhooks[webhookType][requestType] +
@@ -174,10 +174,10 @@ ${
 		: `
 URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
-  RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" $URL)
-  COMPLETED=$(echo $RESPONSE | jq .completed)
+  curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
+  COMPLETED=$(cat res.json | jq .completed)
   if [ "$COMPLETED" = "true" ]; then
-    echo $RESPONSE | jq .result
+    cat res.json | jq .result
     break
   else
     sleep 1
@@ -192,7 +192,11 @@ done`
 <div class="p-2 flex flex-col w-full gap-4">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 		<div class="flex flex-row justify-between my-2 gap-2">
-			<input bind:value={token} placeholder="YOUR_TOKEN" class="!text-xs" />
+			<input
+				bind:value={token}
+				placeholder="paste your token here once created to alter examples below"
+				class="!text-xs"
+			/>
 			<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
 				Create a Webhook-specific Token
 				<Tooltip light>
@@ -254,71 +258,73 @@ done`
 			</ToggleButtonGroup>
 		</div>
 	</div>
+	{#key token}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<Tabs selected="rest">
+			<Tab value="rest" size="xs">REST</Tab>
+			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+				<Tab value="curl" size="xs">Curl</Tab>
+			{/if}
+			<Tab value="fetch" size="xs">Fetch</Tab>
 
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<Tabs selected="rest">
-		<Tab value="rest" size="xs">REST</Tab>
-		{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-			<Tab value="curl" size="xs">Curl</Tab>
-		{/if}
-		<Tab value="fetch" size="xs">Fetch</Tab>
+			<svelte:fragment slot="content">
+				<TabContent value="rest" class="flex flex-col flex-1 h-full ">
+					<div class="flex flex-col gap-2">
+						<ClipboardPanel title="Url" content={url} />
 
-		<svelte:fragment slot="content">
-			<TabContent value="rest" class="flex flex-col flex-1 h-full ">
-				<div class="flex flex-col gap-2">
-					<ClipboardPanel title="Url" content={url} />
-
-					{#if requestType !== 'get_path'}
-						<ClipboardPanel title="Body" content={JSON.stringify(args, null, 2)} />
-					{/if}
-					{#key requestType}
-						{#key tokenType}
-							<ClipboardPanel title="Headers" content={JSON.stringify(headers(), null, 2)} />
+						{#if requestType !== 'get_path'}
+							<ClipboardPanel title="Body" content={JSON.stringify(args, null, 2)} />
+						{/if}
+						{#key requestType}
+							{#key tokenType}
+								<ClipboardPanel title="Headers" content={JSON.stringify(headers(), null, 2)} />
+							{/key}
 						{/key}
-					{/key}
-				</div>
-			</TabContent>
-			<TabContent value="curl" class="flex flex-col flex-1 h-full">
-				<div class="relative">
+					</div>
+				</TabContent>
+				<TabContent value="curl" class="flex flex-col flex-1 h-full">
+					<div class="relative">
+						{#key args}
+							{#key requestType}
+								{#key webhookType}
+									{#key tokenType}
+										<div
+											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+											on:click={(e) => {
+												e.preventDefault()
+												copyToClipboard(curlCode())
+											}}
+										>
+											<Highlight language={bash} code={curlCode()} class="" />
+											<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+										</div>
+									{/key}
+								{/key}
+							{/key}
+						{/key}
+					</div>
+				</TabContent>
+				<TabContent value="fetch">
 					{#key args}
 						{#key requestType}
 							{#key webhookType}
 								{#key tokenType}
-									<div
-										class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-										on:click={(e) => {
-											e.preventDefault()
-											copyToClipboard(curlCode())
-										}}
-									>
-										<Highlight language={bash} code={curlCode()} class="" />
-										<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
-									</div>
-								{/key}
-							{/key}
-						{/key}
+									{#key token}
+										<div
+											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+											on:click={(e) => {
+												e.preventDefault()
+												copyToClipboard(fetchCode())
+											}}
+										>
+											<Highlight language={typescript} code={fetchCode()} />
+											<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+										</div>
+									{/key}{/key}{/key}{/key}
 					{/key}
-				</div>
-			</TabContent>
-			<TabContent value="fetch">
-				{#key args}
-					{#key requestType}
-						{#key webhookType}
-							{#key tokenType}
-								{#key token}
-									<div
-										class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-										on:click={(e) => {
-											e.preventDefault()
-											copyToClipboard(fetchCode())
-										}}
-									>
-										<Highlight language={typescript} code={fetchCode()} />
-										<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
-									</div>
-								{/key}{/key}{/key}{/key}
-				{/key}
-			</TabContent>
-		</svelte:fragment>
-	</Tabs>
+				</TabContent>
+			</svelte:fragment>
+		</Tabs>
+	{/key}
 </div>

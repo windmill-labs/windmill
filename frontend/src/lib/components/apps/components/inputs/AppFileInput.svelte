@@ -4,9 +4,10 @@
 	import { FileInput } from '../../../common'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -36,8 +37,18 @@
 		outputs?.result.set(files)
 	}
 
-	$: css = concatCustomCss($app.css?.fileinputcomponent, customCss)
+	let css = initCss($app.css?.fileinputcomponent, customCss)
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.fileinputcomponent}
+	/>
+{/each}
 
 <InputValue
 	key="accepted"
@@ -61,7 +72,7 @@
 			on:change={({ detail }) => {
 				handleChange(detail)
 			}}
-			class={twMerge('w-full h-full', css?.container?.class)}
+			class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
 			style={css?.container?.style}
 		>
 			{text}

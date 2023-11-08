@@ -1,147 +1,185 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
-	import { dbSchemas, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import {
+		dbSchemas,
+		workspaceStore,
+		type DBSchema,
+		type GraphqlSchema,
+		type SQLSchema
+	} from '$lib/stores'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { tryEvery } from '$lib/utils'
+	import { sendUserToast, tryEvery } from '$lib/utils'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { buildClientSchema, printSchema } from 'graphql'
+	import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
+	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 
 	export let resourceType: string | undefined
 	export let resourcePath: string | undefined = undefined
 	let dbSchema: DBSchema | undefined = undefined
+	let loading = false
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined
 
-	const content = {
-		postgresql: `import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
-export async function main(args: any) {
-  // Create a new client with the provided connection details
-  const u = new URL("postgres://")
-	u.hash = ''
-	u.search = '?sslmode=' + args.sslmode
-	u.pathname = args.dbname
-	u.host = args.host
-	u.port = args.port
-	u.password = args.password
-	u.username = args.user
-  const client = new Client(u.toString())
-  // Connect to the postgres database
-  await client.connect();
-  const result = await client.queryObject(\`SELECT 
-      table_name, 
-      column_name, 
-      udt_name,
-      column_default,
-      is_nullable,
-      table_schema
-    FROM 
-      information_schema.columns
-    WHERE table_schema != 'pg_catalog' AND 
-      table_schema != 'information_schema'\`);
-  const schemas = result.rows.reduce((acc, a) => {
-    const table_schema = a.table_schema;
-    delete a.table_schema;
-    acc[table_schema] = acc[table_schema] || [];
-    acc[table_schema].push(a);
-    return acc;
-  }, {});
-  const data = {};
-  for (const key in schemas) {
-    data[key] = schemas[key].reduce((acc, a) => {
-      const table_name = a.table_name;
-      delete a.table_name;
-      acc[table_name] = acc[table_name] || {};
-      const p = {
-        type: a.udt_name,
-        required: a.is_nullable === "NO",
+	const scripts: Record<
+		string,
+		{
+			code: string
+			lang: string
+			processingFn?: (any: any) => SQLSchema['schema']
+			argName: string
+		}
+	> = {
+		postgresql: {
+			code: `SELECT table_name, column_name, udt_name, column_default, is_nullable, table_schema FROM information_schema.columns WHERE table_schema != 'pg_catalog' AND table_schema != 'information_schema'`,
+			processingFn: (rows) => {
+				const schemas = rows.reduce((acc, a) => {
+					const table_schema = a.table_schema
+					delete a.table_schema
+					acc[table_schema] = acc[table_schema] || []
+					acc[table_schema].push(a)
+					return acc
+				}, {})
+				const data = {}
+				for (const key in schemas) {
+					data[key] = schemas[key].reduce((acc, a) => {
+						const table_name = a.table_name
+						delete a.table_name
+						acc[table_name] = acc[table_name] || {}
+						const p: {
+							type: string
+							required: boolean
+							default?: string
+						} = {
+							type: a.udt_name,
+							required: a.is_nullable === 'NO'
+						}
+						if (a.column_default) {
+							p.default = a.column_default
+						}
+						acc[table_name][a.column_name] = p
+						return acc
+					}, {})
+				}
+				return data
+			},
+			lang: 'postgresql',
+			argName: 'database'
+		},
+		mysql: {
+			code: "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'information_schema'",
+			processingFn: (rows) => {
+				const schemas = rows.reduce((acc, a) => {
+					const table_schema = a.TABLE_SCHEMA
+					delete a.TABLE_SCHEMA
+					acc[table_schema] = acc[table_schema] || []
+					acc[table_schema].push(a)
+					return acc
+				}, {})
+				const data = {}
+				for (const key in schemas) {
+					data[key] = schemas[key].reduce((acc, a) => {
+						const table_name = a.TABLE_NAME
+						delete a.TABLE_NAME
+						acc[table_name] = acc[table_name] || {}
+						const p: {
+							type: string
+							required: boolean
+							default?: string
+						} = {
+							type: a.DATA_TYPE,
+							required: a.is_nullable === 'NO'
+						}
+						if (a.column_default) {
+							p.default = a.COLUMN_DEFAULT
+						}
+						acc[table_name][a.COLUMN_NAME] = p
+						return acc
+					}, {})
+				}
+				return data
+			},
+			lang: 'mysql',
+			argName: 'database'
+		},
+		graphql: {
+			code: getIntrospectionQuery(),
+			lang: 'graphql',
+			argName: 'api'
+		},
+		bigquery: {
+			code: `import { BigQuery } from '@google-cloud/bigquery@7.2.0';
+export async function main(args: bigquery) {
+  const bq = new BigQuery({
+    credentials: args
+  })
+  const [datasets] = await bq.getDatasets();
+  const schema = {}
+  for (const dataset of datasets) {
+    schema[dataset.id] = {}
+    const query = "SELECT table_name, ARRAY_AGG(STRUCT(if(is_nullable = 'YES', true, false) AS required, column_name AS name, data_type AS type, if(column_default = 'NULL', null, column_default) AS \`default\`) ORDER BY ordinal_position) AS schema \
+FROM \`{dataset.id}\`.INFORMATION_SCHEMA.COLUMNS \
+GROUP BY table_name".replace('{dataset.id}', dataset.id)
+    const [rows] = await bq.query(query)
+    for (const row of rows) {
+			schema[dataset.id][row.table_name] = {}
+      for (const col of row.schema) {
+        const colName = col.name
+        delete col.name
+        if (col.default === null) {
+          delete col.default
+        }
+        schema[dataset.id][row.table_name][colName] = col
       }
-      if (a.column_default) {
-        p.default = a.column_default
-      }
-      acc[table_name][a.column_name] = p;
-      return acc;
-    }, {});
+    }
   }
-  return data;
-}`,
-		mysql: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
-export async function main(args: any) {
-  const conn = await new Client().connect({
-    hostname: args.host,
-    port: args.port,
-    username: args.user,
-    db: args.database,
-    password: args.password,
-  });
-  const result = await conn.execute(
-    "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'information_schema'",
-  );
-  const schemas = result.rows.reduce((acc, a) => {
-    const table_schema = a.TABLE_SCHEMA;
-    delete a.TABLE_SCHEMA;
-    acc[table_schema] = acc[table_schema] || [];
-    acc[table_schema].push(a);
-    return acc;
-  }, {});
-  const data = {};
-  for (const key in schemas) {
-    data[key] = schemas[key].reduce((acc, a) => {
-      const table_name = a.TABLE_NAME;
-      delete a.TABLE_NAME;
-      acc[table_name] = acc[table_name] || {};
-      const p = {
-        type: a.DATA_TYPE,
-        required: a.is_nullable === "NO",
-      };
-      if (a.column_default) {
-        p.default = a.COLUMN_DEFAULT;
-      }
-      acc[table_name][a.COLUMN_NAME] = p;
-      return acc;
-    }, {});
-  }
-  return data;
-}`,
-		graphql: `import { getIntrospectionQuery } from "npm:graphql@16.7.1";
-export async function main(args: any) {
-  const headers: { [key: string]: string } = {
-    "Content-Type": "application/json",
-  };
-  if (args.bearer_token) {
-    headers["authorization"] = "Bearer " + args.bearer_token;
-  }
-  const response = await fetch(args.base_url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      query: getIntrospectionQuery(),
-    }),
-  });
-  if (!response.ok) {
-    throw new Error("Could not query schema");
-  }
-  const schema = (await response.json()).data;
-  return schema;
-}`
+  return schema
+}`, // nested template literals
+			lang: 'bun',
+			argName: 'args'
+		},
+		snowflake: {
+			code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE from information_schema.columns where table_schema != 'INFORMATION_SCHEMA'`,
+			lang: 'snowflake',
+			processingFn: (rows) => {
+				const schema = {}
+				for (const row of rows) {
+					if (!(row.TABLE_SCHEMA in schema)) {
+						schema[row.TABLE_SCHEMA] = {}
+					}
+					if (!(row.TABLE_NAME in schema[row.TABLE_SCHEMA])) {
+						schema[row.TABLE_SCHEMA][row.TABLE_NAME] = {}
+					}
+					schema[row.TABLE_SCHEMA][row.TABLE_NAME][row.COLUMN_NAME] = {
+						type: row.DATA_TYPE,
+						required: row.IS_NULLABLE === 'YES'
+					}
+					if (row.COLUMN_DEFAULT !== null) {
+						schema[row.TABLE_SCHEMA][row.TABLE_NAME][row.COLUMN_NAME]['default'] =
+							row.COLUMN_DEFAULT
+					}
+				}
+				return schema
+			},
+			argName: 'database'
+		}
 	}
 
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
-		delete $dbSchemas[resourceType]
+		loading = true
 
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
 			requestBody: {
-				language: 'deno' as Preview.language,
-				content: content[resourceType],
+				language: scripts[resourceType].lang as Preview.language,
+				content: scripts[resourceType].code,
 				args: {
-					args: '$res:' + resourcePath
+					[scripts[resourceType].argName]: '$res:' + resourcePath
 				}
 			}
 		})
@@ -156,28 +194,40 @@ export async function main(args: any) {
 					if (!testResult.success) {
 						console.error(testResult.result?.['error']?.['message'])
 					} else {
-						if (resourceType === 'postgresql') {
-							$dbSchemas[resourcePath] = {
-								lang: 'postgresql',
-								schema: testResult.result,
-								publicOnly: true
-							}
-						} else if (resourceType === 'mysql') {
-							$dbSchemas[resourcePath] = {
-								lang: 'mysql',
-								schema: testResult.result
-							}
-						} else if (resourceType === 'graphql') {
-							$dbSchemas[resourcePath] = {
-								lang: 'graphql',
-								schema: testResult.result
+						if (resourceType !== undefined) {
+							if (resourceType !== 'graphql') {
+								const { processingFn } = scripts[resourceType]
+								const schema =
+									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
+								$dbSchemas[resourcePath] = {
+									lang: resourceType as SQLSchema['lang'],
+									schema,
+									publicOnly: !!schema.public || !!schema.PUBLIC
+								}
+							} else {
+								if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
+									console.error('Invalid GraphQL schema')
+									if (drawer?.isOpen()) {
+										sendUserToast('Invalid GraphQL schema', true)
+									}
+								} else {
+									$dbSchemas[resourcePath] = {
+										lang: 'graphql',
+										schema: testResult.result
+									}
+								}
 							}
 						}
 					}
 				}
+				loading = false
 			},
 			timeoutCode: async () => {
+				loading = false
 				console.error('Could not query schema within 5s')
+				if (drawer?.isOpen()) {
+					sendUserToast('Could not query schema within 5s', true)
+				}
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,
@@ -196,8 +246,8 @@ export async function main(args: any) {
 	}
 
 	function formatSchema(dbSchema: DBSchema) {
-		if (dbSchema.lang === 'postgresql' && dbSchema.publicOnly) {
-			return dbSchema.schema.public || dbSchema
+		if (dbSchema.lang !== 'graphql' && dbSchema.publicOnly) {
+			return dbSchema.schema.public || dbSchema.schema.PUBLIC || dbSchema
 		} else if (dbSchema.lang === 'mysql' && Object.keys(dbSchema.schema).length === 1) {
 			return dbSchema.schema[Object.keys(dbSchema.schema)[0]]
 		} else {
@@ -209,17 +259,12 @@ export async function main(args: any) {
 		return printSchema(buildClientSchema(dbSchema.schema))
 	}
 
-	$: resourcePath && ['postgresql', 'mysql', 'graphql'].includes(resourceType || '') && getSchema()
-
-	function clearSchema() {
-		if (resourcePath) {
-			delete $dbSchemas[resourcePath]
-		}
-	}
+	$: resourcePath &&
+		Object.keys(scripts).includes(resourceType || '') &&
+		!$dbSchemas[resourcePath] &&
+		getSchema()
 
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
-
-	onDestroy(clearSchema)
 </script>
 
 {#if dbSchema}
@@ -229,13 +274,25 @@ export async function main(args: any) {
 		color="blue"
 		spacingSize="xs2"
 		btnClasses="mt-1"
-		on:click={drawer.openDrawer}
+		on:click={drawer?.openDrawer}
 	>
 		Explore schema
 	</Button>
-	<Drawer bind:this={drawer} size="800px">
+	<Drawer bind:this={drawer}>
 		<DrawerContent title="Schema Explorer" on:close={drawer.closeDrawer}>
-			{#if dbSchema.lang === 'postgresql'}
+			<svelte:fragment slot="actions">
+				<Button
+					on:click={getSchema}
+					startIcon={{
+						icon: faRefresh
+					}}
+					{loading}
+					size="xs"
+					color="light"
+					>Refresh
+				</Button>
+			</svelte:fragment>
+			{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
 				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
 					<ToggleButton value={false} label="All" />

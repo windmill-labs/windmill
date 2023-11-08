@@ -13,7 +13,10 @@
 	$: checked = Boolean(appInput.transformer)
 </script>
 
-<div class="text-sm font-semibold justify-between flex flex-row items-center">
+<div
+	class="text-sm font-semibold justify-between flex flex-row items-center"
+	id="app-editor-script-transformer"
+>
 	<div class="flex flex-row items-center gap-2">
 		Transformer
 

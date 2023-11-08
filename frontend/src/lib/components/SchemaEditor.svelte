@@ -23,6 +23,7 @@
 	const moveAnimationDuration = 300
 
 	export let schema: Schema | any = emptySchema()
+
 	if (!schema) {
 		schema = emptySchema()
 	}
@@ -53,6 +54,31 @@
 		}
 	}
 
+	reorder()
+
+	function reorder() {
+		if (schema.order && Array.isArray(schema.order)) {
+			const n = {}
+
+			;(schema.order as string[]).forEach((x) => {
+				n[x] = schema.properties[x]
+			})
+
+			Object.keys(schema.properties ?? {})
+				.filter((x) => !schema.order?.includes(x))
+				.forEach((x) => {
+					n[x] = schema.properties[x]
+				})
+			schema.properties = n
+		}
+	}
+
+	function syncOrders() {
+		if (schema) {
+			schema.order = Object.keys(schema.properties ?? {})
+		}
+	}
+
 	function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		return {
 			type: schema.selectedType,
@@ -71,14 +97,21 @@
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
 		modalProperty.name = modalProperty.name.trim()
+
 		if (modalProperty.name.length === 0) {
 			argError = 'Arguments need to have a name'
 		} else if (
-			Object.keys(schema.properties).includes(modalProperty.name) &&
+			Object.keys(schema.properties ?? {}).includes(modalProperty.name) &&
 			(!editing || (editing && oldArgName && oldArgName !== modalProperty.name))
 		) {
 			argError = 'There is already an argument with this name'
 		} else {
+			if (!schema.properties) {
+				schema.properties = {}
+			}
+			if (!schema.required) {
+				schema.required = []
+			}
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
 				if (!schema.required.includes(modalProperty.name)) {
@@ -100,7 +133,9 @@
 
 			schemaModal.closeDrawer()
 		}
+
 		schema = schema
+		syncOrders()
 		schemaString = JSON.stringify(schema, null, '\t')
 		jsonEditor?.setCode(schemaString)
 		dispatch('change', schema)
@@ -156,6 +191,7 @@
 			} else {
 				throw Error('Argument not found!')
 			}
+			syncOrders()
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
@@ -187,7 +223,9 @@
 		entries.splice(i, 1)
 		entries.splice(up ? i - 1 : i + 1, 0, element)
 		schema.properties = Object.fromEntries(entries)
+		syncOrders()
 	}
+
 	let isAnimated = false
 	let error = ''
 
@@ -242,6 +280,7 @@
 				on:click={() => {
 					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
 				}}
+				id="flow-editor-add-property"
 			>
 				Add Property
 			</Button>

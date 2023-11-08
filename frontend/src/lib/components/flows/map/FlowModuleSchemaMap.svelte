@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
-	import { getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
 		createBranchAll,
 		createBranches,
@@ -13,16 +13,29 @@
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
-	import { dfs } from '../flowStore'
+	import { dfs } from '../dfs'
 	import { FlowGraph } from '$lib/components/graph'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from 'svelte-portal'
 	import { getDependentComponents } from '../flowExplorer'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { fade } from 'svelte/transition'
+	import { tutorialsToDo } from '$lib/stores'
+
+	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import { tutorialInProgress } from '$lib/tutorialUtils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
+	export let disableStaticInputs = false
+	export let disableTutorials = false
+	export let disableAi = false
+	export let smallErrorHandler = false
+
+	let flowTutorials: FlowTutorials | undefined = undefined
 
 	const { selectedId, moving, history, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -129,6 +142,20 @@
 
 	let deleteCallback: (() => void) | undefined = undefined
 	let dependents: Record<string, string[]> = {}
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
+		return (
+			$tutorialsToDo.includes(index) &&
+			name == tutorialName &&
+			!$ignoredTutorials.includes(index) &&
+			!tutorialInProgress()
+		)
+	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <Portal>
@@ -163,14 +190,22 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center border-b"
+		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
+			$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
+		}`}
 	>
+		{#if $copilotCurrentStepStore !== undefined}
+			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+		{/if}
 		<FlowSettingsItem />
-		<FlowConstantsItem />
+		{#if !disableStaticInputs}
+			<FlowConstantsItem />
+		{/if}
 	</div>
 
-	<div class="flex-auto grow" bind:clientHeight={minHeight}>
+	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraph
+			{disableAi}
 			insertable
 			scroll
 			{minHeight}
@@ -196,20 +231,34 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				if (detail.modules) {
-					await tick()
-					if ($moving) {
-						push(history, $flowStore)
-						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
-						$moving.modules.splice(indexToRemove, 1)
-						detail.modules.splice(detail.index, 0, $moving.module)
-						$selectedId = $moving.module.id
-						$moving = undefined
-					} else {
-						await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
-						$selectedId = detail.modules[detail.index ?? 0].id
+				if (shouldRunTutorial('forloop', detail.detail, 1)) {
+					flowTutorials?.runTutorialById('forloop', detail.index)
+				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
+					flowTutorials?.runTutorialById('branchone')
+				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
+					flowTutorials?.runTutorialById('branchall')
+				} else {
+					if (detail.modules) {
+						await tick()
+						if ($moving) {
+							push(history, $flowStore)
+							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
+							$moving.modules.splice(indexToRemove, 1)
+							detail.modules.splice(detail.index, 0, $moving.module)
+							$selectedId = $moving.module.id
+							$moving = undefined
+						} else {
+							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+							$selectedId = detail.modules[detail.index ?? 0].id
+						}
+
+						if (['branchone', 'branchall'].includes(detail.detail)) {
+							await addBranch(detail.modules[detail.index ?? 0])
+						}
+
+						$flowStore = $flowStore
+						dispatch('change')
 					}
-					$flowStore = $flowStore
 				}
 			}}
 			on:newBranch={async ({ detail }) => {
@@ -228,7 +277,6 @@
 			on:move={async ({ detail }) => {
 				if (!$moving || $moving.module.id !== detail.module.id) {
 					if (detail.module && detail.modules) {
-						console.log('MOVE+')
 						$moving = { module: detail.module, modules: detail.modules }
 					}
 				} else {
@@ -238,8 +286,14 @@
 		/>
 	</div>
 	<div
-		class="z-10 absolute w-full inline-flex flex-col gap-2 bottom-0 left-0 flex-initial p-2 items-center border-b"
+		class="z-10 absolute inline-flex w-full text-sm gap-2 bottom-0 left-0 p-2 {smallErrorHandler
+			? 'flex-row-reverse'
+			: 'justify-center'} border-b"
 	>
-		<FlowErrorHandlerItem />
+		<FlowErrorHandlerItem small={smallErrorHandler} />
 	</div>
 </div>
+
+{#if !disableTutorials}
+	<FlowTutorials bind:this={flowTutorials} on:reload />
+{/if}

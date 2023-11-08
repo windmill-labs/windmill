@@ -15,14 +15,16 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::{
+    body::StreamBody,
     extract::{Extension, Json, Path, Query},
+    response::IntoResponse,
     routing::{delete, get, post},
     Router,
 };
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, value::RawValue};
 use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
@@ -35,14 +37,15 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
 };
-use windmill_queue::push;
+use windmill_queue::{push, PushArgs, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
+        .route("/list_search", get(list_search_apps))
         .route("/get/p/*path", get(get_app))
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
@@ -57,6 +60,7 @@ pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
         .route("/public_app/:secret", get(get_public_app_by_secret))
+        .route("/public_resource/*path", get(get_public_resource))
 }
 
 pub fn global_service() -> Router {
@@ -120,7 +124,7 @@ pub struct AppWithLastVersionAndDraft {
     pub draft_only: Option<bool>,
 }
 
-pub type StaticFields = Map<String, Value>;
+pub type StaticFields = HashMap<String, Box<RawValue>>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -157,6 +161,38 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<serde_json::Value>,
     pub policy: Option<Policy>,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchApp {
+    path: String,
+    value: serde_json::Value,
+}
+async fn list_search_apps(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchApp>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
+    let rows = sqlx::query_as!(
+        SearchApp,
+        "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_apps(
@@ -341,6 +377,27 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
+async fn get_public_resource(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    if !path.starts_with("f/app_themes/") {
+        return Err(Error::BadRequest(
+            "Only app themes are public resources".to_string(),
+        ));
+    }
+    let res = sqlx::query_scalar!(
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        path.to_owned(),
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    Ok(Json(res))
+}
+
 async fn get_secret_id(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -372,14 +429,16 @@ async fn get_secret_id(
 async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-    app.policy.on_behalf_of_email = Some(authed.email);
+    app.policy.on_behalf_of_email = Some(authed.email.clone());
 
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
@@ -390,7 +449,7 @@ async fn create_app(
         &app.path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?
     .unwrap_or(false);
 
@@ -406,7 +465,7 @@ async fn create_app(
         &app.path,
         &w_id
     )
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
 
     let id = sqlx::query_scalar!(
@@ -419,7 +478,7 @@ async fn create_app(
         json!(app.policy),
         app.draft_only,
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
 
     let v_id = sqlx::query_scalar!(
@@ -431,7 +490,7 @@ async fn create_app(
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
 
     sqlx::query!(
@@ -439,11 +498,11 @@ async fn create_app(
         v_id,
         id
     )
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
 
     audit_log(
-        &mut *tx,
+        &mut tx,
         &authed.username,
         "apps.create",
         ActionKind::Create,
@@ -453,6 +512,32 @@ async fn create_app(
     )
     .await?;
 
+    let tx = PushIsolationLevel::Transaction(tx);
+    let (dependency_job_uuid, tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
+        PushArgs::empty(),
+        &authed.username,
+        &authed.email,
+        windmill_common::users::username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
     tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
@@ -462,25 +547,31 @@ async fn create_app(
     Ok((StatusCode::CREATED, app.path))
 }
 
-async fn list_hub_apps(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
-    let flows = list_elems_from_hub(
+async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchUiData?approved=true",
-        &email,
+        None,
+        &db,
     )
     .await?;
-    Ok(Json(flows))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 pub async fn get_hub_app_by_id(
-    ApiAuthed { email, .. }: ApiAuthed,
     Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("https://hub.windmill.dev/apps/{id}/json"),
-        &email,
         false,
+        None,
+        &db,
     )
     .await?
     .json()
@@ -541,8 +632,10 @@ async fn delete_app(
 
 async fn update_app(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -550,7 +643,7 @@ async fn update_app(
 
     let path = path.to_path();
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
     let npath = if ns.policy.is_some() || ns.path.is_some() || ns.summary.is_some() {
         let mut sqlb = SqlBuilder::update_table("app");
@@ -567,7 +660,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut tx)
                 .await?
                 .unwrap_or(false);
 
@@ -587,7 +680,7 @@ async fn update_app(
 
         if let Some(mut npolicy) = ns.policy {
             npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-            npolicy.on_behalf_of_email = Some(authed.email);
+            npolicy.on_behalf_of_email = Some(authed.email.clone());
             sqlb.set(
                 "policy",
                 &format!(
@@ -602,18 +695,18 @@ async fn update_app(
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {
         "".to_string()
     };
-    if let Some(nvalue) = &ns.value {
+    let v_id = if let Some(nvalue) = &ns.value {
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
             npath,
             w_id
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?;
 
         let v_id = sqlx::query_scalar!(
@@ -625,7 +718,7 @@ async fn update_app(
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?;
 
         sqlx::query!(
@@ -634,20 +727,23 @@ async fn update_app(
             npath,
             w_id
         )
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
-    }
+        Some(v_id)
+    } else {
+        None
+    };
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         path,
         &w_id
     )
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
 
     audit_log(
-        &mut *tx,
+        &mut tx,
         &authed.username,
         "apps.update",
         ActionKind::Update,
@@ -656,7 +752,40 @@ async fn update_app(
         None,
     )
     .await?;
-    tx.commit().await?;
+
+    if let Some(v_id) = v_id {
+        let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
+            PushIsolationLevel::Transaction(tx);
+
+        let (dependency_job_uuid, tx) = push(
+            &db,
+            tx,
+            &w_id,
+            JobPayload::AppDependencies { path: npath.clone(), version: v_id },
+            PushArgs::empty(),
+            &authed.username,
+            &authed.email,
+            windmill_common::users::username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+        tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
+        tx.commit().await?;
+    } else {
+        tx.commit().await?;
+    }
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateApp {
@@ -671,7 +800,7 @@ async fn update_app(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
-    pub args: Map<String, serde_json::Value>,
+    pub args: HashMap<String, Box<RawValue>>,
     // - script: script/<path>
     // - flow: flow/<path>
     pub path: Option<String>,
@@ -773,17 +902,17 @@ async fn execute_component(
         }
     };
 
-    let (job_payload, args, tag) = match &payload {
+    let (job_payload, args, tag) = match payload {
         ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
-            let args = build_args(policy, component, path, args)?;
+            let args = build_args(policy, &component, path, args)?;
             (payload, args, None)
         }
         ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) = get_payload_tag_from_prefixed_path(path, &db, &w_id).await?;
-            let args = build_args(policy, component, path.to_string(), args)?;
+            let (payload, tag) = get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?;
+            let args = build_args(policy, &component, path.to_string(), args)?;
             (payload, args, tag)
         }
         _ => unreachable!(),
@@ -809,6 +938,7 @@ async fn execute_component(
         None,
         true,
         tag,
+        None,
         None,
         None,
     )
@@ -875,11 +1005,17 @@ fn build_args(
     policy: Policy,
     component: &str,
     path: String,
-    args: &Map<String, Value>,
-) -> Result<Map<String, Value>> {
+    args: HashMap<String, Box<RawValue>>,
+) -> Result<PushArgs<HashMap<String, Box<RawValue>>>> {
     // disallow var and res access in args coming from the user for security reasons
-    args.into_iter()
-        .try_for_each(|x| disallow_var_res_access(x.1))?;
+    for (_, v) in &args {
+        let args_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
+        if args_str.contains("$var:") || args_str.contains("$res:") {
+            return Err(Error::BadRequest(format!(
+            "For security reasons, variable or resource access is not allowed as dynamic argument"
+        )));
+        }
+    }
     let key = format!("{}:{}", component, &path);
     let static_args = policy
         .triggerables
@@ -888,7 +1024,7 @@ fn build_args(
         .map(|x| x.clone())
         .or_else(|| {
             if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                Some(Map::new())
+                Some(HashMap::new())
             } else {
                 None
             }
@@ -896,26 +1032,9 @@ fn build_args(
         .ok_or_else(|| {
             Error::BadRequest(format!("path {} is not allowed in the app policy", path))
         })?;
-    let mut args = args.clone();
+    let mut extra = HashMap::new();
     for (k, v) in static_args {
-        args.insert(k.to_string(), v.to_owned());
+        extra.insert(k.to_string(), v.to_owned());
     }
-    Ok(args)
-}
-
-fn disallow_var_res_access(args: &serde_json::Value) -> Result<()> {
-    match args {
-        Value::Object(v) => v.into_iter().try_for_each(|x| disallow_var_res_access(x.1)),
-        Value::Array(arr) => arr.into_iter().try_for_each(|v| disallow_var_res_access(v)),
-        Value::String(s) => {
-            if s.starts_with("$var:") || s.starts_with("$res:") {
-                Err(Error::BadRequest(format!(
-                    "For security reasons, variable or resource access is not allowed as dynamic argument"
-                )))
-            } else {
-                Ok(())
-            }
-        }
-        _ => Ok(()),
-    }
+    Ok(PushArgs { extra, args: sqlx::types::Json(args) })
 }

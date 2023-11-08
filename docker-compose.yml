@@ -12,7 +12,7 @@ services:
     expose:
       - 5432
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: changeme
       POSTGRES_DB: windmill
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -30,39 +30,25 @@ services:
       - 8000
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - BASE_URL=${WM_BASE_URL}
-      - RUST_LOG=info
-      ## You can set the number of workers to 1 and not need any separate worker service but not recommended
-      - NUM_WORKERS=0
-      - DISABLE_SERVER=false
-      - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
-      - REQUEST_SIZE_LIMIT=${WM_REQUEST_SIZE_LIMIT}
-      # LICENSE_KEY is only needed for the enterprise edition
-      - LICENSE_KEY=${WM_LICENSE_KEY}
+      - MODE=server
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
-      - ./oauth.json:/usr/src/app/oauth.json
 
   windmill_worker:
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - BASE_URL=${WM_BASE_URL}
-      - RUST_LOG=info
-      - DISABLE_SERVER=true
-      - KEEP_JOB_DIR=false
-      - METRICS_ADDR=false
-      # To handle all tags, remove the env variable altogether. If you do so, you can remove the windmill_worker_native containers.
-      - WORKER_TAGS=deno,python3,go,bash,powershell,dependency,flow,hub,other,bun
-      # LICENSE_KEY is only needed for the enterprise edition
-      - LICENSE_KEY=${WM_LICENSE_KEY}
+      - MODE=worker
+      - WORKER_GROUP=default
     depends_on:
       db:
         condition: service_healthy
@@ -70,43 +56,31 @@ services:
     volumes:
       # mount the docker socket to allow to run docker containers from within the workers
       - /var/run/docker.sock:/var/run/docker.sock
-      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
-      - ./oauth.json:/usr/src/app/oauth.json
       - worker_dependency_cache:/tmp/windmill/cache
 
-  ## This worker is specialized for "native" jobs. They run in-process and can thus be parallelized to more than 1 at a time on a given worker which is why NUM_WORKERS is set to 4
+  ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
     # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
-      replicas: 1
+      replicas: 2
       resources:
-          limits:
-            cpus: "0.25"
-            memory: 512M
+        limits:
+          cpus: "0.1"
+          memory: 128M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - BASE_URL=${WM_BASE_URL}
-      - RUST_LOG=info
-      - DISABLE_SERVER=true
-      - KEEP_JOB_DIR=false
-      - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
-      - NUM_WORKERS=4
-      - WORKER_TAGS=nativets,postgresql,mysql,graphql,snowflake
-      # LICENSE_KEY is only needed for the enterprise edition
-      # - LICENSE_KEY=${WM_LICENSE_KEY}
+      - MODE=worker
+      - WORKER_GROUP=native
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
-      - ./oauth.json:/usr/src/app/oauth.json
-
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
+    pull_policy: always
     restart: unless-stopped
     expose:
       - 3001
@@ -128,13 +102,15 @@ services:
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
+      # - ./certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in the Caffyfile
     ports:
       # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
-      #- 443:443 # Uncomment to enable HTTPS handling by Caddy
+      # - 443:443 # Uncomment to enable HTTPS handling by Caddy
     environment:
       - BASE_URL=":80"
-      #- BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
+      # - BASE_URL=":443" # uncomment and comment line above to enable HTTPS via custom certificate and key files
+      # - BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
 
 volumes:
   db_data: null

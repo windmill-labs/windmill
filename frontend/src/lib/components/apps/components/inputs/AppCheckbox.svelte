@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -9,11 +9,13 @@
 		ListInputs,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -62,10 +64,10 @@
 	function handleInput() {
 		outputs.result.set(value)
 		if (iterContext && listInputs) {
-			listInputs(id, value)
+			listInputs.set(id, value)
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, value)
+			rowInputs.set(id, value)
 		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
@@ -77,11 +79,16 @@
 		handleInput()
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+		rowInputs?.remove(id)
+	})
+
 	$: value != undefined && handleInput()
 
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
-	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
+	let css = initCss($app.css?.checkboxcomponent, customCss)
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
@@ -94,13 +101,29 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.checkboxcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper
+	{render}
+	{horizontalAlignment}
+	{verticalAlignment}
+	class={twMerge(css?.container?.class, 'wm-toggle-container')}
+	style={css?.container?.style}
+>
 	<Toggle
 		size="sm"
 		bind:checked={value}
 		options={{ right: resolvedConfig.label }}
-		textClass={css?.text?.class ?? ''}
+		textClass={twMerge(css?.text?.class, 'wm-toggle-text')}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			preclickAction?.()

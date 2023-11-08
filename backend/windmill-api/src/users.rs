@@ -8,7 +8,7 @@
 
 #![allow(non_snake_case)]
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::db::ApiAuthed;
 
@@ -18,7 +18,7 @@ use crate::{
     utils::require_super_admin,
     webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    BASE_URL, COOKIE_DOMAIN, IS_SECURE, SMTP_CLIENT, SMTP_FROM,
+    BASE_URL, COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -32,24 +32,25 @@ use axum::{
 use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
 use mail_send::mail_builder::MessageBuilder;
+use mail_send::SmtpClientBuilder;
+use quick_cache::sync::Cache;
 use rand::rngs::OsRng;
 use regex::Regex;
-use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::truncate_token;
+use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
-use windmill_queue::CLOUD_HOSTED;
 
-const TTL_TOKEN_CACHE_S: u64 = 60; // 60s
 pub const TTL_TOKEN_DB_H: u32 = 72;
 
 const COOKIE_NAME: &str = "token";
@@ -88,6 +89,10 @@ pub fn global_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
+        .route(
+            "/tutorial_progress",
+            post(update_tutorial_progress).get(get_tutorial_progress),
+        )
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -102,19 +107,24 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", get(logout))
 }
 
+#[derive(Clone)]
+pub struct ExpiringAuthCache {
+    pub authed: ApiAuthed,
+    pub expiry: Option<chrono::DateTime<chrono::Utc>>,
+}
 pub struct AuthCache {
-    cache: Cache<(String, String), ApiAuthed>,
+    cache: Cache<(String, String), ExpiringAuthCache>,
     db: DB,
     superadmin_secret: Option<String>,
 }
 
 impl AuthCache {
     pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
-        AuthCache { cache: Cache::new(), db, superadmin_secret }
+        AuthCache { cache: Cache::new(300), db, superadmin_secret }
     }
 
     pub async fn invalidate(&self, w_id: &str, token: String) {
-        self.cache.remove(&(w_id.to_string(), token)).await;
+        self.cache.remove(&(w_id.to_string(), token));
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
@@ -122,13 +132,17 @@ impl AuthCache {
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
         );
-        let s = self.cache.get(&key).await.map(|c| c.to_owned());
+        let s = self.cache.get(&key).map(|c| c.to_owned());
         match s {
-            a @ Some(_) => a,
-            None => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>)>(
+            Some(ExpiringAuthCache { authed, expiry })
+                if expiry.is_none() || expiry.unwrap() > chrono::Utc::now() =>
+            {
+                Some(authed)
+            }
+            _ => {
+                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<chrono::DateTime<chrono::Utc>>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes",
+                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes, expiration",
                 )
                 .bind(token)
                 .fetch_optional(&self.db)
@@ -139,7 +153,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), Some(email), super_admin, _) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let (is_admin, is_operator) = if super_admin {
@@ -218,7 +232,7 @@ impl AuthCache {
                                     })
                                 }
                             }
-                            (_, Some(email), super_admin, scopes) => {
+                            (_, Some(email), super_admin, scopes, _) => {
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool, bool)>(
                                         "SELECT username, is_admin, operator FROM usr where email = $1 AND \
@@ -288,9 +302,10 @@ impl AuthCache {
                         }
                     };
                     if let Some(authed) = authed_o.as_ref() {
-                        self.cache
-                            .insert(key, authed.clone(), Duration::from_secs(TTL_TOKEN_CACHE_S))
-                            .await;
+                        self.cache.insert(
+                            key,
+                            ExpiringAuthCache { authed: authed.clone(), expiry: user.4 },
+                        );
                     }
                     authed_o
                 } else if self
@@ -313,10 +328,6 @@ impl AuthCache {
                 }
             }
         }
-    }
-
-    pub async fn monitor(&self) {
-        self.cache.monitor(20, 0.25, Duration::from_secs(10)).await;
     }
 }
 
@@ -706,18 +717,21 @@ async fn list_users(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<UserWithUsage>> {
+    if *CLOUD_HOSTED && w_id == "demo" {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query(
         "
         SELECT usr.*, usage.*
           FROM usr
              , LATERAL (
-                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0) executions
+                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
                   FROM completed_job
                  WHERE workspace_id = $1
                    AND job_kind NOT IN ('flow', 'flowpreview')
                    AND email = usr.email
-                   AND now() - '5 week'::interval < created_at 
+                   AND now() - '1 week'::interval < created_at 
                ) usage
          WHERE workspace_id = $1
          ",
@@ -744,7 +758,7 @@ async fn list_users_as_super_admin(
 
     let rows = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT \
+        "SELECT email, login_type::text, verified, super_admin, name, company from password ORDER BY super_admin DESC, email LIMIT \
          $1 OFFSET $2",
         per_page as i32,
         offset as i32
@@ -752,6 +766,40 @@ async fn list_users_as_super_admin(
     .fetch_all(&db)
     .await?;
     Ok(Json(rows))
+}
+
+#[derive(Serialize, Deserialize)]
+struct Progress {
+    progress: u64,
+}
+async fn get_tutorial_progress(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Progress> {
+    let res = sqlx::query_scalar!(
+        "SELECT progress::bigint FROM tutorial_progress WHERE email = $1",
+        authed.email
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or_default() as u64;
+    Ok(Json(Progress { progress: res }))
+}
+
+async fn update_tutorial_progress(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(progress): Json<Progress>,
+) -> Result<String> {
+    sqlx::query_scalar!(
+        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = $1::bigint::bit(64)",
+        progress.progress as i64,
+        authed.email
+    )
+    .execute(&db)
+    .await?;
+    Ok("tutorial progress updated".to_string())
 }
 
 // async fn list_invite_codes(
@@ -1219,13 +1267,7 @@ async fn decline_invite(
 }
 
 lazy_static! {
-    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
-
-    pub static ref JOB_RETENTION_SECS: u32 = std::env::var("JOB_RETENTION_SECS")
-    .ok()
-    .and_then(|x| x.parse::<u32>().ok())
-    .unwrap_or(60 * 60 * 24 * 60); // 60 days
-
+    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
 }
 
 async fn accept_invite(
@@ -1236,7 +1278,7 @@ async fn accept_invite(
 ) -> Result<(StatusCode, String)> {
     if !VALID_USERNAME.is_match(&nu.username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 
@@ -1319,7 +1361,7 @@ async fn add_user_to_workspace<'c>(
 
     if !VALID_USERNAME.is_match(username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 
@@ -1570,7 +1612,9 @@ async fn create_user(
 Log in and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
 
 You can then join or create a workspace. Happy building!",
-            *BASE_URL, &nu.email, &nu.password
+            BASE_URL.read().await.clone(),
+            &nu.email,
+            &nu.password
         ),
         &nu.email,
     );
@@ -1590,13 +1634,17 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 }
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
-    if let Some(ref smtp) = *SMTP_CLIENT {
+    if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
+        let client = SmtpClientBuilder::new(smtp.host, smtp.port)
+            .implicit_tls(smtp.tls_implicit)
+            .credentials((smtp.username, smtp.password));
         let message = MessageBuilder::new()
-            .from(("Windmill", SMTP_FROM.as_str()))
+            .from(("Windmill", smtp.from.as_str()))
             .to(to)
             .subject(subject)
             .text_body(content);
-        smtp.connect()
+        client
+            .connect()
             .await
             .map_err(to_anyhow)?
             .send(message)
@@ -1942,7 +1990,7 @@ pub async fn create_session_token<'c>(
     .execute(&mut **tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(*IS_SECURE);
+    cookie.set_secure(IS_SECURE.read().await.clone());
     cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
@@ -2240,6 +2288,20 @@ pub struct LoginUserInfo {
     pub displayName: Option<String>,
 }
 
+async fn _check_nb_of_user(db: &DB) -> Result<()> {
+    let nb_groups =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
+            .fetch_one(db)
+            .await?;
+    if nb_groups.unwrap_or(0) >= 50 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of oauth users accounts (50) without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 pub async fn login_externally(
     db: DB,
     email: &String,
@@ -2292,6 +2354,10 @@ pub async fn login_externally(
         if (name.is_none() || name == Some(String::new())) && user.is_some() {
             name = user.clone().unwrap().displayName;
         }
+
+        #[cfg(not(feature = "enterprise"))]
+        _check_nb_of_user(&db).await?;
+
         sqlx::query(&format!(
             "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
                  $2, $3, '{}', true)",
@@ -2339,79 +2405,4 @@ pub async fn login_externally(
     }
     tx.commit().await?;
     Ok(())
-}
-
-pub async fn delete_expired_items_perdiodically(
-    db: &DB,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
-) -> () {
-    loop {
-        let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM token WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
-        )
-        .fetch_all(db)
-        .await;
-
-        match tokens_deleted_r {
-            Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
-            Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
-        }
-
-        let pip_resolution_r = sqlx::query_scalar!(
-            "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
-        )
-        .fetch_all(db)
-        .await;
-
-        match pip_resolution_r {
-            Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
-            Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
-        }
-
-        let deleted_cache = sqlx::query_scalar!(
-            "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
-        )
-        .fetch_all(db)
-        .await;
-
-        match deleted_cache {
-            Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
-            Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
-        }
-
-        if *JOB_RETENTION_SECS > 0 {
-            let deleted_jobs = sqlx::query_scalar!(
-                "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
-                *JOB_RETENTION_SECS as i64
-            )
-            .fetch_all(db)
-            .await;
-
-            match deleted_jobs {
-                Ok(deleted_jobs) => {
-                    tracing::info!(
-                        "deleted {} jobs completed JOB_RETENTION_SECS ago: {:?}",
-                        deleted_jobs.len(),
-                        deleted_jobs
-                    )
-                }
-                Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
-            }
-        }
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(600))     => (),
-            _ = rx. recv() => {
-                 println!("received killpill for delete expired tokens");
-                 break;
-            }
-        }
-    }
-}
-
-pub fn truncate_token(token: &str) -> String {
-    let mut s = token[..10].to_owned();
-    s.push_str("*****");
-    s
 }

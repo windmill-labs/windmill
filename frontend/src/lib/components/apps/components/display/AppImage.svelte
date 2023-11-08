@@ -4,10 +4,11 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import Loader from '../helpers/Loader.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -29,7 +30,7 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	$: css = concatCustomCss($app.css?.imagecomponent, customCss)
+	let css = initCss($app.css?.imagecomponent, customCss)
 </script>
 
 <InitializeComponent {id} />
@@ -43,6 +44,16 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.imagecomponent}
+	/>
+{/each}
+
 {#if render}
 	<Loader loading={resolvedConfig.source == undefined}>
 		<img
@@ -52,7 +63,8 @@
 			style={css?.image?.style ?? ''}
 			class={twMerge(
 				`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
-				css?.image?.class ?? ''
+				css?.image?.class,
+				'wm-image'
 			)}
 		/>
 	</Loader>

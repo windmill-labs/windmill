@@ -77,7 +77,7 @@
 				renameComponent(from, to, item.data)
 			})
 
-			$app.hiddenInlineScripts.forEach((x) => {
+			$app.hiddenInlineScripts?.forEach((x) => {
 				processRunnable(from, to, x)
 			})
 		}
@@ -158,6 +158,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		on:mouseenter|stopPropagation={() => {
 			if (id !== $hoverStore) {
@@ -186,6 +187,7 @@
 				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
 			}
 		}}
+		id={`output-${id}`}
 	>
 		<div class="flex">
 			<button
@@ -208,7 +210,7 @@
 					</div>
 				{/if}
 			</button>
-			{#if selectable && renamable && ($selectedComponent?.includes(id) || $hoverStore === id)}
+			{#if selectable && renamable && $selectedComponent?.includes(id)}
 				<div class="h-3">
 					<IdEditor
 						{id}
@@ -232,7 +234,7 @@
 		</div>
 	</div>
 	<div
-		class="border-b {open ? 'h-full' : 'h-0 overflow-hidden'} {$connectingInput.hoveredComponent ===
+		class="border-b {open ? 'h-full' : 'h-0 overflow-hidden invisible'} {$connectingInput.hoveredComponent ===
 			id && !$selectedComponent?.includes(id)
 			? '  bg-orange-100/40'
 			: ''}"

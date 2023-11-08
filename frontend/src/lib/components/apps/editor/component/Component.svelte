@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+	let outTimeout: NodeJS.Timeout | undefined = undefined
+</script>
+
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -25,6 +29,7 @@
 		AppFormButton,
 		VegaLiteHtml,
 		PlotlyHtml,
+		PlotlyHtmlV2,
 		AppRangeInput,
 		AppTabs,
 		AppIcon,
@@ -50,12 +55,14 @@
 	import AppLogsComponent from '../../components/display/AppLogsComponent.svelte'
 	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
 	import AppChartJs from '../../components/display/AppChartJs.svelte'
+	import AppChartJsV2 from '../../components/display/AppChartJsV2.svelte'
 	import AppQuillEditor from '../../components/inputs/AppQuillEditor.svelte'
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
+	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -75,28 +82,42 @@
 	let componentContainerHeight: number = 0
 
 	let inlineEditorOpened: boolean = false
+
+	function mouseOut() {
+		outTimeout && clearTimeout(outTimeout)
+		outTimeout = setTimeout(() => {
+			if ($hoverStore !== undefined) {
+				$hoverStore = undefined
+			}
+		}, 50)
+	}
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	on:mouseover|stopPropagation={() => {
+		outTimeout && clearTimeout(outTimeout)
 		if (component.id !== $hoverStore) {
 			$hoverStore = component.id
 		}
 	}}
-	on:mouseout|stopPropagation={() => {
-		if ($hoverStore !== undefined) {
-			$hoverStore = undefined
-		}
-	}}
+	on:mouseout|stopPropagation={mouseOut}
 	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
 >
 	{#if $mode !== 'preview'}
 		<ComponentHeader
+			on:mouseover={() => {
+				outTimeout && clearTimeout(outTimeout)
+
+				if (component.id !== $hoverStore) {
+					$hoverStore = component.id
+				}
+			}}
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
-			shouldHideActions={$connectingInput.opened}
+			connecting={$connectingInput.opened}
 			on:lock
 			on:expand
 			{locked}
@@ -125,7 +146,8 @@
 	{/if}
 	<div
 		class={twMerge(
-			'h-full bg-surface/40 outline-1',
+			'h-full outline-1',
+			$mode === 'dnd' ? 'bg-surface/40' : '',
 			$hoverStore === component.id && $mode !== 'preview'
 				? $connectingInput.opened
 					? 'outline outline-orange-600'
@@ -135,6 +157,7 @@
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class,
+			'wm-app-component',
 			ismoving ? 'animate-pulse' : ''
 		)}
 		style={$app.css?.['app']?.['component']?.style}
@@ -146,6 +169,7 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				configuration={component.configuration}
 				{render}
 			/>
 		{:else if component.type === 'logcomponent'}
@@ -240,6 +264,16 @@
 				componentInput={component.componentInput}
 				{render}
 			/>
+		{:else if component.type === 'plotlycomponentv2'}
+			<PlotlyHtmlV2
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				{render}
+			/>
 		{:else if component.type === 'scatterchartcomponent'}
 			<AppScatterChart
 				configuration={component.configuration}
@@ -274,6 +308,17 @@
 				configuration={component.configuration}
 				bind:initializing
 				componentInput={component.componentInput}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'aggridcomponentee'}
+			<AppAggridTableEe
+				license={component.license}
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'textcomponent'}
@@ -488,6 +533,7 @@
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
+				groupFields={component.groupFields}
 				id={component.id}
 				customCss={component.customCss}
 				{componentContainerHeight}
@@ -598,6 +644,7 @@
 				verticalAlignment={component.verticalAlignment}
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'chartjscomponent'}
@@ -609,11 +656,23 @@
 				componentInput={component.componentInput}
 				{render}
 			/>
+		{:else if component.type === 'chartjscomponentv2'}
+			<AppChartJsV2
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				{render}
+			/>
 		{:else if component.type === 'carousellistcomponent'}
 			<AppCarouselList
 				id={component.id}
 				configuration={component.configuration}
 				componentInput={component.componentInput}
+				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
 				bind:initializing
@@ -623,6 +682,7 @@
 </div>
 {#if initializing}
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		on:mouseover|stopPropagation={() => {
 			if (component.id !== $hoverStore) {

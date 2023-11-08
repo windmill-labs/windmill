@@ -6,15 +6,25 @@
 	import { Skeleton } from '../common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
-
-	export let loading: boolean
+	import type { FlowCopilotContext } from '../copilot/flow'
+	import { classNames } from '$lib/utils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	export let loading: boolean
+
 	let size = 40
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext>('FlowCopilotContext')
 </script>
 
-<div class="h-full overflow-hidden border-t">
+<div
+	class={classNames(
+		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
+		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
+	)}
+>
 	<Splitpanes>
 		<Pane {size} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
@@ -25,7 +35,7 @@
 						{/each}
 					</div>
 				{:else if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} />
+					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} on:reload />
 				{/if}
 			</div>
 		</Pane>

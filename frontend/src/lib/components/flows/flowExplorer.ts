@@ -1,4 +1,4 @@
-import type { Flow, FlowModule, InputTransform } from '$lib/gen'
+import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
 
 type ModuleBranches = FlowModule[][]
 
@@ -46,7 +46,7 @@ function exprsOfInputTransforms(x: Record<string, InputTransform>): string[] {
 		.flat()
 }
 
-export function getDependentComponents(id: string, flow: Flow): Record<string, string[]> {
+export function getDependentComponents(id: string, flow: OpenFlow): Record<string, string[]> {
 	let modules = getAllModules(flow.value.modules, flow.value.failure_module)
 	return filterDependentComponents(modules, id)
 }

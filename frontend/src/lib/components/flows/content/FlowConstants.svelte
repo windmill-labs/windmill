@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { dfs } from '$lib/components/flows/flowStore'
+	import { dfs } from '$lib/components/flows/dfs'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
@@ -10,12 +10,14 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import type { FlowEditorContext } from '../types'
 
+	export let noEditor: boolean
+
 	let hideOptional = false
 	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: scriptModules = dfs($flowStore.value.modules, (x) => x)
 		.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
-		.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript') as [
+		.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript' || x[0].type == 'flow') as [
 		PathScript | RawScript,
 		FlowModule
 	][]
@@ -82,7 +84,7 @@
 </script>
 
 <div class="min-h-full">
-	<FlowCard title="All Static Inputs">
+	<FlowCard {noEditor} title="All Static Inputs">
 		<Toggle slot="header" bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.156.1
+  version: 1.202.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -46,7 +46,16 @@ components:
           $ref: "#/components/schemas/FlowModule"
         same_worker:
           type: boolean
-
+        concurrent_limit:
+          type: number
+        concurrency_time_window_s:
+          type: number
+        skip_expr:
+          type: string
+        cache_ttl:
+          type: number
+        priority:
+          type: number
       required:
         - modules
 
@@ -112,6 +121,13 @@ components:
               properties:
                 schema:
                   type: object
+            user_auth_required:
+              type: boolean
+            user_groups_required:
+              $ref: "#/components/schemas/InputTransform"
+        priority:
+          type: number
+
         retry:
           $ref: "#/components/schemas/Retry"
       required:
@@ -275,6 +291,8 @@ components:
             - forloopflow
         parallel:
           type: boolean
+        parallelism:
+          type: integer
       required:
         - modules
         - iterator

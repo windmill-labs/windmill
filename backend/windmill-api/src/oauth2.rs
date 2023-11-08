@@ -35,6 +35,7 @@ use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::jobs::JobPayload;
+use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
@@ -81,7 +82,7 @@ pub fn workspaced_service() -> Router {
         .route("/connect_slack_callback", post(connect_slack_callback))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
@@ -120,7 +121,10 @@ pub struct AllClients {
     pub slack: Option<OClient>,
 }
 
-pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
+pub fn build_oauth_clients(
+    base_url: &str,
+    oauths_from_config: Option<HashMap<String, OAuthClient>>,
+) -> anyhow::Result<AllClients> {
     let connect_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
         "../../oauth_connect.json"
     ))?;
@@ -128,26 +132,36 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         "../../oauth_login.json"
     ))?;
 
-    let path = "./oauth.json";
-    let content: String = if let Ok(e) = std::env::var("OAUTH_JSON_AS_BASE64") {
-        str::from_utf8(
-            &base64::engine::general_purpose::STANDARD
-                .decode(e)
-                .map_err(to_anyhow)?,
-        )?
-        .to_string()
-    } else if std::path::Path::new(path).exists() {
-        fs::read_to_string(path).map_err(to_anyhow)?
+    let oauths = if let Some(oauths) = oauths_from_config {
+        oauths
     } else {
-        tracing::warn!("oauth.json not found, no OAuth clients loaded");
-        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
-    };
+        let path = "./oauth.json";
+        let content: String = if let Ok(e) = std::env::var("OAUTH_JSON_AS_BASE64") {
+            str::from_utf8(
+                &base64::engine::general_purpose::STANDARD
+                    .decode(e)
+                    .map_err(to_anyhow)?,
+            )?
+            .to_string()
+        } else if std::path::Path::new(path).exists() {
+            fs::read_to_string(path).map_err(to_anyhow)?
+        } else {
+            tracing::warn!("oauth.json not found, no OAuth clients loaded");
+            return Ok(AllClients {
+                logins: HashMap::new(),
+                connects: HashMap::new(),
+                slack: None,
+            });
+        };
 
-    if content.is_empty() {
-        tracing::warn!("oauth.json is empty, no OAuth clients loaded");
-        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
-    };
-    let oauths: HashMap<String, OAuthClient> =
+        if content.is_empty() {
+            tracing::warn!("oauth.json is empty, no OAuth clients loaded");
+            return Ok(AllClients {
+                logins: HashMap::new(),
+                connects: HashMap::new(),
+                slack: None,
+            });
+        };
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
             Ok(clients) => clients,
             Err(e) => {
@@ -156,7 +170,8 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             }
         }
         .into_iter()
-        .collect();
+        .collect()
+    };
 
     tracing::info!("OAuth loaded clients: {}", oauths.keys().join(", "));
 
@@ -168,7 +183,7 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 .as_ref()
                 .map(|c| (x.0.clone(), (x.1, c.clone())))
         }))
-        .map(|(k, (client_params, config))| {
+        .filter_map(|(k, (client_params, config))| {
             let named_client = build_basic_client(
                 k.clone(),
                 config.clone(),
@@ -177,17 +192,25 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 base_url,
                 None,
             );
-            (
-                named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: config.scopes.unwrap_or(vec![]),
-                    extra_params: config.extra_params,
-                    extra_params_callback: config.extra_params_callback,
-                    allowed_domains: client_params.allowed_domains.clone(),
-                    userinfo_url: config.userinfo_url,
-                },
-            )
+            named_client
+                .map(|named_client| {
+                    (
+                        named_client.0,
+                        ClientWithScopes {
+                            client: named_client.1,
+                            scopes: config.scopes.unwrap_or(vec![]),
+                            extra_params: config.extra_params,
+                            extra_params_callback: config.extra_params_callback,
+                            allowed_domains: client_params.allowed_domains.clone(),
+                            userinfo_url: config.userinfo_url,
+                        },
+                    )
+                })
+                .map_err(|e| {
+                    tracing::error!("Error building oauth client {k}: {e}");
+                    e
+                })
+                .ok()
         })
         .collect();
 
@@ -199,7 +222,7 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 .as_ref()
                 .map(|c| (x.0.clone(), (x.1, c.clone())))
         }))
-        .map(|(k, (client_params, config))| {
+        .filter_map(|(k, (client_params, config))| {
             let named_client = build_basic_client(
                 k.clone(),
                 config.clone(),
@@ -212,43 +235,61 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                     None
                 },
             );
-            (
-                named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: config.scopes.unwrap_or(vec![]),
-                    extra_params: config.extra_params,
-                    extra_params_callback: config.extra_params_callback,
-                    allowed_domains: None,
-                    userinfo_url: None,
-                },
-            )
+            named_client
+                .map(|named_client| {
+                    (
+                        named_client.0,
+                        ClientWithScopes {
+                            client: named_client.1,
+                            scopes: config.scopes.unwrap_or(vec![]),
+                            extra_params: config.extra_params,
+                            extra_params_callback: config.extra_params_callback,
+                            allowed_domains: None,
+                            userinfo_url: None,
+                        },
+                    )
+                })
+                .map_err(|e| {
+                    tracing::error!("Error building oauth client {k}: {e}");
+                    e
+                })
+                .ok()
         })
         .collect();
 
-    let slack = oauths.get("slack").map(|v| {
-        build_basic_client(
-            "slack".to_string(),
-            OAuthConfig {
-                auth_url: "https://slack.com/oauth/authorize".to_string(),
-                token_url: "https://slack.com/api/oauth.access".to_string(),
-                userinfo_url: None,
-                scopes: None,
-                extra_params: None,
-                extra_params_callback: None,
-                req_body_auth: None,
-            },
-            v.clone(),
-            false,
-            base_url,
-            Some(format!("{base_url}/oauth/callback_slack")),
-        )
-        .1
-    });
-
-    Ok(AllClients { logins, connects, slack })
+    let slack = oauths
+        .get("slack")
+        .map(|v| {
+            build_basic_client(
+                "slack".to_string(),
+                OAuthConfig {
+                    auth_url: "https://slack.com/oauth/authorize".to_string(),
+                    token_url: "https://slack.com/api/oauth.access".to_string(),
+                    userinfo_url: None,
+                    scopes: None,
+                    extra_params: None,
+                    extra_params_callback: None,
+                    req_body_auth: None,
+                },
+                v.clone(),
+                false,
+                base_url,
+                Some(format!("{base_url}/oauth/callback_slack")),
+            )
+            .map(|x| x.1)
+            .map_err(|e| {
+                tracing::error!("Error building oauth slack client: {e}");
+                e
+            })
+            .ok()
+        })
+        .flatten();
+    let all_clients = AllClients { logins, connects, slack };
+    tracing::debug!("Final oauth config: {all_clients:#?}");
+    Ok(all_clients)
 }
 
+use anyhow::anyhow;
 pub fn build_basic_client(
     name: String,
     config: OAuthConfig,
@@ -256,9 +297,11 @@ pub fn build_basic_client(
     login: bool,
     base_url: &str,
     override_callback: Option<String>,
-) -> (String, OClient) {
-    let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
-    let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
+) -> error::Result<(String, OClient)> {
+    let auth_url = Url::parse(&config.auth_url)
+        .map_err(|e| anyhow!("Invalid authorization endpoint URL: {e}"))?;
+    let token_url =
+        Url::parse(&config.token_url).map_err(|e| anyhow!("Invalid token endpoint URL: {e}"))?;
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
@@ -273,9 +316,12 @@ pub fn build_basic_client(
         client.set_auth_type(AuthType::RequestBody);
     }
     client.set_client_secret(client_params.secret.clone());
-    client.set_redirect_url(Url::parse(&redirect_url).expect("Invalid redirect URL"));
+    client.set_redirect_url(
+        Url::parse(&redirect_url).map_err(|e| anyhow!("Invalid redirect URL: {e}"))?,
+    );
+
     // Set up the config for the Github OAuth2 process.
-    (name.to_string(), client)
+    Ok((name.to_string(), client))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -295,6 +341,8 @@ pub struct SlackTokenResponse {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
+    #[serde(deserialize_with = "maybe_number_opt")]
+    #[serde(default)]
     expires_in: Option<u64>,
     refresh_token: Option<RefreshToken>,
     #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
@@ -314,7 +362,7 @@ async fn connect(
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let mut query = query.clone();
-    let connects = &OAUTH_CLIENTS.connects;
+    let connects = &OAUTH_CLIENTS.read().await.connects;
     let scopes = query
         .get("scopes")
         .map(|x| x.split('+').map(|x| x.to_owned()).collect());
@@ -330,7 +378,7 @@ async fn connect(
         cookies,
         scopes,
         extra_params,
-        *IS_SECURE,
+        IS_SECURE.read().await.clone(),
     )
 }
 
@@ -341,6 +389,7 @@ struct CreateAccount {
     refresh_token: Option<String>,
     expires_in: i64,
 }
+
 async fn create_account(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -405,6 +454,8 @@ struct Logins {
 async fn list_logins(Extension(sso): Extension<Arc<SamlSsoLogin>>) -> error::JsonResult<Logins> {
     Ok(Json(Logins {
         oauth: OAUTH_CLIENTS
+            .read()
+            .await
             .logins
             .keys()
             .map(|x| x.to_owned())
@@ -420,7 +471,7 @@ struct ScopesAndParams {
 }
 async fn list_connects() -> error::JsonResult<HashMap<String, ScopesAndParams>> {
     Ok(Json(
-        (&OAUTH_CLIENTS.connects)
+        (&OAUTH_CLIENTS.read().await.connects)
             .into_iter()
             .map(|(k, v)| {
                 (
@@ -437,6 +488,8 @@ async fn list_connects() -> error::JsonResult<HashMap<String, ScopesAndParams>> 
 
 async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
     let mut client = OAUTH_CLIENTS
+        .read()
+        .await
         .slack
         .as_ref()
         .ok_or_else(|| {
@@ -452,7 +505,7 @@ async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
     client.add_scope("commands");
     let url = client.authorize_url(&state);
 
-    set_cookie(&state, cookies, *IS_SECURE);
+    set_cookie(&state, cookies, IS_SECURE.read().await.clone());
     Ok(Redirect::to(url.as_str()))
 }
 
@@ -495,8 +548,15 @@ async fn disconnect_slack(
 }
 
 async fn login(Path(client_name): Path<String>, cookies: Cookies) -> error::Result<Redirect> {
-    let clients = &OAUTH_CLIENTS.logins;
-    oauth_redirect(clients, client_name, cookies, None, None, *IS_SECURE)
+    let clients = &OAUTH_CLIENTS.read().await.logins;
+    oauth_redirect(
+        clients,
+        client_name,
+        cookies,
+        None,
+        None,
+        IS_SECURE.read().await.clone(),
+    )
 }
 
 #[derive(Deserialize)]
@@ -531,6 +591,8 @@ pub async fn _refresh_token<'c>(
     .await?;
     let account = not_found_if_none(account, "Account", &id.to_string())?;
     let client = (&OAUTH_CLIENTS
+        .read()
+        .await
         .connects
         .get(&account.client)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
@@ -597,7 +659,7 @@ pub async fn _refresh_token<'c>(
 
 async fn _exchange_token(client: OClient, refresh_token: &str) -> Result<TokenResponse, Error> {
     let token_json = client
-        .exchange_refresh_token(&RefreshToken::from(refresh_token.clone()))
+        .exchange_refresh_token(&RefreshToken::from(refresh_token))
         .with_client(&HTTP_CLIENT)
         .execute::<serde_json::Value>()
         .await
@@ -621,11 +683,10 @@ async fn connect_callback(
     Path(client_name): Path<String>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::JsonResult<TokenResponse> {
-    let client_w_scopes = OAUTH_CLIENTS
-        .connects
+    let connects = &OAUTH_CLIENTS.read().await.connects;
+    let client_w_scopes = connects
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
-
     let client = client_w_scopes.client.to_owned();
     let extra_params = client_w_scopes.extra_params_callback.clone();
     let token_response =
@@ -643,6 +704,8 @@ async fn connect_slack_callback(
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
     let client = OAUTH_CLIENTS
+        .read()
+        .await
         .slack
         .as_ref()
         .ok_or_else(|| {
@@ -688,12 +751,11 @@ async fn connect_slack_callback(
         "slack_bot",
         "Slack bot",
         &["g/slack".to_string()],
-        serde_json::json!({"g/slack": true})
+        serde_json::json!({"g/slack": true, "g/error_handler": false})
     )
     .execute(&mut *tx)
     .await?;
 
-    let token_path = "f/slack_bot/bot_token";
     let mc = build_crypt(&mut tx, &w_id).await?;
     let value = encrypt(&mc, &token.bot.bot_access_token);
     sqlx::query!(
@@ -702,7 +764,7 @@ async fn connect_slack_callback(
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
         &w_id,
-        token_path,
+        WORKSPACE_SLACK_BOT_TOKEN_PATH,
         value,
         true,
         "The slack bot token to act on behalf of the installed app of the connected workspace",
@@ -717,8 +779,8 @@ async fn connect_slack_callback(
             (workspace_id, path, value, description, resource_type)
             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
         w_id,
-        token_path,
-        serde_json::json!({ "token": format!("$var:{token_path}") }),
+        WORKSPACE_SLACK_BOT_TOKEN_PATH,
+        serde_json::json!({ "token": format!("$var:{WORKSPACE_SLACK_BOT_TOKEN_PATH}") }),
         "The slack bot token to act on behalf of the installed app of the connected workspace",
         "slack",
     )
@@ -799,19 +861,31 @@ async fn slack_command(
                 (JobPayload::Flow(path.to_string()), None)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
-                    windmill_common::get_latest_deployed_hash_for_path(
-                        &db,
-                        &settings.workspace_id,
-                        path,
-                    )
-                    .await?;
+                let (
+                    script_hash,
+                    tag,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl,
+                    language,
+                    dedicated_worker,
+                    priority,
+                ) = windmill_common::get_latest_deployed_hash_for_path(
+                    &db,
+                    &settings.workspace_id,
+                    path,
+                )
+                .await?;
                 (
                     JobPayload::ScriptHash {
                         hash: script_hash,
                         path: path.to_owned(),
                         concurrent_limit,
                         concurrency_time_window_s,
+                        cache_ttl,
+                        language,
+                        dedicated_worker,
+                        priority,
                     },
                     tag,
                 )
@@ -829,7 +903,7 @@ async fn slack_command(
                 tx,
                 &settings.workspace_id,
                 payload,
-                map,
+                sqlx::types::Json(map),
                 &form.user_name,
                 &settings.slack_email,
                 "g/slack".to_string(),
@@ -845,9 +919,10 @@ async fn slack_command(
                 tag,
                 None,
                 None,
+                None,
             )
             .await?;
-            let url = BASE_URL.to_owned();
+            let url = BASE_URL.read().await.clone();
             tx.commit().await?;
             return Ok(format!(
                 "Job launched. See details at {url}/run/{uuid}?workspace={}",
@@ -861,6 +936,15 @@ async fn slack_command(
     ));
 }
 
+fn transform_name_to_email(x: String) -> String {
+    let r = x.replace(' ', "_");
+    if r.contains('@') {
+        return r;
+    } else {
+        return format!("{r}@windmill.dev");
+    }
+}
+
 #[allow(non_snake_case)]
 async fn login_callback(
     Path(client_name): Path<String>,
@@ -869,21 +953,24 @@ async fn login_callback(
     Extension(webhook): Extension<WebhookShared>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
-    let client_w_config = &OAUTH_CLIENTS
-        .logins
-        .get(&client_name)
-        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
+    let client_w_config = {
+        let clients = OAUTH_CLIENTS.read().await.logins.clone();
+        clients
+            .get(&client_name)
+            .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
+            .clone()
+    };
     let client = client_w_config.client.to_owned();
     let token_res =
         exchange_code::<TokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await;
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
+
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
         let user = http_get_user_info::<LoginUserInfo>(&HTTP_CLIENT, userinfo_url, token).await?;
-
         let email = match client_name.as_str() {
             "github" => http_get_user_info::<Vec<GHEmailInfo>>(
                 &HTTP_CLIENT,
@@ -898,9 +985,15 @@ async fn login_callback(
             )))?
             .email
             .to_string(),
-            _ => user.email.clone().ok_or_else(|| {
-                error::Error::BadRequest("email address not fetchable from user info".to_string())
-            })?,
+            _ => user
+                .email
+                .clone()
+                .or(user.name.clone().map(transform_name_to_email))
+                .ok_or_else(|| {
+                    error::Error::BadRequest(
+                        "email address not fetchable from user info".to_string(),
+                    )
+                })?,
         }
         .to_lowercase();
 

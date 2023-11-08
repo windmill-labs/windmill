@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
+	import { displayDate, truncateHash, truncateRev } from '$lib/utils'
 	import {
 		faCalendar,
 		faCircle,
@@ -23,6 +23,7 @@
 	import JobPreview from './JobPreview.svelte'
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
+	import DurationMs from '../DurationMs.svelte'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -116,7 +117,7 @@
 							</div>
 						</JobPreview>
 						<div class="whitespace-nowrap">
-							{#if 'job_kind' in job}<a href="/run/{job.id}"
+							{#if 'job_kind' in job}<a href="/run/{job.id}?workspace={job.workspace_id}"
 									><Badge color="blue">{job.job_kind}</Badge></a
 								>
 							{/if}
@@ -141,13 +142,7 @@
 					>
 				</div>
 				{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-					<div>
-						<Icon class="text-secondary" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span
-							class="mx-2"
-						>
-							Ran in {msToSec(job.duration_ms)}s</span
-						>
-					</div>
+					<DurationMs duration_ms={job.duration_ms} />
 				{/if}
 			</div>
 			<div class="text-secondary text-xs text-left place-self-start flex flex-col gap-1">
@@ -191,14 +186,17 @@
 							<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
-								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
+								Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
+									>{truncateRev(job.parent_job, 6)}</a
 								></span
 							>
 						{:else}
 							<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
-								Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+								Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
+									>{job.parent_job}</a
+								></span
 							>
 						{/if}
 					{:else if job && job.schedule_path}

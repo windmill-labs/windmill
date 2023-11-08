@@ -7,6 +7,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
+	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { Badge, Button, SecondsInput } from './common'
@@ -48,6 +49,7 @@
 				type?: 'string' | 'number' | 'bytes' | 'object'
 				contentEncoding?: 'base64'
 				enum?: string[]
+				multiselect?: string[]
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -64,6 +66,8 @@
 	export let prettifyHeader = false
 	export let resourceTypes: string[] | undefined
 	export let disablePortal = false
+	export let showSchemaExplorer = false
+	export let simpleTooltip: string | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -113,7 +117,10 @@
 	}
 
 	function evalValueToRaw() {
-		rawValue = inputCat === 'object' ? JSON.stringify(value, null, 2) : undefined
+		rawValue =
+			inputCat === 'object' || inputCat === 'resource-object'
+				? JSON.stringify(value, null, 2)
+				: undefined
 	}
 
 	evalValueToRaw()
@@ -183,7 +190,16 @@
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
 		{#if displayHeader}
-			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} />
+			<FieldHeader
+				prettify={prettifyHeader}
+				{label}
+				{disabled}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+			/>
 		{/if}
 		{#if editableSchema}
 			<label class="text-secondary">
@@ -278,80 +294,94 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					<div class="w-full">
-						{#key redraw}
-							{#if Array.isArray(value)}
-								{#each value ?? [] as v, i}
-									{#if i < itemsLimit}
-										<div class="flex max-w-md mt-1 w-full items-center">
-											{#if itemsType?.type == 'number'}
-												<input type="number" bind:value={v} />
-											{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-												<input
-													type="file"
-													class="my-6"
-													on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-													multiple={false}
-												/>
-											{:else if itemsType?.type == 'object'}
-												<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
-											{:else if Array.isArray(itemsType?.enum)}
-												<select
-													on:focus={(e) => {
-														dispatch('focus')
+					{#if Array.isArray(itemsType?.multiselect)}
+						<div class="items-start">
+							<Multiselect
+								{disabled}
+								bind:selected={value}
+								options={itemsType?.multiselect ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
+					{:else}
+						<div class="w-full">
+							{#key redraw}
+								{#if Array.isArray(value)}
+									{#each value ?? [] as v, i}
+										{#if i < itemsLimit}
+											<div class="flex max-w-md mt-1 w-full items-center">
+												{#if itemsType?.type == 'number'}
+													<input type="number" bind:value={v} id="arg-input-number-array" />
+												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+													<input
+														type="file"
+														class="my-6"
+														on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+														multiple={false}
+													/>
+												{:else if itemsType?.type == 'object'}
+													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+												{:else if Array.isArray(itemsType?.enum)}
+													<select
+														on:focus={(e) => {
+															dispatch('focus')
+														}}
+														class="px-6"
+														bind:value={v}
+													>
+														{#each itemsType?.enum ?? [] as e}
+															<option>{e}</option>
+														{/each}
+													</select>
+												{:else}
+													<input type="text" bind:value={v} id="arg-input-array" />
+												{/if}
+												<button
+													transition:fade|local={{ duration: 100 }}
+													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+													aria-label="Clear"
+													on:click={() => {
+														value.splice(i, 1)
+														redraw += 1
 													}}
-													class="px-6"
-													bind:value={v}
 												>
-													{#each itemsType?.enum ?? [] as e}
-														<option>{e}</option>
-													{/each}
-												</select>
-											{:else}
-												<input type="text" bind:value={v} />
-											{/if}
-											<button
-												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-												aria-label="Clear"
-												on:click={() => {
-													value.splice(i, 1)
-													redraw += 1
-												}}
-											>
-												<X size={14} />
-											</button>
-										</div>
+													<X size={14} />
+												</button>
+											</div>
+										{/if}
+									{/each}
+									{#if value.length > itemsLimit}
+										<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+											>{itemsLimit}/{value.length}: Load 50 more...</button
+										>
 									{/if}
-								{/each}
-								{#if value.length > itemsLimit}
-									<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
-										>{itemsLimit}/{value.length}: Load 50 more...</button
-									>
 								{/if}
-							{/if}
-						{/key}
-					</div>
-					<div class="flex mt-2">
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							btnClasses="mt-1"
-							on:click={() => {
-								if (value == undefined || !Array.isArray(value)) {
-									value = []
-								}
-								value = value.concat('')
-							}}
-						>
-							<Icon data={faPlus} class="mr-2" />
-							Add item
-						</Button>
-					</div>
+							{/key}
+						</div>
+						<div class="flex mt-2">
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								btnClasses="mt-1"
+								on:click={() => {
+									if (value == undefined || !Array.isArray(value)) {
+										value = []
+									}
+									value = value.concat('')
+								}}
+								id="arg-input-add-item"
+							>
+								<Icon data={faPlus} class="mr-2" />
+								Add item
+							</Button>
+						</div>
+					{/if}
 				</div>
+			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
+				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput {disablePortal} {format} bind:value />
+				<ObjectResourceInput {disablePortal} {format} bind:value {showSchemaExplorer} />
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
@@ -404,9 +434,10 @@
 				<ResourcePicker
 					{disablePortal}
 					bind:value
-					resourceType={format.split('-').length > 1
+					resourceType={format && format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
+					{showSchemaExplorer}
 				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
@@ -434,7 +465,7 @@
 								placeholder={defaultValue ?? ''}
 								bind:value
 							/>
-							{#if itemPicker}
+							{#if !disabled && itemPicker}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<button
 									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
@@ -450,7 +481,7 @@
 						{/if}
 					</div>
 					{#if variableEditor}
-						<div class="text-sm text-tertiary-inverse">
+						<div class="text-sm text-tertiary">
 							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 								Linked to variable <button
 									class="text-blue-500 underline"
@@ -466,7 +497,7 @@
 		</div>
 		{#if !compact || (error && error != '')}
 			<div class="text-right text-xs text-red-600 dark:text-red-400">
-				{#if error === ''}
+				{#if disabled || error === ''}
 					&nbsp;
 				{:else}
 					{error}

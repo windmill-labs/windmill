@@ -105,6 +105,7 @@
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
+			dispatch('cancel', id)
 			currentId = undefined
 			try {
 				await JobService.cancelQueuedJob({
@@ -157,6 +158,7 @@
 						job.mem_peak = previewJobUpdates.mem_peak
 					}
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
+						console.log({ a: previewJobUpdates.running, b: previewJobUpdates.completed })
 						job = await JobService.getJob({ workspace: workspace!, id })
 					}
 				} else {
@@ -189,6 +191,7 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (currentId != id) {
+			dispatch('cancel', id)
 			return
 		}
 		syncIteration++

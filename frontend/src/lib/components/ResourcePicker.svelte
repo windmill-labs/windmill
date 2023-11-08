@@ -18,6 +18,7 @@
 	export let value: string | undefined = initialValue
 	export let resourceType: string | undefined = undefined
 	export let disablePortal = false
+	export let showSchemaExplorer = false
 
 	let valueSelect =
 		initialValue || value
@@ -143,5 +144,7 @@
 			<Icon scale={0.8} data={faRotateRight} />
 		</Button>
 	</div>
-	<DBSchemaExplorer {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer}
+		<DBSchemaExplorer {resourceType} resourcePath={value} />
+	{/if}
 </div>

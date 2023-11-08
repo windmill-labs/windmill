@@ -1,14 +1,22 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { Tab, Tabs } from '$lib/components/common'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -27,8 +35,15 @@
 		result: undefined as string | undefined
 	})
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
 	let selected: string = ''
 	$: selected === '' && resolvedConfig && setDefaultValue()
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -41,7 +56,7 @@
 
 	function setDefaultValue() {
 		if (resolvedConfig.defaultValue === undefined) {
-			selected = resolvedConfig.items[0].value
+			selected = resolvedConfig.items?.[0]?.value
 		} else if (resolvedConfig.defaultValue) {
 			selected = resolvedConfig.defaultValue
 		}
@@ -49,10 +64,13 @@
 
 	function handleSelection(value: string) {
 		outputs?.result.set(value)
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
+		}
 	}
 
 	$: selected && handleSelection(selected)
-	$: css = concatCustomCss($app.css?.selecttabcomponent, customCss)
+	let css = initCss($app.css?.selecttabcomponent, customCss)
 </script>
 
 {#each Object.keys(components['selecttabcomponent'].initialData.configuration) as key (key)}
@@ -64,17 +82,31 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.selecttabcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<div class="w-full">
-		<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
+		<Tabs
+			bind:selected
+			class={twMerge(css?.tabRow?.class, 'wm-select-tab-row')}
+			style={css?.tabRow?.style}
+		>
 			{#each resolvedConfig?.items ?? [] as item}
 				<Tab
 					value={item.value}
-					class={css?.allTabs?.class}
+					class={twMerge(css?.allTabs?.class, 'wm-select-tab')}
 					style={css?.allTabs?.style}
-					selectedClass={css?.selectedTab?.class}
+					selectedClass={twMerge(css?.selectedTab?.class, 'wm-select-tab-selected')}
 					selectedStyle={css?.selectedTab?.style}
 					size={resolvedConfig?.tabSize}
 				>

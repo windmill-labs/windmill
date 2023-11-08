@@ -10,11 +10,13 @@
 import { deepEqual } from 'fast-equals'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
+import type { Script } from './gen'
+import { cloneDeep } from 'lodash'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
-	if (username != '' && !/^\w+$/.test(username)) {
-		return 'username can only contain letters and numbers'
+	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
+		return 'username can only contain letters and numbers and must start with a letter'
 	} else {
 		return ''
 	}
@@ -46,9 +48,12 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 	}
 }
 
-export function msToSec(ms: number | undefined): string {
+export function msToSec(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
-	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })
+	return (ms / 1000).toLocaleString(undefined, {
+		maximumFractionDigits: maximumFractionDigits ?? 3,
+		minimumFractionDigits: maximumFractionDigits
+	})
 }
 
 export function getToday() {
@@ -66,6 +71,16 @@ export function truncateHash(hash: string): string {
 
 export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function addIfNotExists<T>(e: T, arr: Array<T> | undefined): Array<T> {
+	if (!arr) {
+		return [e]
+	} else if (arr.includes(e)) {
+		return arr
+	} else {
+		return arr.concat([e])
+	}
 }
 
 export function validatePassword(password: string): boolean {
@@ -170,7 +185,12 @@ export function encodeState(state: any): string {
 }
 
 export function decodeState(query: string): any {
-	return JSON.parse(decodeURIComponent(atob(query)))
+	try {
+		return JSON.parse(decodeURIComponent(atob(query)))
+	} catch (e) {
+		sendUserToast('Impossible to parse state', true)
+		return {}
+	}
 }
 
 export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
@@ -223,28 +243,29 @@ export function setQueryWithoutLoad(
 	}, bounceTime ?? 200)
 }
 
-export function groupBy<T>(
-	items: T[],
-	toGroup: (t: T) => string,
-	toSort: (t: T) => string,
-	dflts: string[] = []
-): [string, T[]][] {
-	let r: Record<string, T[]> = {}
+export function groupBy<K, V>(
+	items: V[],
+	toGroup: (t: V) => K,
+	toSort: (t: V) => string,
+	dflts: K[] = []
+): [K, V[]][] {
+	let r: Map<K, V[]> = new Map()
 	for (const dflt of dflts) {
-		r[dflt] = []
+		r.set(dflt as K, [])
 	}
 
 	items.forEach((sc) => {
 		let section = toGroup(sc)
-		if (section in r) {
-			r[section].push(sc)
-			r[section].sort((a, b) => toSort(a).localeCompare(toSort(b)))
+		if (r.has(section)) {
+			let arr = r.get(section)!
+			arr.push(sc)
+			arr.sort((a, b) => toSort(a).localeCompare(toSort(b)))
 		} else {
-			r[section] = [sc]
+			r.set(section, [sc])
 		}
 	})
 
-	return Object.entries(r).sort((s1, s2) => {
+	return [...r.entries()].sort((s1, s2) => {
 		let n1 = s1[0]
 		let n2 = s2[0]
 
@@ -360,21 +381,21 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 			.then(() => true)
 			.catch(() => false)
 	} else {
-		const textArea = document.createElement("textarea");
-		textArea.value = value;
-		textArea.style.position = "fixed";
-		textArea.style.left = "-999999px";
+		const textArea = document.createElement('textarea')
+		textArea.value = value
+		textArea.style.position = 'fixed'
+		textArea.style.left = '-999999px'
 
-		document.body.appendChild(textArea);
-		textArea.select();
+		document.body.appendChild(textArea)
+		textArea.select()
 
 		try {
-			document.execCommand('copy');
-			success = true;
+			document.execCommand('copy')
+			success = true
 		} catch (error) {
 			// ignore (success = false)
 		} finally {
-			textArea.remove();
+			textArea.remove()
 		}
 	}
 
@@ -612,4 +633,62 @@ export async function tryEvery({
 	if (i >= times) {
 		timeoutCode()
 	}
+}
+
+export function roughSizeOfObject(object: object | string) {
+	if (typeof object == 'string') {
+		return object.length * 2
+	}
+	var objectList: any[] = []
+	var stack = [object]
+	var bytes = 0
+
+	while (stack.length) {
+		let value: any = stack.pop()
+
+		if (typeof value === 'boolean') {
+			bytes += 4
+		} else if (typeof value === 'string') {
+			bytes += value.length * 2
+		} else if (typeof value === 'number') {
+			bytes += 8
+		} else if (typeof value === 'object' && objectList.indexOf(value) === -1) {
+			objectList.push(value)
+
+			for (var i in value) {
+				stack.push(value[i])
+			}
+		}
+	}
+	return bytes
+}
+
+export type Value = {
+	language?: Script.language
+	content?: string
+	path?: string
+	draft_only?: boolean
+	value?: any
+	draft?: Value
+	[key: string]: any
+}
+
+export function cleanValueProperties(obj: Value) {
+	if (typeof obj !== 'object') {
+		return obj
+	} else {
+		let newObj: any = {}
+		for (const key of Object.keys(obj)) {
+			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
+				newObj[key] = cloneDeep(obj[key])
+			}
+		}
+		return newObj
+	}
+}
+
+export function orderedJsonStringify(obj: any, space?: string | number) {
+	const allKeys = new Set()
+	JSON.stringify(obj, (key, value) => (allKeys.add(key), value))
+	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }

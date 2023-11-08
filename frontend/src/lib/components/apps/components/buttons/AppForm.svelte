@@ -7,11 +7,13 @@
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -27,7 +29,8 @@
 
 	export const staticOutputs: string[] = ['loading', 'result', 'jobId']
 
-	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, stateId, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -40,6 +43,21 @@
 		configuration
 	)
 
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			wrapper?.setArgs(nvalue)
+		},
+		invalidate(key: string, error: string) {
+			runnableComponent?.invalidate(key, error)
+		},
+		validateAll() {
+			runnableComponent?.validateAll()
+		},
+		validate(key: string) {
+			runnableComponent?.validate(key)
+		}
+	}
+
 	let runnableComponent: RunnableComponent
 	let loading = false
 
@@ -47,7 +65,9 @@
 		$stateId != undefined &&
 		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
 
-	$: css = concatCustomCss($app.css?.formcomponent, customCss)
+	let css = initCss($app.css?.formcomponent, customCss)
+
+	let wrapper: RunnableWrapper
 </script>
 
 {#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
@@ -59,9 +79,20 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.formcomponent}
+	/>
+{/each}
+
 <RunnableWrapper
 	{recomputeIds}
 	{render}
+	bind:this={wrapper}
 	bind:runnableComponent
 	bind:loading
 	{componentInput}
@@ -78,7 +109,7 @@
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div
-			class="flex flex-col gap-2 px-4 w-full {css?.container?.class ?? ''}"
+			class={twMerge('flex flex-col gap-2 px-4 w-full', css?.container?.class, 'wm-submit')}
 			style={css?.container?.style ?? ''}
 		>
 			<div>
@@ -98,7 +129,7 @@
 				{#if !noInputs}
 					<Button
 						{loading}
-						btnClasses={css?.button?.class}
+						btnClasses={twMerge(css?.button?.class, 'wm-submit-button')}
 						style={css?.button?.style ?? ''}
 						on:pointerdown={(e) => {
 							e?.stopPropagation()

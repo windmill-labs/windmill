@@ -10,9 +10,11 @@
 		RichConfiguration,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -81,50 +83,87 @@
 
 	$: selected != undefined && handleTabSelection()
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
+	let css = initCss($app.css?.tabscomponent, customCss)
 
 	let resolvedDisabledTabs: boolean[] = []
 </script>
 
 <InputValue key="kind" {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.tabscomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 {#each disabledTabs ?? [] as disableTab, index}
-	<InputValue key="disable" {id} input={disableTab} bind:value={resolvedDisabledTabs[index]} />
+	<InputValue
+		key="disable-{index}"
+		{id}
+		input={disableTab}
+		bind:value={resolvedDisabledTabs[index]}
+	/>
 {/each}
 
-<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>
+<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>
 	{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
 		<div bind:clientHeight={tabHeight}>
-			<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
+			<Tabs
+				bind:selected
+				class={twMerge(css?.tabRow?.class, 'wm-tabs-tabRow')}
+				style={css?.tabRow?.style}
+			>
 				{#each tabs ?? [] as res, index}
 					<Tab
 						value={res}
-						class={css?.allTabs?.class}
+						class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
 						style={css?.allTabs?.style}
-						selectedClass={css?.selectedTab?.class}
+						selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
 						selectedStyle={css?.selectedTab?.style}
 						disabled={resolvedDisabledTabs[index]}
 					>
-						<span class="font-semibold text-primary">{res}</span>
+						<span class="font-semibold">{res}</span>
 					</Tab>
 				{/each}
 			</Tabs>
 		</div>
 	{:else if resolvedConfig.tabsKind == 'sidebar'}
 		<div
-			class="flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400"
+			class={twMerge(
+				'flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400',
+				css?.tabRow?.class,
+				'wm-tabs-tabRow'
+			)}
+			style={css?.tabRow?.style}
 		>
 			{#each tabs ?? [] as res}
 				<button
-					class="rounded-sm !truncate text-sm hover:bg-gray-100 hover:border hover:text-black px-1 py-2 {selected ==
-					res
-						? 'outline outline-gray-500 outline-1 bg-surface text-black'
-						: ''}"
 					on:pointerdown|stopPropagation
-					on:click={() => (selected = res)}>{res}</button
+					on:click={() => (selected = res)}
+					class={twMerge(
+						'rounded-sm !truncate text-sm hover:bg-gray-100 hover:border-gray-300 border border-transparent hover:text-black px-1 py-2',
+						css?.allTabs?.class,
+						'wm-tabs-alltabs',
+						selected == res
+							? twMerge(
+									'outline outline-gray-500 outline-1 bg-surface text-black',
+									css?.selectedTab?.class,
+									'wm-tabs-selectedTab'
+							  )
+							: ''
+					)}
+					style={selected == res
+						? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
+						: css?.allTabs?.style}
 				>
+					{res}
+				</button>
 			{/each}
 		</div>
 	{/if}
@@ -136,7 +175,7 @@
 					{id}
 					visible={render && i === selectedIndex}
 					subGridId={`${id}-${i}`}
-					class={css?.container?.class}
+					class={twMerge(css?.container?.class, 'wm-tabs-container')}
 					style={css?.container?.style}
 					containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
 						? componentContainerHeight - tabHeight

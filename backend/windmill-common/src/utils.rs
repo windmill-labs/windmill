@@ -6,13 +6,22 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::error::{Error, Result};
+use crate::ee::LICENSE_KEY_ID;
+use crate::error::{to_anyhow, Error, Result};
+use crate::global_settings::UNIQUE_ID_SETTING;
+use crate::DB;
+use git_version::git_version;
+use hyper::{HeaderMap, StatusCode};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::{Pool, Postgres};
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
+
+pub const GIT_VERSION: &str =
+    git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 #[derive(Deserialize)]
 pub struct Pagination {
@@ -74,40 +83,51 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
 }
 
 #[cfg(feature = "reqwest")]
-pub async fn list_elems_from_hub(
+pub async fn query_elems_from_hub(
     http_client: &reqwest::Client,
     url: &str,
-    email: &str,
-) -> Result<serde_json::Value> {
-    let rows = http_get_from_hub(http_client, url, email, false)
-        .await?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(crate::error::to_anyhow)?;
-    Ok(rows)
+    query_params: Option<Vec<(&str, String)>>,
+    db: &DB,
+) -> Result<(StatusCode, HeaderMap, reqwest::Response)> {
+    let response = http_get_from_hub(http_client, url, false, query_params, db).await?;
+
+    let status = response.status();
+
+    Ok((status, response.headers().clone(), response))
 }
 
 #[cfg(feature = "reqwest")]
 pub async fn http_get_from_hub(
     http_client: &reqwest::Client,
     url: &str,
-    email: &str,
     plain: bool,
+    query_params: Option<Vec<(&str, String)>>,
+    db: &Pool<Postgres>,
 ) -> Result<reqwest::Response> {
-    let response = http_client
-        .get(url)
-        .header(
-            "Accept",
-            if plain {
-                "text/plain"
-            } else {
-                "application/json"
-            },
-        )
-        .header("X-email", email)
-        .send()
-        .await
-        .map_err(crate::error::to_anyhow)?;
+    let uid = get_uid(db).await;
+
+    let mut request = http_client.get(url).header(
+        "Accept",
+        if plain {
+            "text/plain"
+        } else {
+            "application/json"
+        },
+    );
+
+    if let Ok(uid) = uid {
+        request = request.header("X-uid", uid);
+    } else {
+        tracing::info!("No valid uid found: {}", uid.err().unwrap())
+    }
+
+    if let Some(query_params) = query_params {
+        for (key, value) in query_params {
+            request = request.query(&[(key, value)]);
+        }
+    }
+
+    let response = request.send().await.map_err(to_anyhow)?;
 
     Ok(response)
 }
@@ -124,4 +144,21 @@ pub fn calculate_hash(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s);
     format!("{:x}", hasher.finalize())
+}
+
+pub async fn get_uid(db: &DB) -> Result<String> {
+    let mut uid = LICENSE_KEY_ID.read().await.clone();
+
+    if uid == "" {
+        let uid_value = sqlx::query_scalar!(
+            "SELECT value FROM global_settings WHERE name = $1",
+            UNIQUE_ID_SETTING
+        )
+        .fetch_one(db)
+        .await?;
+
+        uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
+    }
+
+    Ok(uid)
 }

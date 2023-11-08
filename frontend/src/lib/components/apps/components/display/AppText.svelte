@@ -12,6 +12,8 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { initCss } from '../../utils'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -30,6 +32,8 @@
 
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	let css = initCss($app.css?.textcomponent, customCss)
 
 	let result: string | undefined = undefined
 
@@ -155,9 +159,21 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.textcomponent}
+	/>
+{/each}
+
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		class="h-full w-full overflow-hidden"
+		class={twMerge('h-full w-full overflow-hidden', css.container?.class, 'wm-text-container')}
+		style={css?.container?.style}
 		on:dblclick={() => {
 			if (!editorMode) {
 				editorMode = true
@@ -172,15 +188,15 @@
 				<textarea
 					class={twMerge(
 						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0 text-center',
-						$app.css?.['textcomponent']?.['text']?.class,
-						customCss?.text?.class,
+						css?.text?.class,
+						'wm-text',
 						classes,
 						getClasses(),
 						getClassesByType(),
 						getHorizontalAlignement()
 					)}
 					on:pointerdown|stopPropagation
-					style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
+					style={css?.text?.style}
 					id={`text-${id}`}
 					on:pointerenter={() => {
 						const elem = document.getElementById(`text-${id}`)
@@ -196,7 +212,9 @@
 		{:else}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				{#if !result || result === ''}
-					<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
+					<div
+						class="text-ternary bg-surface-primary flex justify-center items-center h-full w-full"
+					>
 						No text
 					</div>
 				{:else}
@@ -209,15 +227,8 @@
 					>
 						<svelte:element
 							this={component}
-							class={twMerge(
-								'whitespace-pre-wrap',
-								$app.css?.['textcomponent']?.['text']?.class,
-								customCss?.text?.class,
-								classes
-							)}
-							style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(
-								';'
-							)}
+							class={twMerge('whitespace-pre-wrap', css?.text?.class, classes)}
+							style={css?.text?.style}
 						>
 							{String(result)}
 						</svelte:element>

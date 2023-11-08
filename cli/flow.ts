@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
-import { log } from "./deps.ts";
+import { SEP, log } from "./deps.ts";
 import {
   colors,
   Command,
@@ -42,8 +42,8 @@ export async function pushFlow(
     // flow doesn't exist
   }
 
-  if (!localFlowPath.endsWith("/")) {
-    localFlowPath += "/";
+  if (!localFlowPath.endsWith(SEP)) {
+    localFlowPath += SEP;
   }
   const localFlowRaw = await Deno.readTextFile(localFlowPath + "flow.yaml");
   const localFlow = yamlParse(localFlowRaw) as FlowFile;
@@ -74,9 +74,9 @@ export async function pushFlow(
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
     await FlowService.updateFlow({
       workspace: workspace,
-      path: remotePath,
+      path: remotePath.replaceAll("\\", "/"),
       requestBody: {
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         ...localFlow,
       },
     });
@@ -85,7 +85,7 @@ export async function pushFlow(
     await FlowService.createFlow({
       workspace: workspace,
       requestBody: {
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         ...localFlow,
       },
     });

@@ -55,6 +55,7 @@
 		<span>
 			{#if level != 0}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<span class="cursor-pointer border hover:bg-surface-hover px-1 rounded" on:click={collapse}>
 					-
 				</span>
@@ -83,6 +84,7 @@
 								level={level + 1}
 								currentPath={computeKey(key, isArray, currentPath)}
 								{pureViewer}
+								{allowCopy}
 								on:select
 							/>
 						{:else}
@@ -121,6 +123,7 @@
 	{/if}
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<span
 		class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200"
 		class:hidden={!collapsed}

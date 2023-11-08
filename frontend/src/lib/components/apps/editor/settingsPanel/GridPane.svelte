@@ -14,16 +14,15 @@
 
 	function addTab() {
 		const numberOfPanes = panes.length
-		panes = Array(panes.length + 1)
-			.fill(0)
-			.map((_) => Math.floor(100 / (panes.length + 1)))
-
 		if (!$app.subgrids) {
 			$app.subgrids = {}
 		}
-
 		$app.subgrids[`${component.id}-${numberOfPanes}`] = []
-		component.numberOfSubgrids = panes.length
+		component.numberOfSubgrids = panes.length + 1
+
+		panes = Array(panes.length + 1)
+			.fill(0)
+			.map((_) => Math.floor(100 / (panes.length + 1)))
 	}
 
 	function deleteSubgrid(index: number) {
@@ -39,6 +38,8 @@
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
 		}
 		panes.splice(index, 1)
+		delete $app!.subgrids![`${component.id}-${panes.length}`]
+
 		panes = panes
 		component.numberOfSubgrids = panes.length
 		$app = $app

@@ -2,17 +2,17 @@ use base64::{engine, Engine as _};
 use core::fmt::Write;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use pem;
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 
-use windmill_common::error::Error;
 use windmill_common::jobs::QueuedJob;
+use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::parse_snowflake_sig;
 use windmill_queue::HTTP_CLIENT;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{common::transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 #[derive(Serialize)]
 struct Claims {
@@ -61,18 +61,12 @@ struct SnowflakeError {
 }
 
 pub async fn do_snowflake(
-    job: QueuedJob,
-    client: &AuthedClient,
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
-    } else {
-        None
-    };
-
-    let snowflake_args: Value = serde_json::from_value(args.unwrap_or_else(|| json!({})))
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> windmill_common::error::Result<Box<RawValue>> {
+    let snowflake_args = build_args_values(job, client, db).await?;
 
     let database = serde_json::from_value::<SnowflakeDatabase>(
         snowflake_args.get("database").unwrap_or(&json!({})).clone(),
@@ -106,14 +100,6 @@ pub async fn do_snowflake(
     let token = encode(&Header::new(Algorithm::RS256), &claims, &private_key)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let args = &job
-        .args
-        .clone()
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .map(|x| x.to_owned())
-        .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
-
     let mut bindings = serde_json::Map::new();
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -122,7 +108,7 @@ pub async fn do_snowflake(
     let mut i = 1;
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
-        let arg_v = args.get(&arg.name).cloned().unwrap_or(json!(""));
+        let arg_v = snowflake_args.get(&arg.name).cloned().unwrap_or(json!(""));
         let snowflake_v = convert_typ_val(arg_t, arg_v);
 
         bindings.insert(i.to_string(), snowflake_v);
@@ -186,22 +172,26 @@ pub async fn do_snowflake(
                 ));
             }
 
-            let rows = result
-                .data
-                .iter()
-                .map(|row| {
-                    let mut row_map = serde_json::Map::new();
-                    row.iter()
-                        .zip(result.resultSetMetaData.rowType.iter())
-                        .for_each(|(val, row_type)| {
-                            row_map
-                                .insert(row_type.name.clone(), parse_val(&val, &row_type.r#type));
-                        });
-                    Value::from(row_map)
-                })
-                .collect();
+            let rows = to_raw_value(
+                &result
+                    .data
+                    .iter()
+                    .map(|row| {
+                        let mut row_map = serde_json::Map::new();
+                        row.iter()
+                            .zip(result.resultSetMetaData.rowType.iter())
+                            .for_each(|(val, row_type)| {
+                                row_map.insert(
+                                    row_type.name.clone(),
+                                    parse_val(&val, &row_type.r#type),
+                                );
+                            });
+                        Value::from(row_map)
+                    })
+                    .collect::<Vec<_>>(),
+            );
 
-            Ok(JobCompleted { job: job, result: rows, logs: "".to_string(), success: true })
+            Ok(rows)
         }
         Err(e) => {
             let resp = response.text().await.unwrap_or("".to_string());

@@ -37,8 +37,9 @@ RUN apt-get update \
     make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
     libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
     libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev=3.6.* libnl-route-3-dev=3.4.* \
-    libv8-dev tesseract-ocr nodejs npm\
+    libv8-dev tesseract-ocr nodejs npm clang libclang-dev\
     && rm -rf /var/lib/apt/lists/*
+
 
 RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
 ENV PATH="${PATH}:/usr/local/go/bin"
@@ -57,7 +58,7 @@ RUN /usr/local/bin/python3 -m pip install nltk
 RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/python3 -m nltk.downloader vader_lexicon
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
-
+COPY --from=oven/bun:1.0.0 /usr/local/bin/bun /usr/bin/bun
 COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
 RUN apt-get update \

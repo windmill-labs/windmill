@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command, ResourceService, log } from "./deps.ts";
+import { Command, ResourceService, SettingService, log } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
@@ -16,6 +16,20 @@ async function pull(opts: GlobalOptions) {
   }
 
   const userInfo = await requireLogin(opts);
+
+  const uid = await SettingService.getGlobal({
+    key: "uid",
+  });
+
+  const headers = {
+    Accept: "application/json",
+    "X-email": userInfo.email,
+  };
+
+  if (uid) {
+    headers["X-uid"] = uid;
+  }
+
   const list: {
     id: number;
     name: string;
@@ -27,10 +41,7 @@ async function pull(opts: GlobalOptions) {
     created_at: Date;
     comments: never[];
   }[] = await fetch("https://hub.windmill.dev/resource_types/list", {
-    headers: {
-      Accept: "application/json",
-      "X-email": userInfo.email,
-    },
+    headers,
   })
     .then((r) => r.json())
     .then((list: { id: number; name: string }[]) =>

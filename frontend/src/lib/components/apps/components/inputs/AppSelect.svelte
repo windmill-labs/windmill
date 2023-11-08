@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import Select from '../../svelte-select/lib/index'
 
 	import type {
@@ -9,7 +9,7 @@
 		ListInputs,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -20,6 +20,7 @@
 	import { classNames } from '$lib/utils'
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -92,12 +93,17 @@
 			outputs?.result.set(rawValue)
 		}
 		if (iterContext && listInputs) {
-			listInputs(id, rawValue)
+			listInputs.set(id, rawValue)
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, rawValue)
+			rowInputs.set(id, rawValue)
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+		rowInputs?.remove(id)
+	})
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
@@ -120,10 +126,10 @@
 		value = nvalue
 		outputs?.result.set(result)
 		if (iterContext && listInputs) {
-			listInputs(id, result)
+			listInputs.set(id, result)
 		}
 		if (rowContext && rowInputs) {
-			rowInputs(id, result)
+			rowInputs.set(id, result)
 		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
@@ -134,11 +140,11 @@
 		value = undefined
 		outputs?.result.set(undefined, true)
 		if (iterContext && listInputs) {
-			listInputs(id, undefined)
+			listInputs.set(id, undefined)
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
+	let css = initCss($app.css?.selectcomponent, customCss)
 
 	function handleFilter(e) {
 		if (resolvedConfig.create) {
@@ -172,6 +178,17 @@
 		configuration={configuration[key]}
 	/>
 {/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.selectcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>

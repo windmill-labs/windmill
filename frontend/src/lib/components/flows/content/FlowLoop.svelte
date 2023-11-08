@@ -23,6 +23,7 @@
 	export let mod: FlowModule
 	export let parentModule: FlowModule | undefined
 	export let previousModule: FlowModule | undefined
+	export let noEditor: boolean
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'early-stop'
@@ -39,7 +40,7 @@
 </script>
 
 <div class="h-full flex flex-col">
-	<FlowCard title="For loop">
+	<FlowCard {noEditor} title="For loop">
 		<div slot="header" class="grow">
 			<input bind:value={mod.summary} placeholder={'Summary'} />
 		</div>
@@ -71,6 +72,14 @@
 								}}
 							/>
 						</div>
+						<div>
+							<div class="mb-2 text-sm font-bold">Parallelism</div>
+							<input
+								type="number"
+								disabled={!mod.value.parallel}
+								bind:value={mod.value.parallelism}
+							/>
+						</div>
 					</div>
 					<div class="my-2 text-sm font-bold">
 						Iterator expression
@@ -80,7 +89,7 @@
 						</Tooltip>
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}
-						<div class="border w-full">
+						<div class="border w-full" id="flow-editor-iterator-expression">
 							<PropPickerWrapper
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}
@@ -132,7 +141,7 @@
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend bind:flowModule={mod} />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
 								</div>
 							</TabContent>
 							<TabContent value="sleep" class="flex flex-col flex-1 h-full">

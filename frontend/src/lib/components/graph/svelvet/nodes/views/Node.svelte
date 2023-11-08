@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { afterUpdate } from 'svelte'
 
-	import { findStore } from '../../store/controllers/storeApi'
+	import { findStore } from '../../store/models/store'
 	import type { NodeType } from '../../store/types/types'
 
 	import { forceCssHeightAndWidth } from '../../customCss/controllers/getCss'

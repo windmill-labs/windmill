@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-mkdir openapi
+mkdir openapi || true
 cp  ../backend/windmill-api/openapi.yaml openapi/openapi.yaml
 
 npx @redocly/openapi-cli@latest bundle openapi/openapi.yaml > openapi-bundled.yaml

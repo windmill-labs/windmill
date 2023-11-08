@@ -2,18 +2,22 @@ use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue};
+use sqlx::types::Json;
 use tokio::process::Command;
-use windmill_common::{error::Error, jobs::QueuedJob};
+use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
+use windmill_queue::CanceledBy;
 
+const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 use crate::{
     common::{
-        get_reserved_variables, handle_child, read_file, read_file_content, set_logs,
-        transform_json_value, write_file,
+        build_args_map, get_reserved_variables, handle_child, read_file, read_file_content,
+        set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -24,6 +28,8 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     logs: &mut String,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -33,7 +39,7 @@ pub async fn handle_bash_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     write_file(
@@ -46,27 +52,19 @@ pub async fn handle_bash_job(
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let client = client.get_authed().await;
-    let hm = match transform_json_value(
-        "args",
-        &client,
-        &job.workspace_id,
-        job.args.clone().unwrap_or_else(|| json!({})),
-    )
-    .await?
-    {
-        Value::Object(ref hm) => hm.clone(),
-        _ => serde_json::Map::new(),
+    let args = build_args_map(job, client, db).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
+    } else {
+        job.args.as_ref()
     };
+
     let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
         .args
         .iter()
         .map(|arg| {
-            hm.get(&arg.name)
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => serde_json::to_string(v).ok(),
-                })
+            job_args
+                .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
                 .unwrap_or_else(String::new)
         })
         .collect::<Vec<String>>();
@@ -86,7 +84,8 @@ pub async fn handle_bash_job(
         .await?;
         let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
         cmd_args.extend(args);
-        Command::new(NSJAIL_PATH.as_str())
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
@@ -94,12 +93,13 @@ pub async fn handle_bash_job(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut cmd_args = vec!["main.sh"];
         cmd_args.extend(&args);
-        Command::new("/bin/bash")
+        let mut bash_cmd = Command::new(BIN_BASH);
+        bash_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -109,19 +109,22 @@ pub async fn handle_bash_job(
             .env("HOME", HOME_ENV.as_str())
             .args(cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(bash_cmd, BIN_BASH).await?
     };
     handle_child(
         &job.id,
         db,
         logs,
+        mem_peak,
+        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
         "bash run",
         job.timeout,
+        true,
     )
     .await?;
 
@@ -136,7 +139,7 @@ pub async fn handle_bash_job(
     if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
         if metadata.len() > 0 {
             let result = read_file_content(&result_out_path).await?;
-            return Ok(json!(result));
+            return Ok(to_raw_value(&json!(result)));
         }
     }
 
@@ -146,12 +149,21 @@ pub async fn handle_bash_job(
         .last()
         .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new));
-    Ok(last_line)
+    Ok(to_raw_value(&last_line))
 }
 
+fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     logs: &mut String,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -161,21 +173,15 @@ pub async fn handle_powershell_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     let pwsh_args = {
-        let client = client.get_authed().await;
-        let hm = match transform_json_value(
-            "args",
-            &client,
-            &job.workspace_id,
-            job.args.clone().unwrap_or_else(|| json!({})),
-        )
-        .await?
-        {
-            Value::Object(ref hm) => hm.clone(),
-            _ => serde_json::Map::new(),
+        let args = build_args_map(job, client, db).await?.map(Json);
+        let job_args = if args.is_some() {
+            args.as_ref()
+        } else {
+            job.args.as_ref()
         };
 
         let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
@@ -184,11 +190,8 @@ pub async fn handle_powershell_job(
             .map(|arg| {
                 (
                     arg.name.clone(),
-                    hm.get(&arg.name)
-                        .and_then(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            _ => serde_json::to_string(v).ok(),
-                        })
+                    job_args
+                        .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
                         .unwrap_or_else(String::new),
                 )
             })
@@ -226,6 +229,7 @@ pub async fn handle_powershell_job(
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
+            .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -239,6 +243,7 @@ pub async fn handle_powershell_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
@@ -251,12 +256,15 @@ pub async fn handle_powershell_job(
         &job.id,
         db,
         logs,
+        mem_peak,
+        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
         "bash/powershell run",
         job.timeout,
+        false,
     )
     .await?;
 
@@ -265,5 +273,5 @@ pub async fn handle_powershell_job(
         .last()
         .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new));
-    Ok(last_line)
+    Ok(to_raw_value(&last_line))
 }

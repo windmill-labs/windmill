@@ -22,6 +22,8 @@
 					| 'errorOverlay'
 					| 'openModal'
 					| 'closeModal'
+					| 'open'
+					| 'close'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -39,6 +41,12 @@
 					}
 					closeModal?: {
 						modalId: string | undefined
+					}
+					open?: {
+						id: string | undefined
+					}
+					close?: {
+						id: string | undefined
 					}
 				}
 		  }
@@ -67,6 +75,11 @@
 	export let extraKey: string | undefined = undefined
 	export let refreshOnStart: boolean = false
 	export let errorHandledByComponent: boolean = false
+	export let hasChildrens: boolean = false
+
+	export function setArgs(value: any) {
+		runnableComponent?.setArgs(value)
+	}
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -74,6 +87,11 @@
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
 	}
+
+	if (noBackend) {
+		initializing = false
+	}
+
 	onMount(() => {
 		$staticExporter[id] = () => {
 			return result
@@ -167,6 +185,22 @@
 				$componentControl[modalId].closeModal?.()
 				break
 			}
+			case 'open': {
+				const id = sideEffect?.configuration?.open?.id
+
+				if (!id) return
+
+				$componentControl[id].open?.()
+				break
+			}
+			case 'close': {
+				const id = sideEffect?.configuration?.close?.id
+
+				if (!id) return
+
+				$componentControl[id].close?.()
+				break
+			}
 			default:
 				break
 		}
@@ -180,6 +214,7 @@
 	<RunnableComponent
 		{refreshOnStart}
 		{extraKey}
+		{hasChildrens}
 		bind:loading
 		bind:this={runnableComponent}
 		fields={componentInput.fields}
@@ -207,7 +242,7 @@
 		<slot />
 	</RunnableComponent>
 {:else}
-	<NonRunnableComponent {render} bind:result {id} {componentInput}>
+	<NonRunnableComponent {hasChildrens} {render} bind:result {id} {componentInput}>
 		<slot />
 	</NonRunnableComponent>
 {/if}

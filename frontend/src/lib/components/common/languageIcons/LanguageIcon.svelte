@@ -2,7 +2,6 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'
-	import type { SvelteComponent } from 'svelte'
 	import { BashIcon, GoIcon, PythonIcon, TypeScriptIcon } from './'
 	import JavaScript from './JavaScript.svelte'
 	import FetchIcon from './FetchIcon.svelte'
@@ -42,7 +41,7 @@
 
 	const langToComponent: Record<
 		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell',
-		typeof SvelteComponent
+		any
 	> = {
 		go: GoIcon,
 		python3: PythonIcon,

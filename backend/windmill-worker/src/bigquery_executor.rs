@@ -1,12 +1,12 @@
-use serde_json::{json, Value};
-use windmill_common::error::Error;
+use serde_json::{json, value::RawValue, Value};
 use windmill_common::jobs::QueuedJob;
+use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::parse_bigquery_sig;
 use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{common::transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -52,18 +52,12 @@ struct BigqueryError {
 }
 
 pub async fn do_bigquery(
-    job: QueuedJob,
-    client: &AuthedClient,
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
-    } else {
-        None
-    };
-
-    let bigquery_args: Value = serde_json::from_value(args.unwrap_or_else(|| json!({})))
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> windmill_common::error::Result<Box<RawValue>> {
+    let bigquery_args = build_args_values(job, client, db).await?;
 
     let database = bigquery_args
         .get("database")
@@ -84,14 +78,6 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let args = &job
-        .args
-        .clone()
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .map(|x| x.to_owned())
-        .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
-
     let mut statement_values: Vec<Value> = vec![];
 
     let sig = parse_bigquery_sig(&query)
@@ -101,7 +87,7 @@ pub async fn do_bigquery(
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_n = arg.clone().name;
-        let arg_v = args.get(&arg.name).cloned().unwrap_or(json!(""));
+        let arg_v = bigquery_args.get(&arg.name).cloned().unwrap_or(json!(""));
         let bigquery_v = if arg_t.ends_with("[]") {
             let base_type = arg_t.strip_suffix("[]").unwrap_or(&arg_t);
             json!({
@@ -113,7 +99,7 @@ pub async fn do_bigquery(
                     }
                 },
                 "parameterValue": {
-                    "arrayValues": args
+                    "arrayValues": bigquery_args
                         .get(&arg.name)
                         .unwrap_or(&json!([]))
                         .as_array()
@@ -176,12 +162,7 @@ pub async fn do_bigquery(
             }
 
             if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
-                return Ok(JobCompleted {
-                    job: job,
-                    result: Value::Array(vec![]),
-                    logs: "".to_string(),
-                    success: true,
-                });
+                return Ok(serde_json::from_str("[]").unwrap());
             }
 
             if result.schema.is_none() {
@@ -221,14 +202,9 @@ pub async fn do_bigquery(
                         });
                     Value::from(row_map)
                 })
-                .collect();
+                .collect::<Vec<_>>();
 
-            return Ok(JobCompleted {
-                job: job,
-                result: rows,
-                logs: "".to_string(),
-                success: true,
-            });
+            return Ok(to_raw_value(&rows));
         }
         Err(e) => match response.json::<BigqueryErrorResponse>().await {
             Ok(bq_err) => return Err(Error::ExecutionErr(bq_err.error.message)),

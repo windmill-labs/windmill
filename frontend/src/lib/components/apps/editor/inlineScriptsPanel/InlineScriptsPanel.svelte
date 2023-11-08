@@ -32,6 +32,7 @@
 
 		$selectedComponentInEditor = undefined
 		delete $runnableComponents[BG_PREFIX + index]
+		$runnableComponents = $runnableComponents
 	}
 
 	$: gridItem =

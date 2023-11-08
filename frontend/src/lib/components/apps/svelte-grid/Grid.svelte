@@ -15,7 +15,6 @@
 	export let rowHeight: number
 	export let cols: [number, number][]
 	export let gap = [10, 10]
-	export let fastStart = false
 	export let throttleUpdate = 100
 	export let throttleResize = 100
 	export let selectedIds: string[] | undefined
@@ -171,8 +170,8 @@
 </script>
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
-	{#if xPerPx || !fastStart}
-		{#each sortedItems as item (item.id)}
+	{#each sortedItems as item (item.id)}
+		{#if item[getComputedCols] != undefined}
 			<MoveResize
 				on:initmove={handleInitMove}
 				on:move={handleMove}
@@ -183,9 +182,10 @@
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
-				width={Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) *
-					xPerPx -
-					gapX * 2}
+				width={xPerPx == 0
+					? 0
+					: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
+					  gapX * 2}
 				height={(item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
 				top={(item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 				left={(item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
@@ -201,8 +201,8 @@
 					<slot dataItem={item} item={item[getComputedCols]} />
 				{/if}
 			</MoveResize>
-		{/each}
-	{/if}
+		{/if}
+	{/each}
 </div>
 
 <style>

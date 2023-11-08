@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
@@ -14,6 +14,7 @@
 	import { extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -69,7 +70,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
+	let css = initCss($app.css?.multiselectcomponent, customCss)
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
@@ -96,7 +97,7 @@
 		}
 	}
 
-	$: if (render) {
+	$: if (render && portalRef && outerDiv && items?.length > 0) {
 		tick().then(() => {
 			moveOptionsToPortal()
 		})
@@ -113,6 +114,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.multiselectcomponent}
 	/>
 {/each}
 
@@ -138,12 +149,12 @@
 					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
 					ulOptionsClass={'p-2 !bg-surface-secondary'}
 					bind:selected={value}
-					on:change={() => {
-						outputs?.result.set([...(value ?? [])])
-					}}
 					options={Array.isArray(items) ? items : []}
 					placeholder={resolvedConfig.placeholder}
 					allowUserOptions={resolvedConfig.create}
+					on:change={() => {
+						outputs?.result.set([...(value ?? [])])
+					}}
 					on:open={() => {
 						$selectedComponent = [id]
 						open = true
@@ -151,13 +162,21 @@
 					on:close={() => {
 						open = false
 					}}
+					let:option
 				>
-					<div slot="option" let:option>
-						{option}
-					</div>
+					<!-- needed because portal doesn't work for mouseup event en mobile -->
+					<div
+						class="w-full"
+						on:mouseup|stopPropagation
+						on:pointerdown|stopPropagation={(e) => {
+							let newe = new MouseEvent('mouseup')
+							e.target?.['parentElement']?.dispatchEvent(newe)
+						}}>{option}</div
+					>
 				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<div
 							bind:this={portalRef}

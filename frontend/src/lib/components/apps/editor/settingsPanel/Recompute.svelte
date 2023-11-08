@@ -21,7 +21,7 @@
 
 <PanelSection
 	title="Trigger runnables on success"
-	tooltip="Select components to recompute after running this runnable as a success"
+	tooltip="Select components to recompute after this runnable has successfully run"
 	documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#recompute-others"
 >
 	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}

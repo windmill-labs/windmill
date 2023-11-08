@@ -1,5 +1,8 @@
 <script lang="ts" context="module">
-	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
+	const apiTokenApps: Record<
+		string,
+		{ img?: string; instructions: string[]; linkedSecret?: string }
+	> = {
 		airtable: {
 			img: '/airtable_connect.png',
 			instructions: [
@@ -12,7 +15,7 @@
 		discord_webhook: {
 			img: '/discord_webhook.png',
 			instructions: ['Click on Server Settings', 'Click on Integration', 'Find "Webhooks"'],
-			key: 'webhook_url'
+			linkedSecret: 'webhook_url'
 		},
 		toggl: {
 			img: '/toggl_connect.png',
@@ -54,12 +57,10 @@
 
 <script lang="ts">
 	import { oauthStore, workspaceStore } from '$lib/stores'
-	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 	import { emptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
 	import { Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -68,8 +69,11 @@
 	import autosize from 'svelte-autosize'
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import OauthScopes from './OauthScopes.svelte'
 
 	export let newPageOAuth = false
+
+	const nativeLanguagesCategory = ['postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql']
 
 	let filter = ''
 	let manual = false
@@ -83,11 +87,39 @@
 		| undefined = undefined
 	let args: any = {}
 
-	$: key =
-		apiTokenApps[resource_type]?.key ??
-		(args != undefined
-			? Object.keys(args).filter((x) => ['token', 'password', 'api_key', 'key'].includes(x))[0]
-			: undefined)
+	$: linkedSecretCandidates = apiTokenApps[resource_type]?.linkedSecret
+		? ([apiTokenApps[resource_type]?.linkedSecret] as string[])
+		: args != undefined
+		? Object.keys(args).filter((x) =>
+				['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
+		  )
+		: undefined
+
+	function linkedSecretValue(x: string) {
+		let r = 0
+		if (x.includes('secret')) {
+			r += 10
+		}
+		if (x.includes('password')) {
+			r += 5
+		}
+		if (x.includes('private')) {
+			r += 4
+		}
+		if (x.includes('key')) {
+			r += 3
+		}
+		if (x.includes('token')) {
+			r += 2
+		}
+		if (x.includes('pass')) {
+			r += 1
+		}
+		return r
+	}
+	$: linkedSecret = linkedSecretCandidates?.sort(
+		(ua, ub) => linkedSecretValue(ua) - linkedSecretValue(ub)
+	)?.[0]
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
@@ -159,9 +191,17 @@
 				apiTokenApps[x] ?? {
 					instructions: '',
 					img: undefined,
-					key: undefined
+					linkedSecret: undefined
 				}
 			])
+		const filteredNativeLanguages = filteredConnectsManual?.filter(([key, _]) =>
+			nativeLanguagesCategory.includes(key)
+		)
+
+		filteredConnectsManual = [
+			...(filteredNativeLanguages ?? []),
+			...(filteredConnectsManual ?? []).filter(([key, _]) => !nativeLanguagesCategory.includes(key))
+		]
 	}
 
 	async function next() {
@@ -214,12 +254,12 @@
 
 			const resourceValue = args
 
-			if (!manual || key != undefined) {
+			if (!manual || linkedSecret != undefined) {
 				await VariableService.createVariable({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path,
-						value: manual ? args[key ?? ''] : value,
+						value: manual ? args[linkedSecret ?? ''] : value,
 						is_secret: true,
 						description: emptyString(description)
 							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
@@ -228,7 +268,7 @@
 						account: account
 					}
 				})
-				resourceValue[key ?? 'token'] = `$var:${path}`
+				resourceValue[linkedSecret ?? 'token'] = `$var:${path}`
 			}
 
 			await ResourceService.createResource({
@@ -271,7 +311,7 @@
 			args['password'] == '' &&
 			args['api_key'] == '' &&
 			args['key'] == '' &&
-			key != undefined) ||
+			linkedSecret != undefined) ||
 		(step == 3 && pathError != '') ||
 		!isValid
 
@@ -328,7 +368,7 @@
 							size="sm"
 							variant="border"
 							color={key === resource_type ? 'blue' : 'light'}
-							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							btnClasses={key === resource_type ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
 								manual = false
 								resource_type = key
@@ -356,60 +396,55 @@
 			{#if manual == false && resource_type != ''}
 				<h3>Scopes</h3>
 				{#if !manual && resource_type != ''}
-					{#each scopes as v}
-						<div class="flex flex-row max-w-md mb-2">
-							<input type="text" bind:value={v} />
-							<Button
-								variant="border"
-								color="red"
-								size="xs"
-								btnClasses="mx-6"
-								on:click={() => {
-									scopes = scopes.filter((el) => el != v)
-								}}
-							>
-								<Icon data={faMinus} />
-							</Button>
-						</div>
-					{/each}
-					<div class="flex items-center mt-1">
-						<Button
-							variant="border"
-							color="blue"
-							hover="yo"
-							size="sm"
-							endIcon={{ icon: faPlus }}
-							on:click={() => {
-								scopes = scopes.concat('')
-							}}
-						>
-							Add item
-						</Button>
-						<span class="ml-2 text-sm text-tertiary">
-							({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
-						</span>
-					</div>
+					<OauthScopes bind:scopes />
 				{/if}
 			{/if}
 
-			<h2 class="mt-8 mb-4">Non OAuth APIs & Resources</h2>
+			<h2 class="mt-8 mb-4">Others</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
 					{#each filteredConnectsManual as [key, _]}
-						<Button
-							size="sm"
-							variant="border"
-							color={key === resource_type ? 'blue' : 'light'}
-							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-							on:click={() => {
-								manual = true
-								resource_type = key
-								next()
-								dispatch('click')
-							}}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
+						{#if nativeLanguagesCategory.includes(key)}
+							<Button
+								size="sm"
+								variant="border"
+								color={key === resource_type ? 'blue' : 'light'}
+								btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+								on:click={() => {
+									manual = true
+									resource_type = key
+									next()
+									dispatch('click')
+								}}
+							>
+								<IconedResourceType name={key} after={true} width="20px" height="20px" />
+							</Button>
+						{/if}
+					{/each}
+				{/if}
+			</div>
+
+			<h2 class="mt-8 mb-4" />
+			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+				{#if filteredConnectsManual}
+					{#each filteredConnectsManual as [key, _]}
+						{#if !nativeLanguagesCategory.includes(key)}
+							<!-- Exclude specific items -->
+							<Button
+								size="sm"
+								variant="border"
+								color={key === resource_type ? 'blue' : 'light'}
+								btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+								on:click={() => {
+									manual = true
+									resource_type = key
+									next()
+									dispatch('click')
+								}}
+							>
+								<IconedResourceType name={key} after={true} width="20px" height="20px" />
+							</Button>
+						{/if}
 					{/each}
 				{:else}
 					{#each new Array(9) as _}
@@ -450,7 +485,13 @@
 			<h2 class="mt-4">Value</h2>
 			<div class="mt-4">
 				{#key resource_type}
-					<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
+					<ApiConnectForm
+						{linkedSecret}
+						{linkedSecretCandidates}
+						{resource_type}
+						bind:args
+						bind:isValid
+					/>
 				{/key}
 			</div>
 
@@ -467,7 +508,8 @@
 			{#if apiTokenApps[resource_type] || !manual}
 				<ul class="mt-10">
 					<li>
-						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}
+						1. A secret variable containing the {apiTokenApps[resource_type]?.linkedSecret ??
+							'token'}
 						<span class="font-bold">{truncateRev(value, 5, '*****')}</span>
 						will be stored a
 						<span class="font-mono whitespace-nowrap">{path}</span>.

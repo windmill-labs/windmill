@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = []
+benchmark = []
 
 [dependencies]
 windmill-audit.workspace = true
@@ -36,3 +37,5 @@ tokio.workspace = true
 futures-core.workspace = true
 itertools.workspace = true
 async-recursion.workspace = true
+bigdecimal.workspace = true
+axum.workspace = true

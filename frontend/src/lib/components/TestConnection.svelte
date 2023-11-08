@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, Preview } from '$lib/gen'
+	import { CompletedJob, JobService, Preview } from '$lib/gen'
 
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
@@ -15,23 +15,12 @@
 			code: string
 			lang: string
 			argName: string
+			additionalCheck?: (testResult: CompletedJob) => CompletedJob
 		}
 	} = {
 		postgresql: {
-			code: `import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts'
-export async function main(database: any) {
-  const u = new URL("postgres://")
-	u.hash = ''
-	u.search = '?sslmode=' + database.sslmode
-	u.pathname = database.dbname
-	u.host = database.host
-	u.port = database.port
-	u.password = database.password
-	u.username = database.user
-	const client = new Client(u.toString())
-	await client.connect()
-}`,
-			lang: 'deno',
+			code: `SELECT 1`,
+			lang: 'postgresql',
 			argName: 'database'
 		},
 		mysql: {
@@ -52,7 +41,25 @@ export async function main(database: any) {
 		graphql: {
 			code: '{ __typename }',
 			lang: 'graphql',
-			argName: 'api'
+			argName: 'api',
+			additionalCheck: (testResult: CompletedJob) => {
+				if (
+					testResult.success &&
+					(typeof testResult.result !== 'object' || !('__typename' in testResult.result))
+				) {
+					return {
+						...testResult,
+						result: {
+							error: {
+								message: 'Invalid GraphQL API response'
+							}
+						},
+						success: false
+					}
+				} else {
+					return testResult
+				}
+			}
 		}
 	}
 
@@ -76,13 +83,18 @@ export async function main(database: any) {
 
 		tryEvery({
 			tryCode: async () => {
-				const testResult = await JobService.getCompletedJob({
+				let testResult = await JobService.getCompletedJob({
 					workspace: $workspaceStore!,
 					id: job
 				})
+				if (resourceScript.additionalCheck) {
+					testResult = resourceScript.additionalCheck(testResult)
+				}
 				loading = false
 				sendUserToast(
-					testResult.success ? 'Connection successful' : testResult.result?.['error']?.['message'],
+					testResult.success
+						? 'Connection successful'
+						: 'Connection error: ' + testResult.result?.['error']?.['message'],
 					!testResult.success
 				)
 			},

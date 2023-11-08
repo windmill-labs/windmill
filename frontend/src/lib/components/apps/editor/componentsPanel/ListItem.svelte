@@ -46,7 +46,7 @@
 			</div>
 		{/if}
 	{:else}
-		<h1 class="text-sm font-semibold text-left px-2 py-1 text-secondary">
+		<h1 class="text-base font-semibold text-left px-2 py-1 text-secondary">
 			<slot name="title">
 				{title}
 			</slot>

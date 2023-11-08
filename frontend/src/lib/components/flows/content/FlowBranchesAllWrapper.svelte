@@ -13,6 +13,7 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 
+	export let noEditor: boolean
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
 
@@ -22,8 +23,8 @@
 	let selected = 'early-stop'
 </script>
 
-<div class="h-full flex flex-col w-full">
-	<FlowCard title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
+<div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">
+	<FlowCard {noEditor} title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
@@ -78,7 +79,7 @@
 									</TabContent>
 									<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
-											<FlowModuleSuspend bind:flowModule />
+											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
 										</div>
 									</TabContent>
 									<TabContent value="sleep" class="flex flex-col flex-1 h-full">

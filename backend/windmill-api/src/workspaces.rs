@@ -31,9 +31,11 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use chrono::Utc;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
+use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::schedule::Schedule;
@@ -44,10 +46,13 @@ use windmill_common::{
     scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
+    oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
 };
+use windmill_queue::QueueTransaction;
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Map};
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
@@ -64,23 +69,30 @@ pub fn workspaced_service() -> Router {
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
+        .route("/run_slack_message_test_job", post(run_slack_message_test_job))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
-        .route("/edit_openai_resource_path", post(edit_openai_resource_path))
-        .route("/exists_openai_resource_path", get(exists_openai_resource_path) )
+        .route("/edit_copilot_config", post(edit_copilot_config))
+        .route("/get_copilot_info", get(get_copilot_info) )
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
-    tracing::info!("stripe enabled");
+    { 
+        if std::env::var("STRIPE_KEY").is_err() {
+            return router;
+        } else {
+            tracing::info!("stripe enabled");
+            
+            return router
+            .route("/checkout", get(stripe_checkout))
+            .route("/billing_portal", get(stripe_portal));
+        }
+    }
 
-    #[cfg(feature = "enterprise")]
-    let router = router
-        .route("/checkout", get(stripe_checkout))
-        .route("/billing_portal", get(stripe_portal));
-
+    #[cfg(not(feature = "enterprise"))]
     router
 }
 pub fn global_service() -> Router {
@@ -119,7 +131,10 @@ pub struct WorkspaceSettings {
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
     pub openai_resource_path: Option<String>,
+    pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
+    pub error_handler_extra_args: Option<serde_json::Value>,
+    pub error_handler_muted_on_cancel: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -142,6 +157,17 @@ struct EditCommandScript {
     slack_command_script: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RunSlackMessageTestJobRequest {
+    hub_script_path: String,
+    channel: String,
+    test_msg: String
+}
+
+#[derive(Serialize)]
+struct RunSlackMessageTestJobResponse {
+    job_uuid: String,
+}
 
 #[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
@@ -160,8 +186,9 @@ struct EditWebhook {
 }
 
 #[derive(Deserialize)]
-struct EditOpenaiResourcePath {
+struct EditCopilotConfig {
     openai_resource_path: Option<String>,
+    code_completion_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -219,6 +246,8 @@ pub struct NewWorkspaceUser {
 #[derive(Deserialize)]
 pub struct EditErrorHandler {
     pub error_handler: Option<String>,
+    pub error_handler_extra_args: Option<serde_json::Value>,
+    pub error_handler_muted_on_cancel: Option<bool>,
 }
 
 async fn list_pending_invites(
@@ -252,7 +281,7 @@ async fn premium_info(
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON workspace.id = $1 AND usage.is_workspace IS true WHERE workspace.id = $1",
+        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
     )
     .bind(w_id)
     .fetch_one(&mut *tx)
@@ -278,8 +307,9 @@ async fn stripe_checkout(
         require_admin(authed.is_admin, &authed.username)?;
 
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-        let success_rd = format!("{}/workspace_settings/checkout?success=true", *BASE_URL);
-        let failure_rd = format!("{}/workspace_settings/checkout?success=false", *BASE_URL);
+        let base_url = BASE_URL.read().await.clone();
+        let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url);
+        let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url);
         let checkout_session = {
             let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
@@ -326,7 +356,7 @@ async fn stripe_portal(
     .await?
     .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-    let success_rd = format!("{}/workspace_settings?tab=premium", *BASE_URL);
+    let success_rd = format!("{}/workspace_settings?tab=premium", BASE_URL.read().await.clone());
     let portal_session = {
         let customer_id = CustomerId::from_str(&customer_id).unwrap();
         let mut params = stripe::CreateBillingPortalSession::new(customer_id);
@@ -498,6 +528,44 @@ async fn edit_slack_command(
     Ok(format!("Edit command script {}", &w_id))
 }
 
+async fn run_slack_message_test_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunSlackMessageTestJobRequest>,
+) -> JsonResult<RunSlackMessageTestJobResponse> {
+    let mut fake_result = Map::new();
+    fake_result.insert("error".to_string(), json!(req.test_msg));
+    fake_result.insert("success_result".to_string(), json!(req.test_msg));
+
+    let mut extra_args = Map::new();
+    extra_args.insert("channel".to_string(), json!(req.channel));
+    extra_args.insert("slack".to_string(), json!(format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}")));
+
+    let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
+    let (uuid, tx) = windmill_queue::handle_on_failure(
+        &db, 
+        tx,
+        Uuid::parse_str("00000000-0000-0000-0000-000000000000")?,
+        "slack_message_test", 
+        "slack_message_test", 
+        false, 
+        w_id.as_str(),
+        &format!("script/{}", req.hub_script_path.as_str()), 
+        sqlx::types::Json(&fake_result),
+        0, 
+        Utc::now(), 
+        Some(json!(extra_args)),
+        authed.email.as_str(), 
+        None, // Note: we could mark it as high priority to return result quickly to the user
+    ).await?;
+    tx.commit().await?;
+
+    Ok(Json(RunSlackMessageTestJobResponse {
+        job_uuid: uuid.to_string(),
+    }))
+}
 
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_to(
@@ -663,12 +731,12 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
-async fn edit_openai_resource_path(
+async fn edit_copilot_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(eo): Json<EditOpenaiResourcePath>,
+    Json(eo): Json<EditCopilotConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
@@ -676,15 +744,17 @@ async fn edit_openai_resource_path(
 
     if let Some(openai_resource_path) = &eo.openai_resource_path {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET openai_resource_path = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
             openai_resource_path,
+            eo.code_completion_enabled,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_resource_path = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET openai_resource_path = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
+            eo.code_completion_enabled,
             &w_id,
         )
         .execute(&mut *tx)
@@ -693,37 +763,43 @@ async fn edit_openai_resource_path(
     audit_log(
         &mut *tx,
         &authed.username,
-        "workspaces.edit_openai_resource_path",
+        "workspaces.edit_copilot_config",
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("openai_resource_path", &format!("{:?}", eo.openai_resource_path)[..])].into()),
+            Some([("openai_resource_path", &format!("{:?}", eo.openai_resource_path)[..]), ("code_completion_enabled", &format!("{:?}", eo.code_completion_enabled)[..])].into()),
     )
     .await?;
     tx.commit().await?;
 
-    Ok(format!("Edit openai_resource_path for workspace {}", &w_id))
+    Ok(format!("Edit copilot config for workspace {}", &w_id))
 }
 
-
-async fn exists_openai_resource_path(
+#[derive(Serialize)]
+struct CopilotInfo {
+    pub exists_openai_resource_path: bool,
+    pub code_completion_enabled: bool,
+}
+async fn get_copilot_info(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<bool> {
+) -> JsonResult<CopilotInfo> {
 
     let mut tx = db.begin().await?;
-    let openai_resource_path = sqlx::query_scalar!(
-        "SELECT openai_resource_path FROM workspace_settings WHERE workspace_id = $1",
+    let record = sqlx::query!(
+        "SELECT openai_resource_path, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e}")))?;
     tx.commit().await?;
 
-    let exists = openai_resource_path.is_some();
 
-    Ok(Json(exists))
+    Ok(Json(CopilotInfo {
+        exists_openai_resource_path: record.openai_resource_path.is_some(),
+        code_completion_enabled: record.code_completion_enabled,
+    }))
 }
 
 
@@ -735,6 +811,14 @@ async fn edit_error_handler(
     Json(ee): Json<EditErrorHandler>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+
+    #[cfg(not(feature = "enterprise"))]
+    if ee.error_handler.as_ref().is_some_and(|val|  val == "script/hub/2431/slack/schedule-error-handler-slack")
+    {
+        return Err(Error::BadRequest(
+            "Slack error handler is only available in enterprise version".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
     
@@ -750,17 +834,18 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
-
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2, error_handler_muted_on_cancel = $3 WHERE workspace_id = $4",
             error_handler,
+            ee.error_handler_extra_args,
+            ee.error_handler_muted_on_cancel.unwrap_or(false),
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET error_handler = NULL, error_handler_extra_args = NULL WHERE workspace_id = $1",
             &w_id,
         )
         .execute(&mut *tx)
@@ -839,9 +924,23 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
 
 lazy_static::lazy_static! {
 
-    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(false));
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(true));
 
 }
+
+async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
+    let nb_workspaces = sqlx::query_scalar!("SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = false",)
+        .fetch_one(db)
+        .await?;
+    if nb_workspaces.unwrap_or(0) >= 3 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of workspaces (3 outside of default worskapce 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 
 async fn create_workspace(
     authed: ApiAuthed,
@@ -852,6 +951,10 @@ async fn create_workspace(
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
         require_super_admin(&db, &authed.email).await?;
     }
+
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     check_name_conflict(&mut tx, &nw.id).await?;
@@ -922,6 +1025,27 @@ async fn create_workspace(
             VALUES ($1, 'all', $2)",
         nw.id,
         nw.username
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        nw.id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        nw.id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme') ON CONFLICT DO NOTHING",
+        nw.id,
     )
     .execute(&mut *tx)
     .await?;
@@ -1070,6 +1194,10 @@ async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query!("DELETE FROM resource_type WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1",
         &w_id
@@ -1178,7 +1306,7 @@ async fn invite_user(
             "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            *BASE_URL
+            BASE_URL.read().await.clone()
         ),
         &nu.email,
     );
@@ -1207,7 +1335,7 @@ async fn add_user(
     let mut tx = db.begin().await?;
     if !VALID_USERNAME.is_match(&nu.username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 
@@ -1242,7 +1370,7 @@ async fn add_user(
             "You have been granted access to Windmill's workspace {w_id} by {email}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            *BASE_URL
+            BASE_URL.read().await.clone()
         ),
         &nu.email,
     );
@@ -1315,6 +1443,29 @@ struct ScriptMetadata {
     is_template: bool,
     lock: Vec<String>,
     kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    envs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "is_none_or_false")]
+    ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    priority: Option<i16>,    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,    
+}
+
+pub fn is_none_or_false(val: &Option<bool>) -> bool {
+    match val {
+        Some(val) => !val,
+        None => true,
+    }
 }
 
 enum ArchiveImpl {
@@ -1432,7 +1583,7 @@ async fn tarball_workspace(
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let tmp_dir = TempDir::new_in(".")?;
+    let tmp_dir = TempDir::new_in("/tmp/windmill/")?;
 
     let name = match archive_type.as_deref() {
         Some("tar") | None => Ok(format!("windmill-{w_id}.tar")),
@@ -1504,6 +1655,15 @@ async fn tarball_workspace(
                 is_template: script.is_template,
                 kind: script.kind.to_string(),
                 lock,
+                envs: script.envs,
+                concurrent_limit: script.concurrent_limit,
+                concurrency_time_window_s: script.concurrency_time_window_s,
+                cache_ttl: script.cache_ttl,
+                dedicated_worker: script.dedicated_worker,
+                ws_error_handler_muted: script.ws_error_handler_muted,
+                priority: script.priority,
+                tag: script.tag,
+                
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -1515,7 +1675,7 @@ async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
             Resource,
-            "SELECT * FROM resource WHERE workspace_id = $1",
+            "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
             &w_id
         )
         .fetch_all(&db)
@@ -1636,7 +1796,7 @@ async fn tarball_workspace(
 
     archive.finish().await?;
 
-    let file = tokio::fs::File::open(file_path).await?;
+    let file = tokio::fs::File::open(&file_path).await?;
 
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
@@ -1648,6 +1808,5 @@ async fn tarball_workspace(
             format!("attachment; filename=\"{name}\""),
         ),
     ];
-
     Ok((headers, body))
 }

@@ -7,7 +7,7 @@
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Alert, Skeleton } from '$lib/components/common'
+	import { Alert, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -16,7 +16,7 @@
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import { FolderOpen, Archive, Trash, Server, Share } from 'lucide-svelte'
+	import { FolderOpen, Archive, Trash, Server, Share, Badge, Loader2 } from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
@@ -34,6 +34,8 @@
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
+
+	let deploymentInProgress = false
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
@@ -219,7 +221,7 @@
 </script>
 
 <Skeleton
-	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+	class="!max-w-7xl !px-4 sm:!px-6 md:!px-8"
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
@@ -250,7 +252,26 @@
 				{mainButtons}
 				menuItems={getMenuItems(flow)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
-			/>
+				bind:errorHandlerMuted={flow.ws_error_handler_muted}
+				scriptOrFlowPath={flow.path}
+				errorHandlerKind="flow"
+				tag={flow.tag}
+			>
+				{#if flow?.value?.priority != undefined}
+					<div class="hidden md:block">
+						<HeaderBadge color="red" variant="outlined" size="xs">
+							{`Priority: ${flow?.value?.priority}`}
+						</HeaderBadge>
+					</div>
+				{/if}
+				{#if flow?.value?.concurrent_limit != undefined && flow?.value?.concurrency_time_window_s != undefined}
+					<div class="hidden md:block">
+						<HeaderBadge color="gray" variant="outlined" size="xs">
+							{`Concurrency limit: ${flow?.value?.concurrent_limit} runs every ${flow?.value?.concurrency_time_window_s}s`}
+						</HeaderBadge>
+					</div>
+				{/if}
+			</DetailPageHeader>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<SplitPanesWrapper>
@@ -265,6 +286,12 @@
 									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 								</span>
 
+								{#if deploymentInProgress}
+									<Badge color="yellow">
+										<Loader2 size={12} class="inline animate-spin mr-1" />
+										Deployment in progress
+									</Badge>
+								{/if}
 								{#if flow.archived}
 									<div class="" />
 									<Alert type="error" title="Archived">This flow was archived</Alert>
@@ -317,7 +344,9 @@
 				{isValid}
 				args={args ?? {}}
 				on:selected_args={(e) => {
-					runForm?.setArgs(JSON.parse(JSON.stringify(e.detail)))
+					const nargs = JSON.parse(JSON.stringify(e.detail))
+					runForm?.setArgs(nargs)
+					args = nargs
 				}}
 			/>
 		</svelte:fragment>

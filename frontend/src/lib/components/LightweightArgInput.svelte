@@ -52,7 +52,7 @@
 
 	$: validateInput(pattern, value)
 
-	let error: string = ''
+	export let error: string = ''
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -185,9 +185,9 @@
 						}}
 						type="number"
 						class={twMerge(
-							valid
+							valid && error == ''
 								? ''
-								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'
 						)}
 						placeholder={defaultValue ?? ''}
 						bind:value
@@ -200,9 +200,9 @@
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 					}}
-					class={valid
+					class={valid && error == ''
 						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 					bind:checked={value}
 				/>
 				{#if type == 'boolean' && value == undefined}
@@ -292,9 +292,9 @@
 						}}
 						use:autosize
 						style="max-height: {maxHeight}"
-						class="col-span-10 {valid
+						class="col-span-10 {valid && error == ''
 							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
 						placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
 						bind:value={rawValue}
 					/>
@@ -340,9 +340,9 @@
 							}}
 							use:autosize
 							type="text"
-							class="col-span-10 {valid
+							class="col-span-10 {valid && error == ''
 								? ''
-								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
 							placeholder={defaultValue ?? ''}
 							bind:value
 							on:pointerdown|stopPropagation={(e) => {

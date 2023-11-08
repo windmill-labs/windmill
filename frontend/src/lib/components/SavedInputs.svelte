@@ -15,6 +15,7 @@
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
+	export let canSaveInputs: boolean = true
 
 	let runnableId: string | undefined = scriptPath || flowPath || undefined
 	let runnableType: RunnableType | undefined = scriptHash
@@ -150,16 +151,18 @@
 							>Shared inputs are available to anyone with access to the script</Tooltip
 						></span
 					>
-					<Button
-						on:click={() => saveInput(args)}
-						disabled={!isValid}
-						loading={savingInputs}
-						startIcon={{ icon: faSave }}
-						color="light"
-						size="xs"
-					>
-						<span>Save Current Input</span>
-					</Button>
+					{#if canSaveInputs}
+						<Button
+							on:click={() => saveInput(args)}
+							disabled={!isValid}
+							loading={savingInputs}
+							startIcon={{ icon: faSave }}
+							color="light"
+							size="xs"
+						>
+							<span>Save Current Input</span>
+						</Button>
+					{/if}
 				</div>
 
 				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto p">
@@ -293,7 +296,7 @@
 									<div class="col-span-2">
 										<a
 											target="_blank"
-											href="/runs/{i.id}"
+											href="/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
@@ -314,7 +317,19 @@
 			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
 				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
 					<div class="text-sm font-extrabold">Preview</div>
-
+					<div class="w-full flex flex-col">
+						<Button
+							color="blue"
+							btnClasses="w-full"
+							size="sm"
+							spacingSize="xl"
+							on:click={() => selectArgs(selectedInput?.args)}
+							disabled={Object.keys(selectedInput?.args || {}).length === 0}
+						>
+							<ArrowLeftIcon class="w-4 h-4 mr-2" />
+							Use Input
+						</Button>
+					</div>
 					<div class="w-full min-h-0 grow overflow-auto">
 						{#if Object.keys(selectedInput?.args || {}).length > 0}
 							<div class="border overflow-auto h-full p-2">
@@ -327,21 +342,7 @@
 						{/if}
 					</div>
 				</div>
-
-				<div class="w-full flex flex-col px-2 pb-2">
-					<Button
-						color="blue"
-						btnClasses="w-full"
-						size="sm"
-						spacingSize="xl"
-						on:click={() => selectArgs(selectedInput?.args)}
-						disabled={Object.keys(selectedInput?.args || {}).length === 0}
-					>
-						<ArrowLeftIcon class="w-4 h-4 mr-2" />
-						Use Input
-					</Button>
-				</div>
-			</div>
-		</Pane>
+			</div></Pane
+		>
 	</Splitpanes>
 </div>

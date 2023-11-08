@@ -36,6 +36,7 @@ export type Schema = {
 	$schema: string | undefined
 	type: string
 	properties: { [name: string]: SchemaProperty }
+	order?: string[]
 	required: string[]
 }
 

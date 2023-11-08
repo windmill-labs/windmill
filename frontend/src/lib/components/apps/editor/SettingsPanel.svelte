@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems } from '../utils'
-	import { findGridItem } from './appUtils'
+	import { findComponentSettings, findGridItem } from './appUtils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
@@ -33,31 +33,17 @@
 			.find((x) => x)
 	}
 
-	function findComponentSettings(app: App, id: string | undefined) {
-		if (!id) return undefined
-		if (app?.grid) {
-			const gridItem = app.grid.find((x) => x.data?.id === id)
-			if (gridItem) {
-				return { item: gridItem, parent: undefined }
-			}
-		}
-
-		if (app?.subgrids) {
-			for (const key of Object.keys(app.subgrids ?? {})) {
-				const gridItem = app.subgrids[key].find((x) => x.data?.id === id)
-				if (gridItem) {
-					return { item: gridItem, parent: key }
-				}
-			}
-		}
-
-		return undefined
-	}
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if componentSettings}
 	{#key componentSettings?.item?.id}
-		<ComponentPanel bind:componentSettings />
+		<ComponentPanel
+			bind:componentSettings
+			onDelete={() => {
+				dispatch('delete')
+			}}
+		/>
 	{/key}
 {:else if tableActionSettings}
 	{#key tableActionSettings?.item?.data?.id}
@@ -81,23 +67,25 @@
 	{/key}
 {:else if hiddenInlineScript}
 	{@const id = BG_PREFIX + hiddenInlineScript.index}
-	<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
+	{#key id}
+		<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
 
-	{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
-		<div class="mb-8">
-			<PanelSection title={`Inputs`}>
-				{#key $stateId}
-					<InputsSpecsEditor
-						displayType
-						{id}
-						shouldCapitalize={false}
-						bind:inputSpecs={hiddenInlineScript.script.fields}
-						userInputEnabled={false}
-					/>
-				{/key}
-			</PanelSection>
-		</div>
-	{/if}
-	<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
-	<div class="grow shrink" />
+		{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
+			<div class="mb-8">
+				<PanelSection title={`Inputs`}>
+					{#key $stateId}
+						<InputsSpecsEditor
+							displayType
+							{id}
+							shouldCapitalize={false}
+							bind:inputSpecs={hiddenInlineScript.script.fields}
+							userInputEnabled={false}
+						/>
+					{/key}
+				</PanelSection>
+			</div>
+		{/if}
+		<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
+		<div class="grow shrink" />
+	{/key}
 {/if}

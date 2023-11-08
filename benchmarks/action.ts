@@ -2,7 +2,7 @@ import {
   FlowValue,
   JobService,
   Preview as ScriptPreview,
-} from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
+} from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
 
 export type Action = FlowAction | ScriptAction | RandomAction;
 

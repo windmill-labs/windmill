@@ -34,6 +34,7 @@
 			itemsType = undefined
 		}
 	}}
+	id="array-type-narrowing"
 >
 	<option value="string"> Items are strings</option>
 	<option value="enum">Items are strings from an enum</option>

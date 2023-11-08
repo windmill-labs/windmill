@@ -11,6 +11,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import autosize from 'svelte-autosize'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { Settings } from 'lucide-svelte'
+	import AgGridWizard from '$lib/components/wizards/AgGridWizard.svelte'
+	import TableColumnWizard from '$lib/components/wizards/TableColumnWizard.svelte'
+	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
+	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -53,7 +59,7 @@
 	{:else if fieldType === 'tab-select'}
 		<TabSelectInput bind:componentInput />
 	{:else if fieldType === 'labeledresource'}
-		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
+		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}
 			<div class="flex flex-col gap-1 w-full">
 				<input
 					on:keydown|stopPropagation
@@ -62,7 +68,7 @@
 					bind:value={componentInput.value['label']}
 				/>
 				<ResourcePicker
-					initialValue={componentInput.value?.['value']?.split('$res:')[1] || ''}
+					initialValue={componentInput.value?.['value']?.split('$res:')?.[1] || ''}
 					on:change={(e) => {
 						let path = e.detail
 						if (componentInput) {
@@ -73,6 +79,7 @@
 							}
 						}
 					}}
+					showSchemaExplorer
 				/>
 			</div>
 		{:else}
@@ -81,9 +88,9 @@
 	{:else if fieldType === 'color'}
 		<ColorInput bind:value={componentInput.value} />
 	{:else if fieldType === 'object' || fieldType == 'labeledselect'}
-		{#if format?.startsWith('resource-')}
+		{#if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')[1] || ''}
+				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
 					let path = e.detail
 					if (componentInput) {
@@ -94,9 +101,10 @@
 						}
 					}
 				}}
-				resourceType={format.split('-').length > 1
+				resourceType={format && format?.split('-').length > 1
 					? format.substring('resource-'.length)
 					: undefined}
+				showSchemaExplorer
 			/>
 		{:else}
 			<div class="flex w-full flex-col">
@@ -112,6 +120,90 @@
 	{:else if fieldType === 'schema'}
 		<div class="w-full">
 			<SchemaEditor bind:schema={componentInput.value} lightMode />
+		</div>
+	{:else if fieldType === 'ag-grid'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.field}
+					placeholder="Field"
+				/>
+				<div class="absolute top-1 right-1">
+					<AgGridWizard bind:value={componentInput.value}>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</AgGridWizard>
+				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'table-column'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.field}
+					placeholder="Field"
+				/>
+				<div class="absolute top-1 right-1">
+					<TableColumnWizard bind:column={componentInput.value}>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</TableColumnWizard>
+				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'plotly'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.name}
+					placeholder="Dataset name"
+				/>
+				<div class="absolute top-1 right-1">
+					<PlotlyWizard bind:value={componentInput.value} on:remove>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</PlotlyWizard>
+				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'chartjs'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.name}
+					placeholder="Dataset name"
+				/>
+				<div class="absolute top-1 right-1">
+					<ChartJSWizard bind:value={componentInput.value} on:remove>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</ChartJSWizard>
+				</div>
+			</div>
 		</div>
 	{:else}
 		<div class="flex gap-1 relative w-full">

@@ -24,9 +24,8 @@
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE } from '$lib/utils'
-	import AppExportButton from '$lib/components/apps/editor/AppExportButton.svelte'
-	import type { App } from '$lib/components/apps/types'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
+	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -35,6 +34,8 @@
 	export let moveDrawer: MoveDrawer
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
+	export let depth: number = 0
+	export let menuOpen: boolean = false
 
 	let {
 		summary,
@@ -49,15 +50,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: AppExportButton
+	let appExport: AppJsonEditor
 	let appDeploymentHistory: AppDeploymentHistory
 
 	async function loadAppJson() {
-		const app: App = (await AppService.getAppByPath({
-			workspace: $workspaceStore!,
-			path
-		})) as unknown as App
-		appExport.open(app)
+		appExport.open(path)
 	}
 
 	async function loadDeployements() {
@@ -70,8 +67,11 @@
 	}
 </script>
 
-<AppExportButton bind:this={appExport} />
-<AppDeploymentHistory bind:this={appDeploymentHistory} />
+{#if menuOpen}
+	<AppJsonEditor on:change bind:this={appExport} />
+	<AppDeploymentHistory bind:this={appDeploymentHistory} />
+{/if}
+
 <Row
 	href={`/apps/get/${path}`}
 	kind="app"
@@ -82,6 +82,7 @@
 	{starred}
 	on:change
 	canFavorite={!draft_only}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		{#if execution_mode == 'anonymous'}
@@ -147,6 +148,13 @@
 							},
 							type: 'delete',
 							disabled: !canWrite
+						},
+						{
+							displayName: 'View/Edit JSON',
+							icon: faFileExport,
+							action: () => {
+								loadAppJson()
+							}
 						}
 					]
 				}
@@ -172,7 +180,7 @@
 						}
 					},
 					{
-						displayName: 'App JSON',
+						displayName: 'View/Edit JSON',
 						icon: faFileExport,
 						action: () => {
 							loadAppJson()
@@ -245,6 +253,12 @@
 						disabled: !canWrite
 					}
 				]
+			}}
+			on:dropdownOpen={() => {
+				menuOpen = true
+			}}
+			on:dropdownClose={() => {
+				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>

@@ -5,11 +5,11 @@
 	import { AppService, Policy } from '$lib/gen'
 	import { page } from '$app/stores'
 	import { decodeState } from '$lib/utils'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
@@ -29,7 +29,10 @@
 		fullscreen: false,
 		unusedInlineScripts: [],
 		hiddenInlineScripts: [],
-		css: {}
+		theme: {
+			type: 'path',
+			path: DEFAULT_THEME
+		}
 	}
 
 	if (nodraft) {
@@ -93,7 +96,7 @@
 							fullscreen: false,
 							unusedInlineScripts: [],
 							hiddenInlineScripts: [],
-							css: {}
+							theme: undefined
 						}
 					}
 				}
@@ -101,8 +104,6 @@
 			value = decodeState(state)
 		}
 	}
-
-	$dirtyStore = false
 </script>
 
 {#if value}

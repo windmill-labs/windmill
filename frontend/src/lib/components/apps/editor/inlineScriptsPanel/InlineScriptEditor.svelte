@@ -18,8 +18,10 @@
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './RunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import ScriptGen from '$lib/components/codeGen/ScriptGen.svelte'
+	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import { userStore } from '$lib/stores'
+	import CacheTtlPopup from './CacheTtlPopup.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -57,10 +59,10 @@
 	}
 
 	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(appPath, 'new_app')}/${name?.replaceAll(
-			' ',
-			'_'
-		)}`)
+		(inlineScript.path = `${defaultIfEmptyString(
+			appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)}/${name?.replaceAll(' ', '_')}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -185,12 +187,18 @@
 				{:else}
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
-
+				{#if inlineScript}
+					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+				{/if}
 				<ScriptGen
 					lang={inlineScript?.language}
 					editor={inlineScript?.language === 'frontend' ? simpleEditor : editor}
 					{diffEditor}
 					inlineScript
+					args={Object.entries(fields).reduce((acc, [key, obj]) => {
+						acc[key] = obj.type === 'static' ? obj.value : undefined
+						return acc
+					}, {})}
 				/>
 
 				<Button
@@ -230,7 +238,7 @@
 						Format
 
 						<div class="flex flex-row items-center">
-							<Kbd small>{getModifierKey()}</Kbd>
+							<Kbd small isModifier>{getModifierKey()}</Kbd>
 							<Kbd small>S</Kbd>
 						</div>
 					</div>
@@ -262,6 +270,9 @@
 						}}
 						on:change={async (e) => {
 							if (inlineScript && inlineScript.language != 'frontend') {
+								if (inlineScript.lock) {
+									inlineScript.lock = undefined
+								}
 								const oldSchema = JSON.stringify(inlineScript.schema)
 								if (inlineScript.schema == undefined) {
 									inlineScript.schema = emptySchema()
@@ -274,6 +285,10 @@
 							}
 							$app = $app
 						}}
+						args={Object.entries(fields).reduce((acc, [key, obj]) => {
+							acc[key] = obj.type === 'static' ? obj.value : undefined
+							return acc
+						}, {})}
 					/>
 				{:else}
 					<SimpleEditor

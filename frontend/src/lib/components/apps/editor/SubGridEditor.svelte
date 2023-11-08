@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { push } from '$lib/history'
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
@@ -38,6 +38,12 @@
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
+	let isActive = false
+	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
+
+	onDestroy(() => {
+		sber?.()
+	})
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
 	const onpointerdown = (e) => {
@@ -62,15 +68,15 @@
 </script>
 
 <div
-	class="translate-x-0 translate-y-0 relative w-full subgrid {visible
+	class="translate-x-0 translate-y-0 w-full subgrid {visible
 		? 'visible'
-		: 'invisible h-0 overflow-hidden'} 	"
+		: 'invisible h-0 overflow-hidden'}"
 	bind:this={container}
 	on:pointerdown={onpointerdown}
 >
 	<div
 		class={twMerge(
-			'overflow-auto',
+			$allIdsInPath.includes(id) && $mode == 'dnd' ? 'overflow-visible' : 'overflow-auto',
 			noYPadding ? '' : 'py-2',
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
@@ -79,7 +85,13 @@
 	>
 		{#if $mode !== 'preview'}
 			<div
-				class={highlight ? 'border-gray-600 animate-border border-dashed border-2 min-h-full' : ''}
+				class={highlight
+					? `animate-border border-dashed border-2 min-h-full ${
+							isActive && !$selectedComponent?.includes(id)
+								? 'border-orange-600'
+								: 'border-gray-600'
+					  }`
+					: ''}
 			>
 				<Grid
 					allIdsInPath={$allIdsInPath}
@@ -94,7 +106,6 @@
 					let:dataItem
 					rowHeight={36}
 					cols={columnConfiguration}
-					fastStart={true}
 					gap={[4, 2]}
 					scroller={container}
 					parentWidth={$parentWidth - 17}

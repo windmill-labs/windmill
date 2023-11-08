@@ -22,6 +22,8 @@
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let deploymentDrawer: DeployWorkspaceDrawer
+	export let depth: number = 0
+	export let menuOpen: boolean = false
 
 	let updateAppDrawer: Drawer
 
@@ -30,26 +32,27 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<Drawer bind:this={updateAppDrawer} size="800px">
-	<DrawerContent title="Update app" on:close={() => updateAppDrawer?.toggleDrawer?.()}>
-		<FileInput
-			accept={'.js'}
-			multiple={false}
-			convertTo={'text'}
-			iconSize={24}
-			class="text-sm py-4"
-			on:change={async ({ detail }) => {
-				await RawAppService.updateRawApp({
-					workspace: $workspaceStore ?? '',
-					path,
-					requestBody: { value: detail?.[0] }
-				})
-				goto(`/apps/get_raw/${version + 1}/${path}`)
-			}}
-		/>
-	</DrawerContent>
-</Drawer>
-
+{#if menuOpen}
+	<Drawer bind:this={updateAppDrawer} size="800px">
+		<DrawerContent title="Update app" on:close={() => updateAppDrawer?.toggleDrawer?.()}>
+			<FileInput
+				accept={'.js'}
+				multiple={false}
+				convertTo={'text'}
+				iconSize={24}
+				class="text-sm py-4"
+				on:change={async ({ detail }) => {
+					await RawAppService.updateRawApp({
+						workspace: $workspaceStore ?? '',
+						path,
+						requestBody: { value: detail?.[0] }
+					})
+					goto(`/apps/get_raw/${version + 1}/${path}`)
+				}}
+			/>
+		</DrawerContent>
+	</Drawer>
+{/if}
 <Row
 	href="/apps/get_raw/{version}/{path}"
 	kind="raw_app"
@@ -60,6 +63,7 @@
 	{starred}
 	on:change
 	canFavorite={true}
+	{depth}
 >
 	<svelte:fragment slot="badges">
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -134,6 +138,12 @@
 						disabled: !canWrite
 					}
 				]
+			}}
+			on:dropdownOpen={() => {
+				menuOpen = true
+			}}
+			on:dropdownClose={() => {
+				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>

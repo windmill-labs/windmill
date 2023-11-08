@@ -15,6 +15,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
+	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -38,6 +39,7 @@
 		faPen,
 		faPlus,
 		faRefresh,
+		faRotateRight,
 		faSave,
 		faShare,
 		faTrash
@@ -109,20 +111,26 @@
 	$: preFilteredType =
 		typeFilter == undefined
 			? preFilteredItemsOwners?.filter((x) =>
-					tab == 'states'
-						? x.resource_type == 'state'
-						: tab == 'cache'
-						? x.resource_type == 'cache'
-						: x.resource_type != 'state' && x.resource_type != 'cache'
+					tab === 'workspace'
+						? x.resource_type !== 'app_theme' &&
+						  x.resource_type !== 'state' &&
+						  x.resource_type !== 'cache'
+						: tab === 'states'
+						? x.resource_type === 'state'
+						: tab === 'cache'
+						? x.resource_type === 'cache'
+						: tab === 'theme'
+						? x.resource_type === 'app_theme'
+						: true
 			  )
 			: preFilteredItemsOwners?.filter(
 					(x) =>
-						x.resource_type == typeFilter &&
-						(tab == 'states'
-							? x.resource_type == 'state'
-							: tab == 'cache'
-							? x.resource_type == 'cache'
-							: x.resource_type != 'state' && x.resource_type != 'cache')
+						x.resource_type === typeFilter &&
+						(tab === 'workspace'
+							? x.resource_type !== 'app_theme' &&
+							  x.resource_type !== 'state' &&
+							  x.resource_type !== 'cache'
+							: true)
 			  )
 
 	async function loadResources(): Promise<void> {
@@ -137,6 +145,7 @@
 				...x
 			}
 		})
+
 		loading.resources = false
 	}
 
@@ -172,6 +181,7 @@
 		resourceTypeDrawer.closeDrawer?.()
 		sendUserToast('Resource type created')
 		loadResourceTypes()
+		$resourceTypesStore = undefined
 	}
 
 	async function updateResourceType(): Promise<void> {
@@ -180,7 +190,7 @@
 			path: editResourceType.name,
 			requestBody: {
 				schema: editResourceType.schema,
-				description: newResourceType.description
+				description: editResourceType.description
 			}
 		})
 		editResourceTypeDrawer.closeDrawer?.()
@@ -257,7 +267,7 @@
 	}
 
 	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' | 'states' | 'cache' = 'workspace'
+	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = 'workspace'
 
 	let inferrer: Drawer | undefined = undefined
 	let inferrerJson = ''
@@ -435,45 +445,79 @@
 			</Button>
 		</div>
 	</PageHeader>
-	<Tabs bind:selected={tab}>
-		<Tab size="md" value="workspace">
-			<div class="flex gap-2 items-center my-1">
-				<Building size={18} />
-				Workspace
-			</div>
-		</Tab>
-		<Tab size="md" value="types">
-			<div class="flex gap-2 items-center my-1">
-				Resource Types
-				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
-				>
-					Every resources have Resource Types attached to them which contains its schema and make it
-					easy in scripts and flows to accept only resources of a specific resource type
-				</Tooltip>
-			</div>
-		</Tab>
-		<Tab size="md" value="states">
-			<div class="flex gap-2 items-center my-1">
-				States
-				<Tooltip>
-					States are actually resources (but excluded from the Workspace tab for clarity). States
-					are used by scripts to keep data persistent between runs of the same script by the same
-					trigger (schedule or user)
-				</Tooltip>
-			</div>
-		</Tab>
-		<Tab size="md" value="cache">
-			<div class="flex gap-2 items-center my-1">
-				Cache
-				<Tooltip>
-					Cached results are actually resources (but excluded from the Workspace tab for clarity).
-					Cache are used by flows's step to cache result to avoid recomputing unnecessarily
-				</Tooltip>
-			</div>
-		</Tab>
-	</Tabs>
-	{#if tab == 'workspace' || tab == 'states' || tab == 'cache'}
+	<div class="flex justify-between">
+		<Tabs class="w-full" bind:selected={tab}>
+			<Tab size="md" value="workspace">
+				<div class="flex gap-2 items-center my-1">
+					<Building size={18} />
+					Workspace
+				</div>
+			</Tab>
+			<Tab size="md" value="types">
+				<div class="flex gap-2 items-center my-1">
+					Resource Types
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+					>
+						Every resources have Resource Types attached to them which contains its schema and make
+						it easy in scripts and flows to accept only resources of a specific resource type
+					</Tooltip>
+				</div>
+			</Tab>
+			<Tab size="md" value="states">
+				<div class="flex gap-2 items-center my-1">
+					States
+					<Tooltip>
+						States are actually resources (but excluded from the Workspace tab for clarity). States
+						are used by scripts to keep data persistent between runs of the same script by the same
+						trigger (schedule or user)
+					</Tooltip>
+				</div>
+			</Tab>
+			<Tab size="md" value="cache">
+				<div class="flex gap-2 items-center my-1">
+					Cache
+					<Tooltip>
+						Cached results are actually resources (but excluded from the Workspace tab for clarity).
+						Cache are used by flows's step to cache result to avoid recomputing unnecessarily
+					</Tooltip>
+				</div>
+			</Tab>
+			<Tab size="md" value="theme">
+				<div class="flex gap-2 items-center my-1">
+					Theme
+					<Tooltip>
+						Theme are actually resources (but excluded from the Workspace tab for clarity). Theme
+						are used by the apps to customize their look and feel.
+					</Tooltip>
+				</div>
+			</Tab>
+		</Tabs>
+		<div class="flex">
+			<Button
+				variant="border"
+				color="light"
+				on:click={async () => {
+					loading = {
+						resources: true,
+						types: true
+					}
+					await loadResources()
+					await loadResourceTypes()
+					loading = {
+						resources: false,
+						types: false
+					}
+				}}
+				><Icon
+					scale={0.8}
+					data={faRotateRight}
+					class={loading.resources || loading.types ? 'animate-spin' : ''}
+				/></Button
+			>
+		</div>
+	</div>
+	{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
@@ -485,6 +529,8 @@
 				filters={types}
 				resourceType
 			/>
+		{:else}
+			<div class="h-4" />
 		{/if}
 
 		<div class="overflow-x-auto pb-40">

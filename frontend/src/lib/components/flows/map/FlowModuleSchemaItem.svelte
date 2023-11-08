@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import {
@@ -13,7 +14,7 @@
 		Voicemail,
 		X
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 
 	export let selected: boolean = false
@@ -32,14 +33,19 @@
 	export let concurrency: boolean = false
 
 	const dispatch = createEventDispatcher()
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
-		'flex relative'
+		'flex relative',
+		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
 	style="width: 275px; height: 34px; background-color: {bgColor};"
 	on:click
@@ -140,22 +146,22 @@
 	</div>
 	{#if deletable}
 		<button
-			class="absolute -top-2 -right-2 rounded-full h-4 w-4 trash center-center text-primary
+			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary
 	border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
 	hover:border-red-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) =>
 				dispatch('delete', { event, id, type: modType })}
 		>
-			<X size={12} strokeWidth={2} />
+			<X class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
 
 		<button
-			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center text-primary
+			class="absolute -top-[10px] right-[35px] rounded-full h-[20px] w-[20px] trash center-center text-primary
 border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-blue-400 hover:text-white
 hover:border-blue-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 		>
-			<Move size={12} strokeWidth={2} />
+			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
 	{/if}
 </div>

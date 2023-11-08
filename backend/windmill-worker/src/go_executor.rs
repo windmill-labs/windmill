@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
+use serde_json::value::RawValue;
 use tokio::{
     fs::{DirBuilder, File},
     io::AsyncReadExt,
@@ -12,15 +13,16 @@ use windmill_common::{
     jobs::QueuedJob,
     utils::calculate_hash,
 };
-use windmill_parser_go::parse_go_imports;
+use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
+use windmill_queue::CanceledBy;
 
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        set_logs, write_file,
+        set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -33,6 +35,8 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     logs: &mut String,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -43,7 +47,7 @@ pub async fn handle_go_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
     let bin_path = if let Some(requirements) = requirements_o.clone() {
@@ -68,8 +72,6 @@ pub async fn handle_go_job(
         (false, false)
     };
 
-    let client = &client.get_authed().await;
-
     if !bin_exists {
         logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
         set_logs(logs, &job.id, db).await;
@@ -78,6 +80,8 @@ pub async fn handle_go_job(
             &job.id,
             inner_content,
             logs,
+            mem_peak,
+            canceled_by,
             job_dir,
             db,
             true,
@@ -90,7 +94,7 @@ pub async fn handle_go_job(
 
         logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
         set_logs(logs, &job.id, db).await;
-        create_args_and_out_file(client, job, job_dir).await?;
+        create_args_and_out_file(client, job, job_dir, db).await?;
         {
             let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
 
@@ -177,7 +181,8 @@ func Run(req Req) (interface{{}}, error){{
             }
         }
 
-        let build_go = Command::new(GO_PATH.as_str())
+        let mut build_go_cmd = Command::new(GO_PATH.as_str());
+        build_go_cmd
             .current_dir(job_dir)
             .env_clear()
             .env("PATH", PATH_ENV.as_str())
@@ -186,18 +191,21 @@ func Run(req Req) (interface{{}}, error){{
             .env("HOME", HOME_ENV.as_str())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
         handle_child(
             &job.id,
             db,
             logs,
-            build_go,
+            mem_peak,
+            canceled_by,
+            build_go_process,
             false,
             worker_name,
             &job.workspace_id,
             "go build",
             None,
+            false,
         )
         .await?;
 
@@ -211,11 +219,12 @@ func Run(req Req) (interface{{}}, error){{
         tokio::fs::copy(path, format!("{job_dir}/main")).await?;
         logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
         set_logs(logs, &job.id, db).await;
-        create_args_and_out_file(client, job, job_dir).await?;
+        create_args_and_out_file(client, job, job_dir, db).await?;
     }
 
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+    let client = &client.get_authed().await;
+
+    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -228,25 +237,29 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        Command::new(NSJAIL_PATH.as_str())
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut run_go = Command::new("./main");
+        let compiled_executable_name = "./main";
+        let mut run_go = Command::new(compiled_executable_name);
         run_go
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str());
@@ -258,21 +271,22 @@ func Run(req Req) (interface{{}}, error){{
             run_go.env("GOPROXY", goproxy);
         }
 
-        run_go
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+        run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
+        start_child_process(run_go, compiled_executable_name).await?
     };
     handle_child(
         &job.id,
         db,
         logs,
+        mem_peak,
+        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
         "go run",
         job.timeout,
+        false,
     )
     .await?;
     read_result(job_dir).await
@@ -296,10 +310,15 @@ async fn gen_go_mod(
     }
 }
 
+use std::fs::OpenOptions;
+use std::io::prelude::*;
+
 pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
     logs: &mut String,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     non_dep_job: bool,
@@ -310,25 +329,39 @@ pub async fn install_go_dependencies(
 ) -> error::Result<String> {
     if !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
-        let child = Command::new("go")
+        let mut child_cmd = Command::new(GO_PATH.as_str());
+        child_cmd
             .current_dir(job_dir)
             .args(vec!["mod", "init", "mymod"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
 
         handle_child(
             job_id,
             db,
             logs,
-            child,
+            mem_peak,
+            canceled_by,
+            child_process,
             false,
             worker_name,
             w_id,
             "go init",
             None,
+            false,
         )
         .await?;
+
+        for x in REQUIRE_PARSE.captures_iter(code) {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(format!("{job_dir}/go.mod"))
+                .unwrap();
+
+            writeln!(file, "require {}\n", &x[1])?;
+        }
     }
 
     let mut new_lockfile = false;
@@ -360,23 +393,28 @@ pub async fn install_go_dependencies(
     }
 
     let mod_command = if skip_tidy { "download" } else { "tidy" };
-    let child = Command::new(GO_PATH.as_str())
+    let mut child_cmd = Command::new(GO_PATH.as_str());
+    child_cmd
         .current_dir(job_dir)
         .env("GOPATH", GO_CACHE_DIR)
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+
     handle_child(
         job_id,
         db,
         logs,
-        child,
+        mem_peak,
+        canceled_by,
+        child_process,
         false,
         worker_name,
         &w_id,
         &format!("go {mod_command}"),
         None,
+        false,
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lockfile generation failed: {e:?}")))?;

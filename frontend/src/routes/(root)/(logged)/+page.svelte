@@ -31,7 +31,7 @@
 			? (window.location.hash?.replace('#', '') as Tab)
 			: 'workspace'
 
-	let subtab: 'flow' | 'script' | 'app' = 'app'
+	let subtab: 'flow' | 'script' | 'app' = 'script'
 
 	let filter: string = ''
 
@@ -182,7 +182,7 @@
 </Drawer>
 
 <div>
-	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4" />
 
@@ -194,7 +194,7 @@
 		<PageHeader title="Home">
 			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
 				{#if !$userStore?.operator}
-					<span class="text-sm text-secondary">Create a new:</span>
+					<span class="text-sm text-secondary">Create a</span>
 					<CreateActionsScript />
 					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}

@@ -1,4 +1,4 @@
-FROM debian:buster-slim as nsjail
+FROM debian:bookworm-slim as nsjail
 
 WORKDIR /nsjail
 
@@ -6,29 +6,29 @@ ARG nsjail=""
 
 RUN  if [ "$nsjail" = "true" ]; then apt-get -y update \
     && apt-get install -y \
-    bison=2:3.3.* \
+    bison=2:3.8.* \
     flex=2.6.* \
-    g++=4:8.3.* \
-    gcc=4:8.3.* \
-    git=1:2.20.* \
-    libprotobuf-dev=3.6.* \
-    libnl-route-3-dev=3.4.* \
-    make=4.2.* \
-    pkg-config=0.29-6 \
-    protobuf-compiler=3.6.*; fi
+    g++=4:12.2.* \
+    gcc=4:12.2.* \
+    git=1:2.39.* \
+    libprotobuf-dev=3.21.* \
+    libnl-route-3-dev=3.7.* \
+    make=4.3-4.1 \
+    pkg-config=1.8.* \
+    protobuf-compiler=3.21.*; fi
 
 
 RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
 RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
 
-FROM rust:slim-buster AS rust_base
+FROM rust:slim-bookworm AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl nodejs npm
+    curl nodejs
 
 RUN rustup component add rustfmt
 
@@ -87,7 +87,7 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM debian:buster-slim as downloader
+FROM debian:bookworm-slim as downloader
 
 ARG TARGETPLATFORM
 
@@ -96,12 +96,12 @@ SHELL ["/bin/bash", "-c"]
 RUN apt update -y
 RUN apt install -y unzip curl
 
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.36.2/deno-linux-arm64.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.36.2/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.38.0/deno-linux-arm64.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.38.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
 
 RUN unzip deno.zip && rm deno.zip
 
-FROM python:3.11.4-slim-buster
+FROM python:3.11.4-slim-bookworm
 
 ARG TARGETPLATFORM
 
@@ -164,6 +164,9 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+# go build is slower the first time it is ran, so we prewarm it in the build
+RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm &&  printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
+
 ENV TZ=Etc/UTC
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
@@ -177,7 +180,7 @@ RUN chmod 755 /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=oven/bun:0.8.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.0.8 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
@@ -187,6 +190,8 @@ RUN mkdir -p ${APP}
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 WORKDIR ${APP}
+
+RUN windmill cache
 
 EXPOSE 8000
 

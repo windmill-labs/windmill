@@ -791,6 +791,7 @@ CREATE TABLE public.script (
     envs character varying(1000)[],
     concurrent_limit integer,
     concurrency_time_window_s integer,
+    dedicated_worker boolean,
     CONSTRAINT proper_id CHECK (((path)::text ~ '^[ufg](\/[\w-]+){2,}$'::text))
 );
 

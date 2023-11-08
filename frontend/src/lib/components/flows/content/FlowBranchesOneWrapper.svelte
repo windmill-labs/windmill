@@ -16,6 +16,7 @@
 
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let noEditor: boolean
 
 	let value = flowModule.value as BranchOne
 	$: value = flowModule.value as BranchOne
@@ -23,8 +24,8 @@
 	let selected = 'early-stop'
 </script>
 
-<div class="h-full">
-	<FlowCard title="Run one branch">
+<div class="h-full" id="flow-editor-branch-one-wrapper">
+	<FlowCard {noEditor} title="Run one branch">
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
@@ -78,7 +79,7 @@
 									</TabContent>
 									<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
-											<FlowModuleSuspend bind:flowModule />
+											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
 										</div>
 									</TabContent>
 									<TabContent value="sleep" class="flex flex-col flex-1 h-full">

@@ -44,7 +44,7 @@ pub struct AuditLog {
 pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     username: &str,
-    operation: &str,
+    _operation: &str,
     action_kind: ActionKind,
     w_id: &str,
     _resource: Option<&str>,
@@ -59,8 +59,11 @@ pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     #[cfg(not(feature = "enterprise"))]
     let _resource: Option<&str> = Some("EE only");
 
+    #[cfg(not(feature = "enterprise"))]
+    let _operation: &str = "redacted";
+
     tracing::info!(
-        operation = operation,
+        operation = _operation,
         action_kind = ?action_kind,
         resource = _resource,
         parameters = %p_json,
@@ -75,7 +78,7 @@ pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     )
     .bind(w_id)
     .bind(username)
-    .bind(operation)
+    .bind(_operation)
     .bind(action_kind)
     .bind(_resource)
     .bind(p_json)

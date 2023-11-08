@@ -1,14 +1,13 @@
-import type { Schema } from '$lib/common'
 import {
 	JobService,
 	ScriptService,
 	type Flow,
 	type FlowModule,
 	type InputTransform,
-	type Job
+	type Job,
+	type RestartedFrom,
+	type OpenFlow
 } from '$lib/gen'
-import { inferArgs, loadSchemaFromPath } from '$lib/infer'
-import { loadSchemaFlow } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -70,7 +69,7 @@ export function evalValue(
 	return v
 }
 
-export function cleanInputs(flow: Flow | any): Flow {
+export function cleanInputs(flow: OpenFlow | any): OpenFlow & {tag?: string, ws_error_handler_muted?: boolean}{
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
@@ -89,59 +88,6 @@ export function cleanInputs(flow: Flow | any): Flow {
 	})
 
 	return newFlow
-}
-
-export async function loadSchemaFromModule(module: FlowModule): Promise<{
-	input_transforms: Record<string, InputTransform>
-	schema: Schema
-}> {
-	const mod = module.value
-
-	if (mod.type == 'rawscript' || mod.type === 'script' || mod.type === 'flow') {
-		let schema: Schema
-		if (mod.type === 'rawscript') {
-			schema = emptySchema()
-			await inferArgs(mod.language!, mod.content ?? '', schema)
-		} else if (mod.type == 'script' && mod.path && mod.path != '') {
-			schema = await loadSchemaFromPath(mod.path!, mod.hash)
-		} else if (mod.type == 'flow' && mod.path && mod.path != '') {
-			schema = await loadSchemaFlow(mod.path!)
-		} else {
-			return {
-				input_transforms: {},
-				schema: emptySchema()
-			}
-		}
-
-		const keys = Object.keys(schema?.properties ?? {})
-
-		let input_transforms = mod.input_transforms ?? {}
-
-		if (JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())) {
-			input_transforms = keys.reduce((accu, key) => {
-				let nv =
-					input_transforms[key] ??
-					(module.id == 'failure' && ['message', 'name'].includes(key)
-						? { type: 'javascript', expr: `error.${key}` }
-						: {
-								type: 'static',
-								value: undefined
-						  })
-				accu[key] = nv
-				return accu
-			}, {})
-		}
-
-		return {
-			input_transforms: input_transforms,
-			schema: schema ?? emptySchema()
-		}
-	}
-
-	return {
-		input_transforms: {},
-		schema: emptySchema()
-	}
 }
 
 export function getDefaultExpr(
@@ -164,15 +110,16 @@ export function jobsToResults(jobs: Job[]) {
 	})
 }
 
-export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
+export async function runFlowPreview(args: Record<string, any>, flow: OpenFlow & { tag?: string }, path: string, restartedFrom: RestartedFrom | undefined) {
 	const newFlow = flow
 	return await JobService.runFlowPreview({
 		workspace: get(workspaceStore) ?? '',
 		requestBody: {
 			args,
 			value: newFlow.value,
-			path: newFlow.path,
-			tag: newFlow.tag
+			path: path,
+			tag: newFlow.tag,
+			restarted_from: restartedFrom,
 		}
 	})
 }

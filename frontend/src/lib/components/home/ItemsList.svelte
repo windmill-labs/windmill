@@ -1,7 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Skeleton } from '$lib/components/common'
-	import ShareModal from '$lib/components/ShareModal.svelte'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AppService,
@@ -15,30 +14,29 @@
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import { Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
+	import TreeView from './TreeView.svelte'
 
 	export let filter = ''
 	export let subtab: 'flow' | 'script' | 'app' = 'script'
 
-	import AppRow from '$lib/components/common/table/AppRow.svelte'
-	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
-	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
-
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
-	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
-	import MoveDrawer from '../MoveDrawer.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
-	import RawAppRow from '../common/table/RawAppRow.svelte'
 	import { canWrite } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
-	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
+	import ContentSearch from '../ContentSearch.svelte'
+	import Drawer from '../common/drawer/Drawer.svelte'
+	import HighlightCode from '../HighlightCode.svelte'
+	import DrawerContent from '../common/drawer/DrawerContent.svelte'
+	import { groupItems } from './treeViewUtils'
+	import Item from './Item.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -63,15 +61,9 @@
 
 	let itemKind = ($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
 
-	let shareModal: ShareModal
-	let moveDrawer: MoveDrawer
-	let deploymentDrawer: DeployWorkspaceDrawer
-
 	let loading = true
 
 	let nbDisplayed = 30
-
-	export let deleteConfirmedCallback: (() => void) | undefined = undefined
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -254,6 +246,21 @@
 	$: items && resetScroll()
 
 	let archived = false
+	let treeView = false
+
+	let contentSearch: ContentSearch
+
+	let viewCodeDrawer: Drawer
+	let viewCodeTitle: string | undefined
+	let script: Script | undefined
+	async function showCode(path: string, summary: string) {
+		viewCodeTitle = summary || path
+		await viewCodeDrawer.openDrawer()
+		script = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path
+		})
+	}
 </script>
 
 <SearchItems
@@ -264,27 +271,25 @@
 	{opts}
 />
 
-<ShareModal
-	bind:this={shareModal}
-	on:change={() => {
-		loadScripts()
-		loadApps()
-		loadFlows()
-		loadRawApps()
+<Drawer
+	bind:this={viewCodeDrawer}
+	on:close={() => {
+		setTimeout(() => {
+			viewCodeTitle = undefined
+			script = undefined
+		}, 300)
 	}}
-/>
+>
+	<DrawerContent title={viewCodeTitle} on:close={viewCodeDrawer.closeDrawer}>
+		{#if script}
+			<HighlightCode language={script?.language} code={script?.content} />
+		{:else}
+			<Skeleton layout={[[40]]} />
+		{/if}
+	</DrawerContent>
+</Drawer>
 
-<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<MoveDrawer
-	bind:this={moveDrawer}
-	on:update={() => {
-		loadScripts()
-		loadApps()
-		loadFlows()
-		loadRawApps()
-	}}
-/>
-
+<ContentSearch bind:this={contentSearch} />
 <CenteredPage>
 	<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
 		<div class="flex justify-start">
@@ -348,6 +353,13 @@
 				</svg>
 			</button>
 		</div>
+		<Button
+			on:click={contentSearch?.open}
+			variant="border"
+			btnClasses="py-2.5"
+			size="xs"
+			color="light">Content&nbsp;<SearchCode size={16} /></Button
+		>
 	</div>
 	<div class="relative">
 		<ListFilters
@@ -360,8 +372,9 @@
 			<div class="mt-10" />
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse">
+			<div class="flex w-full flex-row-reverse gap-2">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 			</div>
 		{/if}
 	</div>
@@ -374,65 +387,54 @@
 			{/each}
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
-		{:else}
-			<div class="border rounded-md divide-y">
-				<!-- <VirtualList {items} let:item bind:start bind:end> -->
-				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
-					{#key item.summary}
-						{#key item.starred}
-							{#key item.has_draft}
-								{#if item.type == 'script'}
-									<ScriptRow
-										bind:deleteConfirmedCallback
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadScripts}
-										script={item}
-										{shareModal}
-										{moveDrawer}
-										{deploymentDrawer}
-									/>
-								{:else if item.type == 'flow'}
-									<FlowRow
-										bind:deleteConfirmedCallback
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadFlows}
-										flow={item}
-										{shareModal}
-										{moveDrawer}
-										{deploymentDrawer}
-									/>
-								{:else if item.type == 'app'}
-									<AppRow
-										bind:deleteConfirmedCallback
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadApps}
-										app={item}
-										{moveDrawer}
-										{shareModal}
-										{deploymentDrawer}
-									/>
-								{:else if item.type == 'raw_app'}
-									<RawAppRow
-										bind:deleteConfirmedCallback
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadRawApps}
-										app={item}
-										{moveDrawer}
-										{shareModal}
-										{deploymentDrawer}
-									/>
-								{/if}
-							{/key}
-						{/key}
-					{/key}
+		{:else if treeView}
+			{@const groupedItems = groupItems(items)}
+			<div class="border rounded-md">
+				{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
+					{#if item}
+						<TreeView
+							{item}
+							on:scriptChanged={loadScripts}
+							on:flowChanged={loadFlows}
+							on:appChanged={loadApps}
+							on:rawAppChanged={loadRawApps}
+							on:reload={() => {
+								loadScripts()
+								loadFlows()
+								loadApps()
+								loadRawApps()
+							}}
+							{showCode}
+						/>
+					{/if}
 				{/each}
-				<!-- </VirtualList> -->
 			</div>
-			{#if items && items?.length > 30}
+			{#if groupedItems.length > 30 && nbDisplayed < groupedItems.length}
+				<span class="text-xs"
+					>{nbDisplayed} root nodes out of {groupedItems.length}
+					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				>
+			{/if}
+		{:else}
+			<div class="border rounded-md">
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
+					<Item
+						{item}
+						on:scriptChanged={loadScripts}
+						on:flowChanged={loadFlows}
+						on:appChanged={loadApps}
+						on:rawAppChanged={loadRawApps}
+						on:reload={() => {
+							loadScripts()
+							loadFlows()
+							loadApps()
+							loadRawApps()
+						}}
+						{showCode}
+					/>
+				{/each}
+			</div>
+			{#if items && items?.length > 30 && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
@@ -441,29 +443,3 @@
 		{/if}
 	</div>
 </CenteredPage>
-
-<ConfirmationModal
-	open={Boolean(deleteConfirmedCallback)}
-	title="Remove"
-	confirmationText="Remove"
-	on:canceled={() => {
-		deleteConfirmedCallback = undefined
-	}}
-	on:confirmed={() => {
-		if (deleteConfirmedCallback) {
-			deleteConfirmedCallback()
-		}
-		deleteConfirmedCallback = undefined
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove it?</span>
-		<Alert type="info" title="Bypass confirmation">
-			<div>
-				You can press
-				<Badge color="dark-gray">SHIFT</Badge>
-				while removing to bypass confirmation.
-			</div>
-		</Alert>
-	</div>
-</ConfirmationModal>

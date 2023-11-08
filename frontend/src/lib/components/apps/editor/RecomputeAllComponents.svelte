@@ -2,13 +2,15 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
-	import type { AppViewerContext } from '../types'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { allItems } from '../utils'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
 
 	const { runnableComponents, app, initialized } = getContext<AppViewerContext>('AppViewerContext')
+	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
+
 	let loading: boolean = false
 	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
@@ -17,9 +19,15 @@
 
 	$: !firstLoad &&
 		$initialized.initializedComponents?.length ==
-			allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length &&
+			allItems($app.grid, $app.subgrids).length + ($app.hiddenInlineScripts?.length ?? 0) &&
 		refresh()
 	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
+
+	onMount(() => {
+		if (appEditorContext) {
+			appEditorContext.refreshComponents.set(refresh)
+		}
+	})
 
 	function onClick(stopAfterClear = true) {
 		if (timeout) {
@@ -58,7 +66,9 @@
 					return
 				}
 
-				return $runnableComponents?.[id]?.cb?.map((f) => f())
+				return $runnableComponents?.[id]?.cb?.map((f) =>
+					f().then(() => console.log('refreshed', id))
+				)
 			})
 			.filter(Boolean)
 
@@ -99,9 +109,15 @@
 	]
 </script>
 
-<!-- {allItems($app.grid, $app.subgrids)
+<!-- {$initialized.initializedComponents?.join(', ')} -->
+<!-- {allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length}
+{$initialized.initializedComponents}
+{allItems($app.grid, $app.subgrids)
 	.map((x) => x.id)
-	.filter((x) => !$initialized.initializedComponents?.includes(x))} -->
+	.filter((x) => !$initialized.initializedComponents?.includes(x))
+	.sort()
+	.join(', ')} -->
+<!-- {allItems($app.grid, $app.subgrids).map((x) => x.id)} -->
 
 <div class="flex items-center">
 	<Button

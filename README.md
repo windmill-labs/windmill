@@ -64,6 +64,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
     - [OAuth for self-hosting](#oauth-for-self-hosting)
     - [smtp for self-hosting](#smtp-for-self-hosting)
     - [Resource types](#resource-types)
+    - [Manually fetch latest Windmill binary](#manually-fetch-latest-windmill-binary)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
     - [only Frontend](#only-frontend)
@@ -85,7 +86,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
    shared on [WindmillHub](https://hub.windmill.dev).
    ![Step 3](./imgs/windmill-flow.png)
 
-4. Build complex UI on top of your scripts and flows.
+4. Build complex UIs on top of your scripts and flows.
    ![Step 4](./imgs/windmill-builder.png)
 
 Scripts and flows can also be triggered by a cron schedule '_/5 _ \* \* \*' or
@@ -211,7 +212,6 @@ compiling from source or using without a postgres super user, see
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/docker-compose.yml -o docker-compose.yml
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/Caddyfile -o Caddyfile
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/.env -o .env
-curl https://raw.githubusercontent.com/windmill-labs/windmill/main/oauth.json -o oauth.json
 
 docker compose up -d
 ```
@@ -227,11 +227,25 @@ From there, you can follow the setup app and create other users.
 We publish helm charts at:
 <https://github.com/windmill-labs/windmill-helm-charts>.
 
-### Postgres without superuser
+### Run from binaries
 
-If you do not want, or cannot (for instance, in AWS Aurora or Cloud sql) use a
-postgres superuser, you can run `./init-db-as-superuser.sql` to init the
-required users for Windmill.
+Each release includes the corresponding binaries for x86_64. You can simply
+download the latest `windmill` binary using the following set of bash commands.
+
+```bash
+BINARY_NAME='windmill-amd64' # or windmill-ee-amd64 for the enterprise edition
+LATEST_RELEASE=$(curl -L -s -H 'Accept: application/json' https://github.com/windmill-labs/windmill/releases/latest)
+LATEST_VERSION=$(echo $LATEST_RELEASE | sed -e 's/.*"tag_name":"\([^"]*\)".*/\1/')
+ARTIFACT_URL="https://github.com/windmill-labs/windmill/releases/download/$LATEST_VERSION/$BINARY_NAME"
+wget "$ARTIFACT_URL" -O windmill
+```
+
+### OAuth, SSO & SMTP
+
+Windmill Community Edition allows to configure the OAuth, SSO (including Google
+Workspace SSO, Microsoft/Azure and Okta) directly from the UI in the superadmin
+settings. Do note that there is a limit of 50 SSO users on the community
+edition.
 
 ### Commercial license
 
@@ -250,76 +264,6 @@ your current infrastructure to Windmill, support with tight SLA, and our global
 cache sync for high-performance/no dependency cache miss of cluster from 10+
 nodes to 200+ nodes.
 
-### OAuth for self-hosting
-
-To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
-the following format:
-
-```json
-{
-  "<client>": {
-    "id": "<CLIENT_ID>",
-    "secret": "<CLIENT_SECRET>",
-    "allowed_domains": ["windmill.dev"] //restrict a client OAuth login to some domains
-  }
-}
-```
-
-and mount it at `/usr/src/app/oauth.json`.
-
-The redirect url for the oauth clients is:
-`<instance_url>/user/login_callback/<client>`
-
-Even if you setup oauth, you will still want to **login as admin@windmill.dev /
-changeme** to setup your instance as a super-admin and give yourself admin
-rights.
-
-[The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
-
-To add more "connect an app" OAuth clients to the Windmill project, read the
-[Contributor's guide](https://www.windmill.dev/docs/misc/contributing). We
-welcome contributions!
-
-You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
-
-```json
-{
-  "<client>": {
-    "id": "<CLIENT_ID>",
-    "secret": "<CLIENT_SECRET>",
-    // To add a new OAuth2 IdP
-    "login_config": {
-      "auth_url": "<auth_endpoint>",
-      "token_url": "<token_endpoint>",
-      "userinfo_url": "<userinfo endpoint>",
-      "scopes": ["scope1", "scope2"],
-      "extra_params": "<if_needed>"
-    },
-    // To add a new OAuth2 Resource
-    "connect_config": {
-      "auth_url": "<auth_endpoint>",
-      "token_url": "<token_endpoint>",
-      "scopes": ["scope1", "scope2"],
-      "extra_params": "<if_needed>"
-    }
-  }
-}
-```
-
-### smtp for self-hosting
-
-For users to receive emails when you invite them to workspaces or add them to
-the instances using their emails, configure the SMTP env variables in the
-servers:
-
-```
-SMTP_FROM=noreply@windmill.dev
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=ruben@windmill.dev
-SMTP_PASSWORD=yourpasswordapp
-```
-
 ### Resource types
 
 You will also want to import all the approved resource types from
@@ -331,14 +275,13 @@ it being synced automatically everyday.
 | Environment Variable name                     | Default                                    | Description                                                                                                                                                                                        | Api Server/Worker/All |
 | --------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | DATABASE_URL                                  |                                            | The Postgres database url.                                                                                                                                                                         | All                   |
-| DISABLE_NSJAIL                                | true                                       | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
+| WORKER_GROUP                                  | default                                    | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
+| MODE                                          | standalone                                 | The mode if the binary. Possible values: standalone, worker, server                                                                                                                                | All                   |
 | SERVER_BIND_ADDR                              | 0.0.0.0                                    | IP Address on which to bind listening socket                                                                                                                                                       | Server                |
 | PORT                                          | 8000                                       | Exposed port                                                                                                                                                                                       | Server                |
-| NUM_WORKERS                                   | 1                                          | The number of worker per Worker instance (Set to 0 for API/Server instances, Set to 1 for normal workers, and > 1 for workers dedicated to native jobs)                                            | Worker                |
-| DISABLE_SERVER                                | false                                      | Disable the external API, operate as a worker only instance                                                                                                                                        | Worker                |
 | METRICS_ADDR                                  | None                                       | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
 | JSON_FMT                                      | false                                      | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
-| BASE_URL                                      | http://localhost:8000                      | The base url that is exposed publicly to access your instance                                                                                                                                      | Server                |
+| BASE_URL                                      | http://localhost:8000                      | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
 | TIMEOUT                                       | 60 _ 60 _ 24 \* 7 (1 week)                 | The maximum time of execution of a script. When reached, the job is failed as having timedout.                                                                                                     |
 | SCRIPT_TOKEN_EXPIRY                           | 900                                        | The default duration period of the ephemeral-token generated at the beginning of a script                                                                                                          | Worker                |
 | ZOMBIE_JOB_TIMEOUT                            | 30                                         | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
@@ -374,11 +317,13 @@ it being synced automatically everyday.
 | PIP_LOCAL_DEPENDENCIES                        | None                                       | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                   |                       |
 | ADDITIONAL_PYTHON_PATHS                       | None                                       | Specify python paths (separated by a :) to be appended to the PYTHONPATH of the python jobs. To be used with PIP_LOCAL_DEPENDENCIES to use python codebases within Windmill                        | Worker                |
 | INCLUDE_HEADERS                               | None                                       | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
+| NUM_WORKERS                                   | 1                                          | The number of worker per Worker instance (Set to 0 for API/Server instances, Set to 1 for normal workers, and > 1 for workers dedicated to native jobs)                                            | Worker                |
 | INSTANCE_EVENTS_WEBHOOK                       | None                                       | Webhook to notify of events such as new user added, signup/invite. Can hook back to windmill to send emails                                                                                        |
 | GLOBAL_CACHE_INTERVAL                         | 10\*60                                     | (Enterprise Edition only) Interval in seconds in between bucket sync of the cache. This interval \* 2 is the time at which you're guaranteed all the worker's caches are synced together.          | Worker                |
 | WORKER_TAGS                                   | 'deno,go,python3,bash,flow,hub,dependency' | The worker groups assigned to that workers                                                                                                                                                         | Worker                |
+| DEDICATED_WORKER                              | None                                       | Unique script to run on that worker. Has to be in the form of `<workspace>:<script_path>`                                                                                                            | Worker                |
 | CUSTOM_TAGS                                   | None                                       | The custom tags assignable to scripts.                                                                                                                                                             | Server                |
-| JOB_RETENTION_SECS                            | 60*60*24\*60 //60 days                     | The time in seconds after which jobs get deleted. Set to 0 or -1 to never delete                                                                                                                   |
+| JOB_RETENTION_SECS                            | 60*60*24\*60 //60 days                     | **Overriden by the instance settings UI** The time in seconds after which jobs get deleted. Set to 0 or -1 to never delete                                                                         |
 | WAIT_RESULT_FAST_POLL_INTERVAL_MS             | 50                                         | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_SLOW_POLL_INTERVAL_MS             | 200                                        | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_FAST_POLL_DURATION_SECS           | 2                                          | The duration of fast poll mode before switching to slow poll                                                                                                                                       | Server                |
@@ -395,12 +340,15 @@ it being synced automatically everyday.
 | SMTP_USERNAME                                 | None                                       | username for the smtp server to send invite emails                                                                                                                                                 | Server                |
 | SMTP_PASSWORD                                 | None                                       | password for the smtp server to send invite emails                                                                                                                                                 | Server                |
 | SMTP_TLS_IMPLICIT                             | false                                      | https://docs.rs/mail-send/latest/mail_send/struct.SmtpClientBuilder.html#method.implicit_tlsemails                                                                                                 | Server                |
-| CREATE_WORKSPACE_REQUIRE_SUPERADMIN           | false                                      | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
+| CREATE_WORKSPACE_REQUIRE_SUPERADMIN           | true                                       | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
 | GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE | None                                       | Path to a script to run when a root job fails. The script will be run in and from the admins workspace                                                                                             | Server                |
 | WHITELIST_ENVS                                | None                                       | List of envs variables, separated by a ',' that are whitelisted as being safe to passthrough the workers                                                                                           | Worker                |
 | SAML_METADATA                                 | None                                       | SAML Metadata URL to enable SAML SSO (EE only)                                                                                                                                                     | Server                |
 | SECRET_SALT                                   | None                                       | Secret Salt used for encryption and decryption of secrets. If defined, the secrets will not be decryptable unless the right salt is passed in, which is the case for the workers and the server    | Server + Worker       |
 | OPENAI_AZURE_BASE_PATH                        | None                                       | Azure OpenAI API base path (no trailing slash)                                                                                                                                                     | Server                |
+| DISABLE_EMBEDDING                             | false                                      | Disable local embedding search of hub scripts                                                                                                                                                      | Server                |
+| DISABLE_NSJAIL                                | true                                       | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
+| DISABLE_SERVER                                | false                                      | Disable the external API, operate as a worker only instance                                                                                                                                        | Worker                |
 
 ## Run a local dev setup
 

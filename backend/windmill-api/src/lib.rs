@@ -7,13 +7,13 @@
  */
 
 use crate::db::ApiAuthed;
+use crate::embeddings::load_embeddings_db;
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
-use crate::workers::ALL_TAGS;
 use crate::{
-    oauth2::{build_oauth_clients, SlackVerifier},
+    oauth2::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
@@ -25,9 +25,10 @@ use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use hyper::{http, Method};
-use mail_send::SmtpClientBuilder;
 use reqwest::Client;
+use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::{
@@ -36,22 +37,28 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::utils::rd_string;
+use windmill_common::worker::ALL_TAGS;
+use windmill_common::BASE_URL;
 
 use windmill_common::error::AppError;
 
 mod apps;
 mod audit;
 mod capture;
+mod configs;
 mod db;
 mod drafts;
+pub mod ee;
+pub mod embeddings;
 mod favorite;
 mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
 mod inputs;
+mod integration;
 pub mod jobs;
-mod oauth2;
+pub mod oauth2;
 mod openai;
 mod raw_apps;
 mod resources;
@@ -59,6 +66,7 @@ mod saml;
 mod schedule;
 mod scim;
 mod scripts;
+mod settings;
 mod static_assets;
 mod tracing_init;
 mod users;
@@ -71,16 +79,11 @@ mod workspaces;
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
-pub use users::delete_expired_items_perdiodically;
+pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
-pub const DEFAULT_BODY_LIMIT: usize = 2097152; // 2MB
 lazy_static::lazy_static! {
-    pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
-    pub static ref REQUEST_SIZE_LIMIT: usize = std::env::var("REQUEST_SIZE_LIMIT")
-    .ok()
-    .and_then(|x| x.parse::<usize>().ok())
-    .unwrap_or(DEFAULT_BODY_LIMIT);
+    pub static ref REQUEST_SIZE_LIMIT: Arc<RwLock<usize>> = Arc::new(RwLock::new(DEFAULT_BODY_LIMIT));
 
 
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
@@ -89,59 +92,18 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
-        static ref IS_SECURE: bool = BASE_URL.starts_with("https://");
+    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
-    pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
-        .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
-        .unwrap();
-
-    pub static ref SMTP_CLIENT: Option<SmtpClientBuilder<String>> = {
-        let smtp = parse_smtp();
-        if let Some(smtp) = smtp {
-            match smtp {
-                Ok(smtp) => Some(smtp),
-                Err(e) => {
-                    tracing::error!("SMTP is not configured correctly, emails will not be sent: {}", e);
-                    None
-                }
-            }
-        } else {
-            tracing::warn!("SMTP is not configured, emails will not be sent");
-            None
-        }
-    };
-
-    pub static ref SMTP_FROM: String = std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@getwindmill.com".to_string());
-
-    pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
-}
-
-pub fn parse_smtp() -> Option<windmill_common::error::Result<SmtpClientBuilder<String>>> {
-    let username = std::env::var("SMTP_USERNAME").ok();
-    let port = std::env::var("SMTP_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(587);
-    let password = std::env::var("SMTP_PASSWORD").ok();
-    let host = std::env::var("SMTP_HOST").ok();
-    let tls_implicit = std::env::var("SMTP_TLS_IMPLICIT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(false);
-
-    if username.is_some() && password.is_some() && host.is_some() {
-        let smtp = SmtpClientBuilder::new(host.unwrap(), port)
-            .implicit_tls(tls_implicit)
-            .credentials((username.unwrap(), password.unwrap()));
-        Some(Ok(smtp))
-    } else {
-        None
-    }
+    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
+        logins: HashMap::new(),
+        connects: HashMap::new(),
+        slack: None
+    }));
 }
 
 pub async fn run_server(
@@ -150,12 +112,15 @@ pub async fn run_server(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<u16>,
+    server_mode: bool,
 ) -> anyhow::Result<()> {
     if let Some(mut rsmq) = rsmq.clone() {
-        for tag in ALL_TAGS.clone() {
+        for tag in ALL_TAGS.read().await.iter() {
             let r =
                 rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
-            if r.is_ok() {
+            if let Err(e) = r {
+                tracing::info!("Redis queue {tag} could not be created: {e}");
+            } else {
                 tracing::info!("Redis queue {tag} created");
             }
         }
@@ -182,7 +147,9 @@ pub async fn run_server(
         .layer(Extension(auth_cache.clone()))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
-        .layer(DefaultBodyLimit::max(*REQUEST_SIZE_LIMIT));
+        .layer(DefaultBodyLimit::max(
+            REQUEST_SIZE_LIMIT.read().await.clone(),
+        ));
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
@@ -194,6 +161,12 @@ pub async fn run_server(
 
     #[cfg(not(feature = "enterprise"))]
     let sp_extension = (ServiceProviderExt(), SamlSsoLogin(None));
+
+    let embeddings_db = if server_mode {
+        Some(load_embeddings_db(&db))
+    } else {
+        None
+    };
 
     // build our application with a route
     let app = Router::new()
@@ -226,22 +199,33 @@ pub async fn run_server(
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/openai", openai::workspaced_service()),
+                        .nest("/openai", openai::workspaced_service())
+                        .nest(
+                            "/embeddings",
+                            embeddings::workspaced_service(embeddings_db.clone()),
+                        ),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
                     "/users",
                     users::global_service().layer(Extension(argon2.clone())),
                 )
-                .nest("/jobs", jobs::global_root_service())
+                .nest("/settings", settings::global_service())
                 .nest("/workers", workers::global_service())
+                .nest("/configs", configs::global_service())
                 .nest("/scripts", scripts::global_service())
+                .nest("/integrations", integration::global_service())
                 .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
+                .nest(
+                    "/embeddings",
+                    embeddings::global_service(embeddings_db.clone()),
+                )
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/saml",
                     saml::global_service().layer(Extension(Arc::new(sp_extension.0))),
@@ -283,15 +267,16 @@ pub async fn run_server(
 
     let instance_name = rd_string(5);
 
-    tracing::info!(addr = %addr.to_string(), instance = %instance_name, "server started listening");
     let server = axum::Server::bind(&addr).serve(app.into_make_service());
 
     let port = server.local_addr().port();
     tracing::info!(
+        instance = %instance_name,
         "server started on port={} and addr={}",
         port,
         server.local_addr().ip()
     );
+
     port_tx
         .send(server.local_addr().port())
         .expect("Failed to send port");
@@ -300,8 +285,6 @@ pub async fn run_server(
         rx.recv().await.ok();
         println!("Graceful shutdown of server");
     });
-
-    tokio::spawn(async move { auth_cache.monitor().await });
 
     server.await?;
     Ok(())
@@ -350,18 +333,15 @@ async fn ee_license() -> &'static str {
 
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
-    LICENSE_KEY
-        .as_ref()
-        .unwrap()
-        .split(".")
-        .next()
-        .unwrap()
-        .to_string()
+    use windmill_common::ee::LICENSE_KEY_ID;
+
+    LICENSE_KEY_ID.read().await.clone()
 }
 
 async fn openapi() -> &'static str {
     include_str!("../openapi-deref.yaml")
 }
+
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     db::migrate(db).await?;
     Ok(())

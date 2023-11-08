@@ -13,6 +13,15 @@
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
+	export async function openPreview() {
+		if (!previewOpen) {
+			previewOpen = true
+		} else {
+			flowPreviewContent?.test()
+		}
+	}
+
+	let flowPreviewContent: FlowPreviewContent
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
 
@@ -26,10 +35,15 @@
 			'settings-same-worker',
 			'settings-graph',
 			'settings-worker-group',
+			'settings-cache',
+			'settings-concurrency',
+			'settings-early-stop',
 			'inputs',
 			'schedules',
 			'failure',
-			'constants'
+			'constants',
+			'Result',
+			'Input'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
 </script>
@@ -46,8 +60,8 @@
 		}}
 		startIcon={{ icon: faPlay }}
 	>
-		Test up to
-		<Badge baseClass="ml-1" color="indigo">
+		Test up to&nbsp;
+		<Badge baseClass="ml-1" small color="indigo" wrapperClass="max-h-[15px]">
 			{$selectedId}
 		</Badge>
 	</Button>
@@ -61,12 +75,14 @@
 		previewOpen = !previewOpen
 	}}
 	startIcon={{ icon: faPlay }}
+	id="flow-editor-test-flow"
 >
 	Test flow
 </Button>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowPreviewContent
+		bind:this={flowPreviewContent}
 		open={previewOpen}
 		bind:previewMode
 		bind:job

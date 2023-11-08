@@ -7,11 +7,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import type { AppViewerContext, BaseAppComponent } from '../../types'
-	import {
-		appComponentFromType,
-		clearErrorByComponentId,
-		clearJobsByComponentId
-	} from '../appUtils'
+	import { appComponentFromType } from '../appUtils'
 	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import { Inspect, List, ToggleRightIcon } from 'lucide-svelte'
@@ -20,7 +16,7 @@
 		(ButtonComponent | CheckboxComponent | SelectComponent))[]
 	export let id: string
 
-	const { selectedComponent, app, errorByComponent, jobs } =
+	const { selectedComponent, app, errorByComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent(typ: 'buttoncomponent' | 'checkboxcomponent' | 'selectcomponent') {
@@ -37,19 +33,19 @@
 	function deleteComponent(cid: string) {
 		components = components.filter((x) => x.id !== cid)
 
-		$errorByComponent = clearErrorByComponentId(cid, $errorByComponent)
-		$jobs = clearJobsByComponentId(cid, $jobs)
+		delete $errorByComponent[cid]
 
 		$selectedComponent = [id]
 		$app = $app
 	}
 </script>
 
-<PanelSection title={`Table actions`}>
+<PanelSection title={`Table Actions`}>
 	{#if components.length == 0}
 		<span class="text-xs text-tertiary">No action buttons</span>
 	{/if}
 	{#each components as component}
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			class={classNames(
 				'w-full text-xs font-bold gap-1 truncate py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',

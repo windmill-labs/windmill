@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScriptService, FlowService, Script } from '$lib/gen'
 
-	import { hubScripts, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, onMount } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'
@@ -13,7 +13,7 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Code2, Globe } from 'lucide-svelte'
+	import { Code2 } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { faExternalLink, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -24,9 +24,8 @@
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
-	export let allowHub = false
-	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
-	export let kind: Script.kind = Script.kind.SCRIPT
+	export let itemKind: 'script' | 'flow' = 'script'
+	export let kinds: Script.kind[] = [Script.kind.SCRIPT]
 	export let disabled = false
 	export let allowRefresh = false
 
@@ -37,7 +36,6 @@
 	let lang: SupportedLanguage | undefined
 
 	let options: [[string, any, any, string | undefined]] = [['Script', 'script', Code2, undefined]]
-	allowHub && options.unshift(['Hub', 'hub', Globe, undefined])
 	allowFlow && options.push(['Flow', 'flow', FlowIcon, '#14b8a6'])
 	const dispatch = createEventDispatcher()
 
@@ -48,18 +46,12 @@
 				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`
 			}))
 		} else if (itemKind == 'script') {
-			items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind })).map(
-				(script) => ({
-					value: script.path,
-					label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
-				})
-			)
-		} else {
-			items =
-				$hubScripts?.map((x) => ({
-					value: x.path,
-					label: `${x.path}${x.summary ? ` | ${x.summary}` : ''}`
-				})) ?? []
+			items = (
+				await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kinds.join(',') })
+			).map((script) => ({
+				value: script.path,
+				label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
+			}))
 		}
 	}
 
@@ -105,10 +97,10 @@
 	{/if}
 
 	{#if disabled}
-		<input type="text" value={scriptPath} disabled />
+		<input type="text" value={scriptPath ?? ''} disabled />
 	{:else}
 		<Select
-			value={items.find((x) => x.value == initialPath)}
+			value={items?.find((x) => x.value == initialPath)}
 			class="grow shrink max-w-full"
 			on:change={() => {
 				dispatch('select', { path: scriptPath })

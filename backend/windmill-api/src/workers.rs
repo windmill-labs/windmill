@@ -12,69 +12,21 @@ use axum::{
     Json, Router,
 };
 
-use itertools::Itertools;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
     utils::{paginate, Pagination},
+    worker::ALL_TAGS,
 };
-
-use std::collections::HashMap;
-#[cfg(feature = "benchmark")]
-use std::sync::atomic::Ordering;
-#[cfg(feature = "benchmark")]
-use windmill_queue::IDLE_WORKERS;
 
 use crate::db::ApiAuthed;
 
-#[cfg(not(feature = "benchmark"))]
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_worker_pings))
         .route("/custom_tags", get(get_custom_tags))
-}
-
-#[cfg(feature = "benchmark")]
-pub fn global_service() -> Router {
-    Router::new()
-        .route("/toggle", get(toggle))
-        .route("/list", get(list_worker_pings))
-        .route("/custom_tags", get(get_custom_tags))
-}
-
-lazy_static::lazy_static! {
-    pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
-
-    pub static ref CUSTOM_TAGS_PER_WORKSPACE: (Vec<String>, HashMap<String, Vec<String>>) =  process_custom_tags(std::env::var("CUSTOM_TAGS")
-        .ok());
-
-    pub static ref ALL_TAGS: Vec<String> = [CUSTOM_TAGS_PER_WORKSPACE.0.clone(), CUSTOM_TAGS_PER_WORKSPACE.1.keys().map(|x| x.to_string()).collect_vec()].concat();
-
-}
-
-fn process_custom_tags(o: Option<String>) -> (Vec<String>, HashMap<String, Vec<String>>) {
-    let regex = Regex::new(r"^(\w+)\(((?:\w+)\+?)+\)$").unwrap();
-    if let Some(s) = o {
-        let mut global = vec![];
-        let mut specific: HashMap<String, Vec<String>> = HashMap::new();
-        for e in s.split(",") {
-            if let Some(cap) = regex.captures(e) {
-                let tag = cap.get(1).unwrap().as_str().to_string();
-                let workspaces = cap.get(2).unwrap().as_str().split("+");
-                specific.insert(tag, workspaces.map(|x| x.to_string()).collect_vec());
-            } else {
-                global.push(e.to_string());
-            }
-        }
-        (global, specific)
-    } else {
-        (vec![], HashMap::new())
-    }
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -86,6 +38,8 @@ struct WorkerPing {
     ip: String,
     jobs_executed: i32,
     custom_tags: Option<Vec<String>>,
+    worker_group: String,
+    wm_version: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -104,7 +58,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group, wm_version FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
         per_page as i64,
         offset as i64
     )
@@ -114,12 +68,6 @@ async fn list_worker_pings(
     Ok(Json(rows))
 }
 
-#[cfg(feature = "benchmark")]
-async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
-    IDLE_WORKERS.store(query.disable, Ordering::Relaxed);
-    Ok(Json(IDLE_WORKERS.load(Ordering::Relaxed)))
-}
-
 async fn get_custom_tags() -> Json<Vec<String>> {
-    Json(ALL_TAGS.clone())
+    Json(ALL_TAGS.read().await.clone().into())
 }

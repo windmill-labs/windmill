@@ -41,6 +41,7 @@
 	export let scroll = false
 	export let download = false
 	export let fullSize = false
+	export let disableAi = false
 
 	setContext<{ selectedId: Writable<string | undefined> }>('FlowGraphContext', { selectedId })
 
@@ -105,7 +106,6 @@
 					getParentIds(),
 					'Input',
 					modules,
-					'after',
 					undefined,
 					undefined,
 					0,
@@ -133,7 +133,6 @@
 					getParentIds(),
 					'Result',
 					undefined,
-					'before',
 					undefined,
 					undefined,
 					0,
@@ -331,10 +330,12 @@
 						insertable,
 						insertableEnd,
 						branchable,
+						duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
 						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
 						annotation,
 						modules,
-						moving
+						moving,
+						disableAi
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -379,8 +380,11 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration_total
-						? 'Iteration ' + flowModuleStates?.[module.id]?.iteration_total
+					flowModuleStates?.[module.id]?.iteration
+						? 'Iteration ' +
+								flowModuleStates?.[module.id]?.iteration +
+								'/' +
+								(flowModuleStates?.[module.id]?.iteration_total ?? '?')
 						: '',
 					loopDepth,
 					false,
@@ -395,7 +399,6 @@
 				getParentIds(loop.items),
 				`Do one iteration`,
 				innerModules,
-				'after',
 				undefined,
 				1000,
 				loopDepth + 1,
@@ -422,7 +425,6 @@
 				getParentIds(loop.items),
 				`Collect result of each iteration`,
 				modules,
-				'after',
 				undefined,
 				1000,
 				loopDepth,
@@ -463,7 +465,6 @@
 					branchParent,
 					'No branches',
 					undefined,
-					'after',
 					undefined,
 					0,
 					loopDepth,
@@ -483,7 +484,6 @@
 					branchParent,
 					summary,
 					modules,
-					'after',
 					edgesLabel[i],
 					undefined,
 					loopDepth,
@@ -518,7 +518,6 @@
 				bitems.map((i) => getParentIds(i)).flat(),
 				branchall ? 'Collect result of each branch' : 'Result of the chosen branch',
 				modules,
-				'after',
 				undefined,
 				0,
 				loopDepth,
@@ -650,7 +649,6 @@
 		parentIds: string[],
 		label: string,
 		modules: FlowModule[] | undefined,
-		whereInsert: 'before' | 'after' | undefined,
 		edgeLabel: string | undefined,
 		offset: number | undefined,
 		loopDepth: number,
@@ -687,11 +685,11 @@
 						selected: $selectedId == label,
 						index,
 						selectable,
-						whereInsert,
 						deleteBranch,
 						id: mid,
 						moving,
-						center
+						center,
+						disableAi
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {
@@ -736,7 +734,8 @@
 						selected: $selectedId == mod.id,
 						index: 0,
 						selectable: true,
-						id: mod.id
+						id: mod.id,
+						disableAi
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'select') {
@@ -766,7 +765,12 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
+<!-- {JSON.stringify(flowModuleStates)} -->
+<div
+	bind:clientWidth={width}
+	class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}
+	id="flow-graph"
+>
 	{#if !error}
 		{#if width && height}
 			{#key renderCount}

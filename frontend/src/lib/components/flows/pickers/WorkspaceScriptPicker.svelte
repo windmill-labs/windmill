@@ -29,7 +29,7 @@
 	$: $workspaceStore && kind && loadItems()
 
 	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind, isTemplate })
+		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kind, isTemplate })
 	}
 
 	let ownerFilter: string | undefined = undefined
@@ -95,7 +95,7 @@
 		{#if filter.length > 0 && filteredItems.length == 0}
 			<NoItemFound />
 		{/if}
-		<ul class="divide-y border rounded-md overflow-hidden">
+		<ul class="divide-y border rounded-md">
 			{#each filteredItems as { path, hash, summary, description, marked }}
 				<li class="flex flex-row w-full">
 					<button

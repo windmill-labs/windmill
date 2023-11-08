@@ -16,6 +16,7 @@
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
+	export let noEditor: boolean
 	export let summary: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
@@ -30,7 +31,7 @@
 	let filter = ''
 </script>
 
-<div class="p-4 h-full flex flex-col">
+<div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
 	{#if summary == 'Terminate flow'}
 		<Alert role="info" title="The flow stops here"
 			>This is an identity step with an early stop that has 'true' for expression</Alert
@@ -77,41 +78,59 @@
 				reuse. You can always save an inline script to your workspace later.
 			</Tooltip>
 		</h3>
+
+		{#if noEditor}
+			<div
+				class="py-0.5 text-2xs {summary == undefined || summary == ''
+					? 'text-red-600'
+					: 'text-ternary'}"
+				>Pick a summary first, it will be used to create a separate file whose name will be derived
+				from the summary</div
+			>
+			<input class="w-full" type="text" bind:value={summary} placeholder="Summary" />
+			<div class="pb-2" />
+		{/if}
 		<div class="flex flex-row">
-			<div class="flex flex-row flex-wrap gap-2">
+			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
 				<FlowScriptPicker
+					disabled={noEditor && (summary == undefined || summary == '')}
 					label="TypeScript (Deno)"
 					lang={Script.language.DENO}
 					on:click={() => {
 						dispatch('new', {
 							language: RawScript.language.DENO,
 							kind,
-							subkind: 'flow'
+							subkind: 'flow',
+							summary
 						})
 					}}
 				/>
 
 				<FlowScriptPicker
+					disabled={noEditor && (summary == undefined || summary == '')}
 					label="Python"
 					lang={Script.language.PYTHON3}
 					on:click={() => {
 						dispatch('new', {
 							language: RawScript.language.PYTHON3,
 							kind,
-							subkind: 'flow'
+							subkind: 'flow',
+							summary
 						})
 					}}
 				/>
 
 				{#if kind != 'approval'}
 					<FlowScriptPicker
+						disabled={noEditor && (summary == undefined || summary == '')}
 						label="Go"
 						lang={Script.language.GO}
 						on:click={() => {
 							dispatch('new', {
 								language: RawScript.language.GO,
 								kind,
-								subkind: 'flow'
+								subkind: 'flow',
+								summary
 							})
 						}}
 					/>
@@ -119,92 +138,107 @@
 
 				{#if kind == 'script'}
 					<FlowScriptPicker
+						disabled={noEditor && (summary == undefined || summary == '')}
 						label="Bash"
 						lang={Script.language.BASH}
 						on:click={() => {
 							dispatch('new', {
 								language: RawScript.language.BASH,
 								kind,
-								subkind: 'flow'
+								subkind: 'flow',
+								summary
 							})
 						}}
 					/>
 
 					<FlowScriptPicker
+						disabled={noEditor && (summary == undefined || summary == '')}
 						label="REST"
 						lang={Script.language.NATIVETS}
 						on:click={() => {
 							dispatch('new', {
 								language: RawScript.language.NATIVETS,
 								kind,
-								subkind: 'flow'
+								subkind: 'flow',
+								summary
 							})
 						}}
 					/>
 
 					{#if !failureModule}
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="PostgreSQL"
 							lang={Script.language.POSTGRESQL}
 							on:click={() => {
 								dispatch('new', {
 									language: RawScript.language.POSTGRESQL,
 									kind,
-									subkind: 'flow'
+									subkind: 'flow',
+									summary
 								})
 							}}
 						/>
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="MySQL"
 							lang={Script.language.MYSQL}
 							on:click={() => {
 								dispatch('new', {
 									language: RawScript.language.MYSQL,
 									kind,
-									subkind: 'flow'
+									subkind: 'flow',
+									summary
 								})
 							}}
 						/>
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="BigQuery"
 							lang={Script.language.BIGQUERY}
 							on:click={() => {
 								dispatch('new', {
 									language: RawScript.language.BIGQUERY,
 									kind,
-									subkind: 'flow'
+									subkind: 'flow',
+									summary
 								})
 							}}
 						/>
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="Snowflake"
 							lang={Script.language.SNOWFLAKE}
 							on:click={() => {
 								dispatch('new', {
 									language: RawScript.language.SNOWFLAKE,
 									kind,
-									subkind: 'flow'
+									subkind: 'flow',
+									summary
 								})
 							}}
 						/>
 
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="GraphQL"
 							lang={Script.language.GRAPHQL}
 							on:click={() => {
 								dispatch('new', {
 									language: RawScript.language.GRAPHQL,
 									kind,
-									subkind: 'flow'
+									subkind: 'flow',
+									summary
 								})
 							}}
 						/>
 
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label={`Docker`}
 							lang="docker"
 							on:click={() => {
-								if (isCloudHosted() || true) {
+								if (isCloudHosted()) {
 									sendUserToast(
 										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
 										true,
@@ -219,18 +253,25 @@
 									)
 									return
 								}
-								dispatch('new', { language: RawScript.language.BASH, kind, subkind: 'docker' })
+								dispatch('new', {
+									language: RawScript.language.BASH,
+									kind,
+									subkind: 'docker',
+									summary
+								})
 							}}
 						/>
 
 						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="PowerShell"
 							lang={Script.language.POWERSHELL}
 							on:click={() => {
 								dispatch('new', {
 									language: RawScript.language.POWERSHELL,
 									kind,
-									subkind: 'flow'
+									subkind: 'flow',
+									summary
 								})
 							}}
 						/>
@@ -245,13 +286,15 @@
 				{/if}
 
 				<FlowScriptPicker
+					disabled={noEditor && (summary == undefined || summary == '')}
 					label="TypeScript (Bun)"
 					lang={Script.language.BUN}
 					on:click={() => {
 						dispatch('new', {
 							language: RawScript.language.BUN,
 							kind,
-							subkind: 'flow'
+							subkind: 'flow',
+							summary
 						})
 					}}
 				/>

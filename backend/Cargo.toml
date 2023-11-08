@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.156.1"
+version = "1.202.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -11,7 +11,6 @@ members = [
     "./windmill-worker",
     "./windmill-common",
     "./windmill-audit",
-    "./windmill-api-client",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -22,7 +21,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.156.1"
+version = "1.202.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -36,7 +35,10 @@ incremental = true
 
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
-benchmark = ["windmill-api/benchmark"]
+benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
+flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
+loki = ["windmill-common/loki"]
+pg_embed = ["dep:pg-embed"]
 
 [dependencies]
 anyhow.workspace = true
@@ -44,7 +46,6 @@ tokio.workspace = true
 dotenv.workspace = true
 windmill-common = { workspace = true, features = ["tracing_init"] }
 windmill-api.workspace = true
-windmill-api-client.workspace = true
 windmill-worker.workspace = true
 futures.workspace = true
 tracing.workspace = true
@@ -53,7 +54,6 @@ tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true
-rsa.workspace = true
 base64.workspace = true
 sha2.workspace = true
 rsmq_async.workspace = true
@@ -63,6 +63,9 @@ once_cell.workspace = true
 prometheus.workspace = true
 uuid.workspace = true
 gethostname.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true} 
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -70,10 +73,11 @@ reqwest.workspace = true
 windmill-queue.workspace = true
 axum.workspace = true
 serde.workspace = true
+windmill-api-client.workspace = true
+
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api" }
-windmill-api-client = { path = "./windmill-api-client" }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common" }
@@ -86,6 +90,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
+windmill-api-client = { path = "./windmill-api-client" }
 
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"
@@ -95,7 +100,7 @@ tower = "^0"
 tower-http = { version = "^0", features = ["trace", "cors"] }
 tower-cookies = "^0"
 serde = "^1"
-serde_json = { version = "^1", features = ["preserve_order"] }
+serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^1"
 anyhow = "^1"
@@ -111,12 +116,12 @@ mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
-retainer = "^0"
+quick_cache = "^0"
 rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = "0.2.0"
+rustpython-parser = "0.3.0"
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
@@ -154,7 +159,9 @@ sqlx = { version = "^0", features = [
     "chrono",
     "postgres",
     "runtime-tokio-rustls",
+    "bigdecimal"
 ] }
+bigdecimal = "^0"
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
@@ -186,6 +193,13 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 samael = { version = "0.0.12", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
-rust_decimal = {version = "1.31.0", features = ["db-postgres"]}
+rust_decimal = { version = "^1", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
+nix = { version = "0.27.1", features = ["process", "signal"] }
+tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
+hf-hub = "0.3.2"
+tokenizers = "0.14.1"
+candle-core = "0.3.0"
+candle-transformers = "0.3.0"
+candle-nn = "0.3.0"

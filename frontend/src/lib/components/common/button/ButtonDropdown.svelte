@@ -29,13 +29,17 @@
 		<MenuButton
 			class={twMerge('h-full w-full flex flex-row gap-2 items-center', hasPadding ? 'px-2' : '')}
 		>
-			<slot name="label" />
-			<ChevronDown class="w-5 h-5" />
+			{#if $$slots.buttonReplacement}
+				<slot name="buttonReplacement" />
+			{:else}
+				<slot name="label" />
+				<ChevronDown class="w-5 h-5" />
+			{/if}
 		</MenuButton>
 	</span>
 
 	<Portal>
-		<div use:popperContent={popperOptions} class="z-[2000]">
+		<div use:popperContent={popperOptions} class="z-[6000]">
 			<Transition
 				show={open}
 				enter="transition ease-out duration-[25ms]"
