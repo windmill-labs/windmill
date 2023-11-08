@@ -840,8 +840,17 @@ pub async fn start_worker(
     ) = prepare_wrapper(job_dir, inner_content, script_path).await?;
 
     {
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
+        let indented_transforms = transforms
+            .lines()
+            .map(|x| format!("    {}", x))
+            .collect::<Vec<String>>()
+            .join("\n");
+        let indented_spread = spread
+            .lines()
+            .map(|x| format!("    {}", x))
+            .collect::<Vec<String>>()
+            .join("\n");
+
         let wrapper_content: String = format!(
             r#"
 import json
@@ -865,8 +874,8 @@ sys.stdout.write('start\n')
 for line in sys.stdin:
     kwargs = json.loads(line, strict=False)
     args = {{}}
-    {transforms}
-    {spread}
+{indented_transforms}
+{indented_spread}
     for k, v in list(args.items()):
         if v == '<function call>':
             del args[k]
