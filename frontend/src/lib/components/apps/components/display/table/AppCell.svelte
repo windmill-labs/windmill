@@ -3,6 +3,15 @@
 
 	export let type: 'text' | 'badge' | 'link' = 'text'
 	export let value: any
+
+	type LinkObject = {
+		href: string
+		label: string
+	}
+
+	function isLinkObject(value: any): value is LinkObject {
+		return value && typeof value === 'object' && 'href' in value && 'label' in value
+	}
 </script>
 
 {#if type === 'badge'}
@@ -10,7 +19,13 @@
 		{value}
 	</Badge>
 {:else if type === 'link'}
-	<a href={value} class="underline" target="_blank">{value}</a>
+	{#if isLinkObject(value)}
+		<a href={value.href} class="underline" target="_blank">
+			{value.label}
+		</a>
+	{:else}
+		<a href={value} class="underline" target="_blank">{value}</a>
+	{/if}
 {:else}
 	{value}
 {/if}
