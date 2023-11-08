@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Popup } from '../common'
+	import Alert from '../common/alert/Alert.svelte'
 	import Label from '../Label.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -52,5 +53,20 @@
 				<option value="link">Link</option>
 			</select>
 		</Label>
+
+		{#if column.type === 'link'}
+			<Alert type="info" title="Label" size="xs">
+				They are two ways to define a link:
+				<ul class="list-disc list-inside">
+					<li>
+						<strong>String</strong>: The string will be used as the link and the label.
+					</li>
+					<li>
+						<strong>Object</strong>: The object must have a <code>href</code> and a
+						<code>label</code> property.
+					</li>
+				</ul>
+			</Alert>
+		{/if}
 	</div>
 </Popup>
