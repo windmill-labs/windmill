@@ -21,8 +21,12 @@
 	export let component: AppComponent
 
 	$: if (disabledTabs == undefined) {
-		disabledTabs = []
+		disabledTabs = [
+			{ type: 'static', value: false, fieldType: 'boolean' },
+			{ type: 'static', value: false, fieldType: 'boolean' }
+		]
 	}
+
 	let items = tabs.map((tab, index) => {
 		return { value: tab, id: generateRandomString(), originalIndex: index }
 	})

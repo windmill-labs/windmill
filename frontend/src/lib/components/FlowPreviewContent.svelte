@@ -40,6 +40,10 @@
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
+	export function test() {
+		runPreview($previewArgs, undefined)
+	}
+
 	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()

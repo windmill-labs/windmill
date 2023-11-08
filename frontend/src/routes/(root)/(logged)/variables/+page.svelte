@@ -3,14 +3,17 @@
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Row from '$lib/components/table/Row.svelte'
 	import TableSimple from '$lib/components/TableSimple.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
@@ -19,17 +22,18 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
+	import { faCircle, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
 	import {
-		faChain,
-		faCircle,
-		faEdit,
-		faEyeSlash,
-		faFileExport,
-		faRefresh,
-		faShare,
-		faTrash
-	} from '@fortawesome/free-solid-svg-icons'
-	import { Building, DollarSign, Plus } from 'lucide-svelte'
+		Plus,
+		FileUp,
+		Link,
+		Pen,
+		RefreshCw,
+		Share,
+		Trash,
+		Building,
+		DollarSign
+	} from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
@@ -139,12 +143,13 @@
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
 				<DollarSign size={18} />
-				Contextual <Tooltip
+				Contextual
+				<Tooltip
 					documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
 				>
 					Contextual variables are passed as environment variables when running a script and depends
-					on the execution context.</Tooltip
-				>
+					on the execution context.
+				</Tooltip>
 			</div>
 		</Tab>
 	</Tabs>
@@ -152,41 +157,55 @@
 		<div class="pt-2">
 			<input placeholder="Search Variable" bind:value={filter} class="input mt-1" />
 		</div>
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-
+		<div class="min-h-[56px]">
+			<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		</div>
 		<div class="relative overflow-x-auto pb-40 pr-4">
 			{#if !filteredItems}
 				<Skeleton layout={[0.5, [2], 1]} />
 				{#each new Array(3) as _}
 					<Skeleton layout={[[3.5], 0.5]} />
 				{/each}
+			{:else if filteredItems.length == 0}
+				<div class="flex flex-col items-center justify-center h-full">
+					<div class="text-md font-medium">No variables found</div>
+					<div class="text-sm text-secondary">
+						Try changing the filters or creating a new variable
+					</div>
+				</div>
 			{:else}
-				<TableCustom>
-					<tr slot="header-row">
-						<th class="!px-0" />
-						<th>Path</th>
-						<th>Value</th>
-						<th>Description</th>
-						<th />
-						<th />
-					</tr>
-					<tbody slot="body">
+				<DataTable size="xs">
+					<Head>
+						<tr>
+							<Cell head first class="!px-0" />
+							<Cell head>Path</Cell>
+							<Cell head>Value</Cell>
+							<Cell head>Description</Cell>
+							<Cell head />
+							<Cell head last />
+						</tr>
+					</Head>
+					<tbody class="divide-y">
 						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
-							<tr>
-								<td class="!px-0 text-center">
+							<Row>
+								<Cell class="!px-0 text-center w-12" first>
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-								</td>
-								<td>
+								</Cell>
+								<Cell>
 									<a
 										class="break-all"
 										id="edit-{path}"
 										on:click={() => variableEditor.editVariable(path)}
 										href="#{path}"
 									>
-										{#if marked}{@html marked}{:else}{path}{/if}
+										{#if marked}
+											{@html marked}
+										{:else}
+											{path}
+										{/if}
 									</a>
-								</td>
-								<td>
+								</Cell>
+								<Cell>
 									<span class="inline-flex flex-row">
 										<span class="text-sm break-words">
 											{truncate(value ?? '****', 20)}
@@ -203,43 +222,39 @@
 											</Popover>
 										{/if}
 									</span>
-								</td>
-								<td class="break-words"
-									><span class="text-xs text-tertiary">{truncate(description ?? '', 50)}</span></td
-								>
+								</Cell>
+								<Cell class="break-words">
+									<span class="text-xs text-tertiary">{truncate(description ?? '', 50)} </span>
+								</Cell>
 
-								<td class="text-center">
-									<div class="flex flex-row">
-										<div class="w-10">
-											{#if is_linked}
-												<Popover notClickable>
-													<Icon data={faChain} />
-													<div slot="text">
-														This variable is linked with a resource of the same path. They are
-														deleted and renamed together.
-													</div>
-												</Popover>
-											{/if}
-										</div>
-										<div class="w-10">
-											{#if account}
-												<Popover notClickable>
-													<Icon data={faRefresh} />
-													<div slot="text">
-														This OAuth token will be kept up-to-date in the background by Windmill
-														using its refresh token
-													</div>
-												</Popover>
-											{/if}
-										</div>
+								<Cell class="text-center">
+									<div class="flex flex-row items-center gap-4">
+										{#if is_linked}
+											<Popover notClickable>
+												<Link size={16} />
+												<div slot="text">
+													This variable is linked with a resource of the same path. They are deleted
+													and renamed together.
+												</div>
+											</Popover>
+										{/if}
+										{#if account}
+											<Popover notClickable>
+												<RefreshCw size={16} />
+												<div slot="text">
+													This OAuth token will be kept up-to-date in the background by Windmill
+													using its refresh token
+												</div>
+											</Popover>
+										{/if}
 
 										{#if is_refreshed}
-											<div class="w-10">
+											<div class="">
 												{#if refresh_error}
 													<Popover notClickable>
-														<span class="flex h-4 w-4">
+														<div class="relative inline-flex justify-center items-center w-4 h-4">
 															<Icon
-																class="text-red-600 animate-ping absolute inline-flex "
+																class="text-red-600 animate-ping absolute z-50 w-4 h-4"
 																data={faCircle}
 																scale={0.7}
 																label="Error during exchange of the refresh token"
@@ -250,7 +265,8 @@
 																scale={0.7}
 																label="Error during exchange of the refresh token"
 															/>
-														</span>
+														</div>
+
 														<div slot="text">
 															Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 														</div>
@@ -285,25 +301,24 @@
 											</div>
 										{/if}
 									</div>
-								</td>
-								<td>
+								</Cell>
+								<Cell last shouldStopPropagation>
 									<Dropdown
-										placement="bottom-end"
-										dropdownItems={() => {
+										items={() => {
 											let owner = isOwner(path, $userStore, $workspaceStore)
 											return [
 												{
 													displayName: 'Edit',
-													icon: faEdit,
+													icon: Pen,
 													action: () => variableEditor.editVariable(path),
 													disabled: !canWrite
 												},
 												{
 													displayName: 'Delete',
-													icon: faTrash,
+													icon: Trash,
 													type: 'delete',
 													action: (event) => {
-														if (event?.shiftKey) {
+														if (event['shiftKey']) {
 															deleteVariable(path, account)
 														} else {
 															deleteConfirmedCallback = () => {
@@ -315,7 +330,7 @@
 												},
 												{
 													displayName: 'Deploy to prod/staging',
-													icon: faFileExport,
+													icon: FileUp,
 													action: () => {
 														deploymentDrawer.openDrawer(path, 'variable')
 													}
@@ -325,13 +340,13 @@
 													action: () => {
 														shareModal.openDrawer(path, 'variable')
 													},
-													icon: faShare
+													icon: Share
 												},
 												...(account != undefined
 													? [
 															{
 																displayName: 'Refresh token',
-																icon: faRefresh,
+																icon: RefreshCw,
 																action: async () => {
 																	await OauthService.refreshToken({
 																		workspace: $workspaceStore ?? '',
@@ -349,11 +364,11 @@
 											]
 										}}
 									/>
-								</td>
-							</tr>
+								</Cell>
+							</Row>
 						{/each}
 					</tbody>
-				</TableCustom>
+				</DataTable>
 			{/if}
 		</div>
 	{:else if tab == 'contextual'}

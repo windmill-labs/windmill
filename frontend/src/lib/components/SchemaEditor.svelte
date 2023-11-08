@@ -97,14 +97,21 @@
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
 		modalProperty.name = modalProperty.name.trim()
+
 		if (modalProperty.name.length === 0) {
 			argError = 'Arguments need to have a name'
 		} else if (
-			Object.keys(schema.properties).includes(modalProperty.name) &&
+			Object.keys(schema.properties ?? {}).includes(modalProperty.name) &&
 			(!editing || (editing && oldArgName && oldArgName !== modalProperty.name))
 		) {
 			argError = 'There is already an argument with this name'
 		} else {
+			if (!schema.properties) {
+				schema.properties = {}
+			}
+			if (!schema.required) {
+				schema.required = []
+			}
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
 				if (!schema.required.includes(modalProperty.name)) {
@@ -126,6 +133,7 @@
 
 			schemaModal.closeDrawer()
 		}
+
 		schema = schema
 		syncOrders()
 		schemaString = JSON.stringify(schema, null, '\t')

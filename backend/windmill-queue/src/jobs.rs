@@ -524,7 +524,14 @@ pub async fn add_completed_job<
             );
         }
 
-        if let Err(e) = send_error_to_workspace_handler(rsmq.clone(), &queued_job, canceled_by.is_some(), db, result).await
+        if let Err(e) = send_error_to_workspace_handler(
+            rsmq.clone(),
+            &queued_job,
+            canceled_by.is_some(),
+            db,
+            result,
+        )
+        .await
         {
             tracing::error!(
                 "Could not run workspace error handler for job {}: {}",
@@ -2623,7 +2630,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     )
     .fetch_one(&mut tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {

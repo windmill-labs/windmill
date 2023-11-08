@@ -13,6 +13,15 @@
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
+	export async function openPreview() {
+		if (!previewOpen) {
+			previewOpen = true
+		} else {
+			flowPreviewContent?.test()
+		}
+	}
+
+	let flowPreviewContent: FlowPreviewContent
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
 
@@ -73,6 +82,7 @@
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowPreviewContent
+		bind:this={flowPreviewContent}
 		open={previewOpen}
 		bind:previewMode
 		bind:job
