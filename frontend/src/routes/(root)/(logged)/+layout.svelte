@@ -9,13 +9,21 @@
 		OpenAPI,
 		RawAppService,
 		ScriptService,
-		UserService
+		UserService,
+		WorkspaceService
 	} from '$lib/gen'
 	import { classNames } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
-	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		premiumStore,
+		starStore,
+		superadmin,
+		usageStore,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -26,6 +34,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
+	import { getUserExt } from '$lib/user'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -48,6 +57,25 @@
 		userSettings.openDrawer()
 	} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
 		superadminSettings.openDrawer()
+	}
+
+	$: updateUserStore($workspaceStore)
+
+	async function updateUserStore(workspace: string | undefined) {
+		if (workspace) {
+			try {
+				localStorage.setItem('workspace', String(workspace))
+			} catch (e) {
+				console.error('Could not persist workspace to local storage', e)
+			}
+			const user = await getUserExt(workspace)
+			userStore.set(user)
+			if (isCloudHosted() && user?.is_admin) {
+				premiumStore.set(await WorkspaceService.getPremiumInfo({ workspace }))
+			}
+		} else {
+			userStore.set(undefined)
+		}
 	}
 
 	beforeNavigate(() => {
