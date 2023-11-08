@@ -7,7 +7,7 @@
 	export let id: string
 	export let field: RichConfiguration
 
-	let disablable = !(field?.type === 'static' && field?.value === false)
+	let disablable = field && !(field?.type === 'static' && field?.value === false)
 </script>
 
 <Toggle
