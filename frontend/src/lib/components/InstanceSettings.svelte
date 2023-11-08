@@ -191,8 +191,8 @@
 						<div>
 							<h4 class="pb-4">SSO</h4>
 							{#if !$enterpriseLicense}
-								<Alert type="warning" title="Limited to 50 SSO users">
-									Without EE, the number of SSO users is limited to 50. SCIM/SAML is available on EE
+								<Alert type="warning" title="Limited to 10 SSO users">
+									Without EE, the number of SSO users is limited to 10. SCIM/SAML is available on EE
 								</Alert>
 							{/if}
 
