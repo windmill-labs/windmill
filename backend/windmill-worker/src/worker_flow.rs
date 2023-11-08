@@ -2260,24 +2260,59 @@ async fn compute_next_flow_transform(
                     }
                     let modules = (*modules).clone();
                     let inner_path = Some(format!("{}/loop-{}", flow_job.script_path(), ns.index));
-                    let continue_payload = ContinuePayload::SingleJob(JobPayloadWithTag {
-                        payload: JobPayload::RawFlow {
-                            value: FlowValue {
-                                modules,
-                                failure_module: fm,
-                                same_worker: flow.same_worker,
-                                concurrent_limit: None,
-                                concurrency_time_window_s: None,
-                                skip_expr: None,
-                                cache_ttl: None,
-                                ws_error_handler_muted: None,
-                                priority: None,
+                    let continue_payload = if is_simple {
+                        let payload = match &modules[0].value {
+                            FlowModuleValue::Flow { path, .. } => flow_to_payload(path),
+                            FlowModuleValue::Script {
+                                path: script_path,
+                                hash: script_hash,
+                                ..
+                            } => {
+                                script_to_payload(script_hash, script_path, db, flow_job, module)
+                                    .await?
+                            }
+                            FlowModuleValue::RawScript {
+                                path,
+                                content,
+                                language,
+                                lock,
+                                tag,
+                                concurrent_limit,
+                                concurrency_time_window_s,
+                                ..
+                            } => raw_script_to_payload(
+                                path.clone().or(inner_path),
+                                content,
+                                language,
+                                lock,
+                                concurrent_limit,
+                                concurrency_time_window_s,
+                                module,
+                                tag,
+                            ),
+                            _ => unreachable!("is simple flow"),
+                        };
+                        ContinuePayload::SingleJob(payload)
+                    } else {
+                        ContinuePayload::SingleJob(JobPayloadWithTag {
+                            payload: JobPayload::RawFlow {
+                                value: FlowValue {
+                                    modules,
+                                    failure_module: fm,
+                                    same_worker: flow.same_worker,
+                                    concurrent_limit: None,
+                                    concurrency_time_window_s: None,
+                                    skip_expr: None,
+                                    cache_ttl: None,
+                                    ws_error_handler_muted: None,
+                                    priority: None,
+                                },
+                                path: inner_path,
+                                restarted_from: None,
                             },
-                            path: inner_path,
-                            restarted_from: None,
-                        },
-                        tag: None,
-                    });
+                            tag: None,
+                        })
+                    };
                     Ok(NextFlowTransform::Continue(
                         continue_payload,
                         NextStatus::NextLoopIteration(ns),
