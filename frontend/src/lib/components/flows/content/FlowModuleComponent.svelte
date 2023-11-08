@@ -120,7 +120,6 @@
 		}
 	}
 
-	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = undefined
 	async function reload(flowModule: FlowModule) {
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
@@ -315,7 +314,6 @@
 										error={failureModule}
 									>
 										<InputTransformSchemaForm
-											bind:this={inputTransformSchemaForm}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											previousModuleId={previousModule?.id}
 											bind:args={flowModule.value.input_transforms}
