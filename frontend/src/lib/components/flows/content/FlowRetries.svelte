@@ -3,6 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { SecondsInput } from '$lib/components/common'
+	import Section from '$lib/components/Section.svelte'
 
 	export let flowModule: FlowModule
 
@@ -32,123 +33,124 @@
 </script>
 
 <div class="h-full flex flex-col {$$props.class ?? ''}">
-	<h2>
-		Retries
-		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/retries">
-			If defined, upon error this step will be retried with a delay and a maximum number of attempts
-			as defined below.
-		</Tooltip>
-	</h2>
+	<Section label="Retries">
+		<svelte:fragment slot="header">
+			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/retries">
+				If defined, upon error this step will be retried with a delay and a maximum number of
+				attempts as defined below.
+			</Tooltip>
+		</svelte:fragment>
 
-	<div class="flex h-[calc(100%-22px)]">
-		<div class="w-1/2 h-full overflow-auto pr-2">
-			<div class="pt-4">
-				<Toggle
-					checked={isConstantRetryEnabled}
-					on:change={() => {
-						if (isConstantRetryEnabled && flowModule.retry?.constant) {
-							flowModule.retry.constant = undefined
-							if (!isExponentialRetryEnabled) {
-								flowModule.retry = undefined
+		<div class="flex h-[calc(100%-22px)]">
+			<div class="w-1/2 h-full overflow-auto pr-2">
+				<div class="pt-4">
+					<Toggle
+						checked={isConstantRetryEnabled}
+						on:change={() => {
+							if (isConstantRetryEnabled && flowModule.retry?.constant) {
+								flowModule.retry.constant = undefined
+								if (!isExponentialRetryEnabled) {
+									flowModule.retry = undefined
+								}
+							} else {
+								setConstantRetries()
 							}
-						} else {
-							setConstantRetries()
-						}
-					}}
-					options={{
-						right: 'Constant retry enabled'
-					}}
-				/>
-			</div>
-			{#if flowModule.retry?.constant}
-				<div class="text-xs font-bold !mt-2">Attempts</div>
-				<input bind:value={flowModule.retry.constant.attempts} type="number" />
-				<div class="text-xs font-bold !mt-2">Delay</div>
-				<SecondsInput bind:seconds={flowModule.retry.constant.seconds} />
-			{:else}
-				<div class="text-xs font-bold !mt-2">Attempts</div>
-				<input type="number" disabled />
-				<div class="text-xs font-bold !mt-2">Delay</div>
-				<SecondsInput disabled />
-			{/if}
-			<div class="pt-6">
-				<Toggle
-					checked={isExponentialRetryEnabled}
-					on:change={() => {
-						if (isExponentialRetryEnabled && flowModule.retry?.exponential) {
-							flowModule.retry.exponential = undefined
-							if (!isConstantRetryEnabled) {
-								flowModule.retry = undefined
-							}
-						} else {
-							setExpoentialRetries()
-						}
-					}}
-					options={{
-						right: 'Exponential backoff enabled'
-					}}
-				/>
-			</div>
-			{#if flowModule.retry?.exponential}
-				<div class="text-xs font-bold !mt-2">Attempts</div>
-				<input bind:value={flowModule.retry.exponential.attempts} type="number" />
-				<div class="text-xs font-bold !mt-2">Mulitplier</div>
-				<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
-				<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
-				<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
-				<input bind:value={flowModule.retry.exponential.seconds} type="number" step="1" />
-			{:else}
-				<div class="text-xs font-bold !mt-2">Attempts</div>
-				<input type="number" disabled />
-				<div class="text-xs font-bold !mt-2">Mulitplier</div>
-				<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
-				<input type="number" disabled />
-				<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
-				<input type="number" disabled />
-			{/if}
-		</div>
-		<div class="w-1/2 h-full overflow-auto pl-2">
-			{#if true}
-				{@const { attempts: cAttempts, seconds: cSeconds } = flowModule.retry?.constant || {}}
-				{@const {
-					attempts: eAttempts,
-					seconds: eSeconds,
-					multiplier
-				} = flowModule.retry?.exponential || {}}
-				{@const cArray = Array.from({ length: cAttempts || 0 }, () => cSeconds)}
-				{@const eArray = Array.from(
-					{ length: eAttempts || 0 },
-					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
-				)}
-				{@const array = [...cArray, ...eArray]}
-				<div class="bg-surface-secondary border rounded px-4 py-2">
-					<div class="text-xs font-medium mb-2">Retry attempts</div>
-					{#if array.length > 0}
-						<table class="text-xs">
-							<tr>
-								<td class="font-semibold pr-1 pb-1">1:</td>
-								<td class="pb-1">After {array[0]} second{array[0] === 1 ? '' : 's'}</td>
-							</tr>
-							{#each array.slice(1) as delay, i}
-								{@const index = i + 2}
-								<tr>
-									<td class="font-semibold pr-1 align-top">{index}:</td>
-									<td class="pb-1 whitespace-nowrap">
-										{delay} second{delay === 1 ? '' : 's'} after attempt #{index - 1}
-										{#if i > cArray.length - 2}
-											<span class="text-gray-400 pl-2">
-												({multiplier} * {eSeconds}<sup>{index}</sup>)
-											</span>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</table>
-					{:else}
-						<div class="text-xs">No retries</div>
-					{/if}
+						}}
+						options={{
+							right: 'Constant retry enabled'
+						}}
+					/>
 				</div>
-			{/if}
+				{#if flowModule.retry?.constant}
+					<div class="text-xs font-bold !mt-2">Attempts</div>
+					<input bind:value={flowModule.retry.constant.attempts} type="number" />
+					<div class="text-xs font-bold !mt-2">Delay</div>
+					<SecondsInput bind:seconds={flowModule.retry.constant.seconds} />
+				{:else}
+					<div class="text-xs font-bold !mt-2">Attempts</div>
+					<input type="number" disabled />
+					<div class="text-xs font-bold !mt-2">Delay</div>
+					<SecondsInput disabled />
+				{/if}
+				<div class="pt-6">
+					<Toggle
+						checked={isExponentialRetryEnabled}
+						on:change={() => {
+							if (isExponentialRetryEnabled && flowModule.retry?.exponential) {
+								flowModule.retry.exponential = undefined
+								if (!isConstantRetryEnabled) {
+									flowModule.retry = undefined
+								}
+							} else {
+								setExpoentialRetries()
+							}
+						}}
+						options={{
+							right: 'Exponential backoff enabled'
+						}}
+					/>
+				</div>
+				{#if flowModule.retry?.exponential}
+					<div class="text-xs font-bold !mt-2">Attempts</div>
+					<input bind:value={flowModule.retry.exponential.attempts} type="number" />
+					<div class="text-xs font-bold !mt-2">Mulitplier</div>
+					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
+					<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
+					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
+					<input bind:value={flowModule.retry.exponential.seconds} type="number" step="1" />
+				{:else}
+					<div class="text-xs font-bold !mt-2">Attempts</div>
+					<input type="number" disabled />
+					<div class="text-xs font-bold !mt-2">Mulitplier</div>
+					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
+					<input type="number" disabled />
+					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
+					<input type="number" disabled />
+				{/if}
+			</div>
+			<div class="w-1/2 h-full overflow-auto pl-2">
+				{#if true}
+					{@const { attempts: cAttempts, seconds: cSeconds } = flowModule.retry?.constant || {}}
+					{@const {
+						attempts: eAttempts,
+						seconds: eSeconds,
+						multiplier
+					} = flowModule.retry?.exponential || {}}
+					{@const cArray = Array.from({ length: cAttempts || 0 }, () => cSeconds)}
+					{@const eArray = Array.from(
+						{ length: eAttempts || 0 },
+						(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
+					)}
+					{@const array = [...cArray, ...eArray]}
+					<div class="bg-surface-secondary border rounded px-4 py-2">
+						<div class="text-xs font-medium mb-2">Retry attempts</div>
+						{#if array.length > 0}
+							<table class="text-xs">
+								<tr>
+									<td class="font-semibold pr-1 pb-1">1:</td>
+									<td class="pb-1">After {array[0]} second{array[0] === 1 ? '' : 's'}</td>
+								</tr>
+								{#each array.slice(1) as delay, i}
+									{@const index = i + 2}
+									<tr>
+										<td class="font-semibold pr-1 align-top">{index}:</td>
+										<td class="pb-1 whitespace-nowrap">
+											{delay} second{delay === 1 ? '' : 's'} after attempt #{index - 1}
+											{#if i > cArray.length - 2}
+												<span class="text-gray-400 pl-2">
+													({multiplier} * {eSeconds}<sup>{index}</sup>)
+												</span>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</table>
+						{:else}
+							<div class="text-xs">No retries</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
 		</div>
-	</div>
+	</Section>
 </div>
