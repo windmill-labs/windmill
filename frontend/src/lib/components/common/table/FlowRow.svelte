@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -15,7 +15,18 @@
 	import { sendUserToast } from '$lib/toast'
 	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { Pen, GitFork, Trash, List, FileUp, Globe, Calendar, Share, Archive } from 'lucide-svelte'
+	import {
+		Pen,
+		GitFork,
+		Trash,
+		List,
+		FileUp,
+		Globe,
+		Calendar,
+		Share,
+		Archive,
+		Clipboard
+	} from 'lucide-svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -114,8 +125,7 @@
 		</span>
 
 		<Dropdown
-			placement="bottom-end"
-			dropdownItems={() => {
+			items={() => {
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				if (draft_only) {
 					return [
@@ -123,6 +133,7 @@
 							displayName: 'Delete',
 							icon: Trash,
 							action: (event) => {
+								// @ts-ignore
 								if (event?.shiftKey) {
 									deleteFlow(path)
 								} else {
@@ -174,7 +185,7 @@
 						displayName: 'Schedule',
 						icon: Calendar,
 						action: () => {
-							scheduleEditor.openNew(true, path)
+							scheduleEditor?.openNew(true, path)
 						},
 						disabled: archived
 					},
@@ -216,6 +227,7 @@
 						displayName: 'Delete',
 						icon: Trash,
 						action: (event) => {
+							// @ts-ignore
 							if (event?.shiftKey) {
 								deleteFlow(path)
 							} else {

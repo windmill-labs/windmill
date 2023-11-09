@@ -37,7 +37,7 @@
 	{#if funcDesc.length === 0}
 		<div class="font-mono divide-y text-xs w-full text-secondary whitespace-nowrap">
 			<button
-				class="w-full text-left py-2 px-3 hover:bg-surface-hover"
+				class="w-full text-left py-2 px-3 hover:bg-surface-hover flex flex-row items-center gap-2"
 				on:pointerdown={() => {
 					close()
 					dispatch('new', 'trigger')
@@ -45,7 +45,7 @@
 				role="menuitem"
 				tabindex="-1"
 			>
-				<Zap size={14} class="mr-2" />$ Trigger
+				<Zap size={14} />Trigger
 			</button>
 		</div>
 	{/if}

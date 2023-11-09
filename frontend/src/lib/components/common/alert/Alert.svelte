@@ -57,7 +57,7 @@
 >
 	<div class="flex">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
-			<svelte:component this={icons[type]} class={classes[type].iconClass} />
+			<svelte:component this={icons[type]} class={classes[type].iconClass} size={16} />
 		</div>
 
 		<div class="ml-2 w-full">

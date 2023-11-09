@@ -55,7 +55,7 @@
 	size="xs"
 	on:click={toggleErrorHandler}
 	color="light"
-	endIcon={{
+	startIcon={{
 		icon: errorHandlerMuted === undefined || !errorHandlerMuted ? Bell : BellOff
 	}}
 	{iconOnly}
@@ -73,5 +73,5 @@
 			{/if}
 		</div>
 	{/if}
+	<Tooltip>Disable workspace error handler, EE only</Tooltip>
 </Button>
-<Tooltip>Disable workspace error handler, EE only</Tooltip>

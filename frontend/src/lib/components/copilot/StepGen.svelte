@@ -98,7 +98,10 @@
 				placeholder="AI Gen       or search hub {trigger ? 'triggers' : 'scripts'}"
 			/>
 			{#if funcDesc.length === 0}
-				<Wand2 size={14} />
+				<Wand2
+					size={14}
+					class="absolute left-[65px] qhd:left-[75px] top-[18px] qhd:top-[20px] fill-current opacity-70"
+				/>
 			{/if}
 		</div>
 		{#if funcDesc.length > 0}

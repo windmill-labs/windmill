@@ -44,7 +44,7 @@
 		{#if funcDesc.length === 0}
 			<div class="font-mono divide-y text-xs w-full text-secondary">
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'script')
@@ -52,12 +52,12 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Code size={14} class="mr-2" />
+					<Code size={14} />
 					Action
 				</button>
 				{#if trigger}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 						on:pointerdown={() => {
 							close()
 							dispatch('new', 'trigger')
@@ -65,12 +65,12 @@
 						role="menuitem"
 						tabindex="-1"
 					>
-						<Zap size={14} class="mr-2" />
+						<Zap size={14} />
 						Trigger
 					</button>
 				{/if}
 				<button
-					class="w-full text-left gap-1 py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'approval')
@@ -78,58 +78,56 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					<CheckCircle2 size={14} class="mr-2" />
+					<CheckCircle2 size={14} />
 					Approval
 				</button>
 				<button
-					class="w-full inline-flex text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'forloop')
 					}}
 					role="menuitem"
 				>
-					<span class="mr-3">
-						<Repeat size={14} />
-					</span>
+					<Repeat size={14} />
 
 					For Loop
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'branchone')
 					}}
 					role="menuitem"
 				>
-					<GitBranch size={14} class="mr-2" />
+					<GitBranch size={14} />
 					Branch to one
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'branchall')
 					}}
 					role="menuitem"
 				>
-					<GitBranch size={14} class="mr-2" />
+					<GitBranch size={14} />
 
 					Branch to all
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'flow')
 					}}
 					role="menuitem"
 				>
-					<Icon data={faBarsStaggered} scale={0.8} class="mr-2" />
+					<Icon data={faBarsStaggered} scale={0.8} />
 					Flow
 				</button>
 				{#if stop}

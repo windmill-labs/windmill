@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import { type BadgeColor, type BadgeIconProps, ColorModifier } from './model'
 	import { X } from 'lucide-svelte'
 
@@ -14,11 +13,6 @@
 	export let baseClass = 'text-center'
 	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
-
-	let defaulIconProps = {
-		position: 'left',
-		scale: 0.7
-	}
 
 	let hidden = false
 	const colors: Record<BadgeColor, string> = {
@@ -51,9 +45,9 @@
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
 		rounded ? 'rounded-full px-2 py-1' : 'rounded px-2.5 py-0.5',
+		'flex flex-row gap-1 items-center',
 		$$props.class
 	)
-	$: iconProps = icon ? { ...defaulIconProps, ...icon } : { data: undefined }
 	const handleHide = () => (hidden = !hidden)
 </script>
 
@@ -71,12 +65,12 @@
 		class:hidden
 		class:capitalize
 	>
-		{#if iconProps.data && iconProps.position === 'left'}
-			<Icon {...iconProps} />
+		{#if icon?.icon && icon.position === 'left'}
+			<svelte:component this={icon.icon} size={14} />
 		{/if}
 		<slot />
-		{#if iconProps.data && iconProps.position === 'right'}
-			<Icon {...iconProps} />
+		{#if icon?.icon && icon.position === 'right'}
+			<svelte:component this={icon.icon} size={14} />
 		{/if}
 		{#if dismissable}
 			<button on:click={handleHide}>
