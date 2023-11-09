@@ -89,14 +89,7 @@
 			errorHandlerPath = splitted.slice(1)?.join('/')
 			errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
 			errorHandlerCustomInitialPath = errorHandlerPath
-			if (
-				errorHandlerPath.startsWith('hub/') &&
-				errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
-			) {
-				errorHandlerSelected = 'slack'
-			} else {
-				errorHandlerSelected = 'custom'
-			}
+			errorHandlerSelected = isSlackHandler('error', errorHandlerPath) ? 'slack' : 'custom'
 			failedTimes = defaultErrorHandlerMaybe['failedTimes']
 			failedExact = defaultErrorHandlerMaybe['failedExact']
 		} else {
@@ -113,14 +106,7 @@
 			recoveryHandlerPath = splitted.slice(1)?.join('/')
 			recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
 			recoveryHandlerCustomInitialPath = recoveryHandlerPath
-			if (
-				recoveryHandlerPath.startsWith('hub/') &&
-				recoveryHandlerPath.endsWith('/schedule-recovery-handler-slack')
-			) {
-				recoveryHandlerSelected = 'slack'
-			} else {
-				recoveryHandlerSelected = 'custom'
-			}
+			recoveryHandlerSelected = isSlackHandler('recovery', recoveryHandlerPath) ? 'slack' : 'custom'
 			recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
 		} else {
 			recoveryHandlerPath = undefined
@@ -246,15 +232,7 @@
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				if (
-					errorHandlerPath.startsWith('hub/') &&
-					errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
-				) {
-					console.log('slack selected')
-					errorHandlerSelected = 'slack'
-				} else {
-					errorHandlerSelected = 'custom'
-				}
+				errorHandlerSelected = isSlackHandler('error', errorHandlerPath) ? 'slack' : 'custom'
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
@@ -266,16 +244,9 @@
 				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				if (
-					recoveryHandlerPath.startsWith('hub/') &&
-					recoveryHandlerPath.endsWith('/schedule-recovery-handler-slack')
-				) {
-					console.log('slack selected')
-
-					recoveryHandlerSelected = 'slack'
-				} else {
-					recoveryHandlerSelected = 'custom'
-				}
+				recoveryHandlerSelected = isSlackHandler('recovery', recoveryHandlerPath)
+					? 'slack'
+					: 'custom'
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
@@ -289,18 +260,10 @@
 
 	async function scheduleScript(): Promise<void> {
 		if (edit) {
-			if (
-				errorHandlerPath !== undefined &&
-				errorHandlerPath?.startsWith('hub/') &&
-				errorHandlerPath?.endsWith('/workspace-or-schedule-error-handler-slack')
-			) {
+			if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
 				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
 			}
-			if (
-				recoveryHandlerPath !== undefined &&
-				recoveryHandlerPath?.startsWith('hub/') &&
-				recoveryHandlerPath?.endsWith('/schedule-recovery-handler-slack')
-			) {
+			if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
 				recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
 			}
 			await ScheduleService.updateSchedule({
@@ -350,6 +313,19 @@
 		}
 		dispatch('update')
 		drawer.closeDrawer()
+	}
+
+	function isSlackHandler(isSlackHandler: 'error' | 'recovery', scriptPath: string) {
+		if (isSlackHandler == 'error') {
+			return (
+				scriptPath.startsWith('hub/') &&
+				scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
+			)
+		} else {
+			return (
+				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-slack')
+			)
+		}
 	}
 
 	$: {
