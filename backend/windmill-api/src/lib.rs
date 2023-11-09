@@ -246,6 +246,10 @@ pub async fn run_server(
                     jobs::global_service().layer(cors.clone()),
                 )
                 .nest(
+                    "/w/:workspace_id/resources_u",
+                    resources::public_service().layer(cors.clone()),
+                )
+                .nest(
                     "/w/:workspace_id/capture_u",
                     capture::global_service().layer(cors),
                 )

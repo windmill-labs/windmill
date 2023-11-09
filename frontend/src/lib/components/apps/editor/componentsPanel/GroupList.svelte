@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { listGroups, type Group, createGroup } from './groupUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -11,8 +11,11 @@
 	import { ResourceService } from '$lib/gen'
 	import GroupRow from './GroupRow.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	import type { AppViewerContext, GridItem } from '../../types'
+	import { getAllSubgridsAndComponentIds } from '../appUtils'
 
-	export let selectedGroup: object = {}
+	export let item: GridItem
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let groups: Array<{
 		name: string
@@ -27,35 +30,51 @@
 		loading = false
 	}
 
+	function getSubgrids(item: GridItem) {
+		let allSubgrids = {}
+		let subgrids = getAllSubgridsAndComponentIds($app, item.data)[0]
+		for (let key of subgrids) {
+			allSubgrids[key] = $app.subgrids?.[key]
+		}
+		return allSubgrids
+	}
 	async function addGroup(nameField: string) {
 		const groups = await ResourceService.listResourceNames({
 			workspace: $workspaceStore!,
 			name: 'app_group'
 		})
 
+		let subgrids = getSubgrids(item)
+
 		const group: Group = {
 			path: 'f/app_groups/group_' + groups.length,
 			value: {
-				value: selectedGroup,
+				value: { item, subgrids },
 				name: nameField
 			}
 		}
 
-		const message = await createGroup($workspaceStore!, group)
+		try {
+			const message = await createGroup($workspaceStore!, group)
 
+			sendUserToast('Group created: ' + message)
+		} catch (e) {
+			sendUserToast(
+				'Group creation failed. You need write privilege on folder app_groups: ' + e.body ?? e,
+				true
+			)
+		}
 		getGroups()
 
 		nameField = ''
-
-		sendUserToast('Group created:' + message)
 	}
 
 	let nameField: string = ''
 
-	onMount(() => {
-		getGroups()
-	})
+	getGroups()
 </script>
+
+<div id="group_portal" />
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-row gap-2 items-center">
