@@ -23,16 +23,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import {
-		DollarSign,
-		History,
-		Library,
-		Link,
-		Package,
-		Plus,
-		RotateCcw,
-		Users
-	} from 'lucide-svelte'
+	import { DollarSign, History, Library, Link, Package, Plus, RotateCw, Users } from 'lucide-svelte'
 	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -464,7 +455,7 @@
 				color="light"
 				on:click={clearContent}
 				{iconOnly}
-				startIcon={{ icon: RotateCcw }}
+				startIcon={{ icon: RotateCw }}
 			>
 				Reset
 			</Button>
@@ -476,7 +467,7 @@
 				color="light"
 				on:click={() => editor?.reloadWebsocket()}
 				startIcon={{
-					icon: RotateCcw,
+					icon: RotateCw,
 					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
 				}}
 				title="Reload assistants"

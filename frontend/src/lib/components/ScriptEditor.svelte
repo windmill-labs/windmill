@@ -260,7 +260,7 @@
 					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
 					color="light"
 					size="xs"
-					btnClasses="hidden lg:block"
+					btnClasses="hidden lg:flex"
 					startIcon={{
 						icon: Github
 					}}

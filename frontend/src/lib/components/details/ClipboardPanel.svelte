@@ -3,10 +3,12 @@
 	import { Clipboard } from 'lucide-svelte'
 
 	export let content: string
-	export let title: string
+	export let title: string | undefined = undefined
 </script>
 
-<div class="text-xs font-semibold">{title}</div>
+{#if title !== undefined}
+	<div class="text-xs font-semibold">{title}</div>
+{/if}
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div

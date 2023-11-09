@@ -79,8 +79,10 @@
 					color="red"
 					on:click={() => {
 						$drawerStore?.openDrawer()
-					}}>Edit prompts</Button
+					}}
 				>
+					Edit prompts
+				</Button>
 				<Button
 					btnClasses="ml-2"
 					color="green"

@@ -5,7 +5,7 @@
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
-	import Dropdown from '$lib/components/Dropdownv2.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'

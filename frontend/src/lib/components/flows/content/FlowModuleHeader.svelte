@@ -143,7 +143,7 @@
 			size="xs"
 			color="light"
 			on:click={() => dispatch('fork')}
-			startIcon={{ faIcon: GitFork }}
+			startIcon={{ icon: GitFork }}
 			iconOnly={false}
 		>
 			Fork

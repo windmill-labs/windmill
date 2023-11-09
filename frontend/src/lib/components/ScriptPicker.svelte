@@ -13,7 +13,7 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { Code2, ExternalLink, RefreshCw } from 'lucide-svelte'
+	import { Code, Code2, ExternalLink, Pen, RefreshCw } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -138,30 +138,37 @@
 					target="_blank"
 					color="light"
 					size="xs"
-					href="/flows/edit/{scriptPath}">edit</Button
+					variant="border"
+					href="/flows/edit/{scriptPath}">Edit</Button
 				>
 				<Button
 					color="light"
 					size="xs"
+					variant="border"
 					on:click={async () => {
 						drawerFlowViewer.openDrawer()
 					}}
 				>
-					view
+					View
 				</Button>
 			</div>
 		{:else}
 			<div class="flex gap-2">
 				<Button
-					endIcon={{ icon: ExternalLink }}
+					startIcon={{ icon: Pen }}
 					target="_blank"
 					color="light"
 					size="xs"
-					href="/scripts/edit/{scriptPath}">edit</Button
+					href="/scripts/edit/{scriptPath}"
+					variant="border"
 				>
+					Edit
+				</Button>
 				<Button
 					color="light"
 					size="xs"
+					variant="border"
+					startIcon={{ icon: Code }}
 					on:click={async () => {
 						const { language, content } = await getScriptByPath(scriptPath ?? '')
 						code = content
@@ -169,7 +176,7 @@
 						drawerViewer.openDrawer()
 					}}
 				>
-					view
+					View
 				</Button>
 			</div>
 		{/if}

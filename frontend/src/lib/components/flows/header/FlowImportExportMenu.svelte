@@ -6,7 +6,7 @@
 	import { Button } from '../../common'
 	import type { FlowEditorContext } from '../types'
 	import { cleanInputs } from '../utils'
-	import { FileJson2 } from 'lucide-svelte'
+	import { FileJson } from 'lucide-svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -19,7 +19,7 @@
 	variant="border"
 	color="light"
 	on:click={() => jsonViewerDrawer.toggleDrawer()}
-	startIcon={{ icon: FileJson2 }}
+	startIcon={{ icon: FileJson }}
 >
 	JSON
 </Button>

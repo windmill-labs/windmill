@@ -36,7 +36,6 @@
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import {
 		Archive,
@@ -60,6 +59,7 @@
 	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -573,7 +573,7 @@
 							</div>
 						</TabContent>
 						<TabContent value="dependencies">
-							<div class="">
+							<div>
 								{#if script?.lock}
 									<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
 										>{script.lock}</pre
@@ -605,7 +605,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="cli">
 			<div class="p-2 flex flex-col gap-4">
-				<InlineCodeCopy content={cliCommand} />
+				<ClipboardPanel content={cliCommand} />
 				<CliHelpBox />
 			</div>
 		</svelte:fragment>

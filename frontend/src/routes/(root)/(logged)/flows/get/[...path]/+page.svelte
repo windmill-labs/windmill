@@ -32,7 +32,6 @@
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
-	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
@@ -40,6 +39,7 @@
 	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -387,7 +387,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="cli">
 			<div class="p-2">
-				<InlineCodeCopy content={cliCommand} />
+				<ClipboardPanel content={cliCommand} />
 				<CliHelpBox />
 			</div>
 		</svelte:fragment>
