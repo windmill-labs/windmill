@@ -439,8 +439,12 @@ async fn op_get_id(
     if let Some(client) = client {
         let result = client
             .get_result_by_id::<Option<Box<RawValue>>>(flow_job_id, node_id, None)
-            .await?;
-        Ok(result.map(|x| x.get().to_string()))
+            .await.ok();
+        if let Some(result) = result {
+            Ok(result.map(|x| x.get().to_string()))
+        } else {
+            Ok(None)
+        }
     } else {
         anyhow::bail!("No client found in op state");
     }
