@@ -10,7 +10,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let job: Job
-	const SMALL_ICON_SIZE = 12
+	const SMALL_ICON_SIZE = 14
 	let scheduleEditor: ScheduleEditor
 </script>
 
@@ -21,9 +21,9 @@
 	style="min-height: 150px;"
 >
 	<JobStatus {job} />
-	<div>
+	<div class="flex flex-row gap-2 items-center">
 		<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
-		<span class="mx-2 text-2xs text-secondary">
+		<span class="text-2xs text-secondary">
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
 			{:else}
@@ -33,66 +33,73 @@
 		</span>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
-		<div>
+		<div class="flex flex-row gap-2 items-center">
 			<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
-			<span class="mx-2">
+			<span>
 				Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
 				<Tooltip>{job?.started_at}</Tooltip>
 			</span>
 		</div>
 	{/if}
 	{#if job && job['mem_peak']}
-		<div>
+		<div class="flex flex-row gap-2 items-center">
 			<MemoryStick size={SMALL_ICON_SIZE} class="text-secondary" />
-			<span class="mx-2"> Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span>
+			<span> Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span>
 		</div>
 	{/if}
 	<div>
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
-				<span class="mx-2">
-					Step of flow
-					<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
-						{job.parent_job}
-					</a>
-				</span>
+				<div class="flex flex-row gap-2 items-center">
+					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
+					<span>
+						Step of flow
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+							{job.parent_job}
+						</a>
+					</span>
+				</div>
 			{:else}
-				<Bot size={SMALL_ICON_SIZE} class="text-secondary" />
-				<span class="mx-2">
-					Triggered by parent
-					<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
-				</span>
+				<div class="flex flex-row gap-2 items-center">
+					<Bot size={SMALL_ICON_SIZE} class="text-secondary" />
+					<span>
+						Triggered by parent
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
+					</span>
+				</div>
 			{/if}
 		{:else if job && job.schedule_path}
-			<Calendar size={SMALL_ICON_SIZE} class="text-secondary" />
-			<span>
-				Triggered by the schedule:
-				<button
-					class="break-words text-sm text-blue-600 font-normal"
-					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
-				>
-					{job.schedule_path}
-				</button>
-			</span>
+			<div class="flex flex-row gap-2 items-center">
+				<Calendar size={SMALL_ICON_SIZE} class="text-secondary" />
+				<span>
+					Triggered by the schedule:
+					<button
+						class="break-words text-sm text-blue-600 font-normal"
+						on:click={() =>
+							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+					>
+						{job.schedule_path}
+					</button>
+				</span>
+			</div>
 		{/if}
 
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			<div>
+			<div class="flex flex-row gap-2 items-center">
 				<Scroll size={SMALL_ICON_SIZE} class="text-secondary" />
-				<span class="mx-2">
+				<span>
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>
 			</div>
 		{/if}
 
-		<div>
+		<div class="flex flex-row gap-2 items-center">
 			<User size={SMALL_ICON_SIZE} class="text-secondary" />
 
-			<span class="mx-2">
+			<span>
 				By {job.created_by}
 				{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
 					but permissioned as {job.permissioned_as}

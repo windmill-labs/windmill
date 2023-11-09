@@ -374,7 +374,7 @@
 			</Button>
 		</svelte:fragment>
 
-		<div class="flex flex-col gap-8">
+		<div class="flex flex-col gap-12">
 			{#if !edit}
 				<Section label="Metadata">
 					<Path

@@ -165,7 +165,7 @@
 				<div class="grid grid-cols-6 text-2xs items-center py-2"
 					><div class="col-span-3 truncate">{schedule.path}</div><div>{schedule.schedule}</div>
 					<div>{schedule.enabled ? 'on' : 'off'}</div>
-					<button on:click={() => scheduleEditor?.openEdit(path, isFlow)}>edit</button>
+					<button on:click={() => scheduleEditor?.openEdit(path, isFlow)}>Edit</button>
 				</div>
 			{/each}
 		</div>
