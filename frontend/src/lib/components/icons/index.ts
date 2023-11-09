@@ -65,6 +65,7 @@ import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
+import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -90,6 +91,7 @@ export const APP_TO_ICON_COMPONENT = {
 	mailchimp: MailchimpIcon,
 	sendgrid: SendgridIcon,
 	snowflake: SendflakeIcon,
+	ms_sql_server: MsSqlServerIcon,
 	qrcode: QRCodeIcon,
 	linkedin: LinkedinIcon,
 	hubspot: HubspotIcon,

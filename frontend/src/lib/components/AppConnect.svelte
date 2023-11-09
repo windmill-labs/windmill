@@ -73,7 +73,14 @@
 
 	export let newPageOAuth = false
 
-	const nativeLanguagesCategory = ['postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql']
+	const nativeLanguagesCategory = [
+		'postgresql',
+		'mysql',
+		'bigquery',
+		'snowflake',
+		'mssql',
+		'graphql'
+	]
 
 	let filter = ''
 	let manual = false

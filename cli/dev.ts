@@ -68,6 +68,8 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
             ? "bigquery"
             : len > 2 && splitted[len - 2] == "sf"
             ? "snowflake"
+            : len > 2 && splitted[len - 2] == "ms"
+            ? "mssql"
             : "postgresql"
           : ext == "gql"
           ? "graphql"

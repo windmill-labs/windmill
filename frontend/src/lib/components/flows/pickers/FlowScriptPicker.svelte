@@ -22,7 +22,7 @@
 	export let iconColor: string | undefined = undefined
 	export let id: string | undefined = undefined
 
-	const enterpriseLangs = ['bigquery', 'snowflake']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 </script>
 
 <Popover disablePopup={!enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}>

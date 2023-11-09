@@ -12,6 +12,7 @@
 	import BigQueryIcon from '$lib/components/icons/BigQueryIcon.svelte'
 	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
 	import GraphqlIcon from '$lib/components/icons/GraphqlIcon.svelte'
+	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -36,7 +37,8 @@
 		[Script.language.GRAPHQL]: 'GraphQL',
 		[Script.language.POSTGRESQL]: 'Postgresql',
 		[Script.language.BIGQUERY]: 'BigQuery',
-		[Script.language.SNOWFLAKE]: 'Snowflake'
+		[Script.language.SNOWFLAKE]: 'Snowflake',
+		[Script.language.MSSQL]: 'MS SQL Server'
 	}
 
 	const langToComponent: Record<
@@ -53,6 +55,7 @@
 		mysql: MySQLIcon,
 		bigquery: BigQueryIcon,
 		snowflake: SnowflakeIcon,
+		mssql: MSSqlServerIcon,
 		javascript: JavaScript,
 		fetch: FetchIcon,
 		docker: DockerIcon,
