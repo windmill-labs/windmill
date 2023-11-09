@@ -26,7 +26,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 
-	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
+	const slackErrorHandler = 'hub/6511/workspace-or-schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
 
 	let initialPath = ''
