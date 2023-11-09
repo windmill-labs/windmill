@@ -598,7 +598,7 @@ pub async fn run_error_handler<
     // TODO: this should be injected when the EH is defined in the BE.
     if error_handler_path
         .to_string()
-        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+        .eq("hub/6512/workspace-or-schedule-error-handler-slack")
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
@@ -1038,7 +1038,7 @@ pub async fn handle_on_failure<
     // TODO: This should be inject when the EH is defined in the FE.
     if on_failure_path
         .to_string()
-        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
+        .eq("script/hub/6512/workspace-or-schedule-error-handler-slack")
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
