@@ -25,7 +25,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { List, Save } from 'lucide-svelte'
 
-	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
+	const slackErrorHandler = 'hub/6512/workspace-or-schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
 
 	let initialPath = ''
@@ -91,7 +91,10 @@
 			errorHandlerPath = splitted.slice(1)?.join('/')
 			errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
 			errorHandlerCustomInitialPath = errorHandlerPath
-			if (errorHandlerPath === slackErrorHandler) {
+			if (
+				errorHandlerPath.startsWith('hub/') &&
+				errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
+			) {
 				errorHandlerSelected = 'slack'
 			} else {
 				errorHandlerSelected = 'custom'
@@ -228,7 +231,12 @@
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				if (errorHandlerPath !== slackErrorHandler) {
+				if (
+					errorHandlerPath.startsWith('hub/') &&
+					errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
+				) {
+					errorHandlerSelected = 'slack'
+				} else {
 					errorHandlerSelected = 'custom'
 				}
 			} else {

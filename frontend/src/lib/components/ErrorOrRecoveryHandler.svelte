@@ -120,6 +120,7 @@
 		handlerPath !== slackHandlerScriptPath &&
 		loadHandlerScriptArgs(handlerPath, [
 			'path',
+			'workspace_id',
 			'job_id',
 			'is_flow',
 			'schedule_path',
@@ -134,6 +135,7 @@
 
 	$: loadHandlerScriptArgs(slackHandlerScriptPath, [
 		'path',
+		'workspace_id',
 		'job_id',
 		'is_flow',
 		'schedule_path',
@@ -215,7 +217,8 @@
 	<span class="w-full flex mb-3">
 		<Toggle
 			disabled={!$enterpriseLicense || !isEditable}
-			checked={handlerPath === slackHandlerScriptPath}
+			checked={handlerPath?.startsWith('hub/') &&
+				handlerPath?.endsWith('/workspace-or-schedule-error-handler-slack')}
 			options={{ right: slackToggleText }}
 			on:change={async (e) => {
 				handlerPath = e.detail ? slackHandlerScriptPath : undefined
@@ -235,7 +238,7 @@
 			class="text-xs"
 		/>
 	{/if}
-	{#if handlerPath === slackHandlerScriptPath && enterpriseLicense}
+	{#if $enterpriseLicense && handlerPath?.startsWith('hub/') && handlerPath?.endsWith('/workspace-or-schedule-error-handler-slack')}
 		{#if !workspaceConnectedToSlack}
 			<Alert type="error" title="Workspace not connected to Slack">
 				<div class="flex flex-row gap-x-1 w-full items-center">
