@@ -121,6 +121,7 @@
 		handlerPath !== slackHandlerScriptPath &&
 		loadHandlerScriptArgs(handlerPath, [
 			'path',
+			'workspace_id',
 			'job_id',
 			'is_flow',
 			'schedule_path',
@@ -135,6 +136,7 @@
 
 	$: loadHandlerScriptArgs(slackHandlerScriptPath, [
 		'path',
+		'workspace_id',
 		'job_id',
 		'is_flow',
 		'schedule_path',
