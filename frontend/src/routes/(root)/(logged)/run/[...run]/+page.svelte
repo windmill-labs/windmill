@@ -2,16 +2,23 @@
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
-	import Icon from 'svelte-awesome'
-	import { check } from 'svelte-awesome/icons'
-	import { ArrowRight, List, Pen, RefreshCw, Scroll, TimerOff, Trash } from 'lucide-svelte'
+
 	import {
-		faCircle,
-		faTimes,
-		faCalendar,
-		faHourglassHalf,
-		faFastForward
-	} from '@fortawesome/free-solid-svg-icons'
+		ArrowRight,
+		Calendar,
+		CheckCircle2,
+		Circle,
+		FastForward,
+		Hourglass,
+		List,
+		Pen,
+		RefreshCw,
+		Scroll,
+		TimerOff,
+		Trash,
+		XCircle
+	} from 'lucide-svelte'
+
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import {
 		enterpriseLicense,
@@ -38,7 +45,6 @@
 	import { forLater } from '$lib/forLater'
 
 	let job: Job | undefined
-	const iconScale = 1
 
 	let viewTab: 'result' | 'logs' | 'code' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -48,12 +54,8 @@
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
 	let restartBranchNames: [number, string][] = []
 
-	// Test
 	let testIsLoading = false
-
 	let testJobLoader: TestJobLoader
-
-	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
@@ -364,48 +366,18 @@
 				{#if job}
 					{#if 'success' in job && job.success}
 						{#if job.is_skipped}
-							<Icon
-								class="text-green-600"
-								data={faFastForward}
-								scale={SMALL_ICON_SCALE}
-								label="Job completed successfully but was skipped"
-							/>
+							<FastForward class="text-green-600" size={14} />
 						{:else}
-							<Icon
-								class="text-green-600"
-								data={check}
-								scale={SMALL_ICON_SCALE}
-								label="Job completed successfully"
-							/>
+							<CheckCircle2 class="text-green-600" size={14} />
 						{/if}
 					{:else if job && 'success' in job}
-						<Icon
-							class="text-red-700"
-							data={faTimes}
-							scale={iconScale}
-							label="Job completed with an error"
-						/>
+						<XCircle class="text-red-700" size={14} />
 					{:else if job && 'running' in job && job.running}
-						<Icon
-							class="text-yellow-500"
-							data={faCircle}
-							scale={iconScale}
-							label="Job is running"
-						/>
+						<Circle class="text-yellow-500 fill-current" size={14} />
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-						<Icon
-							class="text-secondary"
-							data={faCalendar}
-							scale={iconScale}
-							label="Job is scheduled for a later time"
-						/>
+						<Calendar class="text-secondary" size={14} />
 					{:else if job && 'running' in job && job.scheduled_for}
-						<Icon
-							class="text-tertiary"
-							data={faHourglassHalf}
-							scale={iconScale}
-							label="Job is waiting for an executor"
-						/>
+						<Hourglass class="text-tertiary" size={14} />
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center">

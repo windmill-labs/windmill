@@ -19,11 +19,11 @@
 		Settings,
 		UserCog
 	} from 'lucide-svelte'
-	import { faDiscord } from '@fortawesome/free-brands-svg-icons'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import UserMenu from './UserMenu.svelte'
+	import DiscordIcon from '../icons/brands/Discord.svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -112,7 +112,7 @@
 				{
 					label: 'Feedbacks',
 					href: 'https://discord.gg/V7PM2YHsPB',
-					faIcon: faDiscord
+					icon: DiscordIcon
 				},
 				{
 					label: 'Issues',
