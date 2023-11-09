@@ -234,7 +234,7 @@
 			/>
 		{:else if component.type === 'customcomponent'}
 			<AppCustomComponent
-				configuration={component.configuration}
+				customComponent={component.customComponent}
 				id={component.id}
 				componentInput={component.componentInput}
 				{render}

@@ -63,6 +63,12 @@ export type RecomputeOthersSource = {
 	recomputeIds: string[] | undefined
 }
 
+export type CustomComponentConfig = {
+	name: string
+	additionalLibs?: {
+		reactVersion?: string
+	}
+}
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type QuillComponent = BaseComponent<'quillcomponent'>
@@ -75,7 +81,9 @@ export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
-export type CustomComponent = BaseComponent<'customcomponent'>
+export type CustomComponent = BaseComponent<'customcomponent'> & {
+	customComponent: CustomComponentConfig
+}
 export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>

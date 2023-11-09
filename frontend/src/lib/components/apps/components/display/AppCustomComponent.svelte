@@ -1,12 +1,3 @@
-<script context="module">
-	export const props = {
-		id: 'string',
-		render: 'boolean',
-		componentInput: 'object',
-		customComponent: 'object'
-	}
-</script>
-
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
@@ -24,19 +15,17 @@
 		onInput(input: Input): void
 	}
 
-	interface CustomComponent {
-		name: string
-		reactVersion?: string
-	}
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput } from '../../inputType'
 	import { RunnableWrapper } from '../helpers'
+	import { workspaceStore } from '$lib/stores'
+	import type { CustomComponentConfig } from '../../editor/component'
 
 	export let id: string
 	export let render: boolean
 	export let componentInput: AppInput | undefined
-	export let customComponent: CustomComponent
+	export let customComponent: CustomComponentConfig
 
 	let divId = `custom-component-${id}`
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -69,19 +58,20 @@
 		// await import('http://localhost:3000/app.iife.js')
 		/* @vite-ignore */
 
-		if (customComponent.reactVersion) {
+		if (customComponent?.additionalLibs?.reactVersion) {
+			let reactVersion = customComponent.additionalLibs.reactVersion
 			//@ts-ignore
-			await import(
-				`https://unpkg.com/react@${customComponent.reactVersion}/umd/react.development.js`
-			)
+			await import(`https://unpkg.com/react@${reactVersion}/umd/react.development.js`)
 
 			//@ts-ignore
-			await import(
-				`https://unpkg.com/react-dom@${customComponent.reactVersion}/umd/react-dom.development.js`
-			)
+			await import(`https://unpkg.com/react-dom@${reactVersion}/umd/react-dom.development.js`)
 		}
 		//@ts-ignore
-		await import('http://localhost:3000/cc.iife.js')
+		await import(
+			`http://localhost:3000/api/w/${$workspaceStore ?? 'NO_W'}/resources/custom_component/${
+				customComponent.name
+			}`
+		)
 		loaded = true
 		try {
 			let renderer: (props: CCProps<number>) => void = globalThis.windmill[customComponent.name]
