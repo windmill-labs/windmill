@@ -239,7 +239,7 @@
 			class="text-xs"
 		/>
 	{/if}
-	{#if enterpriseLicense && handlerPath?.startsWith('hub/') && handlerPath?.endsWith('/workspace-or-schedule-error-handler-slack')}
+	{#if $enterpriseLicense && handlerPath?.startsWith('hub/') && handlerPath?.endsWith('/workspace-or-schedule-error-handler-slack')}
 		{#if !workspaceConnectedToSlack}
 			<Alert type="error" title="Workspace not connected to Slack">
 				<div class="flex flex-row gap-x-1 w-full items-center">
