@@ -352,7 +352,9 @@
 								</div>
 							{:else}
 								<div class="text-sm text-secondary italic mb-2">
-									No custom worker group defined on this instance. See <a
+									No custom worker group tag defined on this instance in "Workers {'->'} Assignable Tags".
+									See
+									<a
 										href="https://www.windmill.dev/docs/core_concepts/worker_groups"
 										target="_blank">documentation</a
 									>
