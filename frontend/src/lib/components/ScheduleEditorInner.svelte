@@ -26,9 +26,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 
-	const slackErrorHandler = 'hub/6512/workspace-or-schedule-error-handler-slack'
-	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
-
 	let initialPath = ''
 	let edit = true
 	let schedule: string = '0 0 12 * *'
@@ -116,7 +113,10 @@
 			recoveryHandlerPath = splitted.slice(1)?.join('/')
 			recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
 			recoveryHandlerCustomInitialPath = recoveryHandlerPath
-			if (recoveryHandlerPath === slackRecoveryHandler) {
+			if (
+				recoveryHandlerPath.startsWith('hub/') &&
+				recoveryHandlerPath.endsWith('/schedule-recovery-handler-slack')
+			) {
 				recoveryHandlerSelected = 'slack'
 			} else {
 				recoveryHandlerSelected = 'custom'
@@ -174,20 +174,27 @@
 			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore && errorHandlerPath !== undefined) {
+		if ($workspaceStore) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
 					handler_type: 'error',
 					override_existing: overrideExisting,
-					path: `${errorHandleritemKind}/${errorHandlerPath}`,
+					path:
+						errorHandlerPath == undefined
+							? undefined
+							: `${errorHandleritemKind}/${errorHandlerPath}`,
 					extra_args: errorHandlerExtraArgs,
 					number_of_occurence: failedTimes,
 					number_of_occurence_exact: failedExact,
 					workspace_handler_muted: wsErrorHandlerMuted
 				}
 			})
-			sendUserToast(`Default error handler saved to ${errorHandlerPath}`, false)
+			if (errorHandlerPath !== undefined) {
+				sendUserToast(`Default error handler saved to ${errorHandlerPath}`, false)
+			} else {
+				sendUserToast(`Default error handler reset`, false)
+			}
 		}
 	}
 
@@ -196,18 +203,25 @@
 			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore && errorHandlerPath !== undefined) {
+		if ($workspaceStore) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
 					handler_type: 'recovery',
 					override_existing: overrideExisting,
-					path: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
+					path:
+						recoveryHandlerPath === undefined
+							? undefined
+							: `${recoveryHandlerItemKind}/${recoveryHandlerPath}`,
 					extra_args: recoveryHandlerExtraArgs,
 					number_of_occurence: recoveredTimes
 				}
 			})
-			sendUserToast(`Default recovery handler saved to ${errorHandlerPath}`, false)
+			if (recoveryHandlerPath !== undefined) {
+				sendUserToast(`Default recovery handler saved to ${recoveryHandlerPath}`, false)
+			} else {
+				sendUserToast(`Default recovery handler reset`, false)
+			}
 		}
 	}
 
@@ -236,6 +250,7 @@
 					errorHandlerPath.startsWith('hub/') &&
 					errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
 				) {
+					console.log('slack selected')
 					errorHandlerSelected = 'slack'
 				} else {
 					errorHandlerSelected = 'custom'
@@ -251,7 +266,14 @@
 				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				if (recoveryHandlerPath !== slackRecoveryHandler) {
+				if (
+					recoveryHandlerPath.startsWith('hub/') &&
+					recoveryHandlerPath.endsWith('/schedule-recovery-handler-slack')
+				) {
+					console.log('slack selected')
+
+					recoveryHandlerSelected = 'slack'
+				} else {
 					recoveryHandlerSelected = 'custom'
 				}
 			} else {
@@ -267,6 +289,20 @@
 
 	async function scheduleScript(): Promise<void> {
 		if (edit) {
+			if (
+				errorHandlerPath !== undefined &&
+				errorHandlerPath?.startsWith('hub/') &&
+				errorHandlerPath?.endsWith('/workspace-or-schedule-error-handler-slack')
+			) {
+				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			}
+			if (
+				recoveryHandlerPath !== undefined &&
+				recoveryHandlerPath?.startsWith('hub/') &&
+				recoveryHandlerPath?.endsWith('/schedule-recovery-handler-slack')
+			) {
+				recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			}
 			await ScheduleService.updateSchedule({
 				workspace: $workspaceStore!,
 				path: initialPath,
@@ -445,12 +481,10 @@
 							name="Save as default"
 							dropdownItems={[
 								{
-									disabled: emptyString(errorHandlerPath),
 									displayName: `Future schedules only`,
 									action: () => saveAsDefaultErrorHandler(false)
 								},
 								{
-									disabled: emptyString(errorHandlerPath),
 									displayName: 'Override all existing',
 									type: 'delete',
 									action: () => saveAsDefaultErrorHandler(true)
@@ -473,12 +507,12 @@
 				</div>
 				<ErrorOrRecoveryHandler
 					isEditable={can_write}
+					errorOrRecovery="error"
 					handlersOnlyForEe={['slack']}
 					showScriptHelpText={true}
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
 					customInitialScriptPath={errorHandlerCustomInitialPath}
-					slackHandlerScriptPath={slackErrorHandler}
 					slackToggleText="Alert channel on error"
 					customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
 					bind:customHandlerKind={errorHandleritemKind}
@@ -546,12 +580,10 @@
 							name="Save as default"
 							dropdownItems={[
 								{
-									disabled: emptyString(errorHandlerPath),
 									displayName: `Future schedules only`,
 									action: () => saveAsDefaultRecoveryHandler(false)
 								},
 								{
-									disabled: emptyString(errorHandlerPath),
 									displayName: 'Override all existing',
 									type: 'delete',
 									action: () => saveAsDefaultRecoveryHandler(true)
@@ -568,11 +600,11 @@
 
 				<ErrorOrRecoveryHandler
 					isEditable={can_write && !emptyString($enterpriseLicense)}
+					errorOrRecovery="recovery"
 					handlersOnlyForEe={[]}
 					bind:handlerSelected={recoveryHandlerSelected}
 					bind:handlerPath={recoveryHandlerPath}
 					customInitialScriptPath={recoveryHandlerCustomInitialPath}
-					slackHandlerScriptPath={slackRecoveryHandler}
 					slackToggleText="Alert channel when error recovered"
 					customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
 					bind:customHandlerKind={recoveryHandlerItemKind}
