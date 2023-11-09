@@ -8,7 +8,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -663,8 +663,7 @@
 									</td>
 									<td>
 										<Dropdown
-											placement="bottom-end"
-											dropdownItems={[
+											items={[
 												{
 													displayName: !canWrite ? 'View Permissions' : 'Share',
 													icon: Share,
@@ -693,6 +692,8 @@
 													icon: Trash,
 													type: 'delete',
 													action: (event) => {
+														// TODO
+														// @ts-ignore
 														if (event?.shiftKey) {
 															deleteResource(path, account)
 														} else {

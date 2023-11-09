@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -152,8 +152,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			placement="bottom-end"
-			dropdownItems={() => {
+			items={() => {
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				if (draft_only) {
 					return [
@@ -168,6 +167,8 @@
 							displayName: 'Delete',
 							icon: Trash,
 							action: (event) => {
+								// TODO
+								// @ts-ignore
 								if (event?.shiftKey) {
 									deleteScript(path)
 								} else {

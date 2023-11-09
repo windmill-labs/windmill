@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
@@ -87,8 +87,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			placement="bottom-end"
-			dropdownItems={() => {
+			items={() => {
 				return [
 					{
 						displayName: 'Move/Rename',
@@ -116,6 +115,8 @@
 						displayName: 'Delete',
 						icon: Trash,
 						action: async (event) => {
+							// TODO
+							// @ts-ignore
 							if (event?.shiftKey) {
 								await RawAppService.deleteRawApp({ workspace: $workspaceStore ?? '', path })
 								dispatch('change')

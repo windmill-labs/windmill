@@ -10,7 +10,7 @@
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import {
 		FlowService,
 		ScheduleService,
@@ -440,9 +440,7 @@
 				<svelte:fragment slot="action">
 					<div class="flex flex-row items-center gap-2">
 						<Dropdown
-							placement="bottom-end"
-							name="Save as default"
-							dropdownItems={[
+							items={[
 								{
 									disabled: emptyString(errorHandlerPath),
 									displayName: `Future schedules only`,
@@ -541,9 +539,7 @@
 				<svelte:fragment slot="action">
 					<div class="flex flex-row items-center gap-2">
 						<Dropdown
-							placement="bottom-end"
-							name="Save as default"
-							dropdownItems={[
+							items={[
 								{
 									disabled: emptyString(errorHandlerPath),
 									displayName: `Future schedules only`,

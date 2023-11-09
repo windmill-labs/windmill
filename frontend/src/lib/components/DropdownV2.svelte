@@ -7,7 +7,7 @@
 	type Item = {
 		displayName: string
 		action?: (e: CustomEvent<any>) => void
-		icon: any
+		icon?: any
 		href?: string
 		disabled?: boolean
 		type?: 'action' | 'delete'

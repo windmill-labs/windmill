@@ -33,7 +33,6 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
@@ -186,27 +185,23 @@
 			{@const isScript = job?.job_kind === 'script'}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-				<Dropdown
-					btnClasses="!text-red-500"
-					placement="bottom-start"
-					dropdownItems={[
-						{
-							displayName: 'delete log and results (admin only)',
-							icon: Trash,
-							action: () => {
-								job?.id && deleteCompletedJob(job.id)
-							}
-						}
-					]}
+				<Button
+					variant="border"
+					color="red"
+					size="sm"
+					startIcon={{ icon: Trash }}
+					on:click={() => {
+						job?.id && deleteCompletedJob(job.id)
+					}}
 				>
-					delete
-				</Dropdown>
+					Delete log and results (admin only)
+				</Button>
 				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 					<Button
 						href={runsHref}
 						variant="border"
 						color="blue"
-						size="md"
+						size="sm"
 						startIcon={{ icon: List }}
 					>
 						View runs
