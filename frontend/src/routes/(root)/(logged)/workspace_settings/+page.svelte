@@ -172,7 +172,9 @@
 			errorHandlerSelected = 'custom'
 		} else {
 			errorHandlerSelected =
-				emptyString(errorHandlerScriptPath) || errorHandlerScriptPath === slackErrorHandler
+				emptyString(errorHandlerScriptPath) ||
+				(errorHandlerScriptPath.startsWith('hub/') &&
+					errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack'))
 					? 'slack'
 					: 'custom'
 		}

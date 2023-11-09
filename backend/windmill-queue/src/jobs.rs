@@ -599,7 +599,7 @@ pub async fn run_error_handler<
     if error_handler_path.to_string().starts_with("hub/")
         && error_handler_path
             .to_string()
-            .ends_with("workspace-or-schedule-error-handler-slack")
+            .ends_with("/workspace-or-schedule-error-handler-slack")
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");

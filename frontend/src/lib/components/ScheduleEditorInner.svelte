@@ -92,7 +92,10 @@
 			errorHandlerPath = splitted.slice(1)?.join('/')
 			errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
 			errorHandlerCustomInitialPath = errorHandlerPath
-			if (errorHandlerPath === slackErrorHandler) {
+			if (
+				errorHandlerPath.startsWith('hub/') &&
+				errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
+			) {
 				errorHandlerSelected = 'slack'
 			} else {
 				errorHandlerSelected = 'custom'
@@ -229,7 +232,12 @@
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				if (errorHandlerPath !== slackErrorHandler) {
+				if (
+					errorHandlerPath.startsWith('hub/') &&
+					errorHandlerPath.endsWith('/workspace-or-schedule-error-handler-slack')
+				) {
+					errorHandlerSelected = 'slack'
+				} else {
 					errorHandlerSelected = 'custom'
 				}
 			} else {
