@@ -5332,7 +5332,6 @@ paths:
               required:
                 - handler_type
                 - override_existing
-                - path
       responses:
         "201":
           description: default error handler set
