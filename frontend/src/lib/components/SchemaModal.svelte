@@ -73,6 +73,7 @@
 	export let editing = false
 	export let oldArgName: string | undefined = undefined
 	export let isFlowInput = false
+	export let blacklistedNames: string[] = []
 
 	const dispatch = createEventDispatcher()
 	let drawer: Drawer
@@ -80,9 +81,18 @@
 	let property: ModalSchemaProperty = DEFAULT_PROPERTY
 
 	function handleKeyUp(event: KeyboardEvent) {
+		validateName(property.name)
 		const key = event.key
 		if (key === 'Enter') {
 			dispatch('save', property)
+		}
+	}
+
+	function validateName(name: string) {
+		if (blacklistedNames.includes(name.toLowerCase())) {
+			error = 'This name is not allowed.'
+		} else {
+			error = ''
 		}
 	}
 

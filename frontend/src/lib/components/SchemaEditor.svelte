@@ -15,6 +15,7 @@
 	import Portal from 'svelte-portal'
 
 	export let isFlowInput = false
+	export let blacklistedNames: string[] = []
 
 	const dispatch = createEventDispatcher()
 
@@ -374,5 +375,6 @@
 		on:save={(e) => handleAddOrEditArgument(e.detail)}
 		bind:editing
 		bind:oldArgName
+		{blacklistedNames}
 	/>
 </Portal>

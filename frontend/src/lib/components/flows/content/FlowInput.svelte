@@ -87,6 +87,7 @@
 				on:change={() => {
 					$flowStore = $flowStore
 				}}
+				blacklistedNames={['iter']}
 			/>
 		</div>
 	</div>
