@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.203.0](https://github.com/windmill-labs/windmill/compare/v1.202.1...v1.203.0) (2023-11-09)
+
+
+### Features
+
+* add support for custom components in react or vanilla JS ([#2603](https://github.com/windmill-labs/windmill/issues/2603)) ([28c9fdc](https://github.com/windmill-labs/windmill/commit/28c9fdc4f209bcc099f741a448cd3af0797acd53))
+* **frontend:** add a way to customise the link's label ([#2591](https://github.com/windmill-labs/windmill/issues/2591)) ([72854b5](https://github.com/windmill-labs/windmill/commit/72854b55b9db5c7c2ec3cbf65b0ed851ca7eb29a))
+* **frontend:** Migrate flow advanced settings to new layout ([#2589](https://github.com/windmill-labs/windmill/issues/2589)) ([55e3a95](https://github.com/windmill-labs/windmill/commit/55e3a9561899127ba647ff87d32cf010f2aefb90))
+
+
+### Bug Fixes
+
+* Fix error handler token injection ([#2598](https://github.com/windmill-labs/windmill/issues/2598)) ([aefa43d](https://github.com/windmill-labs/windmill/commit/aefa43dcafe929d8939dd2ee5ba94633759204a7))
+* frontend build ([#2593](https://github.com/windmill-labs/windmill/issues/2593)) ([a87b15f](https://github.com/windmill-labs/windmill/commit/a87b15f2c56c19e6f901da69240b3c127ece3b50))
+* Frontend workspace error handler args ([#2597](https://github.com/windmill-labs/windmill/issues/2597)) ([fc87413](https://github.com/windmill-labs/windmill/commit/fc874132c029a7fb2571fe5c296c836b451b351a))
+* **frontend:** correctly clear result when removing all options in a multi select ([#2600](https://github.com/windmill-labs/windmill/issues/2600)) ([ed24838](https://github.com/windmill-labs/windmill/commit/ed24838b46916f8415afcfab3e9700d2ffad9a63))
+* Pythong script in dedicated worker fails with more than 1 arg ([#2588](https://github.com/windmill-labs/windmill/issues/2588)) ([0d846b3](https://github.com/windmill-labs/windmill/commit/0d846b310d8f1ade8a01607d49c6e50ba417f54e))
+* s3 snippets arg inputs update ([#2592](https://github.com/windmill-labs/windmill/issues/2592)) ([16a5fb9](https://github.com/windmill-labs/windmill/commit/16a5fb9e8662afdf84c7e87dbe7a8db7d7f09563))
+
 ## [1.202.1](https://github.com/windmill-labs/windmill/compare/v1.202.0...v1.202.1) (2023-11-07)
 
 
