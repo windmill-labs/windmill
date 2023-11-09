@@ -4,20 +4,22 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 
-	export let connect_config = {
+	export let login_config = {
 		scopes: [],
 		auth_url: '',
 		token_url: '',
+		userinfo_url: '',
 		req_body_auth: false,
 		extra_params: {},
 		extra_params_callback: {}
 	}
 
-	$: if (!connect_config) {
-		connect_config = {
+	$: if (!login_config) {
+		login_config = {
 			scopes: [],
 			auth_url: '',
 			token_url: '',
+			userinfo_url: '',
 			req_body_auth: false,
 			extra_params: {},
 			extra_params_callback: {}
@@ -30,7 +32,7 @@
 	<input
 		type="text"
 		placeholder="https://github.com/login/oauth/authorize"
-		bind:value={connect_config.auth_url}
+		bind:value={login_config.auth_url}
 	/>
 </label>
 <label class="block pb-2">
@@ -38,13 +40,21 @@
 	<input
 		type="text"
 		placeholder="https://github.com/login/oauth/access_token"
-		bind:value={connect_config.token_url}
+		bind:value={login_config.token_url}
+	/>
+</label>
+<label class="block pb-2">
+	<span class="text-primary font-semibold text-sm">Userinfo URL</span>
+	<input
+		type="text"
+		placeholder="https://github.com/login/oauth/userinfo"
+		bind:value={login_config.userinfo_url}
 	/>
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm">Scopes</span>
-	<OauthScopes bind:scopes={connect_config.scopes} />
+	<OauthScopes bind:scopes={login_config.scopes} />
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
@@ -54,14 +64,14 @@
 			"access_type=offline&prompt=consent"</Tooltip
 		></span
 	>
-	<OauthExtraParams bind:extra_params={connect_config.extra_params} />
+	<OauthExtraParams bind:extra_params={login_config.extra_params} />
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm"
 		>Extra Query Args for Token request <Tooltip>Not needed in most cases</Tooltip></span
 	>
-	<OauthExtraParams bind:extra_params={connect_config.extra_params_callback} />
+	<OauthExtraParams bind:extra_params={login_config.extra_params_callback} />
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
@@ -74,7 +84,7 @@
 	<div>
 		<Toggle
 			options={{ left: 'in query args', right: 'in body x-www-form-urlencoded' }}
-			bind:checked={connect_config.req_body_auth}
+			bind:checked={login_config.req_body_auth}
 		/></div
 	>
 </label>
