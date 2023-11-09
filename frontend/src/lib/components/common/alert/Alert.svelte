@@ -2,7 +2,7 @@
 	import { classNames } from '$lib/utils'
 	import type { AlertType } from './model'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { AlertCircle, CheckCircle2, Info, XCircle } from 'lucide-svelte'
+	import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-svelte'
 
 	export let type: AlertType = 'info'
 	export let title: string
@@ -15,7 +15,7 @@
 	const icons: Record<AlertType, any> = {
 		info: Info,
 		warning: AlertCircle,
-		error: XCircle,
+		error: AlertTriangle,
 		success: CheckCircle2
 	}
 

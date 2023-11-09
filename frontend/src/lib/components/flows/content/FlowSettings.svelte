@@ -141,7 +141,7 @@
 								<svelte:fragment slot="right">
 									<input
 										type="number"
-										class="!w-14 ml-4"
+										class="!w-16 ml-4"
 										disabled={$flowStore.value.priority === undefined}
 										bind:value={$flowStore.value.priority}
 										on:focus

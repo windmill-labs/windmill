@@ -675,7 +675,7 @@
 											<svelte:fragment slot="right">
 												<input
 													type="number"
-													class="!w-14 ml-4"
+													class="!w-16 ml-4"
 													disabled={script.priority === undefined}
 													bind:value={script.priority}
 													on:focus
