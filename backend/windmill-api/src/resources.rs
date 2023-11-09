@@ -39,7 +39,6 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_resources))
         .route("/list_search", get(list_search_resources))
         .route("/list_names/:type", get(list_names))
-        .route("/custom_component/:name", get(custom_component))
         .route("/get/*path", get(get_resource))
         .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
@@ -58,6 +57,10 @@ pub fn workspaced_service() -> Router {
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
         .route("/type/create", post(create_resource_type))
+}
+
+pub fn public_service() -> Router {
+    Router::new().route("/custom_component/:name", get(custom_component))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -320,7 +323,7 @@ async fn custom_component(
     let cc_o = sqlx::query_scalar!(
         "SELECT value->>'js' FROM resource
         WHERE path = $1 AND workspace_id = $2",
-        format!("f/custom_components/{name}"),
+        format!("f/app_custom/{name}"),
         &w_id
     )
     .fetch_optional(&mut *tx)

@@ -21,6 +21,7 @@
 	import { RunnableWrapper } from '../helpers'
 	import { workspaceStore } from '$lib/stores'
 	import type { CustomComponentConfig } from '../../editor/component'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let id: string
 	export let render: boolean
@@ -32,7 +33,7 @@
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
-		ccOutput: undefined,
+		output: undefined,
 		loading: false
 	})
 
@@ -46,8 +47,7 @@
 			setRender = setter.onRender
 		},
 		setOutput: (output) => {
-			outputs.ccOutput.set(output)
-			console.log('setOutput', output)
+			outputs.output.set(output)
 		}
 	}
 	let loaded = false
@@ -68,13 +68,18 @@
 		}
 		//@ts-ignore
 		await import(
-			`http://localhost:3000/api/w/${$workspaceStore ?? 'NO_W'}/resources/custom_component/${
+			`http://localhost:3000/api/w/${$workspaceStore ?? 'NO_W'}/resources_u/custom_component/${
 				customComponent.name
 			}`
 		)
 		loaded = true
 		try {
-			let renderer: (props: CCProps<number>) => void = globalThis.windmill[customComponent.name]
+			let renderer: (props: CCProps<number>) => void =
+				globalThis.windmill[customComponent?.name ?? 'no_name']
+			if (!renderer) {
+				sendUserToast('Custom Component seem to be ill-defined (renderer missing)', true)
+				return
+			}
 			renderer?.(ccProps)
 		} catch (e) {
 			sendUserToast('Custom Component seem to be ill-defined', true)
@@ -97,8 +102,11 @@
 <InitializeComponent {id} />
 
 {#if render}
-	<div class="w-full h-full overflow-auto {customComponent.name}">
+	<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
 		<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:result>
+			{#if !loaded}
+				<Loader2 class="animate-spin" />
+			{/if}
 			<div id={divId} />
 		</RunnableWrapper>
 	</div>

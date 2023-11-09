@@ -133,7 +133,14 @@
 					workspace: $workspaceStore!
 				})
 			)
-				.filter((x) => x != initialFolder)
+				.filter(
+					(x) =>
+						x != initialFolder &&
+						x != 'app_groups' &&
+						x != 'app_custom' &&
+						x != 'app_themes' &&
+						x != 'app_custom'
+				)
 				.map((x) => ({
 					name: x,
 					write:
