@@ -18,6 +18,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
+	import CustomSso from './CustomSso.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -148,6 +149,8 @@
 		await SettingService.sendStats()
 		sendUserToast('Usage sent')
 	}
+
+	let clientName = ''
 </script>
 
 <div class="pb-8">
@@ -209,6 +212,61 @@
 								<OAuthSetting name="gitlab" bind:value={oauths['gitlab']} />
 								<OAuthSetting name="jumpcloud" bind:value={oauths['jumpcloud']} />
 								<KeycloakSetting bind:value={oauths['keycloak']} />
+								{#each Object.keys(oauths) as k}
+									{#if !['google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && 'login_config' in oauths[k]}
+										{#if oauths[k]}
+											<div class="flex flex-col gap-2 pb-4">
+												<div class="flex flex-row items-center gap-2">
+													<label class="text-md font-medium text-primary">{k}</label>
+													<CloseButton
+														on:close={() => {
+															delete oauths[k]
+															oauths = { ...oauths }
+														}}
+													/>
+												</div>
+												<div class="p-2 border rounded">
+													<label class="block pb-2">
+														<span class="text-primary font-semibold text-sm">Client Id</span>
+														<input
+															type="text"
+															placeholder="Client Id"
+															bind:value={oauths[k]['id']}
+														/>
+													</label>
+													<label class="block pb-2">
+														<span class="text-primary font-semibold text-sm">Client Secret</span>
+														<input
+															type="text"
+															placeholder="Client Secret"
+															bind:value={oauths[k]['secret']}
+														/>
+													</label>
+													{#if !windmillBuiltins.includes(k) && k != 'slack'}
+														<CustomSso bind:login_config={oauths[k]['login_config']} />
+													{/if}
+												</div>
+											</div>
+										{/if}
+									{/if}
+								{/each}
+							</div>
+							<div class="flex gap-2">
+								<input type="text" placeholder="client_id" bind:value={clientName} />
+								<Button
+									variant="border"
+									color="blue"
+									hover="yo"
+									size="sm"
+									endIcon={{ icon: faPlus }}
+									disabled={clientName == ''}
+									on:click={() => {
+										oauths[clientName] = { id: '', secret: '', login_config: {} }
+										clientName = ''
+									}}
+								>
+									Add custom SSO client {!$enterpriseLicense ? '(require ee)' : ''}
+								</Button>
 							</div>
 							<h4 class="py-4">OAuth</h4>
 							<Alert type="info" title="Require a corresponding resource type">
@@ -220,7 +278,7 @@
 							<div class="py-1" />
 
 							{#each Object.keys(oauths) as k}
-								{#if !['google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k)}
+								{#if !['google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && !('login_config' in oauths[k])}
 									{#if oauths[k]}
 										<div class="flex flex-col gap-2 pb-4">
 											<div class="flex flex-row items-center gap-2">
