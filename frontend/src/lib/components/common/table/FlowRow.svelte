@@ -7,16 +7,6 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faArchive,
-		faCalendarAlt,
-		faCodeFork,
-		faCopy,
-		faFileExport,
-		faList,
-		faShare,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -25,7 +15,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { Pen, GitFork } from 'lucide-svelte'
+	import { Pen, GitFork, Trash, List, FileUp, Globe, Calendar, Share, Archive } from 'lucide-svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -131,7 +121,7 @@
 					return [
 						{
 							displayName: 'Delete',
-							icon: faTrashAlt,
+							icon: Trash,
 							action: (event) => {
 								if (event?.shiftKey) {
 									deleteFlow(path)
@@ -149,17 +139,17 @@
 				return [
 					{
 						displayName: 'Duplicate/Fork',
-						icon: faCodeFork,
+						icon: GitFork,
 						href: `/flows/add?template=${path}`
 					},
 					{
 						displayName: 'View runs',
-						icon: faList,
+						icon: List,
 						href: `/runs/${path}`
 					},
 					{
 						displayName: 'Move/Rename',
-						icon: faFileExport,
+						icon: FileUp,
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'flow')
 						},
@@ -167,14 +157,14 @@
 					},
 					{
 						displayName: 'Copy path',
-						icon: faCopy,
+						icon: Clipboard,
 						action: () => {
 							copyToClipboard(path)
 						}
 					},
 					{
 						displayName: 'Deploy to staging/prod',
-						icon: faFileExport,
+						icon: Globe,
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'flow')
 						},
@@ -182,7 +172,7 @@
 					},
 					{
 						displayName: 'Schedule',
-						icon: faCalendarAlt,
+						icon: Calendar,
 						action: () => {
 							scheduleEditor.openNew(true, path)
 						},
@@ -190,14 +180,14 @@
 					},
 					{
 						displayName: owner ? 'Share' : 'See Permissions',
-						icon: faShare,
+						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
 						}
 					},
 					{
 						displayName: archived ? 'Unarchive' : 'Archive',
-						icon: faArchive,
+						icon: Archive,
 						action: () => {
 							path && archiveFlow(path, !archived)
 						},
@@ -208,7 +198,7 @@
 						? [
 								{
 									displayName: 'Delete Draft',
-									icon: faTrashAlt,
+									icon: Trash,
 									action: async () => {
 										await DraftService.deleteDraft({
 											workspace: $workspaceStore ?? '',
@@ -224,7 +214,7 @@
 						: []),
 					{
 						displayName: 'Delete',
-						icon: faTrashAlt,
+						icon: Trash,
 						action: (event) => {
 							if (event?.shiftKey) {
 								deleteFlow(path)

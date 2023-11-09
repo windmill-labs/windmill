@@ -2,12 +2,13 @@
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
 	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
-	import { faRobot, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 
 	import {
+		Bot,
 		Calendar,
 		Check,
 		FastForward,
@@ -178,7 +179,7 @@
 				</div>
 			{:else}
 				<div class="flex flex-row gap-1 items-center">
-					<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
+					<Bot size={12} class="text-secondary" />
 					<span class="mx-1 text-xs">
 						Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{job.parent_job}

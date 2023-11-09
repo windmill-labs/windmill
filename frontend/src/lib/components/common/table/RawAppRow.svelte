@@ -5,7 +5,6 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { RawAppService, type ListableRawApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faFileExport, faShare, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
@@ -14,7 +13,7 @@
 	import FileInput from '../fileInput/FileInput.svelte'
 	import { goto } from '$app/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { Pen } from 'lucide-svelte'
+	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined
@@ -93,15 +92,7 @@
 				return [
 					{
 						displayName: 'Move/Rename',
-						icon: faFileExport,
-						action: () => {
-							moveDrawer.openDrawer(path, summary, 'raw_app')
-						},
-						disabled: !canWrite
-					},
-					{
-						displayName: 'Move/Rename',
-						icon: faFileExport,
+						icon: FileUp,
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'raw_app')
 						},
@@ -109,21 +100,21 @@
 					},
 					{
 						displayName: 'Deploy to prod/staging',
-						icon: faFileExport,
+						icon: Globe,
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'raw_app')
 						}
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',
-						icon: faShare,
+						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'raw_app')
 						}
 					},
 					{
 						displayName: 'Delete',
-						icon: faTrashAlt,
+						icon: Trash,
 						action: async (event) => {
 							if (event?.shiftKey) {
 								await RawAppService.deleteRawApp({ workspace: $workspaceStore ?? '', path })

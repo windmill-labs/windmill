@@ -8,17 +8,15 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { Badge, Button, Drawer, Kbd, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { ArrowRight, Play, RefreshCw } from 'lucide-svelte'
+	import { ArrowRight, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
@@ -165,12 +163,14 @@
 >
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
-			<button
+			<Button
 				on:click={() => dispatch('close')}
-				class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
-			>
-				<Icon data={faClose} class="text-secondary" />
-			</button>
+				startIcon={{ icon: X }}
+				iconOnly
+				size="sm"
+				color="light"
+				btnClasses="hover:bg-surface-hover  bg-surface-secondaryw-8 h-8 rounded-full p-0"
+			/>
 		</div>
 
 		{#if isRunning}

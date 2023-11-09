@@ -8,17 +8,7 @@
 
 	import { ScriptService, type Script, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faArchive,
-		faCalendarAlt,
-		faCode,
-		faCodeFork,
-		faCopy,
-		faFileExport,
-		faList,
-		faShare,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -28,7 +18,18 @@
 	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
-	import { GitFork, Pen } from 'lucide-svelte'
+	import {
+		Archive,
+		Calendar,
+		Code,
+		Copy,
+		FileUp,
+		GitFork,
+		List,
+		Pen,
+		Share,
+		Trash
+	} from 'lucide-svelte'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -158,14 +159,14 @@
 					return [
 						{
 							displayName: 'View code',
-							icon: faCode,
+							icon: Code,
 							action: () => {
 								showCode(script.path, script.summary)
 							}
 						},
 						{
 							displayName: 'Delete',
-							icon: faTrashAlt,
+							icon: Trash,
 							action: (event) => {
 								if (event?.shiftKey) {
 									deleteScript(path)
@@ -183,19 +184,19 @@
 				return [
 					{
 						displayName: 'View code',
-						icon: faCode,
+						icon: Code,
 						action: () => {
 							showCode(script.path, script.summary)
 						}
 					},
 					{
 						displayName: 'Duplicate/Fork',
-						icon: faCodeFork,
+						icon: GitFork,
 						href: `/scripts/add?template=${path}`
 					},
 					{
 						displayName: 'Move/Rename',
-						icon: faFileExport,
+						icon: FileUp,
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'script')
 						},
@@ -203,7 +204,7 @@
 					},
 					{
 						displayName: 'Deploy to staging/prod',
-						icon: faFileExport,
+						icon: FileUp,
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'script')
 						},
@@ -211,12 +212,12 @@
 					},
 					{
 						displayName: 'View runs',
-						icon: faList,
+						icon: List,
 						href: `/runs/${path}`
 					},
 					{
 						displayName: 'Schedule',
-						icon: faCalendarAlt,
+						icon: Calendar,
 						action: () => {
 							scheduleEditor.openNew(false, path)
 						},
@@ -224,7 +225,7 @@
 					},
 					{
 						displayName: owner ? 'Share' : 'See Permissions',
-						icon: faShare,
+						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'script')
 						},
@@ -232,14 +233,14 @@
 					},
 					{
 						displayName: 'Copy path',
-						icon: faCopy,
+						icon: Copy,
 						action: () => {
 							copyToClipboard(path)
 						}
 					},
 					{
 						displayName: archived ? 'Unarchive' : 'Archive',
-						icon: faArchive,
+						icon: Archive,
 						action: () => {
 							archived ? path && unarchiveScript(path) : path && archiveScript(path)
 						},
@@ -251,7 +252,7 @@
 						? [
 								{
 									displayName: 'Delete Draft',
-									icon: faTrashAlt,
+									icon: Trash,
 									action: async () => {
 										await DraftService.deleteDraft({
 											workspace: $workspaceStore ?? '',
@@ -269,7 +270,7 @@
 						? [
 								{
 									displayName: 'Delete',
-									icon: faTrashAlt,
+									icon: Trash,
 									action: (event) => {
 										if (event?.shiftKey) {
 											deleteScript(path)

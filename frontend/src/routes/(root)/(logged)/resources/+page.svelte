@@ -31,21 +31,22 @@
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
-	import {
-		faChain,
-		faCircle,
-		faEdit,
-		faFileExport,
-		faRefresh,
-		faRotateRight,
-		faShare,
-		faTrash
-	} from '@fortawesome/free-solid-svg-icons'
 	import { convert } from '@redocly/json-to-json-schema'
-	import { Braces, Building, Link, Pen, Plus, Save, Trash } from 'lucide-svelte'
+	import {
+		Braces,
+		Building,
+		Circle,
+		FileUp,
+		Link,
+		Pen,
+		Plus,
+		RotateCw,
+		Save,
+		Share,
+		Trash
+	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from 'svelte-autosize'
-	import Icon from 'svelte-awesome'
 	import Portal from 'svelte-portal'
 
 	type ResourceW = ListableResource & { canWrite: boolean }
@@ -512,12 +513,11 @@
 						types: false
 					}
 				}}
-				><Icon
-					scale={0.8}
-					data={faRotateRight}
-					class={loading.resources || loading.types ? 'animate-spin' : ''}
-				/></Button
-			>
+				startIcon={{
+					icon: RotateCw,
+					classes: loading.resources || loading.types ? 'animate-spin' : ''
+				}}
+			/>
 		</div>
 	</div>
 	{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
@@ -600,7 +600,7 @@
 											<div class="w-10">
 												{#if is_linked}
 													<Popover>
-														<Icon data={faChain} />
+														<Link />
 														<div slot="text">
 															This resource is linked with a variable of the same path. They are
 															deleted and renamed together.
@@ -611,7 +611,7 @@
 											<div class="w-10">
 												{#if is_refreshed}
 													<Popover>
-														<Icon data={faRefresh} />
+														<RotateCw />
 														<div slot="text">
 															The OAuth token will be kept up-to-date in the background by Windmill
 															using its refresh token
@@ -624,11 +624,9 @@
 												<div class="w-10">
 													{#if refresh_error}
 														<Popover>
-															<Icon
+															<Circle
 																class="text-red-600 animate-[pulse_5s_linear_infinite]"
-																data={faCircle}
-																scale={0.7}
-																label="Error during exchange of the refresh token"
+																size={12}
 															/>
 															<div slot="text">
 																Latest exchange of the refresh token did not succeed. Error: {refresh_error}
@@ -636,12 +634,11 @@
 														</Popover>
 													{:else if is_expired}
 														<Popover>
-															<Icon
+															<Circle
 																class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
-																data={faCircle}
-																scale={0.7}
-																label="Variable is expired"
+																size={12}
 															/>
+
 															<div slot="text">
 																The access_token is expired, it will get renewed the next time this
 																variable is fetched or you can request is to be refreshed in the
@@ -650,11 +647,9 @@
 														</Popover>
 													{:else}
 														<Popover>
-															<Icon
+															<Circle
 																class="text-green-600 animate-[pulse_5s_linear_infinite]"
-																data={faCircle}
-																scale={0.7}
-																label="Variable is tied to an OAuth app"
+																size={12}
 															/>
 															<div slot="text">
 																The resource was connected through OAuth and the token is not
@@ -672,14 +667,14 @@
 											dropdownItems={[
 												{
 													displayName: !canWrite ? 'View Permissions' : 'Share',
-													icon: faShare,
+													icon: Share,
 													action: () => {
 														shareModal.openDrawer?.(path, 'resource')
 													}
 												},
 												{
 													displayName: 'Edit',
-													icon: faEdit,
+													icon: Pen,
 													disabled: !canWrite,
 													action: () => {
 														resourceEditor?.initEdit?.(path)
@@ -687,7 +682,7 @@
 												},
 												{
 													displayName: 'Deploy to prod/staging',
-													icon: faFileExport,
+													icon: FileUp,
 													action: () => {
 														deploymentDrawer.openDrawer(path, 'resource')
 													}
@@ -695,7 +690,7 @@
 												{
 													displayName: 'Delete',
 													disabled: !canWrite,
-													icon: faTrash,
+													icon: Trash,
 													type: 'delete',
 													action: (event) => {
 														if (event?.shiftKey) {
@@ -711,7 +706,7 @@
 													? [
 															{
 																displayName: 'Refresh token',
-																icon: faRefresh,
+																icon: RotateCw,
 																action: async () => {
 																	await OauthService.refreshToken({
 																		workspace: $workspaceStore ?? '',

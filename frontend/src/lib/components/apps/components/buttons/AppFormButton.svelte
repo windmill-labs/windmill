@@ -1,14 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-
+	import { User } from 'lucide-svelte'
 	import { initCss } from '../../utils'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
@@ -117,7 +115,7 @@
 					Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
 					<strong>
 						User Input
-						<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+						<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
 					</strong>
 				</div>
 			{/if}

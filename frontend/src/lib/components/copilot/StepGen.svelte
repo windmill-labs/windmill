@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { Icon } from 'svelte-awesome'
 	import { copilotInfo } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -9,6 +7,7 @@
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { sendUserToast } from '$lib/toast'
 	import { nextId } from '../flows/flowModuleNextId'
+	import { Wand2 } from 'lucide-svelte'
 	export let index: number
 	export let open: boolean | undefined
 	export let close: () => void
@@ -99,10 +98,7 @@
 				placeholder="AI Gen       or search hub {trigger ? 'triggers' : 'scripts'}"
 			/>
 			{#if funcDesc.length === 0}
-				<Icon
-					data={faMagicWandSparkles}
-					class="absolute left-[65px] qhd:left-[75px] top-[18px] qhd:top-[20px] fill-current opacity-70"
-				/>
+				<Wand2 size={14} />
 			{/if}
 		</div>
 		{#if funcDesc.length > 0}
@@ -120,7 +116,7 @@
 							<div
 								class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 							>
-								<Icon data={faMagicWandSparkles} scale={0.8} />
+								<Wand2 size={14} />
 							</div>
 
 							<div class="text-left text-xs text-secondary">
@@ -142,7 +138,7 @@
 							<div
 								class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 							>
-								<Icon data={faMagicWandSparkles} scale={0.8} />
+								<Wand2 size={14} />
 							</div>
 
 							<div class="text-left text-xs text-secondary">

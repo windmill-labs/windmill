@@ -8,9 +8,8 @@
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import { JobService, Script, ScriptService, WorkspaceService } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import Icon from 'svelte-awesome'
-	import { check } from 'svelte-awesome/icons'
-	import { faRotate, faRotateRight, faTimes } from '@fortawesome/free-solid-svg-icons'
+
+	import { CheckCircle2, RotateCw, XCircle } from 'lucide-svelte'
 
 	export let isEditable: boolean
 	export let slackToggleText: string = 'enable'
@@ -246,9 +245,12 @@
 							href="/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
-					<Button variant="border" color="light" on:click={loadSlackResources}>
-						<Icon scale={0.8} data={faRotateRight} />
-					</Button>
+					<Button
+						variant="border"
+						color="light"
+						on:click={loadSlackResources}
+						startIcon={{ icon: RotateCw }}
+					/>
 				</div>
 			</Alert>
 		{:else}
@@ -262,18 +264,19 @@
 			{#if slackConnectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
 					{#if slackConnectionTestJob.in_progress}
-						<Icon scale={0.8} data={faRotate} class="mr-1" />
+						<RotateCw size={14} />
 					{:else if slackConnectionTestJob.is_success}
-						<Icon scale={0.8} data={check} class="mr-1 text-green-600" />
+						<CheckCircle2 size={14} class="text-green-600" />
 					{:else}
-						<Icon scale={0.8} data={faTimes} class="mr-1 text-red-700" />
+						<XCircle size={14} class="text-red-700" />
 					{/if}
 					Message sent via Windmill job
 					<a
 						target="_blank"
 						href={`/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
-						>{slackConnectionTestJob.uuid}</a
 					>
+						{slackConnectionTestJob.uuid}
+					</a>
 				</p>
 			{/if}
 		{/if}

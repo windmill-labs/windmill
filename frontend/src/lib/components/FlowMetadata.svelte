@@ -3,22 +3,14 @@
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import Icon from 'svelte-awesome'
 	import { displayDate } from '$lib/utils'
-	import {
-		faCalendar,
-		faClock,
-		faRobot,
-		faScroll,
-		faUser,
-		faBarsStaggered,
-		faMemory
-	} from '@fortawesome/free-solid-svg-icons'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
-
+	import { Clock, MemoryStick, Calendar, Bot, User, Scroll } from 'lucide-svelte'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	export let job: Job
-	const SMALL_ICON_SCALE = 0.7
+	const SMALL_ICON_SIZE = 12
 	let scheduleEditor: ScheduleEditor
 </script>
 
@@ -30,7 +22,7 @@
 >
 	<JobStatus {job} />
 	<div>
-		<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} />
+		<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
 		<span class="mx-2 text-2xs text-secondary">
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
@@ -42,7 +34,8 @@
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
 		<div>
-			<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+			<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
+			<span class="mx-2">
 				Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
 				<Tooltip>{job?.started_at}</Tooltip>
 			</span>
@@ -50,37 +43,38 @@
 	{/if}
 	{#if job && job['mem_peak']}
 		<div>
-			<Icon class="text-secondary" data={faMemory} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-				Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span
-			>
+			<MemoryStick size={SMALL_ICON_SIZE} class="text-secondary" />
+			<span class="mx-2"> Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span>
 		</div>
 	{/if}
 	<div>
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
-					class="mx-2"
-				>
-					Step of flow <a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}
-						>{job.parent_job}</a
-					></span
-				>
+				<Icon class="text-secondary" data={faBarsStaggered} scale={0.7} />
+				<span class="mx-2">
+					Step of flow
+					<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						{job.parent_job}
+					</a>
+				</span>
 			{:else}
-				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-					Triggered by parent <a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}
-						>{job.parent_job}</a
-					></span
-				>
+				<Bot size={SMALL_ICON_SIZE} class="text-secondary" />
+				<span class="mx-2">
+					Triggered by parent
+					<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
+				</span>
 			{/if}
 		{:else if job && job.schedule_path}
-			<Icon class="text-secondary" data={faCalendar} scale={SMALL_ICON_SCALE} />
-			<span
-				>Triggered by the schedule: <button
+			<Calendar size={SMALL_ICON_SIZE} class="text-secondary" />
+			<span>
+				Triggered by the schedule:
+				<button
 					class="break-words text-sm text-blue-600 font-normal"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
-					>{job.schedule_path}</button
-				></span
-			>
+				>
+					{job.schedule_path}
+				</button>
+			</span>
 		{/if}
 
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
@@ -88,21 +82,26 @@
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			<div>
-				<Icon class="text-secondary" data={faScroll} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+				<Scroll size={SMALL_ICON_SIZE} class="text-secondary" />
+				<span class="mx-2">
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>
 			</div>
 		{/if}
 
 		<div>
-			<Icon class="text-secondary" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+			<User size={SMALL_ICON_SIZE} class="text-secondary" />
+
+			<span class="mx-2">
 				By {job.created_by}
-				{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}but
-					permissioned as {job.permissioned_as}{/if}
+				{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
+					but permissioned as {job.permissioned_as}
+				{/if}
 			</span>
 		</div>
 	</div>
 	<div class="text-secondary text-2xs pt-2">
-		run id: <a href={`/run/${job.id}?workspace=${job.workspace_id}`}>{job.id}</a>
+		run id:
+		<a href={`/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
 	</div>
 </div>

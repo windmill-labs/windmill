@@ -1,17 +1,11 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import {
-		faCode,
-		faCodeBranch,
-		faBarsStaggered,
-		faBolt,
-		faCheck
-	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Cross, Repeat, Square } from 'lucide-svelte'
+	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
 	import StepGen from '$lib/components/copilot/StepGen.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -58,7 +52,7 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Icon data={faCode} scale={0.8} class="mr-2" />
+					<Code size={14} class="mr-2" />
 					Action
 				</button>
 				{#if trigger}
@@ -71,7 +65,7 @@
 						role="menuitem"
 						tabindex="-1"
 					>
-						<Icon data={faBolt} scale={0.8} class="mr-2" />
+						<Zap size={14} class="mr-2" />
 						Trigger
 					</button>
 				{/if}
@@ -84,7 +78,7 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Icon data={faCheck} class="mr-1.5" scale={0.8} />
+					<CheckCircle2 size={14} class="mr-2" />
 					Approval
 				</button>
 				<button
@@ -110,7 +104,7 @@
 					}}
 					role="menuitem"
 				>
-					<Icon data={faCodeBranch} scale={0.8} class="mr-2" />
+					<GitBranch size={14} class="mr-2" />
 					Branch to one
 				</button>
 
@@ -122,7 +116,8 @@
 					}}
 					role="menuitem"
 				>
-					<Icon data={faCodeBranch} scale={0.8} class="mr-2" />
+					<GitBranch size={14} class="mr-2" />
+
 					Branch to all
 				</button>
 
