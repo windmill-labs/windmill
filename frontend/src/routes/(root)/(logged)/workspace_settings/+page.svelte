@@ -25,8 +25,8 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { Scroll, Slack } from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -321,7 +321,7 @@
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ faIcon: faBarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>

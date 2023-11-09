@@ -22,7 +22,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
-	import { faCircle } from '@fortawesome/free-solid-svg-icons'
 	import {
 		Plus,
 		FileUp,
@@ -33,9 +32,9 @@
 		Trash,
 		Building,
 		DollarSign,
-		EyeOff
+		EyeOff,
+		Circle
 	} from 'lucide-svelte'
-	import Icon from 'svelte-awesome'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -253,17 +252,13 @@
 												{#if refresh_error}
 													<Popover notClickable>
 														<div class="relative inline-flex justify-center items-center w-4 h-4">
-															<Icon
-																class="text-red-600 animate-ping absolute z-50 w-4 h-4"
-																data={faCircle}
-																scale={0.7}
-																label="Error during exchange of the refresh token"
+															<Circle
+																class="text-red-600 animate-ping absolute z-50 w-4 h-4 fill-current"
+																size={12}
 															/>
-															<Icon
-																class="text-red-600 relative inline-flex"
-																data={faCircle}
-																scale={0.7}
-																label="Error during exchange of the refresh token"
+															<Circle
+																class="text-red-600 relative inline-flex fill-current "
+																size={12}
 															/>
 														</div>
 
@@ -273,11 +268,9 @@
 													</Popover>
 												{:else if is_expired}
 													<Popover notClickable>
-														<Icon
-															class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
-															data={faCircle}
-															scale={0.7}
-															label="Variable is expired"
+														<Circle
+															class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
+															size={12}
 														/>
 														<div slot="text">
 															The access_token is expired, it will get renewed the next time this
@@ -287,11 +280,9 @@
 													</Popover>
 												{:else}
 													<Popover notClickable>
-														<Icon
-															class="text-green-600 animate-[pulse_5s_linear_infinite]"
-															data={faCircle}
-															scale={0.7}
-															label="Variable is tied to an OAuth app"
+														<Circle
+															class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
+															size={12}
 														/>
 														<div slot="text">
 															The variable was connected through OAuth and the token is not expired.

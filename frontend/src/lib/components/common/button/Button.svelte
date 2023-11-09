@@ -6,7 +6,6 @@
 	import ButtonDropdown from './ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
-	import { Icon } from 'svelte-awesome'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -123,10 +122,6 @@
 		'transition-all'
 	)
 
-	$: isSmall = size === 'xs' || size === 'sm'
-	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
-	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
-
 	const iconMap = {
 		xs: 14,
 		sm: 16,
@@ -171,8 +166,6 @@
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
-			{:else if startIcon?.faIcon}
-				<Icon data={startIcon.faIcon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 
 			{#if !iconOnly}
@@ -180,8 +173,6 @@
 			{/if}
 			{#if endIcon?.icon}
 				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
-			{:else if endIcon?.faIcon}
-				<Icon data={endIcon.faIcon} class={endIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 		</a>
 	{:else}
@@ -206,8 +197,6 @@
 				<Loader2 class="animate-spin mr-1" size={14} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
-			{:else if startIcon?.faIcon}
-				<Icon data={startIcon.faIcon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 
 			{#if !iconOnly}
@@ -215,8 +204,6 @@
 			{/if}
 			{#if endIcon?.icon}
 				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
-			{:else if endIcon?.faIcon}
-				<Icon data={endIcon.faIcon} class={endIconClass} scale={ButtonType.IconScale[size]} />
 			{/if}
 		</button>
 	{/if}

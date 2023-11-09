@@ -2,10 +2,9 @@
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
 	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
 		Bot,
@@ -25,7 +24,6 @@
 	import Portal from 'svelte-portal'
 
 	const dispatch = createEventDispatcher()
-	const SMALL_ICON_SCALE = 0.7
 
 	export let job: Job
 	export let selectedId: string | undefined = undefined
@@ -170,7 +168,7 @@
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
 				<div class="flex flex-row gap-1 items-center">
-					<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} />
+					<BarsStaggered class="text-secondary" size={14} />
 					<span class="mx-1 text-xs">
 						Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{truncateRev(job.parent_job, 6)}

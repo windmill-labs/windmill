@@ -625,7 +625,7 @@
 													{#if refresh_error}
 														<Popover>
 															<Circle
-																class="text-red-600 animate-[pulse_5s_linear_infinite]"
+																class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
 																size={12}
 															/>
 															<div slot="text">
@@ -635,7 +635,7 @@
 													{:else if is_expired}
 														<Popover>
 															<Circle
-																class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
+																class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
 																size={12}
 															/>
 
@@ -648,7 +648,7 @@
 													{:else}
 														<Popover>
 															<Circle
-																class="text-green-600 animate-[pulse_5s_linear_infinite]"
+																class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
 																size={12}
 															/>
 															<div slot="text">

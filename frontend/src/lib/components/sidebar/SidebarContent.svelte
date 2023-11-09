@@ -22,7 +22,6 @@
 	import { faDiscord } from '@fortawesome/free-brands-svg-icons'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
-	import { Icon } from 'svelte-awesome'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import UserMenu from './UserMenu.svelte'
 
@@ -156,8 +155,6 @@
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
-											{:else if subItem?.faIcon}
-												<Icon data={subItem.faIcon} />
 											{/if}
 
 											{subItem.label}
@@ -192,8 +189,6 @@
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
-											{:else if subItem.faIcon}
-												<Icon data={subItem.faIcon} />
 											{/if}
 
 											{subItem.label}

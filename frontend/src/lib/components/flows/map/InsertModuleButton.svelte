@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
 	import StepGen from '$lib/components/copilot/StepGen.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -127,7 +126,7 @@
 					}}
 					role="menuitem"
 				>
-					<Icon data={faBarsStaggered} scale={0.8} />
+					<BarsStaggered size={14} />
 					Flow
 				</button>
 				{#if stop}

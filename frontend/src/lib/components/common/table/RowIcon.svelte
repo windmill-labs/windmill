@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
-	import Icon from 'svelte-awesome'
 
 	export let kind: 'script' | 'flow' | 'app' | 'raw_app'
 	export let href: string = '#'
@@ -24,9 +23,7 @@
 
 <a {href} class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
 	{#if kind === 'flow'}
-		<span class="ml-1 mb-0.5 -mt-0.5">
-			<Icon data={faBarsStaggered} scale={1} class="mr-0.5 text-[#14b8a6]" />
-		</span>
+		<BarsStaggered size={20} class=" text-[#14b8a6] p-0.5" />
 	{:else if kind === 'app' || kind === 'raw_app'}
 		<LayoutDashboard size={20} color={iconColor} />
 	{:else if kind === 'script'}

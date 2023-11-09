@@ -1,14 +1,14 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
 	import JobStatus from '$lib/components/JobStatus.svelte'
-	import Icon from 'svelte-awesome'
 	import { displayDate } from '$lib/utils'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import { Clock, MemoryStick, Calendar, Bot, User, Scroll } from 'lucide-svelte'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+
 	export let job: Job
 	const SMALL_ICON_SIZE = 12
 	let scheduleEditor: ScheduleEditor
@@ -50,7 +50,7 @@
 	<div>
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<Icon class="text-secondary" data={faBarsStaggered} scale={0.7} />
+				<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
 				<span class="mx-2">
 					Step of flow
 					<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>

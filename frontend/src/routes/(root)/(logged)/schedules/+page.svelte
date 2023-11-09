@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate } from '$lib/utils'
-	import { faCircle } from '@fortawesome/free-solid-svg-icons'
-	import { Icon } from 'svelte-awesome'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -13,7 +11,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Eye, List, Loader2, Pen, Play, Plus, Share, Trash } from 'lucide-svelte'
+	import { Circle, Eye, List, Loader2, Pen, Play, Plus, Share, Trash } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -182,18 +180,11 @@
 								{#if error}
 									<Popover notClickable>
 										<span class="flex h-4 w-4">
-											<Icon
-												class="text-red-600 animate-ping absolute inline-flex "
-												data={faCircle}
-												scale={0.7}
-												label="Error during last job scheduling"
+											<Circle
+												class="text-red-600 animate-ping absolute inline-flex fill-current"
+												size={12}
 											/>
-											<Icon
-												class="text-red-600 relative inline-flex"
-												data={faCircle}
-												scale={0.7}
-												label="Error during last job scheduling"
-											/>
+											<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
 										</span>
 										<div slot="text">
 											The schedule disabled itself because there was an error scheduling the next

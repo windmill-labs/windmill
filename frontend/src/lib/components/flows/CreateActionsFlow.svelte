@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -25,7 +25,7 @@
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
-		endIcon={{ faIcon: faBarsStaggered }}
+		endIcon={{ icon: BarsStaggered }}
 		href="/flows/add?nodraft=true"
 		dropdownItems={[
 			{

@@ -3,16 +3,15 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
 	import { ArrowDown, GitBranch } from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let mod: FlowModule
 	export let trigger: boolean
@@ -184,7 +183,7 @@
 						{:else if mod.value.type === 'identity'}
 							<ArrowDown size={16} />
 						{:else if mod.value.type === 'flow'}
-							<Icon data={faBarsStaggered} scale={1.0} />
+							<BarsStaggered size={16} />
 						{:else if mod.value.type === 'script'}
 							{#if mod.value.path.startsWith('hub/')}
 								<div>
