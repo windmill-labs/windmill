@@ -583,6 +583,16 @@ pub async fn run_error_handler<
         extra.insert("schedule_path".to_string(), to_raw_value(schedule_path));
     }
 
+    // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
+    if error_handler_path
+        .to_string()
+        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+    {
+        // default slack error handler being used -> we need to inject the slack token
+        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
+    }
+
     if let Some(extra_args) = error_handler_extra_args {
         if let serde_json::Value::Object(args_m) = extra_args {
             for (k, v) in args_m {
@@ -593,17 +603,6 @@ pub async fn run_error_handler<
                 "args of scripts needs to be dict".to_string(),
             ));
         }
-    }
-
-    // TODO: this should be injected when the EH is defined in the BE.
-    if error_handler_path.to_string().starts_with("hub/")
-        && error_handler_path
-            .to_string()
-            .ends_with("/workspace-or-schedule-error-handler-slack")
-    {
-        // default slack error handler being used -> we need to inject the slack token
-        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
@@ -1036,11 +1035,10 @@ pub async fn handle_on_failure<
         }
     }
 
-    // TODO: This should be inject when the EH is defined in the FE.
-    if on_failure_path.to_string().starts_with("script/hub/")
-        && on_failure_path
-            .to_string()
-            .ends_with("/workspace-or-schedule-error-handler-slack")
+    // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
+    if on_failure_path
+        .to_string()
+        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
@@ -1139,7 +1137,7 @@ async fn handle_on_recovery<
             ));
         }
     }
-    // TODO: This should be inject when the EH is defined in the FE.
+    // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
     if on_recovery_path
         .to_string()
         .eq("script/hub/2430/slack/schedule-recovery-handler-slack")
