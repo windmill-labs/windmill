@@ -5,7 +5,7 @@
 	export let tooltip: string | undefined = undefined
 </script>
 
-<div>
+<div class="w-full">
 	<div class="flex flex-row justify-between">
 		<h2 class="text-base font-semibold mb-2 flex flex-row gap-1">
 			{label}

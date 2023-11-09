@@ -120,16 +120,6 @@ async fn create_schedule(
     }
 
     #[cfg(not(feature = "enterprise"))]
-    if ns.on_failure.is_some()
-        && ns.on_failure.as_ref().unwrap()
-            == "script/hub/5792/workspace-or-schedule-error-handler-slack"
-    {
-        return Err(Error::BadRequest(
-            "Slack error handler is only available in enterprise version".to_string(),
-        ));
-    }
-
-    #[cfg(not(feature = "enterprise"))]
     if ns.on_failure_times.is_some() && ns.on_failure_times.unwrap() > 1 {
         return Err(Error::BadRequest(
             "on_failure with a number of times > 1 is only available in enterprise version"
