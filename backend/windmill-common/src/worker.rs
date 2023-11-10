@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -10,12 +9,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::{
-    error::{self, Error},
-    global_settings::CUSTOM_TAGS_SETTING,
-    server::ServerConfig,
-    DB,
-};
+use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
