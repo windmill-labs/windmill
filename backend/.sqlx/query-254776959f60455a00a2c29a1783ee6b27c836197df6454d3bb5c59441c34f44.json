@@ -73,7 +73,8 @@
                 "bigquery",
                 "snowflake",
                 "graphql",
-                "powershell"
+                "powershell",
+                "mssql"
               ]
             }
           }
