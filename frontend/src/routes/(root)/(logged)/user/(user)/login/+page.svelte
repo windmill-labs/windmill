@@ -5,6 +5,7 @@
 	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
 	import Google from '$lib/components/icons/brands/Google.svelte'
 	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
+	import Okta from '$lib/components/icons/brands/Okta.svelte'
 
 	import { onMount } from 'svelte'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
@@ -44,6 +45,11 @@
 			type: 'microsoft',
 			name: 'Microsoft',
 			icon: Microsoft
+		},
+		{
+			type: 'okta',
+			name: 'Okta',
+			icon: Okta
 		}
 	] as const
 
@@ -125,6 +131,7 @@
 		const allLogins = await OauthService.listOAuthLogins()
 		logins = allLogins.oauth
 		saml = allLogins.saml
+
 		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 	}
 
@@ -195,10 +202,9 @@
 					{#each providers as { type, icon, name }}
 						{#if logins?.includes(type)}
 							<Button
-								color="dark"
+								color="light"
 								variant="border"
-								endIcon={{ icon: icon }}
-								btnClasses="w-full !border-gray-300"
+								startIcon={{ icon, classes: 'h-4' }}
 								on:click={() => storeRedirect(type)}
 							>
 								{name}
