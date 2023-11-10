@@ -119,19 +119,23 @@
 			modulePreview?.runTestWithStepArgs()
 		}
 	}
-
+	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = undefined
 	async function reload(flowModule: FlowModule) {
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
-
-			if (
-				flowModule.value.type == 'rawscript' ||
-				flowModule.value.type == 'script' ||
-				flowModule.value.type == 'flow'
-			) {
-				flowModule.value.input_transforms = input_transforms
+			if (inputTransformSchemaForm) {
+				inputTransformSchemaForm.setArgs(input_transforms)
+			} else {
+				if (
+					flowModule.value.type == 'rawscript' ||
+					flowModule.value.type == 'script' ||
+					flowModule.value.type == 'flow'
+				) {
+					flowModule.value.input_transforms = input_transforms
+				}
 			}
+
 			if (flowModule.value.type == 'rawscript' && flowModule.value.lock != undefined) {
 				flowModule.value.lock = undefined
 			}
@@ -314,6 +318,7 @@
 										error={failureModule}
 									>
 										<InputTransformSchemaForm
+											bind:this={inputTransformSchemaForm}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											previousModuleId={previousModule?.id}
 											bind:args={flowModule.value.input_transforms}
