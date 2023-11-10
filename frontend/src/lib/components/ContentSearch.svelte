@@ -2,7 +2,7 @@
 	import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { clickOutside } from '$lib/utils'
-	import { Boxes, Code2, LayoutDashboard, Loader2, X } from 'lucide-svelte'
+	import { Boxes, Code2, Edit, LayoutDashboard, Loader2, X } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
 	import SearchItems from './SearchItems.svelte'
@@ -10,7 +10,6 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import { Alert, Button } from './common'
-	import { faEdit } from '@fortawesome/free-solid-svg-icons'
 	import { goto } from '$app/navigation'
 
 	let search: string = ''
@@ -271,8 +270,10 @@
 															}}
 															color="light"
 															size="sm"
-															startIcon={{ icon: faEdit }}>Edit</Button
+															startIcon={{ icon: Edit }}
 														>
+															Edit
+														</Button>
 													</div>
 												</div>
 											</div>
@@ -309,7 +310,7 @@
 															}}
 															color="light"
 															size="sm"
-															startIcon={{ icon: faEdit }}>Edit</Button
+															startIcon={{ icon: Edit }}>Edit</Button
 														>
 													</div>
 												</div>

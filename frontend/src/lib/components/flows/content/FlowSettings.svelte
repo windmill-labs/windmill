@@ -16,11 +16,9 @@
 	import { enterpriseLicense, workerTags, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { copyToClipboard } from '$lib/utils'
-	import { Icon } from 'svelte-awesome'
-	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { WorkerService } from '$lib/gen'
-	import { Loader2 } from 'lucide-svelte'
+	import { Clipboard, Loader2 } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
@@ -143,7 +141,7 @@
 								<svelte:fragment slot="right">
 									<input
 										type="number"
-										class="!w-14 ml-4"
+										class="!w-16 ml-4"
 										disabled={$flowStore.value.priority === undefined}
 										bind:value={$flowStore.value.priority}
 										on:focus
@@ -215,7 +213,7 @@
 													>
 														{url}
 														<span class="text-secondary ml-2">
-															<Icon data={faClipboard} />
+															<Clipboard />
 														</span>
 													</a>
 												</li>
@@ -231,7 +229,7 @@
 													>
 														{syncedUrl}
 														<span class="text-secondary ml-2">
-															<Icon data={faClipboard} />
+															<Clipboard />
 														</span>
 													</a>
 												</li>
@@ -352,7 +350,9 @@
 								</div>
 							{:else}
 								<div class="text-sm text-secondary italic mb-2">
-									No custom worker group defined on this instance. See <a
+									No custom worker group tag defined on this instance in "Workers {'->'} Assignable Tags".
+									See
+									<a
 										href="https://www.windmill.dev/docs/core_concepts/worker_groups"
 										target="_blank">documentation</a
 									>

@@ -7,16 +7,15 @@
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { canWrite } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
-	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
+	import { Pen, Trash, Plus } from 'lucide-svelte'
+	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
-	import { Pen, Trash } from 'lucide-svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
@@ -85,7 +84,7 @@
 				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 			>
 				<svelte:fragment slot="button">
-					<Button size="md" startIcon={{ icon: faPlus }} nonCaptureEvent>New folder name</Button>
+					<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder name</Button>
 				</svelte:fragment>
 				<div class="flex flex-col gap-2">
 					<input
@@ -98,7 +97,7 @@
 					<div>
 						<Button
 							size="md"
-							startIcon={{ icon: faPlus }}
+							startIcon={{ icon: Plus }}
 							disabled={!newFolderName}
 							on:click={() => {
 								addFolder()

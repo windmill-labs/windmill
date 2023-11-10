@@ -7,7 +7,7 @@
 	type Item = {
 		displayName: string
 		action?: (e: CustomEvent<any>) => void
-		icon: any
+		icon?: any
 		href?: string
 		disabled?: boolean
 		type?: 'action' | 'delete'
@@ -24,7 +24,7 @@
 	}
 </script>
 
-<Menu placement="bottom-end" justifyEnd>
+<Menu placement="bottom-end" justifyEnd on:close on:open>
 	<div slot="trigger">
 		<MoreVertical size={16} class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md" />
 	</div>

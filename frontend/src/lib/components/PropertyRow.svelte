@@ -2,9 +2,9 @@
 	import Required from './Required.svelte'
 	import type { PropertyDisplayInfo } from '$lib/common'
 	import { createEventDispatcher } from 'svelte'
-	import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import { Button } from './common'
+	import { Pen, Trash } from 'lucide-svelte'
 
 	export let displayInfo: PropertyDisplayInfo
 	export let isAnimated: boolean
@@ -69,7 +69,7 @@
 			color="light"
 			variant="border"
 			size={lightMode ? 'xs' : 'sm'}
-			startIcon={{ icon: faPen }}
+			startIcon={{ icon: Pen }}
 			on:click={() => startEditArgument(displayInfo.name)}
 			iconOnly={lightMode}
 		>
@@ -81,7 +81,7 @@
 		variant="border"
 		btnClasses="mx-2"
 		size={lightMode ? 'xs' : 'sm'}
-		startIcon={{ icon: faTrash }}
+		startIcon={{ icon: Trash }}
 		on:click={() => handleDeleteArgument(getArgPath(displayInfo))}
 		iconOnly={lightMode}
 	>

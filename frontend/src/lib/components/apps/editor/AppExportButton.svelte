@@ -4,11 +4,11 @@
 
 	import { copyToClipboard } from '$lib/utils'
 
-	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { Button } from '../../common'
 	import type { App } from '../types'
+	import { Clipboard } from 'lucide-svelte'
 
 	let jsonViewerDrawer: Drawer
 
@@ -28,7 +28,7 @@
 				color="dark"
 				variant="border"
 				size="sm"
-				startIcon={{ icon: faClipboard }}
+				startIcon={{ icon: Clipboard }}
 				btnClasses="absolute top-2 right-2 w-min"
 			>
 				Copy content

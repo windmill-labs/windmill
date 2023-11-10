@@ -2,9 +2,6 @@
 	import { CompletedJob, Job, JobService, Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
-	import { faTimes } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
-	import { check } from 'svelte-awesome/icons'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
 	import TabContent from '../common/tabs/TabContent.svelte'
@@ -16,7 +13,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, XCircle } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
@@ -151,14 +148,13 @@
 							<td class="text-xs">{displayDate(created_at)}</td>
 							<td class="text-xs">
 								{#if success}
-									<Icon class="text-green-600" data={check} scale={0.6} />
+									<CheckCircle2 size={10} class="text-green-600" />
 								{:else}
-									<Icon class="text-red-700" data={faTimes} scale={0.6} />
+									<XCircle size={10} class="text-red-700" />
 								{/if}
 							</td>
 							<td class="text-xs">
-								<a
-									href=""
+								<button
 									class="text-xs"
 									on:click|preventDefault={() => {
 										openDrawer({ mode: 'json', content: undefined, title: 'Result' })
@@ -171,11 +167,10 @@
 									}}
 								>
 									See Result
-								</a>
+								</button>
 							</td>
 							<td class="text-xs">
-								<a
-									href=""
+								<button
 									class="text-xs"
 									on:click|preventDefault={async () => {
 										const code = (
@@ -193,11 +188,10 @@
 									}}
 								>
 									View code
-								</a>
+								</button>
 							</td>
 							<td>
-								<a
-									href=""
+								<button
 									class="text-xs"
 									on:click|preventDefault={async () => {
 										const logs = (
@@ -210,7 +204,7 @@
 									}}
 								>
 									View logs
-								</a>
+								</button>
 							</td>
 						</tr>
 					{/each}

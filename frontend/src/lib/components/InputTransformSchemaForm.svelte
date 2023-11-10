@@ -3,11 +3,11 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import InputTransformForm from './InputTransformForm.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
+	import { Plus } from 'lucide-svelte'
 
 	export let schema: Schema
 	export let args: Record<string, InputTransform | any> = {}
@@ -105,7 +105,7 @@
 			variant="border"
 			color="blue"
 			size="sm"
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			on:click={() => {
 				variableEditor?.initNew?.()
 			}}

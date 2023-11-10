@@ -1,11 +1,11 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import type { GridItem, RichConfigurations } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import GroupManagementDrawer from '../componentsPanel/GroupManagementDrawer.svelte'
+	import { Plus } from 'lucide-svelte'
 
 	export let groupFields: RichConfigurations | undefined
 	export let item: GridItem
@@ -105,7 +105,7 @@
 					size="sm"
 					color="light"
 					variant="border"
-					startIcon={{ icon: faPlus }}
+					startIcon={{ icon: Plus }}
 					on:click={() => addField(fieldName)}
 					iconOnly
 				/>

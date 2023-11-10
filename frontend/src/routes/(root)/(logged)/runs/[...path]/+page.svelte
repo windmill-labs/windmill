@@ -545,11 +545,9 @@
 						}
 					}))
 				]}
+				startIcon={{ icon: RefreshCw, classes: loading ? 'animate-spin' : '' }}
 			>
-				<div class="flex flex-row items-center gap-2">
-					<RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
-					{manualDates[selectedManualDate].label}
-				</div>
+				{manualDates[selectedManualDate].label}
 			</Button>
 
 			<Toggle

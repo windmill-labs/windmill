@@ -4,13 +4,12 @@
 	import Button from '../common/button/Button.svelte'
 	import { WindmillIcon } from '../icons'
 	import type { FlowCopilotContext } from './flow'
-	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { charsToNumber } from '../flows/idUtils'
 	import { copilotInfo } from '$lib/stores'
 	import Popup from '../common/popup/Popup.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, Wand2 } from 'lucide-svelte'
 
 	export let copilotLoading: boolean
 	export let copilotStatus: string
@@ -50,7 +49,7 @@
 			($currentStepStore !== undefined && $currentStepStore !== 'Input')
 				? undefined
 				: {
-						icon: faMagicWandSparkles
+						icon: Wand2
 				  }}
 			color={copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
 				? 'red'
@@ -80,8 +79,10 @@
 					color="red"
 					on:click={() => {
 						$drawerStore?.openDrawer()
-					}}>Edit prompts</Button
+					}}
 				>
+					Edit prompts
+				</Button>
 				<Button
 					btnClasses="ml-2"
 					color="green"
@@ -116,7 +117,7 @@
 			<Button
 				size="xs"
 				startIcon={{
-					icon: faMagicWandSparkles
+					icon: Wand2
 				}}
 				color={'light'}
 				variant={'border'}

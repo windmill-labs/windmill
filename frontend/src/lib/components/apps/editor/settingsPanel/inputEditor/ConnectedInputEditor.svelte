@@ -1,10 +1,9 @@
 <script lang="ts">
 	import type { AppViewerContext } from '../../../types'
 	import { Badge, Button } from '$lib/components/common'
-	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ConnectedAppInput, InputConnection } from '../../../inputType'
-	import { Plug } from 'lucide-svelte'
+	import { Plug, UserX } from 'lucide-svelte'
 
 	export let componentInput: ConnectedAppInput
 
@@ -27,7 +26,7 @@
 
 	<Button
 		size="xs"
-		startIcon={{ icon: faClose }}
+		startIcon={{ icon: UserX }}
 		color="red"
 		variant="border"
 		on:click={() => {
@@ -52,10 +51,8 @@
 				}
 			}
 		}}
+		endIcon={{ icon: Plug }}
 	>
-		<div class="flex flex-row gap-1 items-center">
-			<span>Connect</span>
-			<Plug size={14} />
-		</div>
+		Connect
 	</Button>
 {/if}

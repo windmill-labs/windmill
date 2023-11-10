@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import { Button } from './common'
+	import { Minus, Plus } from 'lucide-svelte'
 
 	export let extra_params: Record<string, string> = {}
 
@@ -25,9 +24,9 @@
 				extra_params_vec = extra_params_vec.filter((e) => e[0] != o[0])
 				sync()
 			}}
-		>
-			<Icon data={faMinus} />
-		</Button>
+			startIcon={{ icon: Minus }}
+			iconOnly
+		/>
 	</div>
 {/each}
 <div class="flex items-center mt-1">
@@ -36,7 +35,7 @@
 		color="blue"
 		hover="yo"
 		size="sm"
-		endIcon={{ icon: faPlus }}
+		endIcon={{ icon: Plus }}
 		on:click={() => {
 			extra_params_vec = extra_params_vec.concat([['key', 'value']])
 			sync()

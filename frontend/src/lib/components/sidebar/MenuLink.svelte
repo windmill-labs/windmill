@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { navigating, page } from '$app/stores'
-	import Icon from 'svelte-awesome'
-	import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
 	import Popover from '../Popover.svelte'
 
 	export let label: string
@@ -10,7 +8,6 @@
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
-	export let faIcon: IconDefinition | undefined = undefined
 
 	let isSelected = false
 
@@ -45,15 +42,6 @@
 						isSelected
 							? 'text-frost-200 group-hover:text-white'
 							: 'text-gray-100 group-hover:text-white',
-						'transition-all'
-					)}
-				/>
-			{:else if faIcon}
-				<Icon
-					data={faIcon}
-					class={classNames(
-						'flex-shrink-0',
-						isSelected ? 'text-white' : 'text-gray-100 group-hover:text-white',
 						'transition-all'
 					)}
 				/>

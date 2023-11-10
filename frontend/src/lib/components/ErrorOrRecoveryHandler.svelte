@@ -8,9 +8,8 @@
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import { JobService, Script, ScriptService, WorkspaceService } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import Icon from 'svelte-awesome'
-	import { check } from 'svelte-awesome/icons'
-	import { faRotate, faRotateRight, faTimes } from '@fortawesome/free-solid-svg-icons'
+
+	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
 	const slackHandlerScriptPath = 'hub/6512/workspace-or-schedule-error-handler-slack'
@@ -31,7 +30,7 @@
 	let customHandlerSchema: Schema | undefined
 
 	let slackHandlerSchema: Schema | undefined
-	let workspaceConnectedToSlack: boolean
+	let workspaceConnectedToSlack: boolean | undefined = undefined
 	let slackConnectionTestJob:
 		| { uuid: string; is_success: boolean; in_progress: boolean }
 		| undefined
@@ -40,6 +39,8 @@
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.slack_name) && !emptyString(settings.slack_team_id)) {
 			workspaceConnectedToSlack = true
+		} else {
+			workspaceConnectedToSlack = false
 		}
 	}
 
@@ -264,9 +265,11 @@
 			shouldHideNoInputs
 			class="text-xs"
 		/>
+	{:else if workspaceConnectedToSlack == undefined}
+		<Loader2 class="animate-spin" />
 	{/if}
-	{#if enterpriseLicense && isSlackHandler(handlerPath)}
-		{#if !workspaceConnectedToSlack}
+	{#if $enterpriseLicense && isSlackHandler(handlerPath)}
+		{#if workspaceConnectedToSlack == false}
 			<Alert type="error" title="Workspace not connected to Slack">
 				<div class="flex flex-row gap-x-1 w-full items-center">
 					<p class="text-clip grow min-w-0">
@@ -275,9 +278,12 @@
 							href="/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
-					<Button variant="border" color="light" on:click={loadSlackResources}>
-						<Icon scale={0.8} data={faRotateRight} />
-					</Button>
+					<Button
+						variant="border"
+						color="light"
+						on:click={loadSlackResources}
+						startIcon={{ icon: RotateCw }}
+					/>
 				</div>
 			</Alert>
 		{:else}
@@ -291,18 +297,19 @@
 			{#if slackConnectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
 					{#if slackConnectionTestJob.in_progress}
-						<Icon scale={0.8} data={faRotate} class="mr-1" />
+						<RotateCw size={14} />
 					{:else if slackConnectionTestJob.is_success}
-						<Icon scale={0.8} data={check} class="mr-1 text-green-600" />
+						<CheckCircle2 size={14} class="text-green-600" />
 					{:else}
-						<Icon scale={0.8} data={faTimes} class="mr-1 text-red-700" />
+						<XCircle size={14} class="text-red-700" />
 					{/if}
 					Message sent via Windmill job
 					<a
 						target="_blank"
 						href={`/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
-						>{slackConnectionTestJob.uuid}</a
 					>
+						{slackConnectionTestJob.uuid}
+					</a>
 				</p>
 			{/if}
 		{/if}
