@@ -525,7 +525,7 @@ pub async fn reload_worker_config(
     tx: tokio::sync::broadcast::Sender<()>,
     kill_if_change: bool,
 ) {
-    let config = load_worker_config(&db).await;
+    let config = load_worker_config(&db, tx.clone()).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
     } else {

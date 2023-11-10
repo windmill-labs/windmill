@@ -1,13 +1,12 @@
+use itertools::Itertools;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-
-use itertools::Itertools;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use tokio::sync::RwLock;
 
 use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
@@ -150,7 +149,10 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
     .expect("insert worker_ping initial value");
 }
 
-pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
+pub async fn load_worker_config(
+    db: &DB,
+    killpill_tx: tokio::sync::broadcast::Sender<()>,
+) -> error::Result<WorkerConfig> {
     tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
     let mut config: WorkerConfigOpt = sqlx::query_scalar!(
         "SELECT config FROM config WHERE name = $1",
@@ -178,16 +180,25 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
             config.dedicated_worker.as_ref().unwrap()
         );
     }
-    let dedicated_worker = config.dedicated_worker.map(|x| {
-        let splitted = x.split(':').to_owned().collect_vec();
-        if splitted.len() != 2 {
-            panic!("DEDICATED_WORKER setting should be in the form of <workspace>:<script_path>")
-        } else {
-            let workspace = splitted[0];
-            let script_path = splitted[1];
-            WorkspacedPath { workspace_id: workspace.to_string(), path: script_path.to_string() }
-        }
-    });
+    let dedicated_worker = config
+        .dedicated_worker
+        .map(|x| {
+            let splitted = x.split(':').to_owned().collect_vec();
+            if splitted.len() != 2 {
+                killpill_tx.send(()).expect("send");
+                return Err(anyhow::anyhow!(
+                    "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
+                ));
+            } else {
+                let workspace = splitted[0];
+                let script_path = splitted[1];
+                Ok(WorkspacedPath {
+                    workspace_id: workspace.to_string(),
+                    path: script_path.to_string(),
+                })
+            }
+        })
+        .transpose()?;
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
