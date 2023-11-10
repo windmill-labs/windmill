@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.204.0](https://github.com/windmill-labs/windmill/compare/v1.203.0...v1.204.0) (2023-11-10)
+
+
+### Features
+
+* add sql server ([#2604](https://github.com/windmill-labs/windmill/issues/2604)) ([577e130](https://github.com/windmill-labs/windmill/commit/577e1300b93773ab038b067574928d92cae69275))
+* add support for custom sso logins ([0ccf706](https://github.com/windmill-labs/windmill/commit/0ccf706fa28ba615b887ae9c930089be45f14b13))
+* **frontend:** add confirmation modal when deleting a user in instance settings ([#2608](https://github.com/windmill-labs/windmill/issues/2608)) ([a99edf7](https://github.com/windmill-labs/windmill/commit/a99edf7764f1a46809387f851fd9acdb1057810a))
+* **frontend:** Buttons refactor ([#2545](https://github.com/windmill-labs/windmill/issues/2545)) ([fe35c7a](https://github.com/windmill-labs/windmill/commit/fe35c7ad3cf5cb9d8ebcd2a0723533200034fa74))
+* **frontend:** draft script/flow can only access the edit page until… ([#2607](https://github.com/windmill-labs/windmill/issues/2607)) ([adad712](https://github.com/windmill-labs/windmill/commit/adad71266269c17d27ca1bbe8ebe5505b89eb855))
+
+
+### Bug Fixes
+
+* `iter` args conflicts with external variables named iter ([#2605](https://github.com/windmill-labs/windmill/issues/2605)) ([cb01703](https://github.com/windmill-labs/windmill/commit/cb01703a08f4f63362af98594eec4d08e3f25c04))
+
 ## [1.203.0](https://github.com/windmill-labs/windmill/compare/v1.202.1...v1.203.0) (2023-11-09)
 
 
