@@ -1464,6 +1464,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 {
                     if dedi_path.workspace_id == job.workspace_id
                         && Some(&dedi_path.path) == job.script_path.as_ref()
+                        && matches!(job.job_kind, JobKind::Script | JobKind::Preview)
                     {
                         #[cfg(feature = "benchmark")]
                         main_duration
@@ -1865,9 +1866,9 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             logs.to_string(),
             mem_peak.to_owned(),
             canceled_by,
-            serde_json::from_str(result.get()).unwrap_or_else(|_| {
-                json!({ "message": format!("Non serializable error: {}", result.get()) })
-            }),
+            serde_json::from_str(result.get()).unwrap_or_else(
+                |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
+            ),
             rsmq.clone(),
             worker_name,
         )
