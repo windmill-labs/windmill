@@ -77,6 +77,7 @@
 			])
 
 			flow = state.flow
+			initialPath = state.path
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {

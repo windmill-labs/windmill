@@ -290,6 +290,7 @@
 					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
 					encodeState({
 						flow: $flowStore,
+						path: $pathStore,
 						selectedId: $selectedIdStore
 					})
 				)
