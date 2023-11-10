@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { faBolt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import StepGen from '$lib/components/copilot/StepGen.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { Zap } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 	export let open: boolean | undefined = undefined
@@ -30,7 +29,7 @@
 		type="button"
 		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 	>
-		<Icon data={faBolt} scale={0.8} />
+		<Zap size={14} />
 	</button>
 	{#if !disableAi}
 		<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger />
@@ -38,7 +37,7 @@
 	{#if funcDesc.length === 0}
 		<div class="font-mono divide-y text-xs w-full text-secondary whitespace-nowrap">
 			<button
-				class="w-full text-left py-2 px-3 hover:bg-surface-hover"
+				class="w-full text-left py-2 px-3 hover:bg-surface-hover flex flex-row items-center gap-2"
 				on:pointerdown={() => {
 					close()
 					dispatch('new', 'trigger')
@@ -46,8 +45,7 @@
 				role="menuitem"
 				tabindex="-1"
 			>
-				<Icon data={faBolt} scale={0.8} class="mr-2" />
-				Trigger
+				<Zap size={14} />Trigger
 			</button>
 		</div>
 	{/if}

@@ -29,7 +29,7 @@
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
-					<Alert notRounded type="info" title="Only one branch will be run" class="m-2">
+					<Alert type="info" title="Only one branch will be run" class="m-2">
 						The result of this step is the result of the branch.
 					</Alert>
 					<div class="p-2">

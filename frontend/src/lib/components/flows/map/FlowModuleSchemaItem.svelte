@@ -50,7 +50,7 @@
 	style="width: 275px; height: 34px; background-color: {bgColor};"
 	on:click
 >
-	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-20">
+	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
 			<Popover notClickable>
 				<div

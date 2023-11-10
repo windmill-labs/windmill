@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Code2, LayoutDashboard, Star } from 'lucide-svelte'
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -40,7 +39,7 @@
 								{#if favorite.kind == 'script'}
 									<Code2 size={16} />
 								{:else if favorite.kind == 'flow'}
-									<Icon data={faBarsStaggered} />
+									<BarsStaggered size={16} />
 								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 									<LayoutDashboard size={16} />
 								{/if}

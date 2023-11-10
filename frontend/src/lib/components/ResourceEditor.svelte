@@ -8,7 +8,6 @@
 	import Required from './Required.svelte'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import autosize from 'svelte-autosize'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SchemaForm from './SchemaForm.svelte'
@@ -16,6 +15,7 @@
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
+	import { Save } from 'lucide-svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -207,7 +207,7 @@
 		</div>
 		<svelte:fragment slot="actions">
 			<Button
-				startIcon={{ icon: faSave }}
+				startIcon={{ icon: Save }}
 				on:click={editResource}
 				disabled={!can_write || !isValid || jsonError != ''}
 			>

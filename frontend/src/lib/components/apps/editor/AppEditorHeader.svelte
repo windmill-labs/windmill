@@ -23,11 +23,11 @@
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { faClipboard, faSave } from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
 		Bug,
+		Clipboard,
 		DiffIcon,
 		Expand,
 		FileJson,
@@ -38,10 +38,10 @@
 		Loader2,
 		MoreVertical,
 		RefreshCw,
+		Save,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
@@ -607,7 +607,7 @@
 
 			<div slot="actions">
 				<Button
-					startIcon={{ icon: faSave }}
+					startIcon={{ icon: Save }}
 					disabled={pathError != ''}
 					on:click={() => saveInitialDraft()}
 				>
@@ -694,7 +694,7 @@
 				</div>
 			</Button>
 			<Button
-				startIcon={{ icon: faSave }}
+				startIcon={{ icon: Save }}
 				disabled={pathError != ''}
 				on:click={() => {
 					if (appPath == '') {
@@ -755,7 +755,7 @@
 					>
 						{url}
 						<span class="text-gray-700 ml-2">
-							<Icon data={faClipboard} />
+							<Clipboard />
 						</span>
 					</a>
 				</div>
@@ -1130,16 +1130,16 @@
 		<PreviewToggle loading={loading.save} />
 		<Button
 			loading={loading.save}
-			startIcon={{ icon: faSave }}
+			startIcon={{ icon: Save }}
 			on:click={() => saveDraft()}
-			disabled={$page.params.path !== undefined && !savedApp}
 			size="xs"
+			disabled={$page.params.path !== undefined && !savedApp}
 		>
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
 		<Button
 			loading={loading.save}
-			startIcon={{ icon: faSave }}
+			startIcon={{ icon: Save }}
 			on:click={save}
 			size="xs"
 			dropdownItems={appPath != ''

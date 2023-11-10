@@ -1,9 +1,19 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { WorkerService, type FlowModule } from '$lib/gen'
-	import { faCodeBranch, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Bed, Database, Gauge, PhoneIncoming, Repeat, Square, Voicemail } from 'lucide-svelte'
+	import {
+		Bed,
+		Database,
+		Gauge,
+		GitFork,
+		Pen,
+		PhoneIncoming,
+		Repeat,
+		Save,
+		Square,
+		Voicemail
+	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
@@ -122,7 +132,7 @@
 						})
 					}
 				}}
-				startIcon={{ icon: faPen }}
+				startIcon={{ icon: Pen }}
 				iconOnly={false}
 				disabled={module.value.hash != undefined}
 			>
@@ -133,7 +143,7 @@
 			size="xs"
 			color="light"
 			on:click={() => dispatch('fork')}
-			startIcon={{ icon: faCodeBranch }}
+			startIcon={{ icon: GitFork }}
 			iconOnly={false}
 		>
 			Fork
@@ -180,7 +190,7 @@
 		<Button
 			size="xs"
 			color="light"
-			startIcon={{ icon: faSave }}
+			startIcon={{ icon: Save }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
 			iconOnly={false}
 		>

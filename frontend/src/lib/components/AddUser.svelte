@@ -69,11 +69,8 @@
 	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 >
 	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true}>
-			<div class="flex flex-row gap-1 items-center">
-				<UserPlus size={16} />
-				Add new user
-			</div>
+		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
+			Add new user
 		</Button>
 	</svelte:fragment>
 	<div class="flex flex-col w-72 p-2">

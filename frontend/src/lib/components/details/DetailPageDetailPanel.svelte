@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
 	import { copyToClipboard } from '$lib/utils'
-	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
-	import { CalendarCheck2, Terminal, Webhook } from 'lucide-svelte'
+	import { CalendarCheck2, Clipboard, Terminal, Webhook } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -89,7 +88,7 @@
 								color="light"
 								variant="border"
 								size="xs"
-								startIcon={{ icon: faClipboard }}
+								startIcon={{ icon: Clipboard }}
 								btnClasses="absolute top-2 right-2 w-min"
 							>
 								Copy content

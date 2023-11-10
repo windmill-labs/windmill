@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty, PropertyDisplayInfo } from '$lib/common'
 	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
@@ -13,6 +12,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { flip } from 'svelte/animate'
 	import Portal from 'svelte-portal'
+	import { Plus } from 'lucide-svelte'
 
 	export let isFlowInput = false
 
@@ -276,7 +276,7 @@
 				variant="contained"
 				color="dark"
 				size="sm"
-				startIcon={{ icon: faPlus }}
+				startIcon={{ icon: Plus }}
 				on:click={() => {
 					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
 				}}

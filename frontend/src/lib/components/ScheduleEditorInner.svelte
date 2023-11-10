@@ -10,7 +10,7 @@
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import {
 		FlowService,
 		ScheduleService,
@@ -21,10 +21,9 @@
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
-	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { Save } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
+	import { List, Save } from 'lucide-svelte'
 
 	let initialPath = ''
 	let edit = true
@@ -350,7 +349,7 @@
 					<Button
 						size="sm"
 						variant="border"
-						startIcon={{ icon: faList }}
+						startIcon={{ icon: List }}
 						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 						href={`/runs/${script_path}`}
 					>
@@ -374,7 +373,7 @@
 				</div>
 			{/if}
 			<Button
-				startIcon={{ icon: faSave }}
+				startIcon={{ icon: Save }}
 				disabled={!allowSchedule ||
 					pathError != '' ||
 					emptyString(script_path) ||
@@ -387,7 +386,7 @@
 			</Button>
 		</svelte:fragment>
 
-		<div class="flex flex-col gap-8">
+		<div class="flex flex-col gap-12">
 			{#if !edit}
 				<Section label="Metadata">
 					<Path
@@ -453,9 +452,7 @@
 				<svelte:fragment slot="action">
 					<div class="flex flex-row items-center gap-2">
 						<Dropdown
-							placement="bottom-end"
-							name="Save as default"
-							dropdownItems={[
+							items={[
 								{
 									displayName: `Future schedules only`,
 									action: () => saveAsDefaultErrorHandler(false)
@@ -552,9 +549,7 @@
 				<svelte:fragment slot="action">
 					<div class="flex flex-row items-center gap-2">
 						<Dropdown
-							placement="bottom-end"
-							name="Save as default"
-							dropdownItems={[
+							items={[
 								{
 									displayName: `Future schedules only`,
 									action: () => saveAsDefaultRecoveryHandler(false)

@@ -5,8 +5,6 @@
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -15,6 +13,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
+	import { Cog, Crown } from 'lucide-svelte'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -213,13 +212,16 @@
 	{/each}
 	<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
 		{#if $superadmin}
-			<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
-				<Icon data={faCrown} class="mr-1" scale={1} />
-				Instance settings
+			<Button
+				variant="border"
+				size="sm"
+				on:click={superadminSettings.openDrawer}
+				startIcon={{ icon: Crown }}
+			>
+				Superadmin settings
 			</Button>
 		{/if}
-		<Button variant="border" size="sm" on:click={userSettings.openDrawer}>
-			<Icon data={faUserCog} class="mr-1" scale={1} />
+		<Button variant="border" size="sm" on:click={userSettings.openDrawer} startIcon={{ icon: Cog }}>
 			User settings
 		</Button>
 

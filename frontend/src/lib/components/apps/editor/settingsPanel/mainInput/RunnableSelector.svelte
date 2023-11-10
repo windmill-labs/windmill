@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { faMousePointer, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
-	import { Building, Globe2 } from 'lucide-svelte'
+	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
 	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
@@ -194,7 +193,7 @@
 			size="xs"
 			color="light"
 			variant="border"
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			btnClasses="truncate w-full"
 			id="app-editor-create-inline-script"
 		>
@@ -206,7 +205,7 @@
 		size="xs"
 		color="blue"
 		variant="border"
-		startIcon={{ icon: faMousePointer }}
+		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>
 		{#if onlyFlow}Select a flow{:else}Select a script or flow{/if}

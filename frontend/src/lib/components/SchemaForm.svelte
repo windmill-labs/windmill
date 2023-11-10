@@ -3,7 +3,6 @@
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -11,6 +10,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
+	import { Plus } from 'lucide-svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -205,7 +205,7 @@
 				variant="border"
 				color="blue"
 				size="sm"
-				startIcon={{ icon: faPlus }}
+				startIcon={{ icon: Plus }}
 				on:click={() => variableEditor?.initNew?.()}
 			>
 				New Variable

@@ -15,9 +15,7 @@
 		VariableService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import { Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -27,7 +25,7 @@
 	import { random_adj } from './random_positive_adjetive'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { Folder, User } from 'lucide-svelte'
+	import { Eye, Folder, Plus, User } from 'lucide-svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
@@ -276,12 +274,7 @@
 		{#if !folderCreated}
 			<div class="flex flex-row">
 				<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
-				<Button
-					size="md"
-					startIcon={{ icon: faPlus }}
-					disabled={!newFolderName}
-					on:click={addFolder}
-				>
+				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
 					New&nbsp;folder
 				</Button>
 			</div>
@@ -384,9 +377,9 @@
 								size="xs"
 								disabled={!meta.owner || meta.owner == ''}
 								on:click={viewFolder.openDrawer}
-							>
-								<Icon scale={0.8} data={faEye} /></Button
-							>
+								iconOnly
+								startIcon={{ icon: Eye }}
+							/>
 							<Button
 								title="New folder"
 								btnClasses="!p-1.5"
@@ -395,10 +388,10 @@
 								size="xs"
 								{disabled}
 								on:click={newFolder.openDrawer}
-							>
-								<Icon scale={0.8} data={faPlus} /></Button
-							></div
-						>
+								iconOnly
+								startIcon={{ icon: Plus }}
+							/>
+						</div>
 					</label>
 				{/if}
 			</div>

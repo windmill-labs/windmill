@@ -25,9 +25,8 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
-	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import { faBarsStaggered, faScroll } from '@fortawesome/free-solid-svg-icons'
-	import { Slack } from 'lucide-svelte'
+	import { Scroll, Slack } from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -300,7 +299,7 @@
 					<div class="flex flex-col gap-2 max-w-sm">
 						<Button
 							size="sm"
-							endIcon={{ icon: faSlack }}
+							endIcon={{ icon: Slack }}
 							btnClasses="mt-2"
 							variant="border"
 							on:click={async () => {
@@ -315,22 +314,24 @@
 						</Button>
 						<Button
 							size="sm"
-							endIcon={{ icon: faScroll }}
+							endIcon={{ icon: Scroll }}
 							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>
 				{:else}
 					<div class="flex flex-row gap-2">
-						<Button size="xs" color="dark" href="/api/oauth/connect_slack">
-							<div class="flex flex-row gap-1 items-center">
-								<Slack size={14} />
-								Connect to Slack
-							</div>
+						<Button
+							size="xs"
+							color="dark"
+							href="/api/oauth/connect_slack"
+							startIcon={{ icon: Slack }}
+						>
+							Connect to Slack
 						</Button>
 						<Badge color="red">Not connnected</Badge>
 					</div>
