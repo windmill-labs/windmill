@@ -395,9 +395,9 @@
 				drawer.openDrawer()
 			}}
 		>
-			<div class="flex flex-row gap-1 items-center"
-				>{config == undefined ? 'create' : 'edit'} config</div
-			>
+			<div class="flex flex-row gap-1 items-center">
+				{config == undefined ? 'create' : 'edit'} config
+			</div>
 		</Button>
 
 		{#if config}

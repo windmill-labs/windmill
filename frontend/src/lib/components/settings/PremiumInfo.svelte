@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { capitalize } from '$lib/utils'
-	import { faExternalLink } from '@fortawesome/free-solid-svg-icons'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { WorkspaceService, type User, UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
-	import { Badge } from 'lucide-svelte'
+	import { Badge, ExternalLink } from 'lucide-svelte'
 
 	export let plan: string | undefined
 	export let customer_id: string | undefined
@@ -59,7 +58,7 @@
 {#if customer_id}
 	<div class="mt-2 mb-2">
 		<Button
-			endIcon={{ icon: faExternalLink }}
+			endIcon={{ icon: ExternalLink }}
 			href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
 		<p class="text-xs text-tertiary mt-1">

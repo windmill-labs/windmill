@@ -1,14 +1,13 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { faBug } from '@fortawesome/free-solid-svg-icons'
 	import { classNames, emptySchema } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
+	import { Bug } from 'lucide-svelte'
 
 	export let small: boolean
 
@@ -63,11 +62,9 @@
 	{#if $copilotCurrentStepStore !== undefined}
 		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]" />
 	{/if}
-	<div class=" flex justify-between items-center flex-wrap">
-		<div>
-			<Icon data={faBug} class="mr-2" />
-			<span class="font-bold text-xs">Error Handler</span>
-		</div>
+	<div class=" flex justify-between items-center flex-wrap gap-2">
+		<Bug size={16} />
+		<span class="font-bold text-xs">Error Handler</span>
 	</div>
 
 	<div class=" items-center truncate flex text-xs">

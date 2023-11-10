@@ -17,11 +17,14 @@
 
 	let selectedVersion: string | undefined = undefined
 	let versions: string[] | undefined = undefined
+	let loading: boolean = false
 
 	async function loadVersions() {
+		loading = true
 		versions = (
 			await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: scriptPath })
 		).parent_hashes
+		loading = false
 	}
 
 	loadVersions()
@@ -31,8 +34,8 @@
 	<Pane size={20}>
 		<PanelSection title="Past Versions">
 			<div class="flex flex-col gap-2 w-full">
-				{#if versions}
-					{#if versions.length > 0}
+				{#if !loading}
+					{#if versions && versions.length > 0}
 						<div class="flex gap-2 flex-col">
 							{#each versions ?? [] as version}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->

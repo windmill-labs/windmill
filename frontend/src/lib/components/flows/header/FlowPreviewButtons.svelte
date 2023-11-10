@@ -5,10 +5,10 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import type { Job } from '$lib/gen'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import { Play } from 'lucide-svelte'
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
@@ -58,7 +58,7 @@
 			previewMode = 'upTo'
 			previewOpen = !previewOpen
 		}}
-		startIcon={{ icon: faPlay }}
+		startIcon={{ icon: Play }}
 	>
 		Test up to&nbsp;
 		<Badge baseClass="ml-1" small color="indigo" wrapperClass="max-h-[15px]">
@@ -74,7 +74,7 @@
 		previewMode = 'whole'
 		previewOpen = !previewOpen
 	}}
-	startIcon={{ icon: faPlay }}
+	startIcon={{ icon: Play }}
 	id="flow-editor-test-flow"
 >
 	Test flow

@@ -7,12 +7,11 @@
 	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
-	import { faCodeFork } from '@fortawesome/free-solid-svg-icons'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, Globe2 } from 'lucide-svelte'
+	import { Building, GitFork, Globe2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -89,7 +88,7 @@
 			</Button>
 			<Button
 				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
-				startIcon={{ icon: faCodeFork }}
+				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
 			>
@@ -119,7 +118,7 @@
 
 			<Button
 				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
-				startIcon={{ icon: faCodeFork }}
+				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
 			>
@@ -151,7 +150,7 @@
 
 			<Button
 				href="/apps/add?hub={appViewerApp?.app?.id}"
-				startIcon={{ icon: faCodeFork }}
+				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
 			>

@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { faWarning } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import Badge from '../badge/Badge.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	export let title: string
 	export let confirmationText: string
@@ -62,7 +61,7 @@
 						<div
 							class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-800/50"
 						>
-							<Icon data={faWarning} class="text-red-500 dark:text-red-400" />
+							<AlertTriangle class="text-red-500 dark:text-red-400" />
 						</div>
 						<div class="ml-4 text-left flex-1">
 							<h3 class="text-lg font-medium text-primary">

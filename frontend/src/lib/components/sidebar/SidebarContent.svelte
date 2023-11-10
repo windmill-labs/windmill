@@ -11,6 +11,7 @@
 		Eye,
 		FolderCog,
 		FolderOpen,
+		Github,
 		HelpCircle,
 		Home,
 		Play,
@@ -18,12 +19,11 @@
 		Settings,
 		UserCog
 	} from 'lucide-svelte'
-	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
-	import { Icon } from 'svelte-awesome'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import UserMenu from './UserMenu.svelte'
+	import DiscordIcon from '../icons/brands/Discord.svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -112,12 +112,12 @@
 				{
 					label: 'Feedbacks',
 					href: 'https://discord.gg/V7PM2YHsPB',
-					faIcon: faDiscord
+					icon: DiscordIcon
 				},
 				{
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
-					faIcon: faGithub
+					icon: Github
 				}
 			]
 		}
@@ -155,8 +155,6 @@
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
-											{:else if subItem?.faIcon}
-												<Icon data={subItem.faIcon} />
 											{/if}
 
 											{subItem.label}
@@ -191,8 +189,6 @@
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
-											{:else if subItem.faIcon}
-												<Icon data={subItem.faIcon} />
 											{/if}
 
 											{subItem.label}

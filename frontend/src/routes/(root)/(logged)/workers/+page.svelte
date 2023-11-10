@@ -13,8 +13,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { AlertTriangle, Loader2, Pen, X } from 'lucide-svelte'
+	import { AlertTriangle, Loader2, Pen, Plus, X } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
@@ -254,12 +253,12 @@
 					>
 						<svelte:fragment slot="button">
 							<div class="flex items-center">
-								<Button size="sm" startIcon={{ icon: faPlus }} nonCaptureEvent
-									>New worker group config</Button
-								>
-								<Tooltip
-									>Worker Group configs are propagated to every workers in the worker group</Tooltip
-								>
+								<Button size="sm" startIcon={{ icon: Plus }} nonCaptureEvent>
+									New worker group config
+									<Tooltip light>
+										Worker Group configs are propagated to every workers in the worker group
+									</Tooltip>
+								</Button>
 							</div>
 						</svelte:fragment>
 						<div class="flex flex-col gap-2">
@@ -273,7 +272,7 @@
 							{/if}
 							<Button
 								size="sm"
-								startIcon={{ icon: faPlus }}
+								startIcon={{ icon: Plus }}
 								disabled={!newConfigName || !$enterpriseLicense}
 								on:click={addConfig}
 							>

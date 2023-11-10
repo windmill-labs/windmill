@@ -2,10 +2,8 @@
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { ClipboardCopy, ExternalLink, X } from 'lucide-svelte'
+	import { ClipboardCopy, ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { copilotInfo } from '$lib/stores'
@@ -163,22 +161,24 @@
 					type="button"
 					class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
 				>
-					<Icon data={faMagicWandSparkles} scale={1} />
+					<Wand2 size={16} />
 				</button>
 				{#if !$copilotInfo.exists_openai_resource_path}
 					<div class="text-primary p-4">
-						<p class="text-sm w-80"
-							>Enable Windmill AI in the <a
+						<p class="text-sm w-80">
+							Enable Windmill AI in the
+							<a
 								href="/workspace_settings?tab=openai"
 								target="_blank"
 								class="inline-flex flex-row items-center gap-1"
 								on:click={() => {
 									close()
 								}}
-								>workspace settings
-								<ExternalLink size={16} /></a
-							></p
-						>
+							>
+								workspace settings
+								<ExternalLink size={16} />
+							</a>
+						</p>
 					</div>
 				{/if}
 			</Menu>

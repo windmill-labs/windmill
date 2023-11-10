@@ -10,7 +10,7 @@
 
 	// Filters
 	export let path: string | null = null
-	export let success: "running"  | "success" | "failure" | undefined = undefined
+	export let success: 'running' | 'success' | 'failure' | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
 	export let argError: string
@@ -187,9 +187,9 @@
 			<span class="text-xs absolute -top-4">Status</span>
 			<ToggleButtonGroup bind:selected={success}>
 				<ToggleButton value={undefined} label="All" />
-				<ToggleButton value={"running"} label="Running" class="whitespace-nowrap" />
-				<ToggleButton value={"success"} label="Success" class="whitespace-nowrap" />
-				<ToggleButton value={"failure"} label="Failure" class="whitespace-nowrap" />
+				<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
+				<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
+				<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative w-32">
@@ -208,11 +208,14 @@
 		let:close
 	>
 		<svelte:fragment slot="button">
-			<Button color="light" size="xs" nonCaptureEvent={true} variant="border">
-				<div class="flex flex-row gap-1 items-center">
-					<Filter size={16} />
-					Filter by args/result
-				</div>
+			<Button
+				color="light"
+				size="xs"
+				nonCaptureEvent={true}
+				variant="border"
+				startIcon={{ icon: Filter }}
+			>
+				Filter by args/result
 			</Button>
 		</svelte:fragment>
 		<div class="flex flex-col w-72 p-2 gap-2">

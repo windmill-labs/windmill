@@ -3,11 +3,10 @@
 	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { ArrowLeftIcon, Edit, ExternalLink, X } from 'lucide-svelte'
+	import { ArrowLeftIcon, Edit, ExternalLink, Save, X } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import TimeAgo from './TimeAgo.svelte'
@@ -156,7 +155,7 @@
 							on:click={() => saveInput(args)}
 							disabled={!isValid}
 							loading={savingInputs}
-							startIcon={{ icon: faSave }}
+							startIcon={{ icon: Save }}
 							color="light"
 							size="xs"
 						>

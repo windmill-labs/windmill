@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -19,8 +18,7 @@
 	export let href: string | undefined = undefined
 	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
-	export let startIcon: ButtonType.Icon | undefined = undefined
-	export let endIcon: ButtonType.Icon | undefined = undefined
+
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
@@ -29,6 +27,9 @@
 	export let title: string | undefined = undefined
 	export let style: string = ''
 	export let download: string | undefined = undefined
+
+	export let startIcon: ButtonType.Icon | undefined = undefined
+	export let endIcon: ButtonType.Icon | undefined = undefined
 
 	type MenuItem = {
 		label: string
@@ -108,10 +109,6 @@
 		}
 	}
 
-	$: isSmall = size === 'xs' || size === 'sm'
-	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
-	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
-
 	$: buttonClass = twMerge(
 		'w-full',
 		colorVariants?.[color]?.[variant],
@@ -120,10 +117,19 @@
 		ButtonType.SpacingClasses[spacingSize][variant],
 		'focus:ring-2 font-semibold',
 		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
-		'justify-center items-center text-center whitespace-nowrap inline-flex',
+		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
-		'transition-all '
+		'transition-all'
 	)
+
+	const iconMap = {
+		xs: 14,
+		sm: 16,
+		md: 16,
+		lg: 18
+	}
+
+	$: lucideIconSize = iconMap[size] ?? 12
 </script>
 
 <div
@@ -158,15 +164,15 @@
 		>
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
-			{:else if startIcon}
-				<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+			{:else if startIcon?.icon}
+				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
-			{#if endIcon}
-				<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+			{#if endIcon?.icon}
+				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
 			{/if}
 		</a>
 	{:else}
@@ -189,15 +195,15 @@
 		>
 			{#if loading}
 				<Loader2 class="animate-spin mr-1" size={14} />
-			{:else if startIcon}
-				<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+			{:else if startIcon?.icon}
+				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
-			{#if endIcon}
-				<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+			{#if endIcon?.icon}
+				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
 			{/if}
 		</button>
 	{/if}
@@ -216,7 +222,7 @@
 								)}
 							>
 								{#if item.icon}
-									<svelte:component this={item.icon} class="w-4 h-4" />
+									<svelte:component this={item.icon} class="w-4 h-4" size={lucideIconSize} />
 								{/if}
 								{item.label}
 							</div>

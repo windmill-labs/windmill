@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Section from './Section.svelte'
 	import { Button, Popup } from './common'
-
 	import { Clock } from 'lucide-svelte'
 </script>
 
@@ -11,11 +10,8 @@
 	let:close
 >
 	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true}>
-			<div class="flex flex-row gap-1 items-center">
-				<Clock size={16} />
-				Use simplified builder
-			</div>
+		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
+			Use simplified builder
 		</Button>
 	</svelte:fragment>
 	<Section label="CRON Builder">

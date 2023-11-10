@@ -7,8 +7,9 @@ export namespace ButtonType {
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
 	export interface Icon {
-		icon: any
+		icon?: any | undefined
 		classes?: string
+		faIcon?: any | undefined
 	}
 
 	export const FontSizeClasses: Record<ButtonType.Size, string> = {

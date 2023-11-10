@@ -7,7 +7,7 @@
 	import { getStepPropPicker } from '../previousResults'
 	import type { FlowEditorContext } from '../types'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faPen } from '@fortawesome/free-solid-svg-icons'
+	import { Pen } from 'lucide-svelte'
 
 	export let branch: {
 		summary?: string
@@ -57,7 +57,7 @@
 	<div class="flex justify-between gap-4 p-2">
 		<div><pre class="text-sm">{branch.expr}</pre></div><div>
 			<Button
-				startIcon={{ icon: faPen }}
+				startIcon={{ icon: Pen }}
 				variant="border"
 				on:click={() => (open = !open)}
 				id="flow-editor-edit-predicate"

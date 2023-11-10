@@ -16,7 +16,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
-	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { RefreshCcw } from 'lucide-svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: string | undefined = undefined
@@ -284,12 +284,13 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 				<Button
 					on:click={getSchema}
 					startIcon={{
-						icon: faRefresh
+						icon: RefreshCcw
 					}}
 					{loading}
 					size="xs"
 					color="light"
-					>Refresh
+				>
+					Refresh
 				</Button>
 			</svelte:fragment>
 			{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
