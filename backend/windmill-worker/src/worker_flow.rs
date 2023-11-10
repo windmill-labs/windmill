@@ -1712,7 +1712,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 } else {
                     HashMap::new()
                 };
-                args.insert("iter".to_string(), to_raw_value(new_args));
+                insert_iter_arg(&mut args, "iter".to_string(), to_raw_value(new_args));
                 Ok(args)
                 // tracing::error!(
                 //     "{a:?} {new_args:?} {:?}",
@@ -1730,13 +1730,14 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } => {
                 if let Ok(args) = args.as_ref() {
                     let mut hm = HashMap::new();
-                    hm.insert(
-                        "iter".to_string(),
-                        to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
-                    );
                     for (k, v) in args {
                         hm.insert(k.to_string(), v.to_owned());
                     }
+                    insert_iter_arg(
+                        &mut hm,
+                        "iter".to_string(),
+                        to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
+                    );
                     if let Some(input_transforms) = simple_input_transforms {
                         let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
                         transform_inp = transform_input(
@@ -2049,6 +2050,25 @@ enum ContinuePayload {
 enum NextFlowTransform {
     EmptyInnerFlows,
     Continue(ContinuePayload, NextStatus),
+}
+
+fn insert_iter_arg(
+    args: &mut HashMap<String, Box<RawValue>>,
+    desired_key: String,
+    value: Box<RawValue>,
+) {
+    let conflicting_parent_maybe = args.get(desired_key.as_str());
+    if let Some(conflicting_parent) = conflicting_parent_maybe {
+        // we change the key of the parent to {desired_key}_parent.
+        // we do it recursively b/c it's possible there's another conflict
+        let conflicting_parent_new_key = format!("{}_parent", desired_key.as_str());
+        insert_iter_arg(
+            args,
+            conflicting_parent_new_key,
+            conflicting_parent.to_owned(),
+        );
+    }
+    args.insert(desired_key, value);
 }
 
 async fn compute_next_flow_transform(
