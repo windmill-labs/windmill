@@ -61,17 +61,21 @@
 		if (customComponent?.additionalLibs?.reactVersion) {
 			let reactVersion = customComponent.additionalLibs.reactVersion
 			//@ts-ignore
-			await import(`https://unpkg.com/react@${reactVersion}/umd/react.development.js`)
+			await import(
+				/* @vite-ignore */
+				`https://unpkg.com/react@${reactVersion}/umd/react.production.min.js`
+			)
 
 			//@ts-ignore
-			await import(`https://unpkg.com/react-dom@${reactVersion}/umd/react-dom.development.js`)
+			await import(
+				/* @vite-ignore */
+				`https://unpkg.com/react-dom@${reactVersion}/umd/react-dom.production.min.js`
+			)
 		}
 		//@ts-ignore
-		/* @vite-ignore */
 		await import(
-			`http://localhost:3000/api/w/${$workspaceStore ?? 'NO_W'}/resources_u/custom_component/${
-				customComponent.name
-			}`
+			/* @vite-ignore */
+			`/api/w/${$workspaceStore ?? 'NO_W'}/resources_u/custom_component/${customComponent.name}`
 		)
 		loaded = true
 		try {

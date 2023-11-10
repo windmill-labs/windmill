@@ -150,6 +150,8 @@
 	}
 
 	let clientName = ''
+
+	let licenseKeyChanged = false
 </script>
 
 <div class="pb-8">
@@ -387,6 +389,9 @@
 														<textarea
 															rows="2"
 															placeholder={setting.placeholder}
+															on:keydown={() => {
+																licenseKeyChanged = true
+															}}
 															bind:value={values[setting.key]}
 														/>
 														<Button
@@ -406,6 +411,12 @@
 																>License key expires on {parseDate(values[setting.key])}</span
 															>
 														{/if}
+													{/if}
+													{#if licenseKeyChanged}
+														<div class="text-yellow-600"
+															>Refresh page after setting license key and saving to unlock all
+															features</div
+														>
 													{/if}
 												{:else if setting.fieldType == 'email'}
 													<input
