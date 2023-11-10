@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { FlowStatusModule, Job, JobService, type FlowStatus } from '$lib/gen'
+	import {
+		FlowStatusModule,
+		Job,
+		JobService,
+		type FlowStatus,
+		CompletedJob,
+		QueuedJob,
+		type FlowModuleValue
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
@@ -33,6 +41,9 @@
 		  }
 		| undefined = undefined
 	export let job: Job | undefined = undefined
+
+	//only useful when forloops are optimized and the job doesn't contain the mod id anymore
+	export let innerModule: FlowModuleValue | undefined = undefined
 
 	export let render = true
 
@@ -223,6 +234,91 @@
 		}
 	}
 
+	function innerJobLoaded(
+		jobLoaded: (QueuedJob & { type: 'QueuedJob' }) | (CompletedJob & { type: 'CompletedJob' }),
+		j: number
+	) {
+		let modId = flowJobIds?.moduleId
+		if (modId) {
+			if ($flowStateStore?.[modId]) {
+				if (
+					!$flowStateStore[modId].previewResult ||
+					!Array.isArray($flowStateStore[modId]?.previewResult)
+				) {
+					$flowStateStore[modId].previewResult = []
+				}
+				$flowStateStore[modId].previewArgs = jobLoaded.args
+				if (jobLoaded.type == 'QueuedJob') {
+					jobResults[j] = 'Job in progress ...'
+				} else {
+					$flowStateStore[modId].previewResult[j] = jobLoaded.result
+					jobResults[j] = jobLoaded.result
+					jobFailures[j] = jobLoaded.success === false
+				}
+			}
+
+			let started_at = jobLoaded.started_at ? new Date(jobLoaded.started_at).getTime() : undefined
+
+			let created_at = jobLoaded.created_at ? new Date(jobLoaded.created_at).getTime() : undefined
+
+			let job_id = jobLoaded.id
+			if ($durationStatuses[modId] == undefined) {
+				$durationStatuses[modId] = { byJob: {} }
+			}
+			if (jobLoaded.type == 'QueuedJob') {
+				$flowModuleStates[modId] = {
+					type: FlowStatusModule.type.IN_PROGRESS,
+					started_at,
+					logs: jobLoaded.logs,
+					job_id,
+					args: jobLoaded.args,
+					iteration: flowJobIds?.flowJobs.length,
+					iteration_total: flowJobIds?.length,
+					duration_ms: undefined
+				}
+
+				$durationStatuses[modId].byJob[job_id] = {
+					created_at,
+					started_at
+				}
+			} else {
+				$flowModuleStates[modId] = {
+					started_at,
+					args: jobLoaded.args,
+					type: jobLoaded.success ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
+					logs: 'All jobs completed',
+					result: jobResults,
+					job_id,
+					iteration: flowJobIds?.flowJobs.length,
+					iteration_total: flowJobIds?.length,
+					duration_ms: undefined,
+					isListJob: true
+				}
+				$durationStatuses[modId].byJob[job_id] = {
+					created_at,
+					started_at,
+					duration_ms: jobLoaded.duration_ms
+				}
+			}
+
+			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'preview') {
+				let id: string | undefined = undefined
+				if (innerModule?.type == 'forloopflow') {
+					id = innerModule?.modules?.[0]?.id
+				}
+				if (id) {
+					$flowModuleStates[id] = {
+						...($flowModuleStates[modId] ?? {}),
+						iteration: undefined,
+						isListJob: false,
+						iteration_total: undefined
+					}
+					$durationStatuses[id].byJob[job_id] = $durationStatuses[modId].byJob[job_id]
+				}
+			}
+		}
+	}
+
 	let flowTimeline: FlowTimeline
 
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
@@ -376,77 +472,7 @@
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
 							{workspaceId}
 							jobId={loopJobId}
-							on:jobsLoaded={(e) => {
-								let modId = flowJobIds?.moduleId
-								if (modId) {
-									if ($flowStateStore?.[modId]) {
-										if (
-											!$flowStateStore[modId].previewResult ||
-											!Array.isArray($flowStateStore[modId]?.previewResult)
-										) {
-											$flowStateStore[modId].previewResult = []
-										}
-										$flowStateStore[modId].previewResult[j] = e.detail.result
-										$flowStateStore[modId].previewArgs = e.detail.args
-										if (e.detail.type == 'QueuedJob') {
-											jobResults[j] = 'Job in progress ...'
-										} else {
-											jobResults[j] = e.detail.result
-											jobFailures[j] = e.detail.success === false
-										}
-									}
-
-									let started_at = e.detail.started_at
-										? new Date(e.detail.started_at).getTime()
-										: undefined
-
-									let created_at = e.detail.created_at
-										? new Date(e.detail.created_at).getTime()
-										: undefined
-
-									let job_id = e.detail.id
-									if ($durationStatuses[modId] == undefined) {
-										$durationStatuses[modId] = { byJob: {} }
-									}
-									if (e.detail.type == 'QueuedJob') {
-										$flowModuleStates[modId] = {
-											type: FlowStatusModule.type.IN_PROGRESS,
-											started_at,
-											logs: e.detail.logs,
-											job_id,
-											args: e.detail.args,
-											iteration: flowJobIds?.flowJobs.length,
-											iteration_total: flowJobIds?.length,
-											duration_ms: undefined
-										}
-
-										$durationStatuses[modId].byJob[job_id] = {
-											created_at,
-											started_at
-										}
-									} else {
-										$flowModuleStates[modId] = {
-											started_at,
-											args: e.detail.args,
-											type: e.detail.success
-												? FlowStatusModule.type.SUCCESS
-												: FlowStatusModule.type.FAILURE,
-											logs: 'All jobs completed',
-											result: jobResults,
-											job_id,
-											iteration: flowJobIds?.flowJobs.length,
-											iteration_total: flowJobIds?.length,
-											duration_ms: undefined,
-											isListJob: true
-										}
-										$durationStatuses[modId].byJob[job_id] = {
-											created_at,
-											started_at,
-											duration_ms: e.detail.duration_ms
-										}
-									}
-								}
-							}}
+							on:jobsLoaded={(e) => innerJobLoaded(e.detail, j)}
 						/>
 					</div>
 				{/each}
@@ -492,6 +518,7 @@
 										render={selected == 'sequence' && render}
 										{workspaceId}
 										jobId={mod.job}
+										innerModule={mod.flow_jobs ? job.raw_flow?.modules[i]?.value : undefined}
 										flowJobIds={mod.flow_jobs
 											? {
 													moduleId: mod.id,
