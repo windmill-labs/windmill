@@ -652,7 +652,14 @@
 											right: 'Script is run on dedicated workers'
 										}}
 									/>
-
+									{#if script.dedicated_worker}
+										<div class="py-2">
+											<Alert type="info" title="Require dedicated workers">
+												One worker in a worker group needs to be configured with dedicated worker
+												set to: <pre>{$workspaceStore}:{script.path}</pre>
+											</Alert>
+										</div>
+									{/if}
 									<svelte:fragment slot="header">
 										<Tooltip
 											>In this mode, the script is meant to be run on dedicated workers that run the
