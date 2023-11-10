@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.201.0
+  version: 1.202.1
   title: Windmill API
   contact:
     name: Windmill Team
@@ -8202,7 +8202,6 @@ paths:
               required:
                 - handler_type
                 - override_existing
-                - path
       responses:
         '201':
           description: default error handler set

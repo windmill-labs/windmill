@@ -32,8 +32,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 
-	const slackErrorHandler = 'hub/6512/workspace-or-schedule-error-handler-slack'
-
 	let initialPath: string
 	let scriptPath: string
 	let team_name: string | undefined
@@ -463,12 +461,12 @@
 
 			<ErrorOrRecoveryHandler
 				isEditable={true}
+				errorOrRecovery="error"
 				handlersOnlyForEe={['slack']}
 				showScriptHelpText={true}
 				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
-				slackHandlerScriptPath={slackErrorHandler}
 				customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}

@@ -3,6 +3,7 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import { isOpenStore } from './store'
 	import { createEventDispatcher, onMount } from 'svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let title: string
 	export let prefix: string | undefined = undefined
@@ -11,6 +12,8 @@
 	export let toggleClasses = ''
 	export let contentWrapperClasses = ''
 	export let isOpen = false
+	export let tooltip: string | undefined = undefined
+	export let documentationLink: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -37,6 +40,13 @@
 				<slot name="title">
 					{title}
 				</slot>
+				{#if tooltip}
+					<Tooltip
+						class="ml-1"
+						documentationLink="https://github.com/windmill-labs/windmill-custom-component-template"
+						>{tooltip}</Tooltip
+					>
+				{/if}
 			</h1>
 			<ChevronDown class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
 		</button>
@@ -50,6 +60,13 @@
 			<slot name="title">
 				{title}
 			</slot>
+			{#if tooltip}
+				<Tooltip
+					class="ml-1"
+					documentationLink="https://github.com/windmill-labs/windmill-custom-component-template"
+					>{tooltip}</Tooltip
+				>
+			{/if}
 		</h1>
 		<div class="px-2">
 			<slot />

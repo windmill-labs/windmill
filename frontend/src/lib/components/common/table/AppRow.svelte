@@ -260,11 +260,8 @@
 					}
 				]
 			}}
-			on:dropdownOpen={() => {
+			on:open={() => {
 				menuOpen = true
-			}}
-			on:dropdownClose={() => {
-				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>

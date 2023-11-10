@@ -72,6 +72,7 @@
 {#if menuOpen}
 	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 {/if}
+
 <Row
 	href="/flows/get/{path}?workspace={$workspaceStore}"
 	kind="flow"
@@ -241,11 +242,8 @@
 					}
 				]
 			}}
-			on:dropdownOpen={() => {
+			on:open={() => {
 				menuOpen = true
-			}}
-			on:dropdownClose={() => {
-				menuOpen = false
 			}}
 		/>
 	</svelte:fragment>

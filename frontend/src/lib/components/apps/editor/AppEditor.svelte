@@ -387,16 +387,20 @@
 
 	let css: string | undefined = undefined
 
+	let lastTheme: string | undefined = undefined
 	appStore.subscribe(async (currentAppStore) => {
 		if (!currentAppStore.theme) {
 			return
 		}
 
-		if (currentAppStore.theme.type === 'inlined') {
-			css = currentAppStore.theme.css
-		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
-			let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
-			css = loadedCss.value
+		if (JSON.stringify(currentAppStore.theme) != lastTheme) {
+			if (currentAppStore.theme.type === 'inlined') {
+				css = currentAppStore.theme.css
+			} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
+				let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
+				css = loadedCss.value
+			}
+			lastTheme = JSON.stringify(currentAppStore.theme)
 		}
 	})
 
