@@ -207,7 +207,8 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
         workspace=get_workspace(), path=path, client=create_client()
     )
     try:
-        parsed = json.loads(parsed.content.decode("utf-8"))
+        content = parsed.content.decode("utf-8")
+        parsed = json.loads(content)
     except:
         parsed = None
 
@@ -216,7 +217,7 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
             return None
         else:
             raise Exception(
-                f"Resource at path {path} does not exist or you do not have read permissions on it"
+                f"Resource at path {path} does not exist or you do not have read permissions on it: {content}"
             )
 
     return parsed
@@ -331,13 +332,14 @@ def get_variable(path: str) -> str:
 
     res = get_variable_api.sync_detailed(
         workspace=get_workspace(), path=path, client=create_client()
-    ).parsed
-    if res is None:
+    )
+    parsed = res.parsed
+    if parsed is None:
         raise Exception(
-            f"Variable at path {path} does not exist or you do not have read permissions on it"
+            f"Variable at path {path} does not exist or you do not have read permissions on it: {res.content.decode('utf-8')}"
         )
 
-    return res
+    return parsed
 
 
 def set_variable(path: str, value: str) -> None:
