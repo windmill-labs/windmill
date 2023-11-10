@@ -67,12 +67,12 @@ function getFlowInput(
 			if (parentModule.value.type === 'forloopflow') {
 				let parentFlowInputIter = {...parentFlowInput}
 				if (parentFlowInputIter.hasOwnProperty("iter")) {
-					parentFlowInputIter = {...parentFlowInputIter, iter_parent: parentFlowInputIter["iter"]}
+					parentFlowInputIter["iter_parent"] = parentFlowInputIter["iter"]
 					delete parentFlowInputIter["iter"]
 				}
 				let topFlowInputIter = {...topFlowInput}
 				if (topFlowInputIter.hasOwnProperty("iter")) {
-					topFlowInputIter = {...topFlowInputIter, iter_parent: topFlowInputIter["iter"]}
+					topFlowInputIter["iter_parent"] = topFlowInputIter["iter"]
 					delete topFlowInputIter["iter"]
 				}
 				return {
