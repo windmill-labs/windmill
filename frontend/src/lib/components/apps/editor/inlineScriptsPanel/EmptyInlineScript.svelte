@@ -103,6 +103,7 @@
 		['mysql', 'MySQL'],
 		['bigquery', 'BigQuery'],
 		['snowflake', 'Snowflake'],
+		['mssql', 'MS SQL Server'],
 		['graphql', 'GraphQL'],
 		['bun', 'TypeScript (Bun)']
 	] as [Script.language, string][]

@@ -111,6 +111,17 @@ prompts:
       </contextual_information>
       I get the following error: {error}
       Fix my code.
+  mssql:
+    prompt: |-
+      Here's my Microsoft SQL Server code: 
+      ```sql
+      {code}
+      ```
+      <contextual_information>
+      Arguments can be obtained directly in the statement with @p1, @p2, etc.. Name the parameters by adding comments before the statement like that: `-- @p1 name1 ({type})` or `-- @p2 name2 ({type}) = default` (one per row)
+      </contextual_information>
+      I get the following error: {error}
+      Fix my code.
   graphql:
     prompt: |-
       Here's my graphql code: 

@@ -1,6 +1,8 @@
 #[cfg(feature = "enterprise")]
 mod bigquery_executor;
 #[cfg(feature = "enterprise")]
+mod mssql_executor;
+#[cfg(feature = "enterprise")]
 mod snowflake_executor;
 
 mod bash_executor;
