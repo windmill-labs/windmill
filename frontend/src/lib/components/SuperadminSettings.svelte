@@ -17,6 +17,7 @@
 	import { userStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import { settingsKeys } from './instanceSettings'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 
 	let drawer: Drawer
 	let filter = ''
@@ -40,6 +41,7 @@
 
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] = []
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
@@ -69,9 +71,15 @@
 				>
 			</div>
 			<div class="flex flex-row-reverse">
-				<Button variant="border" color="dark" target="_blank" href="/?workspace=admins"
-					>Admins workspace&nbsp;<ExternalLink /></Button
+				<Button
+					variant="border"
+					color="dark"
+					target="_blank"
+					href="/?workspace=admins"
+					endIcon={{ icon: ExternalLink }}
 				>
+					Admins workspace
+				</Button>
 			</div>
 			<div class="pt-4 h-full">
 				<Tabs bind:selected={tab}>
@@ -135,12 +143,16 @@
 															<div class="flex flex-row gap-x-1">
 																<button
 																	class="text-red-500 whitespace-nowrap"
-																	on:click={async () => {
-																		await UserService.globalUserDelete({ email })
-																		sendUserToast(`User ${email} removed`)
-																		listUsers()
-																	}}>remove</button
+																	on:click={() => {
+																		deleteConfirmedCallback = async () => {
+																			await UserService.globalUserDelete({ email })
+																			sendUserToast(`User ${email} removed`)
+																			listUsers()
+																		}
+																	}}
 																>
+																	Remove
+																</button>
 															</div>
 														</td>
 													</tr>
@@ -167,3 +179,22 @@
 		</div></DrawerContent
 	>
 </Drawer>
+
+<ConfirmationModal
+	open={Boolean(deleteConfirmedCallback)}
+	title="Remove user"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove ?</span>
+	</div>
+</ConfirmationModal>
