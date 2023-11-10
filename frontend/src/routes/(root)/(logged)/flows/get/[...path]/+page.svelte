@@ -45,7 +45,6 @@
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
-
 	let deploymentInProgress = false
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`

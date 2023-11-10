@@ -74,7 +74,9 @@
 {/if}
 
 <Row
-	href="/flows/get/{path}?workspace={$workspaceStore}"
+	href={draft_only
+		? `/flows/edit/${path}?nodraft=true`
+		: `/flows/get/${path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{marked}
