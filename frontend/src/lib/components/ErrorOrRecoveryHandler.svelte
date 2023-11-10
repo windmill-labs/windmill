@@ -9,7 +9,7 @@
 	import { JobService, Script, ScriptService, WorkspaceService } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 
-	import { CheckCircle2, RotateCw, XCircle } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
 	const slackHandlerScriptPath = 'hub/6512/workspace-or-schedule-error-handler-slack'
@@ -30,7 +30,7 @@
 	let customHandlerSchema: Schema | undefined
 
 	let slackHandlerSchema: Schema | undefined
-	let workspaceConnectedToSlack: boolean
+	let workspaceConnectedToSlack: boolean | undefined = undefined
 	let slackConnectionTestJob:
 		| { uuid: string; is_success: boolean; in_progress: boolean }
 		| undefined
@@ -39,6 +39,8 @@
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.slack_name) && !emptyString(settings.slack_team_id)) {
 			workspaceConnectedToSlack = true
+		} else {
+			workspaceConnectedToSlack = false
 		}
 	}
 
@@ -263,9 +265,11 @@
 			shouldHideNoInputs
 			class="text-xs"
 		/>
+	{:else if workspaceConnectedToSlack == undefined}
+		<Loader2 class="animate-spin" />
 	{/if}
-	{#if enterpriseLicense && isSlackHandler(handlerPath)}
-		{#if !workspaceConnectedToSlack}
+	{#if $enterpriseLicense && isSlackHandler(handlerPath)}
+		{#if workspaceConnectedToSlack == false}
 			<Alert type="error" title="Workspace not connected to Slack">
 				<div class="flex flex-row gap-x-1 w-full items-center">
 					<p class="text-clip grow min-w-0">
