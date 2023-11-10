@@ -268,7 +268,7 @@
 		{#if tab == 'users'}
 			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
-			<div class="my-2"
+			<div class="my-2 pt-4"
 				><Alert type="info" title="Link this workspace to another Staging/Prod workspace"
 					>Linking this workspace to another staging/prod workspace unlock the Web-based flow to
 					deploy to another workspace.</Alert
