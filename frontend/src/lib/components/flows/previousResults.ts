@@ -63,19 +63,21 @@ function getFlowInput(
 		if (parentState.previewArgs) {
 			return {...topFlowInput, ...parentState.previewArgs }
 		} else {
-			const parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-			if (parentFlowInput.hasOwnProperty("iter")) {
-				parentFlowInput["iter_parent"] = parentFlowInput["iter"]
-				delete parentFlowInput["iter"]
-			}
-			if (topFlowInput.hasOwnProperty("iter")) {
-				topFlowInput["iter_parent"] = topFlowInput["iter"]
-				delete topFlowInput["iter"]
-			}
+			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 			if (parentModule.value.type === 'forloopflow') {
+				let parentFlowInputIter = {...parentFlowInput}
+				if (parentFlowInputIter.hasOwnProperty("iter")) {
+					parentFlowInputIter = {...parentFlowInputIter, iter_parent: parentFlowInputIter["iter"]}
+					delete parentFlowInputIter["iter"]
+				}
+				let topFlowInputIter = {...topFlowInput}
+				if (topFlowInputIter.hasOwnProperty("iter")) {
+					topFlowInputIter = {...topFlowInputIter, iter_parent: topFlowInputIter["iter"]}
+					delete topFlowInputIter["iter"]
+				}
 				return {
-					...topFlowInput,
-					...parentFlowInput,
+					...topFlowInputIter,
+					...parentFlowInputIter,
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
