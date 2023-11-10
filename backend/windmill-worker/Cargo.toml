@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2"]
+enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util"]
 benchmark = ["windmill-queue/benchmark"]
 flamegraph = []
 
@@ -74,6 +74,8 @@ nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
 hex.workspace = true
+tiberius = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 
 [build-dependencies]
 deno_fetch.workspace = true

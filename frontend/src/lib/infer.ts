@@ -14,7 +14,8 @@ import init, {
 	parse_snowflake,
 	parse_graphql,
 	parse_powershell,
-	parse_outputs
+	parse_outputs,
+	parse_mssql
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -64,6 +65,12 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_snowflake(code))
 			inferedSchema.args = [
 				{ name: 'database', typ: { resource: 'snowflake' } },
+				...inferedSchema.args
+			]
+		} else if (language == 'mssql') {
+			inferedSchema = JSON.parse(parse_mssql(code))
+			inferedSchema.args = [
+				{ name: 'database', typ: { resource: 'ms_sql_server' } },
 				...inferedSchema.args
 			]
 		} else if (language == 'graphql') {

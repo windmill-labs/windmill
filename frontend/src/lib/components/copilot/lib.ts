@@ -154,7 +154,7 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 	const { dbSchema, language } = scriptOptions
 	if (
 		dbSchema &&
-		['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(language) && // make sure we are using a SQL/query language
+		['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(language) && // make sure we are using a SQL/query language
 		language === dbSchema.lang // make sure we are using the same language as the schema
 	) {
 		const { schema, lang } = dbSchema
@@ -188,7 +188,8 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 
 			let finalSchema: typeof smallerSchema | (typeof smallerSchema)['schemaKey'] = smallerSchema
 			if (dbSchema.publicOnly) {
-				finalSchema = smallerSchema.public || smallerSchema.PUBLIC || smallerSchema
+				finalSchema =
+					smallerSchema.public || smallerSchema.PUBLIC || smallerSchema.dbo || smallerSchema
 			} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
 				finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
 			}

@@ -20,16 +20,19 @@ export const EDIT_PROMPT = {
       "prompt": "Here's my MySQL code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
     },
     "bigquery": {
-      "prompt": "Here's my BigQuery code: \n```sql\n{code}\n```\n<contextual_information>\nYou can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....\nI get the following error: {error}\n</contextual_information>\nMy instructions: {description}"
+      "prompt": "Here's my BigQuery code: \n```sql\n{code}\n```\n<contextual_information>\nYou can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....\n</contextual_information>\nMy instructions: {description}"
     },
     "snowflake": {
-      "prompt": "Here's my snowflake code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\nI get the following error: {error}\n</contextual_information>\nMy instructions: {description}"
+      "prompt": "Here's my snowflake code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
+    },
+    "mssql": {
+      "prompt": "Here's my Microsoft SQL Server code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with @p1, @p2, etc.. Name the parameters by adding comments before the statement like that: `-- @p1 name1 ({type})` or `-- @p2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
     },
     "graphql": {
-      "prompt": "Here's my graphql code: \n```graphql\n{code}\n```\n<contextual_information>\nAdd the needed arguments as query parameters.\nI get the following error: {error}\n</contextual_information>\nMy instructions: {description}"
+      "prompt": "Here's my graphql code: \n```graphql\n{code}\n```\n<contextual_information>\nAdd the needed arguments as query parameters.\n</contextual_information>\nMy instructions: {description}"
     },
     "powershell": {
-      "prompt": "Here's my powershell code: \n```powershell\n{code}\n```\n<contextual_information>\nArguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = \"default value\", [{type}]$ParamName3, ...)`\nI get the following error: {error}\n</contextual_information>\nMy instructions: {description}"
+      "prompt": "Here's my powershell code: \n```powershell\n{code}\n```\n<contextual_information>\nArguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = \"default value\", [{type}]$ParamName3, ...)`\n</contextual_information>\nMy instructions: {description}"
     },
     "nativets": {
       "prompt": "Here's my TypeScript code: \n```typescript\n{code}\n```\n<contextual_information>\nWe have to export a \"main\" function like this: \"export async function main(...)\" and specify the parameter types but do not call it.\nYou can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: \"{resource_type}Resource\".\nThe following resource types are available:\n<resourceTypes>\n{resourceTypes}\n</resourceTypes>\nOnly define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.\n</contextual_information>\nMy instructions: {description}"

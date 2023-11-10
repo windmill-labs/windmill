@@ -47,6 +47,16 @@ pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
+pub fn parse_mssql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
+    let parsed = parse_mssql_file(&code)?;
+    if let Some(x) = parsed {
+        let args = x;
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+    } else {
+        Err(anyhow!("Error parsing sql".to_string()))
+    }
+}
+
 lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
@@ -59,6 +69,9 @@ lazy_static::lazy_static! {
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
 
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+
+
+    static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
 
 }
 
@@ -200,6 +213,36 @@ fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
+fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+    let mut args: Vec<Arg> = vec![];
+
+    for cap in RE_ARG_MSSQL.captures_iter(code) {
+        let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+        let typ = cap
+            .get(2)
+            .map(|x| x.as_str().to_string().to_lowercase())
+            .unwrap();
+        let default = cap.get(3).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+        let parsed_typ = parse_mssql_typ(typ.as_str());
+
+        let parsed_default = default.and_then(|x| match parsed_typ {
+            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
+            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
+            _ => Some(json!(x)),
+        });
+        args.push(Arg {
+            name,
+            typ: parsed_typ,
+            default: parsed_default,
+            otyp: Some(typ),
+            has_default,
+        });
+    }
+
+    Ok(Some(args))
+}
+
 pub fn parse_mysql_typ(typ: &str) -> Typ {
     match typ {
         "varchar" | "char" | "binary" | "varbinary" | "blob" | "text" | "enum" | "set" => {
@@ -265,6 +308,20 @@ pub fn parse_snowflake_typ(typ: &str) -> Typ {
         "int" => Typ::Int,
         "float" => Typ::Float,
         "boolean" => Typ::Bool,
+        _ => Typ::Str(None),
+    }
+}
+
+pub fn parse_mssql_typ(typ: &str) -> Typ {
+    match typ {
+        "char" | "text" | "varchar" | "nchar" | "nvarchar" | "ntext" => Typ::Str(None),
+        "binary" | "varbinary" | "image" => Typ::Bytes,
+        "date" | "datetime2" | "datetime" | "datetimeoffset" | "smalldatetime" | "time" => {
+            Typ::Datetime
+        }
+        "bigint" | "int" | "tinyint" | "smallint" => Typ::Int,
+        "float" | "real" | "numeric" | "decimal" => Typ::Float,
+        "bit" => Typ::Bool,
         _ => Typ::Str(None),
     }
 }
