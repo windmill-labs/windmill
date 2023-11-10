@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
