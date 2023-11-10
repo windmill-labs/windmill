@@ -67,6 +67,7 @@
 			await import(`https://unpkg.com/react-dom@${reactVersion}/umd/react-dom.development.js`)
 		}
 		//@ts-ignore
+		/* @vite-ignore */
 		await import(
 			`http://localhost:3000/api/w/${$workspaceStore ?? 'NO_W'}/resources_u/custom_component/${
 				customComponent.name
