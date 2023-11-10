@@ -872,6 +872,8 @@ replace_nan = re.compile(r'\bNaN\b')
 sys.stdout.write('start\n')
 
 for line in sys.stdin:
+    if line == 'end\n':
+        break
     kwargs = json.loads(line, strict=False)
     args = {{}}
 {indented_transforms}

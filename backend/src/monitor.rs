@@ -531,9 +531,11 @@ pub async fn reload_worker_config(
     } else {
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
-        if *wc != config {
+        if *wc != config || config.dedicated_worker.is_some() {
             if kill_if_change {
-                if (*wc).dedicated_worker != config.dedicated_worker {
+                if config.dedicated_worker.is_some()
+                    || (*wc).dedicated_worker != config.dedicated_worker
+                {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send(());
                 }
