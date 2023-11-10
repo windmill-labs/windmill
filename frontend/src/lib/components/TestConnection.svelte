@@ -38,6 +38,11 @@
 			lang: 'snowflake',
 			argName: 'database'
 		},
+		ms_sql_server: {
+			code: `SELECT 1`,
+			lang: 'mssql',
+			argName: 'database'
+		},
 		graphql: {
 			code: '{ __typename }',
 			lang: 'graphql',

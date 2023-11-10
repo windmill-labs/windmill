@@ -318,7 +318,7 @@
 						</Button>
 					</div>
 
-					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(lang) && dbSchema?.lang === lang}
+					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang) && dbSchema?.lang === lang}
 						<div class="flex flex-row items-center justify-between gap-2 w-96">
 							<div class="flex flex-row items-center">
 								<p class="text-xs text-secondary">
@@ -328,9 +328,14 @@
 									In order to better generate the script, we pass the selected schema to GPT-4.
 								</Tooltip>
 							</div>
-							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
+							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
 								<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
-									<ToggleButton value={true} label="Public schema" small light />
+									<ToggleButton
+										value={true}
+										label={(dbSchema.schema?.dbo ? 'Dbo' : 'Public') + ' schema'}
+										small
+										light
+									/>
 									<ToggleButton value={false} label="All schemas" small light />
 								</ToggleButtonGroup>
 							{/if}

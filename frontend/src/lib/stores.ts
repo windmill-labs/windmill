@@ -78,7 +78,7 @@ type SQLBaseSchema = {
 }
 
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake'
+	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql'
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 }
@@ -93,4 +93,3 @@ export type DBSchema = SQLSchema | GraphqlSchema
 type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
-

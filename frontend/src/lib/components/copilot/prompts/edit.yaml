@@ -89,7 +89,6 @@ prompts:
       ```
       <contextual_information>
       You can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....
-      I get the following error: {error}
       </contextual_information>
       My instructions: {description}
   snowflake:
@@ -100,7 +99,16 @@ prompts:
       ```
       <contextual_information>
       Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
-      I get the following error: {error}
+      </contextual_information>
+      My instructions: {description}
+  mssql:
+    prompt: |-
+      Here's my Microsoft SQL Server code: 
+      ```sql
+      {code}
+      ```
+      <contextual_information>
+      Arguments can be obtained directly in the statement with @p1, @p2, etc.. Name the parameters by adding comments before the statement like that: `-- @p1 name1 ({type})` or `-- @p2 name2 ({type}) = default` (one per row)
       </contextual_information>
       My instructions: {description}
   graphql:
@@ -111,7 +119,6 @@ prompts:
       ```
       <contextual_information>
       Add the needed arguments as query parameters.
-      I get the following error: {error}
       </contextual_information>
       My instructions: {description}
   powershell:
@@ -122,7 +129,6 @@ prompts:
       ```
       <contextual_information>
       Arguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`
-      I get the following error: {error}
       </contextual_information>
       My instructions: {description}
   nativets:
