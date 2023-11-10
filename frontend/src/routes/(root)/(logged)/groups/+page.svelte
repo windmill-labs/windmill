@@ -5,15 +5,15 @@
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { canWrite } from '$lib/utils'
+	import { Pen, Plus, Trash } from 'lucide-svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -83,7 +83,7 @@
 					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 				>
 					<svelte:fragment slot="button">
-						<Button size="md" startIcon={{ icon: faPlus }} nonCaptureEvent>New&nbsp;group</Button>
+						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
 					</svelte:fragment>
 					<div class="flex-col flex gap-2">
 						<input
@@ -94,7 +94,7 @@
 						/>
 						<Button
 							size="md"
-							startIcon={{ icon: faPlus }}
+							startIcon={{ icon: Plus }}
 							disabled={!newGroupName}
 							on:click={() => {
 								addGroup()
@@ -147,11 +147,10 @@
 							<td><GroupInfo {name} /></td>
 							<td>
 								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
+									items={[
 										{
 											displayName: 'Manage group',
-											icon: faEdit,
+											icon: Pen,
 											disabled: !canWrite,
 											action: () => {
 												editGroupName = name
@@ -161,7 +160,7 @@
 										{
 											displayName: 'Delete',
 
-											icon: faTrash,
+											icon: Trash,
 											type: 'delete',
 											disabled: !canWrite,
 											action: async () => {

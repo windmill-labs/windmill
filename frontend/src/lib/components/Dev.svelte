@@ -16,7 +16,6 @@
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -32,6 +31,7 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
+	import { Play } from 'lucide-svelte'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -397,7 +397,7 @@
 						btnClasses="w-full"
 						size="xs"
 						startIcon={{
-							icon: faPlay,
+							icon: Play,
 							classes: 'animate-none'
 						}}
 					>

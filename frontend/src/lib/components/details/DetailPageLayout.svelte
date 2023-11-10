@@ -10,12 +10,12 @@
 
 	let mobileTab: 'form' | 'detail' = 'form'
 
-	let clientWidth = 1000
+	let clientWidth = window.innerWidth
 </script>
 
 <main class="h-screen w-full" bind:clientWidth>
 	{#if clientWidth >= 768}
-		<div class="h-full">
+		<div class="h-full w-full">
 			<slot name="header" />
 			<SplitPanesWrapper>
 				<Splitpanes>

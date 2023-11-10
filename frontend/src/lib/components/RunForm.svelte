@@ -11,7 +11,6 @@
 	import { userStore } from '$lib/stores'
 	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button, Kbd } from './common'
-	import InlineCodeCopy from './InlineCodeCopy.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
 	import Toggle from './Toggle.svelte'
@@ -19,6 +18,7 @@
 	import CollapseLink from './CollapseLink.svelte'
 	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI, SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
 	import TimeAgo from './TimeAgo.svelte'
+	import ClipboardPanel from './details/ClipboardPanel.svelte'
 
 	export let runnable:
 		| {
@@ -238,7 +238,7 @@
 			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
 				<CollapseLink small text="Run it from CLI">
 					<div class="mt-2" />
-					<InlineCodeCopy content={cliCommand} />
+					<ClipboardPanel content={cliCommand} />
 					<CliHelpBox />
 				</CollapseLink>
 			{/if}

@@ -7,7 +7,7 @@
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
-	import { faPen } from '@fortawesome/free-solid-svg-icons'
+	import { Pen } from 'lucide-svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
@@ -55,11 +55,8 @@
 			/>
 			{#if can_write}
 				<div class="absolute bottom-4 z-50 right-4">
-					<Button
-						size="sm"
-						startIcon={{ icon: faPen }}
-						variant="border"
-						href="/apps/edit/{app.path}">Edit</Button
+					<Button size="sm" startIcon={{ icon: Pen }} variant="border" href="/apps/edit/{app.path}"
+						>Edit</Button
 					>
 				</div>
 			{/if}

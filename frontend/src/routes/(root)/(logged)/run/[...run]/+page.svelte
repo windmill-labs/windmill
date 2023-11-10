@@ -2,22 +2,23 @@
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
-	import Icon from 'svelte-awesome'
-	import { check } from 'svelte-awesome/icons'
-	import { ArrowRight } from 'lucide-svelte'
+
 	import {
-		faRefresh,
-		faCircle,
-		faTimes,
-		faTrash,
-		faCalendar,
-		faTimesCircle,
-		faList,
-		faEdit,
-		faHourglassHalf,
-		faScroll,
-		faFastForward
-	} from '@fortawesome/free-solid-svg-icons'
+		ArrowRight,
+		Calendar,
+		CheckCircle2,
+		Circle,
+		FastForward,
+		Hourglass,
+		List,
+		Pen,
+		RefreshCw,
+		Scroll,
+		TimerOff,
+		Trash,
+		XCircle
+	} from 'lucide-svelte'
+
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import {
 		enterpriseLicense,
@@ -39,13 +40,11 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
 
 	let job: Job | undefined
-	const iconScale = 1
 
 	let viewTab: 'result' | 'logs' | 'code' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -55,12 +54,8 @@
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
 	let restartBranchNames: [number, string][] = []
 
-	// Test
 	let testIsLoading = false
-
 	let testJobLoader: TestJobLoader
-
-	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
@@ -192,28 +187,24 @@
 			{@const isScript = job?.job_kind === 'script'}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-				<Dropdown
-					btnClasses="!text-red-500"
-					placement="bottom-start"
-					dropdownItems={[
-						{
-							displayName: 'delete log and results (admin only)',
-							icon: faTrash,
-							action: () => {
-								job?.id && deleteCompletedJob(job.id)
-							}
-						}
-					]}
+				<Button
+					variant="border"
+					color="red"
+					size="sm"
+					startIcon={{ icon: Trash }}
+					on:click={() => {
+						job?.id && deleteCompletedJob(job.id)
+					}}
 				>
-					delete
-				</Dropdown>
+					Delete log and results (admin only)
+				</Button>
 				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 					<Button
 						href={runsHref}
 						variant="border"
 						color="blue"
-						size="md"
-						startIcon={{ icon: faList }}
+						size="sm"
+						startIcon={{ icon: List }}
 					>
 						View runs
 					</Button>
@@ -229,7 +220,7 @@
 					<Button
 						color="red"
 						size="md"
-						startIcon={{ icon: faTimesCircle }}
+						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
 								cancelJob(job?.id)
@@ -245,7 +236,7 @@
 					<Button
 						color="red"
 						size="md"
-						startIcon={{ icon: faTimesCircle }}
+						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
 								cancelJob(job?.id)
@@ -268,7 +259,7 @@
 						on:click|once={() => {
 							restartFlow(job?.id, selectedJobStep, 0)
 						}}
-						startIcon={{ icon: faRefresh }}
+						startIcon={{ icon: RefreshCw }}
 					>
 						Re-start from
 						<Badge baseClass="ml-1" color="indigo">
@@ -287,7 +278,7 @@
 								variant="border"
 								color="blue"
 								disabled={!$enterpriseLicense}
-								startIcon={{ icon: faRefresh }}
+								startIcon={{ icon: RefreshCw }}
 								nonCaptureEvent={true}
 							>
 								Re-start from
@@ -346,7 +337,7 @@
 					}}
 					color="blue"
 					size="md"
-					startIcon={{ icon: faRefresh }}>Run again</Button
+					startIcon={{ icon: RefreshCw }}>Run again</Button
 				>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
@@ -359,11 +350,11 @@
 							}}
 							color="blue"
 							size="md"
-							startIcon={{ icon: faEdit }}>Edit</Button
+							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
 				{/if}
-				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: faScroll }}>
+				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: Scroll }}>
 					View {job?.job_kind}
 				</Button>
 			{/if}
@@ -375,48 +366,18 @@
 				{#if job}
 					{#if 'success' in job && job.success}
 						{#if job.is_skipped}
-							<Icon
-								class="text-green-600"
-								data={faFastForward}
-								scale={SMALL_ICON_SCALE}
-								label="Job completed successfully but was skipped"
-							/>
+							<FastForward class="text-green-600" size={14} />
 						{:else}
-							<Icon
-								class="text-green-600"
-								data={check}
-								scale={SMALL_ICON_SCALE}
-								label="Job completed successfully"
-							/>
+							<CheckCircle2 class="text-green-600" size={14} />
 						{/if}
 					{:else if job && 'success' in job}
-						<Icon
-							class="text-red-700"
-							data={faTimes}
-							scale={iconScale}
-							label="Job completed with an error"
-						/>
+						<XCircle class="text-red-700" size={14} />
 					{:else if job && 'running' in job && job.running}
-						<Icon
-							class="text-yellow-500"
-							data={faCircle}
-							scale={iconScale}
-							label="Job is running"
-						/>
+						<Circle class="text-yellow-500 fill-current" size={14} />
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-						<Icon
-							class="text-secondary"
-							data={faCalendar}
-							scale={iconScale}
-							label="Job is scheduled for a later time"
-						/>
+						<Calendar class="text-secondary" size={14} />
 					{:else if job && 'running' in job && job.scheduled_for}
-						<Icon
-							class="text-tertiary"
-							data={faHourglassHalf}
-							scale={iconScale}
-							label="Job is waiting for an executor"
-						/>
+						<Hourglass class="text-tertiary" size={14} />
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center">
@@ -435,7 +396,7 @@
 								<Badge color="red">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql', 'nativets', 'bash', 'powershell', 'other', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'nativets', 'bash', 'powershell', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>

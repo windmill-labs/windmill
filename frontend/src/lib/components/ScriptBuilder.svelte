@@ -22,7 +22,6 @@
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -40,6 +39,7 @@
 		Pen,
 		Plus,
 		Rocket,
+		Save,
 		Settings,
 		X
 	} from 'lucide-svelte'
@@ -77,7 +77,7 @@
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
 
-	const enterpriseLangs = ['bigquery', 'snowflake']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 
 	loadWorkerGroups()
 
@@ -107,6 +107,7 @@
 	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['BigQuery', Script.language.BIGQUERY])
 	langs.push(['Snowflake', Script.language.SNOWFLAKE])
+	langs.push(['MS SQL Server', Script.language.MSSQL])
 	langs.push(['GraphQL', Script.language.GRAPHQL])
 	langs.push(['PowerShell', Script.language.POWERSHELL])
 
@@ -314,12 +315,16 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
-						{
-							label: 'Exit & See details',
-							onClick: () => {
-								goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
-							}
-						}
+						...(!script.draft_only
+							? [
+									{
+										label: 'Exit & See details',
+										onClick: () => {
+											goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
+										}
+									}
+							  ]
+							: [])
 				  ]
 				: []
 
@@ -584,7 +589,8 @@
 											</div>
 										{:else}
 											<div class="text-sm text-secondary flex flex-row gap-2">
-												No custom worker group defined on this instance.
+												No custom worker group tag defined on this instance in "Workers {'->'} Assignable
+												Tags"
 												<a
 													href="https://www.windmill.dev/docs/core_concepts/worker_groups"
 													target="_blank"
@@ -675,7 +681,7 @@
 											<svelte:fragment slot="right">
 												<input
 													type="number"
-													class="!w-14 ml-4"
+													class="!w-16 ml-4"
 													disabled={script.priority === undefined}
 													bind:value={script.priority}
 													on:focus
@@ -855,16 +861,14 @@
 						on:click={() => {
 							metadataOpen = true
 						}}
+						startIcon={{ icon: Settings }}
 					>
-						<div class="flex flex-row gap-2 items-center">
-							<Settings size={14} />
-							Settings
-						</div>
+						Settings
 					</Button>
 					<Button
 						loading={loadingDraft}
 						size="xs"
-						startIcon={{ icon: faSave }}
+						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={initialPath != '' && !savedScript}
 					>
@@ -876,7 +880,7 @@
 					<Button
 						loading={loadingSave}
 						size="xs"
-						startIcon={{ icon: faSave }}
+						startIcon={{ icon: Save }}
 						on:click={() => editScript()}
 						dropdownItems={computeDropdownItems(initialPath)}
 					>

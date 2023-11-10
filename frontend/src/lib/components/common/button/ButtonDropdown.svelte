@@ -6,7 +6,7 @@
 	import Portal from 'svelte-portal'
 
 	export let hasPadding: boolean = true
-
+	export let target: string | undefined = 'body'
 	const [popperRef, popperContent] = createPopperActions({ placement: 'auto' })
 
 	const popperOptions: PopperOptions<{}> = {
@@ -38,7 +38,7 @@
 		</MenuButton>
 	</span>
 
-	<Portal>
+	<Portal {target}>
 		<div use:popperContent={popperOptions} class="z-[6000]">
 			<Transition
 				show={open}

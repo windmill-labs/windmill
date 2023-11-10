@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.202.1
+  version: 1.204.0
   title: Windmill API
 
   contact:
@@ -5332,7 +5332,6 @@ paths:
               required:
                 - handler_type
                 - override_existing
-                - path
       responses:
         "201":
           description: default error handler set
@@ -6588,6 +6587,7 @@ components:
               mysql,
               bigquery,
               snowflake,
+              mssql,
               graphql,
               nativets,
               bun,
@@ -6669,6 +6669,7 @@ components:
               mysql,
               bigquery,
               snowflake,
+              mssql,
               graphql,
               nativets,
               bun,
@@ -6858,6 +6859,7 @@ components:
               mysql,
               bigquery,
               snowflake,
+              mssql,
               graphql,
               nativets,
               bun,
@@ -6965,6 +6967,7 @@ components:
               mysql,
               bigquery,
               snowflake,
+              mssql,
               graphql,
               nativets,
               bun,
@@ -7479,6 +7482,7 @@ components:
               mysql,
               bigquery,
               snowflake,
+              mssql,
               graphql,
               nativets,
               bun,

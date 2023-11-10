@@ -24,7 +24,6 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { classNames, encodeState } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -388,16 +387,20 @@
 
 	let css: string | undefined = undefined
 
+	let lastTheme: string | undefined = undefined
 	appStore.subscribe(async (currentAppStore) => {
 		if (!currentAppStore.theme) {
 			return
 		}
 
-		if (currentAppStore.theme.type === 'inlined') {
-			css = currentAppStore.theme.css
-		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
-			let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
-			css = loadedCss.value
+		if (JSON.stringify(currentAppStore.theme) != lastTheme) {
+			if (currentAppStore.theme.type === 'inlined') {
+				css = currentAppStore.theme.css
+			} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
+				let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
+				css = loadedCss.value
+			}
+			lastTheme = JSON.stringify(currentAppStore.theme)
 		}
 	})
 
@@ -726,7 +729,7 @@
 			variant="border"
 			color="blue"
 			size="sm"
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			on:click={() => {
 				variableEditor?.initNew?.()
 			}}

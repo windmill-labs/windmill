@@ -66,11 +66,8 @@
 
 <Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true}>
-			<div class="flex flex-row gap-1 items-center">
-				<MailPlus size={16} />
-				Invite
-			</div>
+		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
+			Invite
 		</Button>
 	</svelte:fragment>
 

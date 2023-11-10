@@ -45,6 +45,9 @@ prompts:
   snowflake:
     prompt: |-
       Write SQL code for snowflake that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
+  mssql:
+    prompt: |-
+      Write SQL code for Microsoft SQL Server that should {description}. Arguments can be obtained directly in the statement with @p1, @p2, etc.. Name the parameters by adding comments before the statement like that: `-- @p1 name1 ({type})` or `-- @p2 name2 ({type}) = default` (one per row)
   graphql:
     prompt: |-
       Write a GraphQL query that should {description}. Add the needed arguments as query parameters.

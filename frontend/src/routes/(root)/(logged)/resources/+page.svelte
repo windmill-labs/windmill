@@ -8,7 +8,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -31,24 +31,22 @@
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
-	import {
-		faChain,
-		faCircle,
-		faEdit,
-		faFileExport,
-		faPen,
-		faPlus,
-		faRefresh,
-		faRotateRight,
-		faSave,
-		faShare,
-		faTrash
-	} from '@fortawesome/free-solid-svg-icons'
 	import { convert } from '@redocly/json-to-json-schema'
-	import { Building } from 'lucide-svelte'
+	import {
+		Braces,
+		Building,
+		Circle,
+		FileUp,
+		Link,
+		Pen,
+		Plus,
+		RotateCw,
+		Save,
+		Share,
+		Trash
+	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from 'svelte-autosize'
-	import Icon from 'svelte-awesome'
 	import Portal from 'svelte-portal'
 
 	type ResourceW = ListableResource & { canWrite: boolean }
@@ -321,7 +319,7 @@
 <Drawer bind:this={editResourceTypeDrawer} size="800px">
 	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: faSave }} on:click={updateResourceType}>Update</Button>
+			<Button startIcon={{ icon: Save }} on:click={updateResourceType}>Update</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
@@ -362,7 +360,7 @@
 <Drawer bind:this={resourceTypeDrawer} size="800px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
+			<Button startIcon={{ icon: Save }} on:click={addResourceType}>Save</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
@@ -412,7 +410,13 @@
 				<div class="flex justify-between w-full items-center">
 					<div class="mb-1 font-semibold text-secondary">Schema</div>
 					<div class="mb-2 w-full flex flex-row-reverse">
-						<Button on:click={openInferrer} size="sm" color="dark" variant="border">
+						<Button
+							on:click={openInferrer}
+							size="sm"
+							color="light"
+							variant="border"
+							startIcon={{ icon: Braces }}
+						>
 							Infer schema from a json value
 						</Button>
 					</div>
@@ -437,10 +441,10 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	>
 		<div class="flex flex-row justify-end gap-4">
-			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>
+			<Button variant="border" size="md" startIcon={{ icon: Plus }} on:click={startNewType}>
 				Add Resource Type
 			</Button>
-			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
+			<Button size="md" startIcon={{ icon: Link }} on:click={() => appConnect.open?.()}>
 				Add Resource
 			</Button>
 		</div>
@@ -509,12 +513,11 @@
 						types: false
 					}
 				}}
-				><Icon
-					scale={0.8}
-					data={faRotateRight}
-					class={loading.resources || loading.types ? 'animate-spin' : ''}
-				/></Button
-			>
+				startIcon={{
+					icon: RotateCw,
+					classes: loading.resources || loading.types ? 'animate-spin' : ''
+				}}
+			/>
 		</div>
 	</div>
 	{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
@@ -597,7 +600,7 @@
 											<div class="w-10">
 												{#if is_linked}
 													<Popover>
-														<Icon data={faChain} />
+														<Link />
 														<div slot="text">
 															This resource is linked with a variable of the same path. They are
 															deleted and renamed together.
@@ -608,7 +611,7 @@
 											<div class="w-10">
 												{#if is_refreshed}
 													<Popover>
-														<Icon data={faRefresh} />
+														<RotateCw />
 														<div slot="text">
 															The OAuth token will be kept up-to-date in the background by Windmill
 															using its refresh token
@@ -621,11 +624,9 @@
 												<div class="w-10">
 													{#if refresh_error}
 														<Popover>
-															<Icon
-																class="text-red-600 animate-[pulse_5s_linear_infinite]"
-																data={faCircle}
-																scale={0.7}
-																label="Error during exchange of the refresh token"
+															<Circle
+																class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
+																size={12}
 															/>
 															<div slot="text">
 																Latest exchange of the refresh token did not succeed. Error: {refresh_error}
@@ -633,12 +634,11 @@
 														</Popover>
 													{:else if is_expired}
 														<Popover>
-															<Icon
-																class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
-																data={faCircle}
-																scale={0.7}
-																label="Variable is expired"
+															<Circle
+																class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
+																size={12}
 															/>
+
 															<div slot="text">
 																The access_token is expired, it will get renewed the next time this
 																variable is fetched or you can request is to be refreshed in the
@@ -647,11 +647,9 @@
 														</Popover>
 													{:else}
 														<Popover>
-															<Icon
-																class="text-green-600 animate-[pulse_5s_linear_infinite]"
-																data={faCircle}
-																scale={0.7}
-																label="Variable is tied to an OAuth app"
+															<Circle
+																class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
+																size={12}
 															/>
 															<div slot="text">
 																The resource was connected through OAuth and the token is not
@@ -665,18 +663,17 @@
 									</td>
 									<td>
 										<Dropdown
-											placement="bottom-end"
-											dropdownItems={[
+											items={[
 												{
 													displayName: !canWrite ? 'View Permissions' : 'Share',
-													icon: faShare,
+													icon: Share,
 													action: () => {
 														shareModal.openDrawer?.(path, 'resource')
 													}
 												},
 												{
 													displayName: 'Edit',
-													icon: faEdit,
+													icon: Pen,
 													disabled: !canWrite,
 													action: () => {
 														resourceEditor?.initEdit?.(path)
@@ -684,7 +681,7 @@
 												},
 												{
 													displayName: 'Deploy to prod/staging',
-													icon: faFileExport,
+													icon: FileUp,
 													action: () => {
 														deploymentDrawer.openDrawer(path, 'resource')
 													}
@@ -692,9 +689,11 @@
 												{
 													displayName: 'Delete',
 													disabled: !canWrite,
-													icon: faTrash,
+													icon: Trash,
 													type: 'delete',
 													action: (event) => {
+														// TODO
+														// @ts-ignore
 														if (event?.shiftKey) {
 															deleteResource(path, account)
 														} else {
@@ -708,7 +707,7 @@
 													? [
 															{
 																displayName: 'Refresh token',
-																icon: faRefresh,
+																icon: RotateCw,
 																action: async () => {
 																	await OauthService.refreshToken({
 																		workspace: $workspaceStore ?? '',
@@ -791,7 +790,7 @@
 													size="sm"
 													color="red"
 													variant="border"
-													startIcon={{ icon: faTrash }}
+													startIcon={{ icon: Trash }}
 													on:click={() => handleDeleteResourceType(name)}
 												>
 													Delete
@@ -800,7 +799,7 @@
 													size="sm"
 													variant="border"
 													color="dark"
-													startIcon={{ icon: faPen }}
+													startIcon={{ icon: Pen }}
 													on:click={() => startEditResourceType(name)}
 												>
 													Edit

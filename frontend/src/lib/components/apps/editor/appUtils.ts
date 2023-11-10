@@ -268,7 +268,8 @@ export function cleanseOneOfConfiguration(
 
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T,
-	overrideConfiguration?: Partial<InitialAppComponent['configuration']>
+	overrideConfiguration?: Partial<InitialAppComponent['configuration']>,
+	extra?: any
 ): (id: string) => BaseAppComponent & BaseComponent<T> {
 	return (id: string) => {
 		const init = JSON.parse(JSON.stringify(ccomponents[type].initialData)) as InitialAppComponent
@@ -304,7 +305,8 @@ export function appComponentFromType<T extends keyof typeof components>(
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,
-			id
+			id,
+			...(extra ?? {})
 		}
 	}
 }
@@ -424,9 +426,7 @@ export function getAllSubgridsAndComponentIds(
 	return [subgrids, components]
 }
 
-export function getAllGridItems(
-	app: App
-	): GridItem[] {
+export function getAllGridItems(app: App): GridItem[] {
 	return app.grid.concat(Object.values(app.subgrids ?? {}).flat())
 }
 

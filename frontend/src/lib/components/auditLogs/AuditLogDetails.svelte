@@ -49,11 +49,9 @@
 					variant="contained"
 					size="xs"
 					target="_blank"
+					endIcon={{ icon: ArrowRight }}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						View flow
-						<ArrowRight size={14} />
-					</div>
+					View flow
 				</Button>
 			{/if}
 			{#if [AuditLog.operation.APPS_UPDATE, AuditLog.operation.APPS_CREATE].includes(log.operation)}
@@ -63,11 +61,9 @@
 					variant="contained"
 					size="xs"
 					target="_blank"
+					endIcon={{ icon: ArrowRight }}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						View app
-						<ArrowRight size={14} />
-					</div>
+					View app
 				</Button>
 			{/if}
 		{/if}

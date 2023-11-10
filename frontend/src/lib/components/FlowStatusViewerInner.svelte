@@ -3,8 +3,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
-	import Icon from 'svelte-awesome'
-	import { faChevronDown, faChevronUp, faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Tab } from './common'
@@ -14,7 +12,7 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { emptyString, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { ChevronDown, Hourglass, Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
@@ -363,16 +361,14 @@
 									forloop_selected = loopJobId
 								}
 							}}
+							endIcon={{
+								icon: ChevronDown,
+								classes: forloop_selected == loopJobId ? '!rotate-180' : ''
+							}}
 						>
 							<span class="truncate font-mono">
 								#{($durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) + j + 1}: {loopJobId}
 							</span>
-
-							<Icon
-								class="ml-2"
-								data={forloop_selected == loopJobId ? faChevronUp : faChevronDown}
-								scale={0.8}
-							/>
 						</Button>
 					{/if}
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
@@ -603,7 +599,7 @@
 											<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
 											{#if node.duration_ms}
 												<Badge>
-													<Icon data={faHourglassHalf} scale={0.6} class="mr-2" />
+													<Hourglass class="mr-2" size={10} />
 													{msToSec(node.duration_ms)} s
 												</Badge>
 											{/if}

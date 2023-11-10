@@ -41,10 +41,12 @@
 		bind:value={connect_config.token_url}
 	/>
 </label>
+<!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm">Scopes</span>
 	<OauthScopes bind:scopes={connect_config.scopes} />
 </label>
+<!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm"
 		>Extra Query Args for Authorize Request&nbsp;<Tooltip
@@ -54,12 +56,14 @@
 	>
 	<OauthExtraParams bind:extra_params={connect_config.extra_params} />
 </label>
+<!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm"
 		>Extra Query Args for Token request <Tooltip>Not needed in most cases</Tooltip></span
 	>
 	<OauthExtraParams bind:extra_params={connect_config.extra_params_callback} />
 </label>
+<!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
 	<span class="text-primary font-semibold text-sm"
 		>Payload <Tooltip

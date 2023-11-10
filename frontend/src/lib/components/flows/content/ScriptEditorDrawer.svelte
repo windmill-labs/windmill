@@ -6,15 +6,14 @@
 	import { ScriptService, type Preview, Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
+	import { Loader2, Save, DiffIcon } from 'lucide-svelte'
 	import {
 		cleanValueProperties,
 		emptySchema,
 		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { cloneDeep } from 'lodash'
-	import { DiffIcon, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 
@@ -247,8 +246,10 @@
 					scriptEditorDrawer.closeDrawer()
 				}}
 				disabled={!script}
-				startIcon={{ icon: faSave }}>Save</Button
+				startIcon={{ icon: Save }}
 			>
+				Save
+			</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

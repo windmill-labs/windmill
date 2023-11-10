@@ -5,14 +5,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
-	import {
-		faCancel,
-		faCheck,
-		faClose,
-		faMagicWandSparkles
-	} from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
-	import { Icon } from 'svelte-awesome'
 	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -26,7 +19,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { ExternalLink } from 'lucide-svelte'
+	import { Ban, Check, ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 
@@ -168,17 +161,18 @@
 				color="red"
 				on:click={rejectDiff}
 				variant="contained"
-			>
-				<Icon data={faClose} />
-			</Button><Button
+				startIcon={{ icon: X }}
+				iconOnly
+			/>
+			<Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2 w-7"
 				size="xs"
 				color="green"
 				on:click={acceptDiff}
-			>
-				<Icon data={faCheck} /></Button
-			>
+				iconOnly
+				startIcon={{ icon: Check }}
+			/>
 		</div>
 	{:else}
 		<div class="flex gap-1 px-2">
@@ -189,7 +183,7 @@
 				color="red"
 				on:click={rejectDiff}
 				variant="contained"
-				startIcon={{ icon: faClose }}
+				startIcon={{ icon: X }}
 				{iconOnly}
 			>
 				Discard
@@ -199,7 +193,7 @@
 				size="xs"
 				color="green"
 				on:click={acceptDiff}
-				startIcon={{ icon: faCheck }}
+				startIcon={{ icon: Check }}
 				{iconOnly}
 			>
 				Accept
@@ -222,19 +216,15 @@
 		<svelte:fragment slot="button">
 			{#if inlineScript}
 				<Button
-					size="lg"
+					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={genLoading ? '!px-3' : '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
 					nonCaptureEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : undefined}
 					bind:element={button}
-				>
-					{#if genLoading}
-						<Icon scale={0.8} data={faCancel} />
-					{:else}
-						<Icon scale={0.8} data={faMagicWandSparkles} />
-					{/if}
-				</Button>
+					iconOnly
+					startIcon={{ icon: genLoading ? Ban : Wand2 }}
+				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
@@ -242,7 +232,7 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={genLoading ? undefined : { icon: faMagicWandSparkles }}
+					startIcon={genLoading ? undefined : { icon: Wand2 }}
 					propagateEvent
 					on:click={genLoading
 						? () => abortController?.abort()
@@ -313,12 +303,12 @@
 								onGenerate(() => close(input || null))
 							}}
 							disabled={funcDesc.length <= 0}
-						>
-							<Icon data={faMagicWandSparkles} />
-						</Button>
+							iconOnly
+							startIcon={{ icon: Wand2 }}
+						/>
 					</div>
 
-					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(lang) && dbSchema?.lang === lang}
+					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang) && dbSchema?.lang === lang}
 						<div class="flex flex-row items-center justify-between gap-2 w-96">
 							<div class="flex flex-row items-center">
 								<p class="text-xs text-secondary">
@@ -328,24 +318,30 @@
 									In order to better generate the script, we pass the selected schema to GPT-4.
 								</Tooltip>
 							</div>
-							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
+							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
 								<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
-									<ToggleButton value={true} label="Public schema" small light />
+									<ToggleButton
+										value={true}
+										label={(dbSchema.schema?.dbo ? 'Dbo' : 'Public') + ' schema'}
+										small
+										light
+									/>
 									<ToggleButton value={false} label="All schemas" small light />
 								</ToggleButtonGroup>
 							{/if}
 						</div>
-					{/if}</div
-				>
+					{/if}
+				</div>
 			{:else}
-				<p class="text-sm"
-					>Enable Windmill AI in the <a
+				<p class="text-sm">
+					Enable Windmill AI in the <a
 						href="/workspace_settings?tab=openai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
-						>workspace settings <ExternalLink size={16} />
-					</a></p
-				>
+					>
+						workspace settings <ExternalLink size={16} />
+					</a>
+				</p>
 			{/if}
 		</div>
 	</Popup>

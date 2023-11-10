@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 
 	import {
 		AppService,
@@ -34,6 +32,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
+	import { ArrowLeft } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 
 	OpenAPI.WITH_CREDENTIALS = true
@@ -298,8 +297,8 @@
 							isCollapsed = !isCollapsed
 						}}
 					>
-						<Icon
-							data={faArrowLeft}
+						<ArrowLeft
+							size={16}
 							class={classNames(
 								'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
 								isCollapsed ? 'rotate-180' : 'rotate-0'

@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { FlowStatusModule } from '$lib/gen'
-	import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
-	import { Icon } from 'svelte-awesome'
 	import { Badge } from './common'
 	import { forLater } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
+	import { Hourglass } from 'lucide-svelte'
 
 	export let type: FlowStatusModule.type
 	export let scheduled_for: Date | undefined
@@ -12,17 +11,17 @@
 
 {#if type == FlowStatusModule.type.WAITING_FOR_EVENTS}
 	<span class="italic text-waiting">
-		<Icon class=" mr-2" data={faHourglassHalf} />
+		<Hourglass />
 		Waiting to be resumed by resume events such as approvals
 	</span>
 {:else if type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
 	<span class="italic text-tertiary">
-		<Icon data={faHourglassHalf} class="mr-2" />
+		<Hourglass />
 		Waiting for prior steps to complete
 	</span>
 {:else if type == FlowStatusModule.type.WAITING_FOR_EXECUTOR}
 	<span class="italic text-tertiary">
-		<Icon data={faHourglassHalf} class="mr-2" />
+		<Hourglass />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
 			Job is scheduled to be executed at {displayDate(scheduled_for, true)}
 		{:else}

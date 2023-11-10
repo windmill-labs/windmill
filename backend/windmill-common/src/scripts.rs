@@ -42,6 +42,7 @@ pub enum ScriptLang {
     Bigquery,
     Snowflake,
     Graphql,
+    Mssql,
 }
 
 impl ScriptLang {
@@ -58,6 +59,7 @@ impl ScriptLang {
             ScriptLang::Mysql => "mysql",
             ScriptLang::Bigquery => "bigquery",
             ScriptLang::Snowflake => "snowflake",
+            ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
         }
     }

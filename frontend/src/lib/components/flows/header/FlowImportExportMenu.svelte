@@ -1,15 +1,12 @@
 <script lang="ts">
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
-
-	import { faFileExport } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { Button } from '../../common'
 	import type { FlowEditorContext } from '../types'
 	import { cleanInputs } from '../utils'
+	import { FileJson } from 'lucide-svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -22,8 +19,8 @@
 	variant="border"
 	color="light"
 	on:click={() => jsonViewerDrawer.toggleDrawer()}
+	startIcon={{ icon: FileJson }}
 >
-	<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
 	JSON
 </Button>
 

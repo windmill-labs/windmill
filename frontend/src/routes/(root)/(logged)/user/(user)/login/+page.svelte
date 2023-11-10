@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
+	import Github from '$lib/components/icons/brands/Github.svelte'
+	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
+	import Google from '$lib/components/icons/brands/Google.svelte'
+	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
+	import Okta from '$lib/components/icons/brands/Okta.svelte'
+
 	import { onMount } from 'svelte'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
@@ -24,22 +29,27 @@
 		{
 			type: 'github',
 			name: 'GitHub',
-			icon: faGithub
+			icon: Github
 		},
 		{
 			type: 'gitlab',
 			name: 'GitLab',
-			icon: faGitlab
+			icon: Gitlab
 		},
 		{
 			type: 'google',
 			name: 'Google',
-			icon: faGoogle
+			icon: Google
 		},
 		{
 			type: 'microsoft',
 			name: 'Microsoft',
-			icon: faMicrosoft
+			icon: Microsoft
+		},
+		{
+			type: 'okta',
+			name: 'Okta',
+			icon: Okta
 		}
 	] as const
 
@@ -121,6 +131,7 @@
 		const allLogins = await OauthService.listOAuthLogins()
 		logins = allLogins.oauth
 		saml = allLogins.saml
+
 		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 	}
 
@@ -191,10 +202,9 @@
 					{#each providers as { type, icon, name }}
 						{#if logins?.includes(type)}
 							<Button
-								color="dark"
+								color="light"
 								variant="border"
-								endIcon={{ icon }}
-								btnClasses="w-full !border-gray-300"
+								startIcon={{ icon, classes: 'h-4' }}
 								on:click={() => storeRedirect(type)}
 							>
 								{name}

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext, tick } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { deleteGridItem } from '../appUtils'
@@ -9,7 +8,7 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import { dndzone } from 'svelte-dnd-action'
 	import { generateRandomString } from '$lib/utils'
-	import { GripVertical } from 'lucide-svelte'
+	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'
 
 	export let tabs: string[] = []
@@ -204,7 +203,7 @@
 			size="xs"
 			color="light"
 			variant="border"
-			startIcon={{ icon: faPlus }}
+			startIcon={{ icon: Plus }}
 			on:click={addTab}
 			iconOnly
 		/>

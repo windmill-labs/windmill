@@ -1,12 +1,9 @@
 <script lang="ts">
-	import { faChevronDown, faChevronUp, faPlus } from '@fortawesome/free-solid-svg-icons'
-
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { DollarSign, X } from 'lucide-svelte'
+	import { ChevronDown, DollarSign, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
-	import Icon from 'svelte-awesome'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
@@ -217,16 +214,21 @@
 				<ArrayTypeNarrowing bind:itemsType />
 			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<span
-						class="underline"
-						on:click={() => {
-							seeEditable = !seeEditable
-						}}
-					>
-						Customize
-						<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
-					</span>
+					<div class="w-min">
+						<Button
+							on:click={() => {
+								seeEditable = !seeEditable
+							}}
+							endIcon={{
+								icon: ChevronDown,
+								classes: twMerge('rotate-0 duration-300', seeEditable ? '!rotate-180' : '')
+							}}
+							color="light"
+							size="xs"
+						>
+							Customize
+						</Button>
+					</div>
 
 					{#if seeEditable}
 						<div class="mt-2">
@@ -371,8 +373,8 @@
 									value = value.concat('')
 								}}
 								id="arg-input-add-item"
+								startIcon={{ icon: Plus }}
 							>
-								<Icon data={faPlus} class="mr-2" />
 								Add item
 							</Button>
 						</div>

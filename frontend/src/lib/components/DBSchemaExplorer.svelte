@@ -16,7 +16,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
-	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { RefreshCcw } from 'lucide-svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: string | undefined = undefined
@@ -166,6 +166,50 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 				return schema
 			},
 			argName: 'database'
+		},
+		ms_sql_server: {
+			argName: 'database',
+			code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
+			lang: 'mssql',
+			processingFn: (rows) => {
+				const schemas = rows[0].reduce((acc, a) => {
+					const table_schema = a.TABLE_SCHEMA
+					delete a.TABLE_SCHEMA
+					acc[table_schema] = acc[table_schema] || []
+					acc[table_schema].push(a)
+					return acc
+				}, {})
+				const data = {}
+				for (const key in schemas) {
+					data[key] = schemas[key].reduce((acc, a) => {
+						const table_name = a.TABLE_NAME
+						delete a.TABLE_NAME
+						acc[table_name] = acc[table_name] || {}
+						const p: {
+							type: string
+							required: boolean
+							default?: string
+						} = {
+							type: a.DATA_TYPE,
+							required: a.is_nullable === 'NO'
+						}
+						if (a.column_default) {
+							p.default = a.COLUMN_DEFAULT
+						}
+						acc[table_name][a.COLUMN_NAME] = p
+						return acc
+					}, {})
+				}
+				return data
+			}
+		}
+	}
+
+	function resourceTypeToLang(rt: string) {
+		if (rt === 'ms_sql_server') {
+			return 'mssql'
+		} else {
+			return rt
 		}
 	}
 
@@ -200,9 +244,9 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 								const schema =
 									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
 								$dbSchemas[resourcePath] = {
-									lang: resourceType as SQLSchema['lang'],
+									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 									schema,
-									publicOnly: !!schema.public || !!schema.PUBLIC
+									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
 								}
 							} else {
 								if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
@@ -247,7 +291,7 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 
 	function formatSchema(dbSchema: DBSchema) {
 		if (dbSchema.lang !== 'graphql' && dbSchema.publicOnly) {
-			return dbSchema.schema.public || dbSchema.schema.PUBLIC || dbSchema
+			return dbSchema.schema.public || dbSchema.schema.PUBLIC || dbSchema.schema.dbo || dbSchema
 		} else if (dbSchema.lang === 'mysql' && Object.keys(dbSchema.schema).length === 1) {
 			return dbSchema.schema[Object.keys(dbSchema.schema)[0]]
 		} else {
@@ -284,17 +328,18 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 				<Button
 					on:click={getSchema}
 					startIcon={{
-						icon: faRefresh
+						icon: RefreshCcw
 					}}
 					{loading}
 					size="xs"
 					color="light"
-					>Refresh
+				>
+					Refresh
 				</Button>
 			</svelte:fragment>
-			{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
+			{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
 				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
-					<ToggleButton value={true} label="Public" />
+					<ToggleButton value={true} label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} />
 					<ToggleButton value={false} label="All" />
 				</ToggleButtonGroup>
 			{/if}

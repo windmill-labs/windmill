@@ -68,6 +68,11 @@ pub fn parse_snowflake(code: &str) -> String {
 }
 
 #[wasm_bindgen]
+pub fn parse_mssql(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_mssql_sig(code))
+}
+
+#[wasm_bindgen]
 pub fn parse_graphql(code: &str) -> String {
     wrap_sig(windmill_parser_graphql::parse_graphql_sig(code))
 }

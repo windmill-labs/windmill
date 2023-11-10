@@ -221,6 +221,20 @@
 
 						<FlowScriptPicker
 							disabled={noEditor && (summary == undefined || summary == '')}
+							label="MS SQL Server"
+							lang={Script.language.MSSQL}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.MSSQL,
+									kind,
+									subkind: 'flow',
+									summary
+								})
+							}}
+						/>
+
+						<FlowScriptPicker
+							disabled={noEditor && (summary == undefined || summary == '')}
 							label="GraphQL"
 							lang={Script.language.GRAPHQL}
 							on:click={() => {

@@ -95,11 +95,9 @@
 													css: theme
 												}
 											}}
+											startIcon={{ icon: GitBranch }}
 										>
-											<div class="flex flex-row gap-2 items-center">
-												<GitBranch size={16} />
-												Fork theme to edit
-											</div>
+											Fork theme to edit
 										</Button>
 									</div>
 								</ThemeCodePreview>

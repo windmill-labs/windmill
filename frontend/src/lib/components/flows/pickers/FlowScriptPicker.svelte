@@ -4,7 +4,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import type { IconDefinition } from '@fortawesome/free-solid-svg-icons'
 
 	export let disabled: boolean = false
 	export let label: string
@@ -17,12 +16,10 @@
 		| 'docker'
 		| 'powershell'
 		| undefined = undefined
-	export let icon: IconDefinition | undefined = undefined
 
-	export let iconColor: string | undefined = undefined
 	export let id: string | undefined = undefined
 
-	const enterpriseLangs = ['bigquery', 'snowflake']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 </script>
 
 <Popover disablePopup={!enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}>
@@ -33,10 +30,6 @@
 		spacingSize="md"
 		variant="border"
 		color="light"
-		startIcon={{
-			icon,
-			classes: iconColor
-		}}
 		disabled={disabled || (enterpriseLangs.includes(lang || '') && !$enterpriseLicense)}
 		{id}
 	>

@@ -61,7 +61,15 @@
 		'other',
 		'bun'
 	]
-	const nativeTags = ['nativets', 'postgresql', 'mysql', 'graphql', 'snowflake', 'bigquery']
+	const nativeTags = [
+		'nativets',
+		'postgresql',
+		'mysql',
+		'graphql',
+		'snowflake',
+		'mssql',
+		'bigquery'
+	]
 
 	let newTag: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
@@ -395,9 +403,9 @@
 				drawer.openDrawer()
 			}}
 		>
-			<div class="flex flex-row gap-1 items-center"
-				>{config == undefined ? 'create' : 'edit'} config</div
-			>
+			<div class="flex flex-row gap-1 items-center">
+				{config == undefined ? 'create' : 'edit'} config
+			</div>
 		</Button>
 
 		{#if config}

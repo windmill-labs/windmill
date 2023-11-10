@@ -187,11 +187,9 @@
 																component.customCss[cssKey].style = ''
 															}
 														}}
+														endIcon={{ icon: MoveRight }}
 													>
-														<div class="flex flex-row gap-2 items-center">
-															Migrate
-															<MoveRight size={16} />
-														</div>
+														Migrate
 													</Button>
 												</div>
 												<div class="border p-2 rounded-md">
@@ -240,11 +238,9 @@
 																$app.css[type][cssKey].style = ''
 															}
 														}}
+														endIcon={{ icon: MoveRight }}
 													>
-														<div class="flex flex-row gap-2 items-center">
-															Migrate
-															<MoveRight size={16} />
-														</div>
+														Migrate
 													</Button>
 												</div>
 												<div class="border p-2 rounded-md">
@@ -289,11 +285,9 @@
 								migrationModalOpen = false
 							}}
 							disabled={migrations.size === 0}
+							endIcon={{ icon: MoveRight }}
 						>
-							<div class="flex flex-row gap-2 items-center">
-								Apply migration
-								<MoveRight size={16} />
-							</div>
+							Apply migration
 						</Button>
 					</div>
 				</div>

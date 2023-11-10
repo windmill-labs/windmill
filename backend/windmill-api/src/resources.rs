@@ -12,11 +12,14 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
+    body,
     extract::{Extension, Path, Query},
+    response::Response,
     routing::{delete, get, post},
     Json, Router,
 };
-use hyper::StatusCode;
+use bytes::Bytes;
+use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -54,6 +57,10 @@ pub fn workspaced_service() -> Router {
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
         .route("/type/create", post(create_resource_type))
+}
+
+pub fn public_service() -> Router {
+    Router::new().route("/custom_component/:name", get(custom_component))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -304,6 +311,33 @@ async fn get_resource_value(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     Ok(Json(value))
+}
+
+async fn custom_component(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> Result<Response> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let cc_o = sqlx::query_scalar!(
+        "SELECT value->>'js' FROM resource
+        WHERE path = $1 AND workspace_id = $2",
+        format!("f/app_custom/{name}"),
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    tx.commit().await?;
+
+    let cc = not_found_if_none(cc_o, "Custom Component", name)?;
+    let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
+
+    Ok(res
+        .body(body::boxed(body::Full::from(Bytes::from(cc))))
+        .unwrap())
 }
 
 #[derive(Deserialize)]

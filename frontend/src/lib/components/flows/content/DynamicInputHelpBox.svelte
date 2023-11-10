@@ -1,22 +1,23 @@
 <script lang="ts">
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { ChevronDown } from 'lucide-svelte'
+
 	import { slide } from 'svelte/transition'
 
 	$: opened = false
 </script>
 
-<div class="text-xs flex flex-row-reverse">
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<span
-		class="underline mr-4"
+<div class="text-xs flex flex-row-reverse mt-1">
+	<Button
 		on:click={() => {
 			opened = !opened
 		}}
+		color="light"
+		size="xs2"
+		endIcon={{ icon: ChevronDown, classes: `rotate-0 duration-300 ${opened ? '!rotate-180' : ''}` }}
 	>
 		Help
-		<Icon class="ml-2" data={opened ? faChevronUp : faChevronDown} scale={0.7} />
-	</span>
+	</Button>
 </div>
 
 {#if opened}

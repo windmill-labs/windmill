@@ -25,15 +25,12 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
-	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import { faBarsStaggered, faScroll } from '@fortawesome/free-solid-svg-icons'
-	import { Slack } from 'lucide-svelte'
+	import { Scroll, Slack } from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
-
-	const slackErrorHandler = 'hub/5792/workspace-or-schedule-error-handler-slack'
 
 	let initialPath: string
 	let scriptPath: string
@@ -172,7 +169,9 @@
 			errorHandlerSelected = 'custom'
 		} else {
 			errorHandlerSelected =
-				emptyString(errorHandlerScriptPath) || errorHandlerScriptPath === slackErrorHandler
+				emptyString(errorHandlerScriptPath) ||
+				(errorHandlerScriptPath.startsWith('hub/') &&
+					errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack'))
 					? 'slack'
 					: 'custom'
 		}
@@ -269,7 +268,7 @@
 		{#if tab == 'users'}
 			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
-			<div class="my-2"
+			<div class="my-2 pt-4"
 				><Alert type="info" title="Link this workspace to another Staging/Prod workspace"
 					>Linking this workspace to another staging/prod workspace unlock the Web-based flow to
 					deploy to another workspace.</Alert
@@ -300,7 +299,7 @@
 					<div class="flex flex-col gap-2 max-w-sm">
 						<Button
 							size="sm"
-							endIcon={{ icon: faSlack }}
+							endIcon={{ icon: Slack }}
 							btnClasses="mt-2"
 							variant="border"
 							on:click={async () => {
@@ -315,22 +314,24 @@
 						</Button>
 						<Button
 							size="sm"
-							endIcon={{ icon: faScroll }}
+							endIcon={{ icon: Scroll }}
 							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>
 				{:else}
 					<div class="flex flex-row gap-2">
-						<Button size="xs" color="dark" href="/api/oauth/connect_slack">
-							<div class="flex flex-row gap-1 items-center">
-								<Slack size={14} />
-								Connect to Slack
-							</div>
+						<Button
+							size="xs"
+							color="dark"
+							href="/api/oauth/connect_slack"
+							startIcon={{ icon: Slack }}
+						>
+							Connect to Slack
 						</Button>
 						<Badge color="red">Not connnected</Badge>
 					</div>
@@ -460,12 +461,12 @@
 
 			<ErrorOrRecoveryHandler
 				isEditable={true}
+				errorOrRecovery="error"
 				handlersOnlyForEe={['slack']}
 				showScriptHelpText={true}
 				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
-				slackHandlerScriptPath={slackErrorHandler}
 				customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fworkspace_error_handler_template"
 				bind:customHandlerKind={errorHandlerItemKind}
 				bind:handlerExtraArgs={errorHandlerExtraArgs}

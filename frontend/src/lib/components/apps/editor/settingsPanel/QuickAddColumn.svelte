@@ -53,11 +53,14 @@
 
 	<div class="flex flex-row gap-2 items-center flex-wrap">
 		{#each remainingColumns as column}
-			<Button on:click={() => dispatch('add', column)} size="xs2" color="light" variant="border">
-				<div class="flex flex-row gap-2 items-center">
-					<Plus size="12" />
-					{column}
-				</div>
+			<Button
+				on:click={() => dispatch('add', column)}
+				size="xs2"
+				color="light"
+				variant="border"
+				startIcon={{ icon: Plus }}
+			>
+				{column}
 			</Button>
 		{/each}
 	</div>

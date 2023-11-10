@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.202.1"
+version = "1.204.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -21,7 +21,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.202.1"
+version = "1.204.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -203,3 +203,4 @@ tokenizers = "0.14.1"
 candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
+tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono"] }
