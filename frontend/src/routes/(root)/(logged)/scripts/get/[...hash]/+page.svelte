@@ -69,6 +69,12 @@
 	let shareModal: ShareModal
 	let runForm: RunForm
 
+	$: {
+		if (script?.draft_only) {
+			goto(`/scripts/edit/${script?.path}`)
+		}
+	}
+
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
 	$: loading = !script

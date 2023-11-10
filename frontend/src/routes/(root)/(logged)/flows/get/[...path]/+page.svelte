@@ -45,8 +45,13 @@
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
-
 	let deploymentInProgress = false
+
+	$: {
+		if (flow?.draft_only) {
+			goto(`/flows/edit/${flow?.path}?nodraft=true`)
+		}
+	}
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 

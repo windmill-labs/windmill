@@ -93,7 +93,7 @@
 {/if}
 
 <Row
-	href="/scripts/get/{hash}?workspace={$workspaceStore}"
+	href={draft_only ? `/scripts/edit/${path}` : `/scripts/get/${hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
 	{path}
