@@ -1,13 +1,13 @@
+use anyhow::anyhow;
+use itertools::Itertools;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-
-use itertools::Itertools;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use tokio::sync::RwLock;
 
 use crate::{
@@ -192,11 +192,9 @@ pub async fn load_worker_config(
             let splitted = x.split(':').to_owned().collect_vec();
             if splitted.len() != 2 {
                 killpill_tx.send(()).expect("send");
-                let error_msg = format!(
-                    "Invalid dedicated_worker format. Got {}, expects <workspace_id>:<path>",
-                    x
-                );
-                return Err(Error::BadRequest(error_msg));
+                return Err(anyhow::anyhow!(
+                    "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
+                ));
             } else {
                 let workspace = splitted[0];
                 let script_path = splitted[1];
