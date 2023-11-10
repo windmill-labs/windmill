@@ -63,7 +63,6 @@ pub async fn do_mssql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    // let mut mssql_v = Vec::new();
     let mut prepared_query = Query::new(query.to_owned());
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
@@ -72,19 +71,7 @@ pub async fn do_mssql(
             .cloned()
             .unwrap_or(serde_json::json!(""));
         json_value_to_sql(&mut prepared_query, &arg_v, &arg_t)?;
-        tracing::info!("arg_v: {:?}", arg_v);
-        // mssql_v.push(json_value_to_sql(&arg_v, &arg_t)?);
     }
-
-    // mssql_v.iter().for_each(|x| {
-    //     prepared_query.bind(x);
-    // });
-    // drop(mssql_v);
-    // let val = mssql_v.get(0);
-    // prepared_query.bind(val.unwrap().as_ref());
-    // for arg in mssql_v {
-    //     prepared_query.bind(arg.as_ref());
-    // }
 
     // A response to a query is a stream of data, that must be
     // polled to the end before querying again. Using streams allows
@@ -247,64 +234,3 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
         ),
     }
 }
-
-// fn get_basic<'a, T: FromSql<'a>>(
-//     row: &'a Row,
-//     col: &Column,
-//     val_to_json_val: impl Fn(T) -> Result<Value, Error>,
-// ) -> Result<Value, Error> {
-//     let col_name = col.name();
-//     let raw_val = row.try_get::<T, _>(col_name).with_context(|| {
-//         format!(
-//             "conversion issue for value at column_name `{}` with type `{:?}`",
-//             col_name,
-//             col.column_type(),
-//         )
-//     })?;
-//     raw_val.map_or(Ok(Value::Null), val_to_json_val)
-// }
-
-// struct IntnValue(Value);
-
-// impl FromSqlOwned for IntnValue {
-//     fn from_sql_owned(value: ColumnData<'static>) -> tiberius::Result<Option<Self>> {
-//         match value {
-//             ColumnData::U8(val) => Ok(Some(IntnValue(Value::Number(serde_json::Number::from(
-//                 *val as i32,
-//             ))))),
-//             ColumnData::I32(val) => Ok(Some(IntnValue(Value::Number(serde_json::Number::from(
-//                 *val as i32,
-//             ))))),
-//             ColumnData::I64(val) => Ok(Some(IntnValue(Value::Number(serde_json::Number::from(
-//                 *val as i32,
-//             ))))),
-//             _ => Ok(None),
-//         }
-//     }
-// }
-
-// pub fn sql_to_json_value(row: &Row, column: &Column) -> Result<Value, Error> {
-//     match column.column_type() {
-//         ColumnType::Null => Ok(Value::Null),
-//         ColumnType::Bit | ColumnType::Bitn => get_basic(row, column, |x| Ok(Value::Bool(x))),
-//         ColumnType::Int1 | ColumnType::Int2 | ColumnType::Int4 | ColumnType::Int8 => {
-//             get_basic(row, column, |x: i64| {
-//                 Ok(Value::Number(serde_json::Number::from(x)))
-//             })
-//         }
-//         ColumnType::Intn => get_basic(row, column, |x: i8| {
-//             Ok(Value::Number(serde_json::Number::from(x as i32)))
-//         }),
-//         ColumnType::Float4
-//         | ColumnType::Float8
-//         | ColumnType::Numericn
-//         | ColumnType::Decimaln
-//         | ColumnType::Floatn => get_basic(row, column, |x: f64| {
-//             Ok(Value::Number(serde_json::Number::from_f64(x).unwrap()))
-//         }),
-//         ColumnType::BigBinary | ColumnType::BigVarBin => get_basic(row, column, |x: &[u8]| {
-//             Ok(Value::String(general_purpose::STANDARD.encode(x)))
-//         }),
-//         _ => get_basic(row, column, |x: &str| Ok(Value::String(x.to_string()))),
-//     }
-// }
