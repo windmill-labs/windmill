@@ -313,6 +313,9 @@
 						isListJob: false,
 						iteration_total: undefined
 					}
+					if ($durationStatuses[id] == undefined) {
+						$durationStatuses[id] = { byJob: {} }
+					}
 					$durationStatuses[id].byJob[job_id] = $durationStatuses[modId].byJob[job_id]
 				}
 			}
