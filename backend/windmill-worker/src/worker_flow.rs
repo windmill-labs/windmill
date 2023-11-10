@@ -1712,7 +1712,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 } else {
                     HashMap::new()
                 };
-                insert_iter_arg(args, "iter".to_string(), to_raw_value(new_args));
+                insert_iter_arg(&mut args, "iter".to_string(), to_raw_value(new_args));
                 Ok(args)
                 // tracing::error!(
                 //     "{a:?} {new_args:?} {:?}",
@@ -1734,7 +1734,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         hm.insert(k.to_string(), v.to_owned());
                     }
                     insert_iter_arg(
-                        hm,
+                        &mut hm,
                         "iter".to_string(),
                         to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
                     );
@@ -2053,16 +2053,22 @@ enum NextFlowTransform {
 }
 
 fn insert_iter_arg(
-    mut args: HashMap<String, Box<RawValue>>,
+    args: &mut HashMap<String, Box<RawValue>>,
     desired_key: String,
     value: Box<RawValue>,
 ) {
-    if !args.contains_key(desired_key.as_str()) {
-        args.insert(desired_key, value);
-        return;
+    let conflicting_parent_maybe = args.get(desired_key.as_str());
+    if let Some(conflicting_parent) = conflicting_parent_maybe {
+        // we change the key of the parent to {desired_key}_parent.
+        // we do it recursively b/c it's possible there's another conflict
+        let conflicting_parent_new_key = format!("{}_parent", desired_key.as_str());
+        insert_iter_arg(
+            args,
+            conflicting_parent_new_key,
+            conflicting_parent.to_owned(),
+        );
     }
-    let new_desired_key = format!("{}_parent", desired_key);
-    insert_iter_arg(args, new_desired_key, value);
+    args.insert(desired_key, value);
 }
 
 async fn compute_next_flow_transform(

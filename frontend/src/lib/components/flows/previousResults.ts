@@ -52,7 +52,7 @@ function getFlowInput(
 	flowState: FlowState,
 	args: any,
 	schema: Schema
-) {
+): Object {
 	const parentModule = parentModules.shift()
 
 	const topFlowInput = schemaToObject(schema, args)
@@ -64,15 +64,22 @@ function getFlowInput(
 			return {...topFlowInput, ...parentState.previewArgs }
 		} else {
 			const parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-
+			if (parentFlowInput.hasOwnProperty("iter")) {
+				parentFlowInput["iter_parent"] = parentFlowInput["iter"]
+				delete parentFlowInput["iter"]
+			}
+			if (topFlowInput.hasOwnProperty("iter")) {
+				topFlowInput["iter_parent"] = topFlowInput["iter"]
+				delete topFlowInput["iter"]
+			}
 			if (parentModule.value.type === 'forloopflow') {
 				return {
 					...topFlowInput,
+					...parentFlowInput,
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
 					},
-					...parentFlowInput
 				}
 			} else {
 
@@ -80,7 +87,6 @@ function getFlowInput(
 			}
 		}
 	} else {
-
 		return topFlowInput
 	}
 }
