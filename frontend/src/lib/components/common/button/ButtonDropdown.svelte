@@ -6,7 +6,7 @@
 	import Portal from 'svelte-portal'
 
 	export let hasPadding: boolean = true
-	export let target: string | undefined = undefined
+	export let target: string | undefined = 'body'
 	const [popperRef, popperContent] = createPopperActions({ placement: 'auto' })
 
 	const popperOptions: PopperOptions<{}> = {

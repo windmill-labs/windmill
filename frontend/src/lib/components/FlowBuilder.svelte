@@ -420,12 +420,14 @@
 	const dropdownItems: Array<{
 		label: string
 		onClick: () => void
-	}> = [
-		{
+	}> = []
+
+	if (savedFlow?.draft_only === false) {
+		dropdownItems.push({
 			label: 'Exit & see details',
 			onClick: () => dispatch('details', $pathStore)
-		}
-	]
+		})
+	}
 
 	if (!newFlow) {
 		dropdownItems.push({
