@@ -812,14 +812,6 @@ async fn edit_error_handler(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    #[cfg(not(feature = "enterprise"))]
-    if ee.error_handler.as_ref().is_some_and(|val|  val == "script/hub/2431/slack/schedule-error-handler-slack")
-    {
-        return Err(Error::BadRequest(
-            "Slack error handler is only available in enterprise version".to_string(),
-        ));
-    }
-
     let mut tx = db.begin().await?;
     
     sqlx::query_as!(
@@ -1031,6 +1023,13 @@ async fn create_workspace(
 
     sqlx::query!(
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        nw.id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
         nw.id,
     )
     .execute(&mut *tx)

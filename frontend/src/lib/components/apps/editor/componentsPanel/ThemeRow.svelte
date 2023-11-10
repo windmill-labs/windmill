@@ -148,19 +148,18 @@
 			{/if}
 
 			{#if type === 'inlined'}
-				<Button color="light" size="xs" on:click={() => toggleUpdate(row)}>
-					<div class="flex flex-row gap-1 items-center">
-						<Save size={16} />
-						Update
-					</div>
+				<Button
+					color="light"
+					size="xs"
+					on:click={() => toggleUpdate(row)}
+					startIcon={{ icon: Save }}
+				>
+					Update
 				</Button>
 			{/if}
 			{#if $app?.theme?.type !== 'path' || $app.theme.path !== row.path}
-				<Button color="light" size="xs" on:click={preview}>
-					<div class="flex flex-row gap-1 items-center">
-						<Eye size={16} />
-						Preview
-					</div>
+				<Button color="light" size="xs" on:click={preview} startIcon={{ icon: Eye }}>
+					Preview
 				</Button>
 				<Button color="dark" size="xs2" on:click={apply}>Apply</Button>
 			{/if}

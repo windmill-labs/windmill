@@ -8,7 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    settings::set_global_setting_internal,
+    settings::{delete_global_setting, set_global_setting_internal},
     users::maybe_refresh_folders,
     utils::require_super_admin,
 };
@@ -70,14 +70,21 @@ pub struct NewSchedule {
 
 #[derive(Serialize, Deserialize)]
 pub struct ErrorOrRecoveryHandler {
-    pub handler_type: String, // 'error' or 'recovery'
+    pub handler_type: HandlerType,
     pub override_existing: bool,
 
-    pub path: String,
+    pub path: Option<String>,
     pub extra_args: Option<serde_json::Value>,
     pub number_of_occurence: Option<i32>,
     pub number_of_occurence_exact: Option<bool>,
     pub workspace_handler_muted: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum HandlerType {
+    Error,
+    Recovery,
 }
 
 async fn check_path_conflict<'c>(
@@ -116,16 +123,6 @@ async fn create_schedule(
     if ns.on_recovery.is_some() {
         return Err(Error::BadRequest(
             "on_recovery is only available in enterprise version".to_string(),
-        ));
-    }
-
-    #[cfg(not(feature = "enterprise"))]
-    if ns.on_failure.is_some()
-        && ns.on_failure.as_ref().unwrap()
-            == "script/hub/5792/workspace-or-schedule-error-handler-slack"
-    {
-        return Err(Error::BadRequest(
-            "Slack error handler is only available in enterprise version".to_string(),
         ));
     }
 
@@ -508,66 +505,88 @@ async fn set_default_error_handler(
     Json(payload): Json<ErrorOrRecoveryHandler>,
 ) -> Result<()> {
     require_super_admin(&db, &authed.email).await?;
-    let (key, value) = match payload.handler_type.as_str() {
-        "error" => {
+    let (key, value) = match payload.handler_type {
+        HandlerType::Error => {
             let key = format!("default_error_handler_{}", w_id);
-            let value = serde_json::json!({
-                "wsErrorHandlerMuted": payload.workspace_handler_muted,
-                "errorHandlerPath": payload.path,
-                "errorHandlerExtraArgs": payload.extra_args,
-                "failedTimes": payload.number_of_occurence,
-                "failedExact": payload.number_of_occurence_exact,
-            });
-            Ok((key, value))
+            if let Some(payload_path) = payload.path.as_ref() {
+                let value = serde_json::json!({
+                    "wsErrorHandlerMuted": payload.workspace_handler_muted,
+                    "errorHandlerPath": payload_path,
+                    "errorHandlerExtraArgs": payload.extra_args,
+                    "failedTimes": payload.number_of_occurence,
+                    "failedExact": payload.number_of_occurence_exact,
+                });
+                (key, Some(value))
+            } else {
+                (key, None)
+            }
         }
-        "recovery" => {
+        HandlerType::Recovery => {
             let key = format!("default_recovery_handler_{}", w_id);
-            let value = serde_json::json!({
-                "recoveryHandlerPath": payload.path,
-                "recoveryHandlerExtraArgs": payload.extra_args,
-                "recoveredTimes": payload.number_of_occurence,
-            });
-            Ok((key, value))
+            if let Some(payload_path) = payload.path.as_ref() {
+                let value = serde_json::json!({
+                    "recoveryHandlerPath": payload_path,
+                    "recoveryHandlerExtraArgs": payload.extra_args,
+                    "recoveredTimes": payload.number_of_occurence,
+                });
+                (key, Some(value))
+            } else {
+                (key, None)
+            }
         }
-        _ => Err(Error::BadRequest(
-            "handler_type must be either 'error' or 'recovery'".to_string(),
-        )),
-    }?;
+    };
 
-    set_global_setting_internal(&db, key, value).await?;
+    if let Some(value_content) = value {
+        set_global_setting_internal(&db, key, value_content).await?;
+    } else {
+        delete_global_setting(&db, key.as_str()).await?;
+    }
 
     if payload.override_existing {
-        match payload.handler_type.as_str() {
-            "error" => {
-                sqlx::query!(
-                    "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6",
-                    payload.workspace_handler_muted,
-                    payload.path,
-                    payload.extra_args,
-                    payload.number_of_occurence,
-                    payload.number_of_occurence_exact,
-                    w_id,
-                )
-                .execute(&db)
-                .await?;
-                Ok(())
+        match payload.handler_type {
+            HandlerType::Error => {
+                if payload.path.is_some() {
+                    sqlx::query!(
+                        "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6",
+                        payload.workspace_handler_muted,
+                        payload.path,
+                        payload.extra_args,
+                        payload.number_of_occurence,
+                        payload.number_of_occurence_exact,
+                        w_id,
+                    )
+                    .execute(&db)
+                    .await?;
+                } else {
+                    sqlx::query!(
+                        "UPDATE schedule SET ws_error_handler_muted = false, on_failure = NULL, on_failure_extra_args = NULL, on_failure_times = NULL, on_failure_exact = NULL WHERE workspace_id = $1",
+                        w_id,
+                    )
+                    .execute(&db)
+                    .await?;
+                }
             }
-            "recovery" => {
-                sqlx::query!(
-                    "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4",
-                    payload.path,
-                    payload.extra_args,
-                    payload.number_of_occurence,
-                    w_id,
-                )
-                .execute(&db)
-                .await?;
-                Ok(())
+            HandlerType::Recovery => {
+                if payload.path.is_some() {
+                    sqlx::query!(
+                        "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4",
+                        payload.path,
+                        payload.extra_args,
+                        payload.number_of_occurence,
+                        w_id,
+                    )
+                    .execute(&db)
+                    .await?;
+                } else {
+                    sqlx::query!(
+                        "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1",
+                        w_id,
+                    )
+                    .execute(&db)
+                    .await?;
+                }
             }
-            _ => Err(Error::BadRequest(
-                "handler_type must be either 'error' or 'recovery'".to_string(),
-            )),
-        }?;
+        }
     }
     Ok(())
 }

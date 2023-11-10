@@ -152,8 +152,12 @@
 					options={Array.isArray(items) ? items : []}
 					placeholder={resolvedConfig.placeholder}
 					allowUserOptions={resolvedConfig.create}
-					on:change={() => {
-						outputs?.result.set([...(value ?? [])])
+					on:change={(event) => {
+						if (event?.detail?.type === 'removeAll') {
+							outputs?.result.set([])
+						} else {
+							outputs?.result.set([...(value ?? [])])
+						}
 					}}
 					on:open={() => {
 						$selectedComponent = [id]

@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
-	import { Building } from 'lucide-svelte'
+	import { Building, Plus, Settings } from 'lucide-svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
-	import { faCog, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { Icon } from 'svelte-awesome'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
@@ -68,11 +66,12 @@
 		<div class="py-1" role="none">
 			<a
 				href="/user/create_workspace"
-				class="text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+				class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 				role="menuitem"
 				tabindex="-1"
 			>
-				<Icon data={faPlus} class="-mt-0.5 pr-0.5" /> Workspace
+				<Plus size={16} />
+				Workspace
 			</a>
 		</div>
 		<div class="py-1" role="none">
@@ -92,11 +91,12 @@
 			<MenuItem>
 				<a
 					href="/workspace_settings"
-					class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+					class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Icon class="pr-0.5" data={faCog} /> Workspace Settings
+					<Settings size={16} />
+					Workspace Settings
 				</a>
 			</MenuItem>
 		</div>

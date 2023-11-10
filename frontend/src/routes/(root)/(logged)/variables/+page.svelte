@@ -22,9 +22,19 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
-	import { faCircle, faEyeSlash, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { Building, DollarSign, FileUp, Link, Pen, RefreshCw, Share, Trash } from 'lucide-svelte'
-	import Icon from 'svelte-awesome'
+	import {
+		Plus,
+		FileUp,
+		Link,
+		Pen,
+		RefreshCw,
+		Share,
+		Trash,
+		Building,
+		DollarSign,
+		EyeOff,
+		Circle
+	} from 'lucide-svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -109,7 +119,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 	>
 		<div class="flex flex-row justify-end">
-			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+			<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor.initNew()}>
 				New&nbsp;variable
 			</Button>
 		</div>
@@ -196,18 +206,17 @@
 									</a>
 								</Cell>
 								<Cell>
-									<span class="inline-flex flex-row">
-										<span class="text-sm break-words">
-											{truncate(value ?? '****', 20)}
-										</span>
+									<span class="inline-flex flex-row items-center gap-2">
+										<div class="text-sm break-words">
+											{#if value}
+												{truncate(value, 20)}
+											{:else}
+												&lowast;&lowast;&lowast;&lowast;
+											{/if}
+										</div>
 										{#if is_secret}
 											<Popover notClickable>
-												<Icon
-													label="Secret"
-													class="text-secondary mb-2 ml-2"
-													data={faEyeSlash}
-													scale={0.8}
-												/>
+												<EyeOff size={12} />
 												<span slot="text">This item is secret</span>
 											</Popover>
 										{/if}
@@ -243,17 +252,13 @@
 												{#if refresh_error}
 													<Popover notClickable>
 														<div class="relative inline-flex justify-center items-center w-4 h-4">
-															<Icon
-																class="text-red-600 animate-ping absolute z-50 w-4 h-4"
-																data={faCircle}
-																scale={0.7}
-																label="Error during exchange of the refresh token"
+															<Circle
+																class="text-red-600 animate-ping absolute z-50 w-4 h-4 fill-current"
+																size={12}
 															/>
-															<Icon
-																class="text-red-600 relative inline-flex"
-																data={faCircle}
-																scale={0.7}
-																label="Error during exchange of the refresh token"
+															<Circle
+																class="text-red-600 relative inline-flex fill-current "
+																size={12}
 															/>
 														</div>
 
@@ -263,11 +268,9 @@
 													</Popover>
 												{:else if is_expired}
 													<Popover notClickable>
-														<Icon
-															class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
-															data={faCircle}
-															scale={0.7}
-															label="Variable is expired"
+														<Circle
+															class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
+															size={12}
 														/>
 														<div slot="text">
 															The access_token is expired, it will get renewed the next time this
@@ -277,11 +280,9 @@
 													</Popover>
 												{:else}
 													<Popover notClickable>
-														<Icon
-															class="text-green-600 animate-[pulse_5s_linear_infinite]"
-															data={faCircle}
-															scale={0.7}
-															label="Variable is tied to an OAuth app"
+														<Circle
+															class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
+															size={12}
 														/>
 														<div slot="text">
 															The variable was connected through OAuth and the token is not expired.

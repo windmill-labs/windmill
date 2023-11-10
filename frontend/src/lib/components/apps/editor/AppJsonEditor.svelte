@@ -2,14 +2,13 @@
 	import { Badge, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 
 	import JsonEditor from './settingsPanel/inputEditor/JsonEditor.svelte'
 	import { AppService, DraftService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 
 	let jsonViewerDrawer: Drawer
 
@@ -80,9 +79,9 @@
 		{/if}
 
 		<svelte:fragment slot="actions">
-			<Button on:click={saveDraft} startIcon={{ icon: faSave }}>Save as draft</Button>
+			<Button on:click={saveDraft} startIcon={{ icon: Save }}>Save as draft</Button>
 
-			<Button on:click={saveApp} startIcon={{ icon: faSave }}>Deploy</Button>
+			<Button on:click={saveApp} startIcon={{ icon: Save }}>Deploy</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

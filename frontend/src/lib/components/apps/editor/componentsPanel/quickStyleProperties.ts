@@ -559,6 +559,7 @@ export const quickStyleProperties: Record<
 		container: containerDefaultProps,
 		button: buttonDefaultProps
 	},
+	customcomponent: {},
 	htmlcomponent: {
 		container: [
 			layoutGrouping,

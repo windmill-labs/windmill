@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { deleteGroup } from './groupUtils'
+	import { deleteGroup, getGroup, updateGroup } from './groupUtils'
 	import { workspaceStore } from '$lib/stores'
 	import Cell from '$lib/components/table/Cell.svelte'
 
@@ -7,7 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
-	import GroupNameEditor from './GroupNameEditor.svelte'
+	import GroupNameEditor from './NameEditor.svelte'
 
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { classNames } from '$lib/utils'
@@ -32,15 +32,31 @@
 <tr>
 	<Cell first>
 		<div class="flex flex-row gap-1 items-center">
-			<GroupNameEditor on:reloadGroups {row} />
+			<GroupNameEditor
+				kind="group"
+				on:update={async (e) => {
+					if (!$workspaceStore) return
+					const group = await getGroup($workspaceStore, row.path)
+					await updateGroup($workspaceStore, row.path, {
+						value: {
+							...group,
+							name: e.detail.name
+						}
+					})
+					dispatch('reloadGroups')
+
+					sendUserToast('Group name updated:\n' + e.detail.name)
+				}}
+				{row}
+			/>
 			{row.name}
 		</div>
 	</Cell>
 
 	<Cell last>
-		<div class={twMerge('flex flex-row gap-1 justify-end ')}>
+		<div class={twMerge('flex flex-row gap-1 justify-end  z-[10000]')}>
 			<button on:pointerdown|stopPropagation>
-				<ButtonDropdown hasPadding={false}>
+				<ButtonDropdown target="#group_portal" hasPadding={false}>
 					<svelte:fragment slot="items">
 						<MenuItem on:click={toggleDelete}>
 							<div

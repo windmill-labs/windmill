@@ -4,6 +4,7 @@
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveOpen from './ResolveOpen.svelte'
 
 	export let placement: any = 'bottom-start'
 	export let justifyEnd: boolean = false
@@ -16,6 +17,7 @@
 </script>
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-8">
+	<ResolveOpen {open} on:open on:close />
 	<div use:floatingRef class="w-full">
 		<MenuButton class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')}>
 			<slot name="trigger" />

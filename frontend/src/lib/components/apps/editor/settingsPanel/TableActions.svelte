@@ -3,14 +3,12 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/idUtils'
 	import { classNames } from '$lib/utils'
-	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import type { AppViewerContext, BaseAppComponent } from '../../types'
 	import { appComponentFromType } from '../appUtils'
 	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import { Inspect, List, ToggleRightIcon } from 'lucide-svelte'
+	import { Inspect, List, ToggleRightIcon, Trash } from 'lucide-svelte'
 
 	export let components: (BaseAppComponent &
 		(ButtonComponent | CheckboxComponent | SelectComponent))[]
@@ -71,9 +69,13 @@
 				{/if}
 			</div>
 			<div>
-				<Button variant="border" color="red" on:click={() => deleteComponent(component.id)}>
-					<Icon class="h-3" data={faTrashAlt} />
-				</Button>
+				<Button
+					variant="border"
+					color="red"
+					on:click={() => deleteComponent(component.id)}
+					startIcon={{ icon: Trash }}
+					iconOnly
+				/>
 			</div>
 		</div>
 	{/each}

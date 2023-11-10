@@ -145,11 +145,9 @@
 					onConnect: applyConnection
 				}
 			}}
+			startIcon={{ icon: Plus }}
 		>
-			<div class="flex flex-row gap-1 items-center">
-				<Plus size={14} />
-				Add dependency
-			</div>
+			Add dependency
 		</Button>
 	</div>
 	{#if (inlineScript?.suggestedRefreshOn ?? []).length > 0}

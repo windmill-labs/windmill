@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-
 	import { setInputCat as computeInputCat } from '$lib/utils'
 	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import autosize from 'svelte-autosize'
@@ -14,7 +11,7 @@
 	import type { ComponentCustomCSS } from './apps/types'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
-	import { X } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import LightweightResourcePicker from './LightweightResourcePicker.svelte'
 	import LightweightObjectResourceInput from './LightweightObjectResourceInput.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
@@ -265,8 +262,8 @@
 								}
 								value = value.concat('')
 							}}
+							startIcon={{ icon: Plus }}
 						>
-							<Icon data={faPlus} class="mr-2" />
 							Add
 						</Button>
 					</div>

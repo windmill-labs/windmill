@@ -330,7 +330,7 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     }
 
     tracing::info!(
-        "Fonished copying denogobun tar for from bucket as tar. took {}s",
+        "Finished copying denogobun tar for from bucket as tar. took {}s",
         start.elapsed().as_secs()
     );
 

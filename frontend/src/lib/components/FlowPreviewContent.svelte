@@ -8,17 +8,15 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Badge, Button, Drawer, Kbd, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { ArrowRight, Loader2 } from 'lucide-svelte'
+	import { ArrowRight, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
@@ -165,12 +163,14 @@
 >
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
-			<button
+			<Button
 				on:click={() => dispatch('close')}
-				class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
-			>
-				<Icon data={faClose} class="text-secondary" />
-			</button>
+				startIcon={{ icon: X }}
+				iconOnly
+				size="sm"
+				color="light"
+				btnClasses="hover:bg-surface-hover  bg-surface-secondaryw-8 h-8 rounded-full p-0"
+			/>
 		</div>
 
 		{#if isRunning}
@@ -189,8 +189,8 @@
 				}}
 				size="sm"
 				btnClasses="w-full max-w-lg"
+				loading={true}
 			>
-				<Loader2 size={18} class="animate-spin mr-2" />
 				Cancel
 			</Button>
 		{:else}
@@ -209,7 +209,7 @@
 									branch_or_iteration_n: 0
 								})
 							}}
-							startIcon={{ icon: faPlay }}
+							startIcon={{ icon: Play }}
 						>
 							Re-start from
 							<Badge baseClass="ml-1" color="indigo">
@@ -223,7 +223,7 @@
 									title={`Re-start this flow from step ${selectedJobStep} (included).`}
 									variant="border"
 									color="blue"
-									startIcon={{ icon: faRefresh }}
+									startIcon={{ icon: RefreshCw }}
 									on:click={() => {
 										runPreview($previewArgs, {
 											flow_job_id: jobId,
@@ -286,7 +286,7 @@
 				{/if}
 				<Button
 					variant="contained"
-					startIcon={{ icon: isRunning ? faRefresh : faPlay }}
+					startIcon={{ icon: isRunning ? RefreshCw : Play }}
 					color="dark"
 					size="sm"
 					btnClasses="w-full max-w-lg"

@@ -3,8 +3,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
-	import { faAdd, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { capitalize, classNames } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { charsToNumber, numberToChars } from '../flows/idUtils'
@@ -12,6 +10,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowModule } from '$lib/gen'
+	import { Plus, Wand2, X } from 'lucide-svelte'
 
 	export let getHubCompletions: (text: string, idx: number, type: 'trigger' | 'script') => void
 	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
@@ -90,7 +89,7 @@
 											})
 										}}
 									>
-										<Icon data={faClose} />
+										<X />
 									</button>
 								{/if}
 							</div>
@@ -113,7 +112,7 @@
 												this={APP_TO_ICON_COMPONENT[copilotModule.selectedCompletion['app']]}
 											/>
 										{:else}
-											<Icon data={faMagicWandSparkles} />
+											<Wand2 />
 										{/if}
 									</div>
 
@@ -146,7 +145,7 @@
 										}
 									}}
 								>
-									<Icon data={faClose} />
+									<X />
 								</button>
 							</div>
 							{#if $currentStepStore !== undefined && i < charsToNumber($currentStepStore)}
@@ -188,7 +187,7 @@
 										<div
 											class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 										>
-											<Icon data={faMagicWandSparkles} />
+											<Wand2 />
 										</div>
 
 										<div class="w-full text-left text-sm">
@@ -213,7 +212,7 @@
 										<div
 											class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 										>
-											<Icon data={faMagicWandSparkles} />
+											<Wand2 />
 										</div>
 
 										<div class="w-full text-left text-sm">
@@ -270,7 +269,7 @@
 			{#if flowCopilotMode !== 'trigger'}
 				<div class="flex justify-start">
 					<Button
-						startIcon={{ icon: faAdd }}
+						startIcon={{ icon: Plus }}
 						size="xs"
 						variant="border"
 						on:click={() =>
@@ -297,7 +296,7 @@
 						? genFlow(charsToNumber($currentStepStore), $flowStore.value.modules)
 						: genFlow(0, $flowStore.value.modules)}
 				spacingSize="md"
-				startIcon={{ icon: faMagicWandSparkles }}
+				startIcon={{ icon: Wand2 }}
 				disabled={$modulesStore.find((m) => m.source === undefined) !== undefined}
 			>
 				{$currentStepStore !== undefined

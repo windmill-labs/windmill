@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
@@ -14,6 +12,7 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { User } from 'lucide-svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -120,7 +119,7 @@
 						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
 						<strong>
 							User Input
-							<Icon data={faUser} scale={1.3} class="rounded-sm bg-surface-secondary p-1 ml-0.5" />
+							<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
 						</strong>
 					</div>
 				{/if}

@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { Button, FileInput } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { LayoutDashboard } from 'lucide-svelte'
+	import { LayoutDashboard, Plus } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
 	import { RawAppService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -46,7 +45,7 @@
 	<Button
 		size="sm"
 		spacingSize="xl"
-		startIcon={{ icon: faPlus }}
+		startIcon={{ icon: Plus }}
 		href="/apps/add?nodraft=true"
 		dropdownItems={[
 			{

@@ -1,17 +1,10 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import {
-		faCode,
-		faCodeBranch,
-		faBarsStaggered,
-		faBolt,
-		faCheck
-	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { Cross, Repeat, Square } from 'lucide-svelte'
+	import { CheckCircle2, Code, Cross, GitBranch, Repeat, Square, Zap } from 'lucide-svelte'
 	import StepGen from '$lib/components/copilot/StepGen.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -50,7 +43,7 @@
 		{#if funcDesc.length === 0}
 			<div class="font-mono divide-y text-xs w-full text-secondary">
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'script')
@@ -58,12 +51,12 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Icon data={faCode} scale={0.8} class="mr-2" />
+					<Code size={14} />
 					Action
 				</button>
 				{#if trigger}
 					<button
-						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 						on:pointerdown={() => {
 							close()
 							dispatch('new', 'trigger')
@@ -71,12 +64,12 @@
 						role="menuitem"
 						tabindex="-1"
 					>
-						<Icon data={faBolt} scale={0.8} class="mr-2" />
+						<Zap size={14} />
 						Trigger
 					</button>
 				{/if}
 				<button
-					class="w-full text-left gap-1 py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'approval')
@@ -84,57 +77,56 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					<Icon data={faCheck} class="mr-1.5" scale={0.8} />
+					<CheckCircle2 size={14} />
 					Approval
 				</button>
 				<button
-					class="w-full inline-flex text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'forloop')
 					}}
 					role="menuitem"
 				>
-					<span class="mr-3">
-						<Repeat size={14} />
-					</span>
+					<Repeat size={14} />
 
 					For Loop
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'branchone')
 					}}
 					role="menuitem"
 				>
-					<Icon data={faCodeBranch} scale={0.8} class="mr-2" />
+					<GitBranch size={14} />
 					Branch to one
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'branchall')
 					}}
 					role="menuitem"
 				>
-					<Icon data={faCodeBranch} scale={0.8} class="mr-2" />
+					<GitBranch size={14} />
+
 					Branch to all
 				</button>
 
 				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap"
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover rounded-none whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
 						close()
 						dispatch('new', 'flow')
 					}}
 					role="menuitem"
 				>
-					<Icon data={faBarsStaggered} scale={0.8} class="mr-2" />
+					<BarsStaggered size={14} />
 					Flow
 				</button>
 				{#if stop}

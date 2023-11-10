@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { faBarsStaggered, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { importFlowStore } from '$lib/components/flows/flowStore'
+	import { Plus } from 'lucide-svelte'
 
 	let drawer: Drawer | undefined = undefined
 	let pendingJson: string
@@ -23,8 +24,8 @@
 	<Button
 		size="sm"
 		spacingSize="xl"
-		startIcon={{ icon: faPlus }}
-		endIcon={{ icon: faBarsStaggered }}
+		startIcon={{ icon: Plus }}
+		endIcon={{ icon: BarsStaggered }}
 		href="/flows/add?nodraft=true"
 		dropdownItems={[
 			{

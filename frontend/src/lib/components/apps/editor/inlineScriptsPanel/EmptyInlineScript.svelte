@@ -10,8 +10,7 @@
 	import { emptySchema } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
 
-	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
-	import { Building, Globe2 } from 'lucide-svelte'
+	import { Building, GitFork, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
 	import type { AppViewerContext } from '../../types'
@@ -173,7 +172,7 @@
 				size="xs"
 				variant="border"
 				color="blue"
-				startIcon={{ icon: faCodeBranch }}
+				startIcon={{ icon: GitFork }}
 				btnClasses="truncate"
 			>
 				Fork a script

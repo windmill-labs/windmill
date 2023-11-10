@@ -49,29 +49,30 @@
 				size="xs2"
 				on:click={() => dispatch('previous')}
 				disabled={currentPage === 1}
+				startIcon={{ icon: ArrowLeftIcon }}
 			>
-				<div class="flex flex-row gap-1 items-center">
-					<ArrowLeftIcon size={16} />
-
-					Previous
-				</div>
+				Previous
 			</Button>
 			{#if showNext}
-				<Button color="light" size="xs2" on:click={() => dispatch('next')}>
-					<div class="flex flex-row gap-1 items-center">
-						Next
-						<ArrowRightIcon size={16} />
-					</div>
+				<Button
+					color="light"
+					size="xs2"
+					on:click={() => dispatch('next')}
+					endIcon={{ icon: ArrowRightIcon }}
+				>
+					Next
 				</Button>
 			{/if}
 		</div>
 	{:else if shouldLoadMore}
 		<div class="bg-surface border-t flex flex-row justify-center py-4 items-center gap-2">
-			<Button color="light" size="xs2" on:click={() => dispatch('loadMore')}>
-				<div class="flex flex-row gap-1 items-center">
-					Load {loadMore} more
-					<ArrowDownIcon size={16} />
-				</div>
+			<Button
+				color="light"
+				size="xs2"
+				on:click={() => dispatch('loadMore')}
+				endIcon={{ icon: ArrowDownIcon }}
+			>
+				Load {loadMore} more
 			</Button>
 		</div>
 	{/if}

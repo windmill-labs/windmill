@@ -2,8 +2,8 @@
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import type Editor from '$lib/components/Editor.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import type { InlineScript } from '../../types'
+	import { Save } from 'lucide-svelte'
 
 	let scriptEditorDrawer: Drawer
 	export let inlineScript: InlineScript
@@ -37,7 +37,7 @@
 			/>
 		{/if}
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: faSave }} disabled>Automatically Saved</Button>
+			<Button startIcon={{ icon: Save }} disabled>Automatically Saved</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

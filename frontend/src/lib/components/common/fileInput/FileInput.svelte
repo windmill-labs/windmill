@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { FileUp } from 'lucide-svelte'
+	import { FileUp, Trash } from 'lucide-svelte'
 	import Button from '../../common/button/Button.svelte'
-	import { faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { twMerge } from 'tailwind-merge'
 	import type { ReadFileAs } from './model'
 
@@ -126,7 +125,7 @@
 							variant="border"
 							iconOnly
 							btnClasses="bg-transparent"
-							startIcon={{ icon: faTrash }}
+							startIcon={{ icon: Trash }}
 							on:click={() => removeFile(i)}
 						/>
 					</li>
