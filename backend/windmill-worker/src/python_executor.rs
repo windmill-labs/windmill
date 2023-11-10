@@ -484,6 +484,11 @@ if args["{name}"] is None:
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
+    let last = if last.starts_with(|x: char| x.is_ascii_digit()) {
+        format!("_{}", last)
+    } else {
+        last
+    };
     Ok((
         import_loader,
         import_base64,
