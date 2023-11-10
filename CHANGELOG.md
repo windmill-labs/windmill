@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.204.1](https://github.com/windmill-labs/windmill/compare/v1.204.0...v1.204.1) (2023-11-10)
+
+
+### Bug Fixes
+
+* fix custom components ([4136442](https://github.com/windmill-labs/windmill/commit/41364421ea2ed5980bada139261760bbb6ee8e31))
+* **frontend:** fix login icons + add Okta ([#2609](https://github.com/windmill-labs/windmill/issues/2609)) ([e22f373](https://github.com/windmill-labs/windmill/commit/e22f3738d512b4d7657acc8d4ddf280039acbe56))
+* optimize single step iterative forloops ([#2596](https://github.com/windmill-labs/windmill/issues/2596)) ([88e3648](https://github.com/windmill-labs/windmill/commit/88e3648ee413286769b72acc02a4af6173fa6bac))
+
 ## [1.204.0](https://github.com/windmill-labs/windmill/compare/v1.203.0...v1.204.0) (2023-11-10)
 
 
