@@ -55,6 +55,7 @@ pub async fn handle_dedicated_process(
     job_completed_tx: JobCompletedSender,
     token: &str,
     mut jobs_rx: Receiver<Arc<QueuedJob>>,
+    worker_name: &str,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
     let mut child = {
@@ -112,6 +113,8 @@ pub async fn handle_dedicated_process(
     // let mut j = 0;
     let mut alive = true;
 
+    let init_log = format!("dedicated worker: {worker_name}\n\n");
+    let mut logs = init_log.clone();
     loop {
         tokio::select! {
             biased;
@@ -124,7 +127,9 @@ pub async fn handle_dedicated_process(
             },
             line = err_reader.next_line() => {
                 if let Some(line) = line.expect("line is ok") {
-                    tracing::error!("dedicated worker process stderr: {:?}", line);
+                    logs.push_str("[stderr] ");
+                    logs.push_str(&line);
+                    logs.push_str("\n");
                 } else {
                     tracing::info!("dedicated worker process exited");
                     break;
@@ -139,15 +144,20 @@ pub async fn handle_dedicated_process(
                         continue;
                     }
                     tracing::debug!("processed job: {line}");
-
-                    let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
-                    match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line) {
-                        Ok(result) => job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap(),
-                        Err(e) => {
-                            tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                            job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
-                        },
-                    };
+                    if line.starts_with("wm_res:") {
+                        let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
+                        match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res:", "")) {
+                            Ok(result) => job_completed_tx.send(JobCompleted { job , result, logs: logs, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap(),
+                            Err(e) => {
+                                tracing::error!("Could not deserialize job result `{line}`: {e:?}");
+                                job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                            },
+                        };
+                        logs = init_log.clone();
+                    } else {
+                        logs.push_str(&line);
+                        logs.push_str("\n");
+                    }
                 } else {
                     tracing::info!("dedicated worker process exited");
                     break;
