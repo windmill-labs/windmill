@@ -67,7 +67,7 @@
 				<PropPickerResult
 					{result}
 					on:select={({ detail }) => {
-						if (!$propPickerConfig) {
+						if (!notSelectable && !$propPickerConfig) {
 							sendUserToast('Set cursor within an input or click on the plug first', true)
 						}
 						dispatch('select', detail)
@@ -83,7 +83,7 @@
 					{pickableProperties}
 					{notSelectable}
 					on:select={({ detail }) => {
-						if (!$propPickerConfig) {
+						if (!notSelectable && !$propPickerConfig) {
 							sendUserToast('Set cursor within an input or click on the plug first', true)
 						}
 						dispatch('select', detail)
