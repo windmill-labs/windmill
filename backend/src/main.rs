@@ -26,7 +26,8 @@ use windmill_common::{
         BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     stats::schedule_stats,
     utils::rd_string,
@@ -41,9 +42,10 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, monitor_db, monitor_pool, reload_base_url_setting,
-    reload_extra_pip_index_url_setting, reload_license_key, reload_npm_config_registry_setting,
-    reload_retention_period_setting, reload_server_config, reload_worker_config,
+    initial_load, load_keep_job_dir, load_require_preexisting_user, monitor_db, monitor_pool,
+    reload_base_url_setting, reload_extra_pip_index_url_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_retention_period_setting, reload_server_config,
+    reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -387,6 +389,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 KEEP_JOB_DIR_SETTING => {
                                                     load_keep_job_dir(&db).await;
+                                                },
+                                                REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
+                                                    load_require_preexisting_user(&db).await;
                                                 }
                                                 EXPOSE_METRICS_SETTING | EXPOSE_DEBUG_METRICS_SETTING => {
                                                     if n.payload() != EXPOSE_DEBUG_METRICS_SETTING || worker_mode {
