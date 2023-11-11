@@ -49,7 +49,10 @@ use windmill_common::{
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
-use windmill_queue::{empty_args, job_is_complete, push, PushArgs, PushIsolationLevel};
+use windmill_queue::{
+    add_completed_job_error, empty_args, get_queued_job, job_is_complete, push, CanceledBy,
+    PushArgs, PushIsolationLevel,
+};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -639,17 +642,51 @@ async fn list_queue_jobs(
 async fn cancel_all(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+
     Path(w_id): Path<String>,
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let uuids = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE workspace_id = $1 AND schedule_path IS NULL RETURNING id",
+    let mut jobs = sqlx::query!(
+        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE workspace_id = $1 AND schedule_path IS NULL RETURNING id, running",
         w_id,
         authed.username
     )
     .fetch_all(&db)
     .await?;
+
+    let username = authed.username;
+    for j in jobs.iter() {
+        if !j.running {
+            let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
+            let mut tx = db.begin().await?;
+            let job_running = get_queued_job(j.id, &w_id, &mut tx).await?;
+            tx.commit().await?;
+
+            if let Some(job_running) = job_running {
+                let add_job = add_completed_job_error(
+                    &db,
+                    &job_running,
+                    format!("canceled by {username}: cancel_all"),
+                    job_running.mem_peak.unwrap_or(0),
+                    Some(CanceledBy {
+                        username: Some(username.to_string()),
+                        reason: Some("cancel_all".to_string()),
+                    }),
+                    e,
+                    rsmq.clone(),
+                    "server",
+                )
+                .await;
+                if let Err(e) = add_job {
+                    tracing::error!("Failed to add canceled job: {}", e);
+                }
+            }
+        }
+    }
+    let uuids = jobs.iter_mut().map(|j| j.id).collect::<Vec<_>>();
+
     Ok(Json(uuids))
 }
 
