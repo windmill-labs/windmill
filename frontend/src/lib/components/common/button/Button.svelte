@@ -19,6 +19,8 @@
 	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
 
+	export let clickableWhileLoading = false
+
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
@@ -190,7 +192,7 @@
 			tabindex={disabled ? -1 : 0}
 			{title}
 			{...$$restProps}
-			disabled={disabled || loading}
+			disabled={disabled || (loading && !clickableWhileLoading)}
 			{style}
 		>
 			{#if loading}
