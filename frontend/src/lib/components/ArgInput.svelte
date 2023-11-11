@@ -425,13 +425,17 @@
 					/>
 				</div>
 			{:else if inputCat == 'base64'}
-				<input
-					{autofocus}
-					type="file"
-					class="my-6"
-					on:change={(x) => fileChanged(x, (val) => (value = val))}
-					multiple={false}
-				/>
+				<div class="flex flex-col my-6 w-full">
+					<input
+						{autofocus}
+						type="file"
+						on:change={(x) => fileChanged(x, (val) => (value = val))}
+						multiple={false}
+					/>
+					{#if value?.length}
+						<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div>
+					{/if}
+				</div>
 			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
 					{disablePortal}
@@ -510,3 +514,16 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	input::-webkit-outer-spin-button,
+	input::-webkit-inner-spin-button {
+		-webkit-appearance: none !important;
+		margin: 0;
+	}
+
+	/* Firefox */
+	input[type='number'] {
+		-moz-appearance: textfield !important;
+	}
+</style>
