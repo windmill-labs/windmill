@@ -472,7 +472,7 @@
 					{/if}
 
 					{#if !emptyString(script.description)}
-						<div class="py-2 !text-secondary">
+						<div class="py-2 mb-8 !text-secondary">
 							<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
 						</div>
 					{/if}
@@ -499,6 +499,7 @@
 					bind:this={runForm}
 				/>
 
+				<div class="py-10" />
 				{#if !emptyString(script.summary)}
 					<div class="mb-2">
 						<span class="!text-tertiary">{script.path}</span>
