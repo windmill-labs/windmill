@@ -470,14 +470,14 @@
 							{#if !disabled && itemPicker}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<button
-									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 									on:click={() => {
 										pickForField = label
 										itemPicker?.openDrawer?.()
 									}}
 									title="Insert a Variable"
 								>
-									<DollarSign size={14} />
+									<DollarSign class="!text-tertiary" size={14} />
 								</button>
 							{/if}
 						{/if}

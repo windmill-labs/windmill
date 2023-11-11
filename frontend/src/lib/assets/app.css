@@ -10,6 +10,17 @@
 		@apply dark:border-gray-600;
 	}
 
+	input::-webkit-outer-spin-button,
+	input::-webkit-inner-spin-button {
+		-webkit-appearance: none !important;
+		margin: 0;
+	}
+
+	/* Firefox */
+	input[type='number'] {
+		-moz-appearance: textfield !important;
+	}
+
 	@font-face {
 		font-family: 'Inter';
 		src: url('/Inter-Variable.ttf');
@@ -53,7 +64,6 @@
 		border-top-width: 1px !important;
 		border-bottom-width: 0px !important;
 	}
-
 
 	.monaco-editor textarea:focus {
 		box-shadow: none !important;
