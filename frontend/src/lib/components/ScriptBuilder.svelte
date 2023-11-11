@@ -30,7 +30,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
-		AlertTriangle,
 		Bug,
 		CheckCircle,
 		Code,

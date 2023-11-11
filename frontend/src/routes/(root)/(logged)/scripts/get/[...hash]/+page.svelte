@@ -437,7 +437,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">
-				<div class="flex flex-col gap-0.5 mb-8">
+				<div class="flex flex-col gap-0.5 mb-4">
 					{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 						<div class="flex flex-col gap-2 my-2">
 							{#if script.lock_error_logs}
@@ -471,40 +471,19 @@
 						</div>
 					{/if}
 
-					{#if !emptyString(script.summary)}
-						<span class="text-lg font-semibold">{script.path}</span>
-					{/if}
-
-					<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
-						<span class="text-sm text-secondary">
-							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
-						</span>
-						<Badge small color="gray">
-							{truncateHash(script?.hash ?? '')}
-						</Badge>
-						{#if script?.is_template}
-							<Badge color="blue">Template</Badge>
-						{/if}
-						{#if script && script.kind !== 'script'}
-							<Badge color="blue">
-								{script?.kind}
-							</Badge>
-						{/if}
-						{#if deploymentInProgress}
-							<Badge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-							</Badge>
-						{/if}
-						<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-					</div>
-
 					{#if !emptyString(script.description)}
-						<div class="border p-2">
+						<div class="py-2 !text-secondary">
 							<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
 						</div>
 					{/if}
 				</div>
+
+				{#if deploymentInProgress}
+					<Badge color="yellow">
+						<Loader2 size={12} class="inline animate-spin mr-1" />
+						Deployment in progress
+					</Badge>
+				{/if}
 
 				<RunForm
 					viewKeybinding
@@ -519,6 +498,30 @@
 					isFlow={false}
 					bind:this={runForm}
 				/>
+
+				{#if !emptyString(script.summary)}
+					<div class="mb-2">
+						<span class="!text-tertiary">{script.path}</span>
+					</div>
+				{/if}
+				<div class="flex flex-row gap-x-2 flex-wrap items-center">
+					<span class="text-sm text-tertiary">
+						Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+					</span>
+					<Badge small color="gray">
+						{truncateHash(script?.hash ?? '')}
+					</Badge>
+					{#if script?.is_template}
+						<Badge color="blue">Template</Badge>
+					{/if}
+					{#if script && script.kind !== 'script'}
+						<Badge color="blue">
+							{script?.kind}
+						</Badge>
+					{/if}
+
+					<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+				</div>
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
