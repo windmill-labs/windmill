@@ -686,9 +686,9 @@ for await (const chunk of Bun.stdin.stream()) {{
         try {{
             let {{ {spread} }} = JSON.parse(line) 
             let res: any = await main(...[ {spread} ]);
-            stdout.write(JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            stdout.write("wm_res:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
         }} catch (e) {{
-            stdout.write(JSON.stringify({{ error: {{ message: e.message, name: e.name, stack: e.stack, line: line }}}}) + '\n');
+            stdout.write("wm_res:" + JSON.stringify({{ error: {{ message: e.message, name: e.name, stack: e.stack, line: line }}}}) + '\n');
         }}
         stdout.flush();
     }}
@@ -740,6 +740,7 @@ plugin(p)
         job_completed_tx,
         token,
         jobs_rx,
+        worker_name,
     )
     .await
 }
