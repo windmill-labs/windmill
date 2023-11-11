@@ -2289,13 +2289,13 @@ pub struct LoginUserInfo {
 }
 
 async fn _check_nb_of_user(db: &DB) -> Result<()> {
-    let nb_groups =
+    let nb_users =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
             .fetch_one(db)
             .await?;
-    if nb_groups.unwrap_or(0) >= 50 {
+    if nb_users.unwrap_or(0) >= 10 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of oauth users accounts (50) without an enterprise license"
+            "You have reached the maximum number of oauth users accounts (10) without an enterprise license"
                 .to_string(),
         ));
     }

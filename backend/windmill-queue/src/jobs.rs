@@ -1196,12 +1196,19 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             return Ok(None);
         }
 
+        let has_concurent_limit = job.as_ref().unwrap().concurrent_limit.is_some();
+
+        #[cfg(not(feature = "enterprise"))]
+        if has_concurent_limit {
+            tracing::error!("Concurrent limits are an EE feature only, ignoring constraints")
+        }
+
+        #[cfg(not(feature = "enterprise"))]
+        let has_concurent_limit = false;
+
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job.unwrap();
-        if pulled_job.script_path.is_none()
-            || pulled_job.concurrent_limit.is_none()
-            || pulled_job.canceled
-        {
+        if pulled_job.script_path.is_none() || !has_concurent_limit || pulled_job.canceled {
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
