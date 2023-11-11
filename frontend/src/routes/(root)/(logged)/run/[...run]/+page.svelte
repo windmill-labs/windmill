@@ -33,7 +33,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { ActionRow, Button, Popup, Skeleton, Tab, Alert } from '$lib/components/common'
+	import { ActionRow, Button, Popup, Skeleton, Tab, Alert, MenuItem } from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -43,6 +43,7 @@
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
+	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 
 	let job: Job | undefined
 
@@ -186,30 +187,35 @@
 		<svelte:fragment slot="left">
 			{@const isScript = job?.job_kind === 'script'}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-				<Button
-					variant="border"
-					color="red"
-					size="sm"
-					startIcon={{ icon: Trash }}
-					on:click={() => {
-						job?.id && deleteCompletedJob(job.id)
-					}}
-				>
-					Delete log and results (admin only)
-				</Button>
-				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-					<Button
-						href={runsHref}
-						variant="border"
-						color="blue"
-						size="sm"
-						startIcon={{ icon: List }}
-					>
-						View runs
-					</Button>
+			<div class="flex gap-2 items-center">
+				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
+					<ButtonDropdown target="body" hasPadding={false}>
+						<svelte:fragment slot="buttonReplacement">
+							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
+						</svelte:fragment>
+						<svelte:fragment slot="items">
+							<MenuItem
+								on:click={() => {
+									job?.id && deleteCompletedJob(job.id)
+								}}
+							>
+								<span class="text-red-600"> Delete result, logs and args (admin only) </span>
+							</MenuItem>
+						</svelte:fragment>
+					</ButtonDropdown>
+					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+						<Button
+							href={runsHref}
+							variant="border"
+							color="blue"
+							size="sm"
+							startIcon={{ icon: List }}
+						>
+							View runs
+						</Button>
+					{/if}
 				{/if}
-			{/if}
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="right">
 			{@const stem = `/${job?.job_kind}s`}
@@ -415,10 +421,11 @@
 			<Alert type="error" title="Deleted">
 				The content of this run was deleted (by an admin, no less)
 			</Alert>
+			<div class="my-2" />
 		{/if}
 
 		<!-- Arguments and actions -->
-		<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-10">
+		<div class="flex flex-col gap-y-8 mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-10">
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
 			</div>

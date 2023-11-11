@@ -671,14 +671,12 @@ BigInt.prototype.toJSON = function () {{
 {dates}
 
 let stdout = Bun.stdout.writer();
-// let stdout = Bun.file("output.txt").writer();
 stdout.write('start\n'); 
 
 for await (const chunk of Bun.stdin.stream()) {{
     const lines = Buffer.from(chunk).toString();
     let exit = false;
     for (const line of lines.trim().split("\n")) {{
-        // stdout.write('s: ' + line + 'EE\n'); 
         if (line === "end") {{
             exit = true;
             break;

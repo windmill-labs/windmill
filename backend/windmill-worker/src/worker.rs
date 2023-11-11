@@ -1212,6 +1212,22 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         )
                         .await
                     }
+                    Some(ScriptLang::Deno) => {
+                        crate::deno_executor::start_worker(
+                            &content,
+                            &base_internal_url,
+                            &job_dir,
+                            &worker_name,
+                            worker_envs,
+                            &_wp.workspace_id,
+                            &_wp.path,
+                            &token,
+                            job_completed_tx,
+                            dedicated_worker_rx,
+                            killpill_rx,
+                        )
+                        .await
+                    }
                     _ => unreachable!("Non supported language for dedicated worker"),
                 } {
                     tracing::error!("error in dedicated worker: {:?}", e)
