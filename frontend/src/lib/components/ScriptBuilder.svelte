@@ -639,7 +639,8 @@
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
 											(script.language != Script.language.BUN &&
-												script.language != Script.language.PYTHON3)}
+												script.language != Script.language.PYTHON3 &&
+												script.language != Script.language.DENO)}
 										size="sm"
 										checked={Boolean(script.dedicated_worker)}
 										on:change={() => {
