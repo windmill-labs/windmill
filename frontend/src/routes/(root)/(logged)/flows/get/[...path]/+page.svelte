@@ -288,7 +288,7 @@
 				<Splitpanes horizontal>
 					<Pane size={60} minSize={20}>
 						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
-							<div class="flex flex-col gap-2">
+							<div class="flex flex-col gap-2 mb-8">
 								{#if !emptyString(flow.description)}
 									<div class=" break-words whitespace-pre-wrap text-sm mb-4 !text-secondary">
 										<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
@@ -315,6 +315,8 @@
 								isFlow
 								bind:this={runForm}
 							/>
+							<div class="py-10" />
+
 							{#if !emptyString(flow.summary)}
 								<div class="mb-2">
 									<span class="!text-tertiary">{flow.path}</span>
