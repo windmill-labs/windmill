@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.205.0](https://github.com/windmill-labs/windmill/compare/v1.204.1...v1.205.0) (2023-11-11)
+
+
+### Features
+
+* exit dedicated worker upon new deployment ([2038fe6](https://github.com/windmill-labs/windmill/commit/2038fe68ce2ffeeed34c4cfcb44c46ad08f8e732))
+* exit dedicated worker upon new deployment ([4661dd2](https://github.com/windmill-labs/windmill/commit/4661dd2cea343572099ca66459d3db5f3c7879c8))
+
+
+### Bug Fixes
+
+* improve display of optimized one-loops + dependency jobs of dedicated workers happen on dedicated worker ([f998c72](https://github.com/windmill-labs/windmill/commit/f998c7229cd0b27d906a79f99ee7c6e0da1d1810))
+* Invalid config for workers does not panic ([#2612](https://github.com/windmill-labs/windmill/issues/2612)) ([aee35d6](https://github.com/windmill-labs/windmill/commit/aee35d6d511d16130fb64ae4dd2e28757e99f79a))
+* support digit prefixed script in python ([b9e41d0](https://github.com/windmill-labs/windmill/commit/b9e41d066da801ac43276c48af3f100aa70c5a5d))
+
 ## [1.204.1](https://github.com/windmill-labs/windmill/compare/v1.204.0...v1.204.1) (2023-11-10)
 
 

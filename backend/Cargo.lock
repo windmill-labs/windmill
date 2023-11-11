@@ -1197,9 +1197,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.4.7"
+version = "4.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac495e00dcec98c83465d5ad66c5c4fabd652fd6686e7c6269b117e729a6f17b"
+checksum = "2275f18819641850fa26c89acc84d465c1bf91ce57bc2748b28c420473352f64"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1207,9 +1207,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.4.7"
+version = "4.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c77ed9a32a62e6ca27175d00d29d05ca32e396ea1eb5fb01d8256b669cec7663"
+checksum = "07cdf1b148b25c1e1f7a42225e30a0d99a615cd4637eae7365548dd4529b95bc"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2816,9 +2816,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.9"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd6effc99afb63425aff9b05836f029929e345a6148a14b7ecd5ab67af944482"
+checksum = "f95b9abcae896730d42b78e09c155ed4ddf82c07b4de772c64aee5b2d8b7c150"
 dependencies = [
  "bytes",
  "fnv",
@@ -3374,12 +3374,12 @@ checksum = "b8dd856d451cc0da70e2ef2ce95a18e39a93b7558bedf10201ad28503f918568"
 
 [[package]]
 name = "magic-crypt"
-version = "3.1.12"
+version = "3.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0196bd5c76f5f51d7d6563545f86262fef4c82d75466ba6f6d359c40a523318d"
+checksum = "6c42f95f9d296f2dcb50665f507ed5a68a171453142663ce44d77a4eb217b053"
 dependencies = [
  "aes 0.7.5",
- "base64 0.13.1",
+ "base64 0.21.5",
  "block-modes",
  "crc-any",
  "des",
@@ -8071,7 +8071,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -8106,7 +8106,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -8173,7 +8173,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -8191,7 +8191,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "chrono",
  "serde",
@@ -8204,7 +8204,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -8235,7 +8235,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -8243,7 +8243,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -8254,7 +8254,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -8266,7 +8266,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -8277,7 +8277,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -8288,7 +8288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -8305,7 +8305,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -8316,7 +8316,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -8333,7 +8333,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.11",
@@ -8351,7 +8351,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -8382,7 +8382,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.204.1"
+version = "1.205.0"
 dependencies = [
  "anyhow",
  "async-recursion",
