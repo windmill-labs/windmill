@@ -408,20 +408,18 @@
 					</TabContent>
 
 					<TabContent value="settings-concurrency" class="p-4 flex flex-col">
-						<Section label="Concurrency Limits">
+						<Section label="Concurrency Limits" eeOnly>
 							<svelte:fragment slot="header">
 								<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 							</svelte:fragment>
-							{#if !$enterpriseLicense}
-								<Alert
-									title="Concurrency limits are going to become an Enterprise Edition feature"
-									type="warning"
-								/>
-							{/if}
 							<div class="flex flex-col gap-4">
 								<Label label="Max number of executions within the time window">
 									<div class="flex flex-row gap-2 max-w-sm">
-										<input bind:value={$flowStore.value.concurrent_limit} type="number" />
+										<input
+											disabled={!$enterpriseLicense}
+											bind:value={$flowStore.value.concurrent_limit}
+											type="number"
+										/>
 										<Button
 											size="sm"
 											color="light"
@@ -433,7 +431,10 @@
 									</div>
 								</Label>
 								<Label label="Time window in seconds">
-									<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
+									<SecondsInput
+										disabled={!$enterpriseLicense}
+										bind:seconds={$flowStore.value.concurrency_time_window_s}
+									/>
 								</Label>
 							</div>
 						</Section>

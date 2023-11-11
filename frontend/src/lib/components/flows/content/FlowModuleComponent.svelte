@@ -380,14 +380,18 @@
 											<FlowModuleTimeout bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'concurrency'}
-										<Section label="Concurrency Limits" class="flex flex-col gap-4">
+										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 											</svelte:fragment>
 											{#if flowModule.value.type == 'rawscript'}
 												<Label label="Max number of executions within the time window">
 													<div class="flex flex-row gap-2 max-w-sm">
-														<input bind:value={flowModule.value.concurrent_limit} type="number" />
+														<input
+															disabled={!$enterpriseLicense}
+															bind:value={flowModule.value.concurrent_limit}
+															type="number"
+														/>
 														<Button
 															size="xs"
 															color="light"
@@ -403,7 +407,10 @@
 													</div>
 												</Label>
 												<Label label="Time window in seconds">
-													<SecondsInput bind:seconds={flowModule.value.concurrency_time_window_s} />
+													<SecondsInput
+														disabled={!$enterpriseLicense}
+														bind:seconds={flowModule.value.concurrency_time_window_s}
+													/>
 												</Label>
 											{:else}
 												<Alert type="warning" title="Limitation" size="xs">
