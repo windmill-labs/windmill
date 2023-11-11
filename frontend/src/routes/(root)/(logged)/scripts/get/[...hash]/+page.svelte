@@ -479,7 +479,7 @@
 						<span class="text-sm text-secondary">
 							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
-						<Badge small color="dark-blue">
+						<Badge small color="gray">
 							{truncateHash(script?.hash ?? '')}
 						</Badge>
 						{#if script?.is_template}
