@@ -201,10 +201,15 @@
 
 	let befSelected: string | undefined = undefined
 
-	$: if ($selectedComponent?.[0] != befSelected && $selectedComponent?.[0] != undefined) {
+	$: if ($selectedComponent?.[0] != befSelected) {
 		befSelected = $selectedComponent?.[0]
-		selectedTab = 'settings'
+		if ($selectedComponent?.[0] != undefined) {
+			onSelectedComponentChange()
+		}
+	}
 
+	function onSelectedComponentChange() {
+		selectedTab = 'settings'
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)

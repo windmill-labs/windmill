@@ -34,7 +34,7 @@ export function findFreeSpaceForItem<T>(matrix: FilledItem<T>[][], item: ItemLay
 	const w = Math.min(cols, item.w)
 	const h = item.h
 	let xNtime = cols - w + 1
-	let getMatrixRows = matrix.length
+	let getMatrixRows = Math.max(matrix.length, item.y)
 
 	const range = Array.from({ length: getMatrixRows }, (_, y) =>
 		Array.from({ length: xNtime }, (_, x) => ({ x, y }))
@@ -57,7 +57,7 @@ export function findFreeSpaceForItem<T>(matrix: FilledItem<T>[][], item: ItemLay
 			return { x, y }
 		}
 	}
-	
+
 	return {
 		y: getMatrixRows,
 		x: 0

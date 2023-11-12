@@ -69,7 +69,7 @@
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
-					if (id == openedDrawers[openedDrawers.length - 1]) {
+					if (id == openedDrawers[openedDrawers.length - 1] || openedDrawers.length == 0) {
 						openedDrawers.pop()
 						event.preventDefault()
 						event.stopPropagation()
