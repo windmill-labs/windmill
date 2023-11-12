@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import 'monaco-editor/esm/vs/editor/edcore.main'
-	import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+	import { editor as meditor } from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 
 	import { onDestroy, onMount } from 'svelte'
