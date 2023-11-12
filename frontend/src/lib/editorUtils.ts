@@ -1,19 +1,16 @@
 import { languages } from 'monaco-editor/esm/vs/editor/editor.api'
 export function editorConfig(
-	model: any,
 	code: string,
 	lang: string,
 	automaticLayout: boolean,
 	fixedOverflowWidgets: boolean
 ) {
 	return {
-		model,
 		value: code,
 		language: lang,
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		autoDetectHighContrast: true,
 		//lineNumbers: 'off',
 		lineDecorationsWidth: 15,
 		lineNumbersMinChars: 2,

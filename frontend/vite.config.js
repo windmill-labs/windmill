@@ -45,7 +45,7 @@ const config = {
 				}
 			]
 		}),
-		circleDependency({circleImportThrowErr: false}),
+		circleDependency({ circleImportThrowErr: false })
 	],
 	define: {
 		__pkg__: version
@@ -56,7 +56,8 @@ const config = {
 	resolve: {
 		alias: {
 			path: 'path-browserify'
-		}
+		},
+		dedupe: ['monaco-editor', 'vscode']
 	},
 	assetsInclude: ['**/*.wasm']
 }
