@@ -952,6 +952,7 @@
 			console.log('disposing editor')
 			try {
 				closeWebsockets()
+				model?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')
 			} catch (err) {

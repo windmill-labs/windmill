@@ -4,7 +4,6 @@ import { initServices } from 'monaco-languageclient'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 import { LogLevel } from 'vscode/services'
 import { Uri } from 'monaco-editor'
-import { whenReady } from '@codingame/monaco-vscode-theme-defaults-default-extension'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 
 export let isInitialized = false
@@ -131,7 +130,4 @@ export async function initializeVscode() {
 			meditor.setTheme('myTheme')
 		}
 	}
-	console.log('Before ready themes')
-	await whenReady()
-	console.log('After ready themes')
 }
