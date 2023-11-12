@@ -75,6 +75,16 @@
 			await logoutWithRedirect(rd ?? undefined)
 		}
 	})
+
+	const darkMode =
+		window.localStorage.getItem('dark-mode') ??
+		(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+
+	if (darkMode === 'dark') {
+		document.documentElement.classList.add('dark')
+	} else {
+		document.documentElement.classList.remove('dark')
+	}
 </script>
 
 <CenteredModal title="Login from {clientName}">
