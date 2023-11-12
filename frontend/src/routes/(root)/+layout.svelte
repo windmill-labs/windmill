@@ -136,7 +136,7 @@
 
 				// every 1 hour
 				if (i % 12 == 0) {
-					UserService.refreshUserToken()
+					await UserService.refreshUserToken()
 				}
 
 				try {
