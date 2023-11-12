@@ -59,7 +59,8 @@ class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
 
     def on_message(self, message):
         """Forward client->server messages to the endpoint."""
-        self.writer.write(json.loads(message))
+        if not "Unhandled method" in message:
+            self.writer.write(json.loads(message))
 
     def on_close(self) -> None:
         log.info("CLOSING: " + str(self.id))
