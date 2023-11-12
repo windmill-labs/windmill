@@ -425,13 +425,17 @@
 					/>
 				</div>
 			{:else if inputCat == 'base64'}
-				<input
-					{autofocus}
-					type="file"
-					class="my-6"
-					on:change={(x) => fileChanged(x, (val) => (value = val))}
-					multiple={false}
-				/>
+				<div class="flex flex-col my-6 w-full">
+					<input
+						{autofocus}
+						type="file"
+						on:change={(x) => fileChanged(x, (val) => (value = val))}
+						multiple={false}
+					/>
+					{#if value?.length}
+						<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div>
+					{/if}
+				</div>
 			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
 					{disablePortal}
@@ -470,14 +474,14 @@
 							{#if !disabled && itemPicker}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<button
-									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 									on:click={() => {
 										pickForField = label
 										itemPicker?.openDrawer?.()
 									}}
 									title="Insert a Variable"
 								>
-									<DollarSign size={14} />
+									<DollarSign class="!text-tertiary" size={14} />
 								</button>
 							{/if}
 						{/if}
@@ -510,3 +514,16 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	input::-webkit-outer-spin-button,
+	input::-webkit-inner-spin-button {
+		-webkit-appearance: none !important;
+		margin: 0;
+	}
+
+	/* Firefox */
+	input[type='number'] {
+		-moz-appearance: textfield !important;
+	}
+</style>

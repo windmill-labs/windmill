@@ -44,7 +44,6 @@
 		X
 	} from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
-	import type Editor from './Editor.svelte'
 	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -58,6 +57,7 @@
 	import Label from './Label.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
+	import type Editor from './Editor.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -529,17 +529,15 @@
 						</TabContent>
 						<TabContent value="runtime">
 							<div class="flex flex-col gap-8">
-								<Section label="Concurrency limits">
-									{#if !$enterpriseLicense}
-										<Alert
-											title="Concurrency limits are going to become an Enterprise Edition feature"
-											type="warning"
-										/>
-									{/if}
+								<Section label="Concurrency limits" eeOnly>
 									<div class="flex flex-col gap-4">
 										<Label label="Max number of executions within the time window">
 											<div class="flex flex-row gap-2 max-w-sm">
-												<input bind:value={script.concurrent_limit} type="number" />
+												<input
+													disabled={!$enterpriseLicense}
+													bind:value={script.concurrent_limit}
+													type="number"
+												/>
 												<Button
 													size="sm"
 													color="light"
@@ -552,7 +550,10 @@
 											</div>
 										</Label>
 										<Label label="Time window in seconds">
-											<SecondsInput bind:seconds={script.concurrency_time_window_s} />
+											<SecondsInput
+												disabled={!$enterpriseLicense}
+												bind:seconds={script.concurrency_time_window_s}
+											/>
 										</Label>
 									</div>
 								</Section>
@@ -638,7 +639,8 @@
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
 											(script.language != Script.language.BUN &&
-												script.language != Script.language.PYTHON3)}
+												script.language != Script.language.PYTHON3 &&
+												script.language != Script.language.DENO)}
 										size="sm"
 										checked={Boolean(script.dedicated_worker)}
 										on:change={() => {

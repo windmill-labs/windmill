@@ -42,6 +42,7 @@ use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH;
 use windmill_common::users::truncate_token;
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
@@ -2289,13 +2290,13 @@ pub struct LoginUserInfo {
 }
 
 async fn _check_nb_of_user(db: &DB) -> Result<()> {
-    let nb_groups =
+    let nb_users =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
             .fetch_one(db)
             .await?;
-    if nb_groups.unwrap_or(0) >= 50 {
+    if nb_users.unwrap_or(0) >= 10 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of oauth users accounts (50) without an enterprise license"
+            "You have reached the maximum number of oauth users accounts (10) without an enterprise license"
                 .to_string(),
         ));
     }
@@ -2316,9 +2317,12 @@ pub async fn login_externally(
             .bind(email)
             .fetch_optional(&mut *tx)
             .await?;
+    let require_existing_user =
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH.load(std::sync::atomic::Ordering::Relaxed);
+
     if let Some((email, login_type, super_admin)) = login {
         let login_type = serde_json::json!(login_type);
-        if login_type == client_name {
+        if require_existing_user || login_type == client_name {
             crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
         } else {
             return Err(error::Error::BadRequest(format!(
@@ -2350,6 +2354,13 @@ pub async fn login_externally(
             .await?;
         };
     } else {
+        if require_existing_user {
+            return Err(error::Error::BadRequest(format!(
+                "no user with the email associated to this login exists (windmill is set to only \
+                     allow oauth logins for existing users)"
+            )));
+        }
+
         let mut name = user.clone().and_then(|x| x.name);
         if (name.is_none() || name == Some(String::new())) && user.is_some() {
             name = user.clone().unwrap().displayName;

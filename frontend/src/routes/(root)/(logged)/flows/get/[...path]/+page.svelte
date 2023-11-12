@@ -288,31 +288,20 @@
 				<Splitpanes horizontal>
 					<Pane size={60} minSize={20}>
 						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
-							<div class="flex flex-col gap-0.5">
-								{#if !emptyString(flow.summary)}
-									<span class="text-lg font-semibold">{flow.path}</span>
-								{/if}
-								<span class="text-sm text-tertiary">
-									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-								</span>
-
-								{#if deploymentInProgress}
-									<Badge color="yellow">
-										<Loader2 size={12} class="inline animate-spin mr-1" />
-										Deployment in progress
-									</Badge>
-								{/if}
-								{#if flow.archived}
-									<div class="" />
-									<Alert type="error" title="Archived">This flow was archived</Alert>
-								{/if}
-
+							<div class="flex flex-col gap-2 mb-8">
 								{#if !emptyString(flow.description)}
-									<div class=" break-words whitespace-pre-wrap text-sm">
+									<div class=" break-words whitespace-pre-wrap text-sm mb-4 !text-secondary">
 										<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
 									</div>
 								{/if}
 							</div>
+
+							{#if deploymentInProgress}
+								<Badge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+								</Badge>
+							{/if}
 
 							<RunForm
 								viewKeybinding
@@ -326,6 +315,23 @@
 								isFlow
 								bind:this={runForm}
 							/>
+							<div class="py-10" />
+
+							{#if !emptyString(flow.summary)}
+								<div class="mb-2">
+									<span class="!text-tertiary">{flow.path}</span>
+								</div>
+							{/if}
+							<div class="flex flex-row gap-x-2 flex-wrap items-center">
+								<span class="text-sm text-tertiary">
+									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+								</span>
+
+								{#if flow.archived}
+									<div class="" />
+									<Alert type="error" title="Archived">This flow was archived</Alert>
+								{/if}
+							</div>
 						</div>
 					</Pane>
 					<Pane size={40} minSize={20}>

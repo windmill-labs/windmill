@@ -3,11 +3,74 @@
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="/logo.svg" />
+		<style type="text/css">
+			.st2 {
+				fill: #bcd4fc;
+			}
+
+			.st3 {
+				fill: #3b82f6;
+			}
+		</style>
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		%sveltekit.head%
 	</head>
-
 	<body data-sveltekit-preload-code="viewport" class="outline-none focus:outline-none">
-		<div style="display: contents"> %sveltekit.body% </div>
+		<div style="display: contents">
+			<div style="position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%)">
+				<svg
+					version="1.1"
+					id="Windmill"
+					xmlns="http://www.w3.org/2000/svg"
+					xmlns:xlink="http://www.w3.org/1999/xlink"
+					x="0px"
+					y="0px"
+					width="128px"
+					height="128px"
+					viewBox="0 0 256 256"
+					style="enable-background: new 0 0 256 256"
+					xml:space="preserve"
+				>
+					<g>
+						<polygon
+							class="st2"
+							points="134.78,14.22 114.31,48.21 101.33,69.75 158.22,69.75 177.97,36.95 191.67,14.22 	"
+						/>
+						<polygon
+							class="st3"
+							points="227.55,69.75 186.61,69.75 101.33,69.75 129.78,119.02 158.16,119.02 228.61,119.02 256,119.02 	"
+						/>
+						<polygon
+							class="st3"
+							points="136.93,132.47 116.46,167.93 73.82,241.78 130.71,241.78 144.9,217.2 180.13,156.18 193.82,132.46 	
+		"
+						/>
+						<polygon
+							class="st3"
+							points="121.7,131.95 101.23,96.49 58.59,22.63 30.15,71.91 44.34,96.49 79.57,157.5 93.26,181.22 	"
+						/>
+						<polygon
+							class="st2"
+							points="64.81,131.95 25.15,131.21 0,130.74 28.44,180.01 66.73,180.72 93.26,181.21 	"
+						/>
+						<polygon
+							class="st2"
+							points="165.38,181.74 184.58,216.46 196.75,238.47 225.19,189.2 206.66,155.69 193.83,132.46 	"
+						/>
+					</g>
+				</svg>
+				<div
+					style="
+						text-align: center;
+						margin-top: 30px;
+						color: gray;
+						font-family: Arial, Helvetica, sans-serif;
+					"
+				>
+					Loading...
+				</div>
+			</div>
+			%sveltekit.body%
+		</div>
 	</body>
 </html>

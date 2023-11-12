@@ -2,7 +2,6 @@
 	import { BROWSER } from 'esm-env'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
 		editor as meditor,
 		KeyCode,
@@ -10,7 +9,7 @@
 		Uri as mUri,
 		languages,
 		type IRange
-	} from 'monaco-editor/esm/vs/editor/editor.api'
+	} from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
@@ -20,25 +19,17 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
+
 	import { allClasses, authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noLib: true
-	})
-
-	languages.json.jsonDefaults.setDiagnosticsOptions({
-		validate: true,
-		allowComments: false,
-		schemas: [],
-		enableSchemaRequest: true
-	})
+	import { initializeVscode } from './vscode'
+	import EditorTheme from './EditorTheme.svelte'
+	// import { createConfiguredEditor } from 'vscode/monaco'
+	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -124,7 +115,23 @@
 	}
 
 	let width = 0
+	let initialized = false
 	async function loadMonaco() {
+		await initializeVscode()
+		initialized = true
+		languages.typescript.javascriptDefaults.setCompilerOptions({
+			target: languages.typescript.ScriptTarget.Latest,
+			allowNonTsExtensions: true,
+			noLib: true
+		})
+
+		languages.json.jsonDefaults.setDiagnosticsOptions({
+			validate: true,
+			allowComments: false,
+			schemas: [],
+			enableSchemaRequest: true
+		})
+
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {
@@ -140,7 +147,8 @@
 			document.getElementById('monaco-widgets-root') ?? undefined
 
 		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+			model,
 			overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})
@@ -287,7 +295,7 @@
 		}
 	})
 
-	$: mounted && extraLib && loadExtraLib()
+	$: mounted && extraLib && initialized && loadExtraLib()
 
 	onDestroy(() => {
 		try {
@@ -296,6 +304,8 @@
 		} catch (err) {}
 	})
 </script>
+
+<EditorTheme />
 
 <div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 

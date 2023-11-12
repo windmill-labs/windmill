@@ -9,8 +9,9 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import EditorTheme from '$lib/components/EditorTheme.svelte'
+	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
+	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -18,6 +19,7 @@
 		'Connection got disposed.',
 		'Stopping the server timed out',
 		'Canceled',
+		'Starting server failed',
 		'Missing service editorService',
 		'Unexpected usage',
 		'NetworkError when attempting to fetch resource.',
@@ -136,7 +138,7 @@
 
 				// every 1 hour
 				if (i % 12 == 0) {
-					UserService.refreshUserToken()
+					await UserService.refreshUserToken()
 				}
 
 				try {
@@ -170,6 +172,6 @@
 	}
 </script>
 
-<EditorTheme />
+<ChartHighlightTheme />
 
 <slot />

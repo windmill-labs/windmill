@@ -46,12 +46,12 @@
 
 {#if !disabled}
 	<button
-		class="min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+		class="min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 		on:click={() => {
 			customValue = !customValue
 		}}
 		title="Custom Value"
 	>
-		<Pen size={14} />
+		<Pen class="text-tertiary" size={14} />
 	</button>
 {/if}

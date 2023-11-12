@@ -25,3650 +25,6 @@
     mod
   ));
 
-  // node_modules/graphql/jsutils/inspect.js
-  var require_inspect = __commonJS({
-    "node_modules/graphql/jsutils/inspect.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.inspect = inspect2;
-      var MAX_ARRAY_LENGTH2 = 10;
-      var MAX_RECURSIVE_DEPTH2 = 2;
-      function inspect2(value) {
-        return formatValue2(value, []);
-      }
-      function formatValue2(value, seenValues) {
-        switch (typeof value) {
-          case "string":
-            return JSON.stringify(value);
-          case "function":
-            return value.name ? `[function ${value.name}]` : "[function]";
-          case "object":
-            return formatObjectValue2(value, seenValues);
-          default:
-            return String(value);
-        }
-      }
-      function formatObjectValue2(value, previouslySeenValues) {
-        if (value === null) {
-          return "null";
-        }
-        if (previouslySeenValues.includes(value)) {
-          return "[Circular]";
-        }
-        const seenValues = [...previouslySeenValues, value];
-        if (isJSONable2(value)) {
-          const jsonValue = value.toJSON();
-          if (jsonValue !== value) {
-            return typeof jsonValue === "string" ? jsonValue : formatValue2(jsonValue, seenValues);
-          }
-        } else if (Array.isArray(value)) {
-          return formatArray2(value, seenValues);
-        }
-        return formatObject2(value, seenValues);
-      }
-      function isJSONable2(value) {
-        return typeof value.toJSON === "function";
-      }
-      function formatObject2(object, seenValues) {
-        const entries = Object.entries(object);
-        if (entries.length === 0) {
-          return "{}";
-        }
-        if (seenValues.length > MAX_RECURSIVE_DEPTH2) {
-          return "[" + getObjectTag2(object) + "]";
-        }
-        const properties = entries.map(
-          ([key, value]) => key + ": " + formatValue2(value, seenValues)
-        );
-        return "{ " + properties.join(", ") + " }";
-      }
-      function formatArray2(array, seenValues) {
-        if (array.length === 0) {
-          return "[]";
-        }
-        if (seenValues.length > MAX_RECURSIVE_DEPTH2) {
-          return "[Array]";
-        }
-        const len = Math.min(MAX_ARRAY_LENGTH2, array.length);
-        const remaining = array.length - len;
-        const items = [];
-        for (let i = 0; i < len; ++i) {
-          items.push(formatValue2(array[i], seenValues));
-        }
-        if (remaining === 1) {
-          items.push("... 1 more item");
-        } else if (remaining > 1) {
-          items.push(`... ${remaining} more items`);
-        }
-        return "[" + items.join(", ") + "]";
-      }
-      function getObjectTag2(object) {
-        const tag = Object.prototype.toString.call(object).replace(/^\[object /, "").replace(/]$/, "");
-        if (tag === "Object" && typeof object.constructor === "function") {
-          const name2 = object.constructor.name;
-          if (typeof name2 === "string" && name2 !== "") {
-            return name2;
-          }
-        }
-        return tag;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/invariant.js
-  var require_invariant = __commonJS({
-    "node_modules/graphql/jsutils/invariant.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.invariant = invariant3;
-      function invariant3(condition, message) {
-        const booleanCondition = Boolean(condition);
-        if (!booleanCondition) {
-          throw new Error(
-            message != null ? message : "Unexpected invariant triggered."
-          );
-        }
-      }
-    }
-  });
-
-  // node_modules/graphql/language/directiveLocation.js
-  var require_directiveLocation = __commonJS({
-    "node_modules/graphql/language/directiveLocation.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.DirectiveLocation = void 0;
-      var DirectiveLocation2;
-      exports.DirectiveLocation = DirectiveLocation2;
-      (function(DirectiveLocation3) {
-        DirectiveLocation3["QUERY"] = "QUERY";
-        DirectiveLocation3["MUTATION"] = "MUTATION";
-        DirectiveLocation3["SUBSCRIPTION"] = "SUBSCRIPTION";
-        DirectiveLocation3["FIELD"] = "FIELD";
-        DirectiveLocation3["FRAGMENT_DEFINITION"] = "FRAGMENT_DEFINITION";
-        DirectiveLocation3["FRAGMENT_SPREAD"] = "FRAGMENT_SPREAD";
-        DirectiveLocation3["INLINE_FRAGMENT"] = "INLINE_FRAGMENT";
-        DirectiveLocation3["VARIABLE_DEFINITION"] = "VARIABLE_DEFINITION";
-        DirectiveLocation3["SCHEMA"] = "SCHEMA";
-        DirectiveLocation3["SCALAR"] = "SCALAR";
-        DirectiveLocation3["OBJECT"] = "OBJECT";
-        DirectiveLocation3["FIELD_DEFINITION"] = "FIELD_DEFINITION";
-        DirectiveLocation3["ARGUMENT_DEFINITION"] = "ARGUMENT_DEFINITION";
-        DirectiveLocation3["INTERFACE"] = "INTERFACE";
-        DirectiveLocation3["UNION"] = "UNION";
-        DirectiveLocation3["ENUM"] = "ENUM";
-        DirectiveLocation3["ENUM_VALUE"] = "ENUM_VALUE";
-        DirectiveLocation3["INPUT_OBJECT"] = "INPUT_OBJECT";
-        DirectiveLocation3["INPUT_FIELD_DEFINITION"] = "INPUT_FIELD_DEFINITION";
-      })(DirectiveLocation2 || (exports.DirectiveLocation = DirectiveLocation2 = {}));
-    }
-  });
-
-  // node_modules/graphql/language/characterClasses.js
-  var require_characterClasses = __commonJS({
-    "node_modules/graphql/language/characterClasses.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.isDigit = isDigit3;
-      exports.isLetter = isLetter2;
-      exports.isNameContinue = isNameContinue2;
-      exports.isNameStart = isNameStart2;
-      exports.isWhiteSpace = isWhiteSpace2;
-      function isWhiteSpace2(code) {
-        return code === 9 || code === 32;
-      }
-      function isDigit3(code) {
-        return code >= 48 && code <= 57;
-      }
-      function isLetter2(code) {
-        return code >= 97 && code <= 122 || // A-Z
-        code >= 65 && code <= 90;
-      }
-      function isNameStart2(code) {
-        return isLetter2(code) || code === 95;
-      }
-      function isNameContinue2(code) {
-        return isLetter2(code) || isDigit3(code) || code === 95;
-      }
-    }
-  });
-
-  // node_modules/graphql/language/blockString.js
-  var require_blockString = __commonJS({
-    "node_modules/graphql/language/blockString.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.dedentBlockStringLines = dedentBlockStringLines2;
-      exports.isPrintableAsBlockString = isPrintableAsBlockString;
-      exports.printBlockString = printBlockString2;
-      var _characterClasses = require_characterClasses();
-      function dedentBlockStringLines2(lines) {
-        var _firstNonEmptyLine2;
-        let commonIndent = Number.MAX_SAFE_INTEGER;
-        let firstNonEmptyLine = null;
-        let lastNonEmptyLine = -1;
-        for (let i = 0; i < lines.length; ++i) {
-          var _firstNonEmptyLine;
-          const line = lines[i];
-          const indent2 = leadingWhitespace2(line);
-          if (indent2 === line.length) {
-            continue;
-          }
-          firstNonEmptyLine = (_firstNonEmptyLine = firstNonEmptyLine) !== null && _firstNonEmptyLine !== void 0 ? _firstNonEmptyLine : i;
-          lastNonEmptyLine = i;
-          if (i !== 0 && indent2 < commonIndent) {
-            commonIndent = indent2;
-          }
-        }
-        return lines.map((line, i) => i === 0 ? line : line.slice(commonIndent)).slice(
-          (_firstNonEmptyLine2 = firstNonEmptyLine) !== null && _firstNonEmptyLine2 !== void 0 ? _firstNonEmptyLine2 : 0,
-          lastNonEmptyLine + 1
-        );
-      }
-      function leadingWhitespace2(str) {
-        let i = 0;
-        while (i < str.length && (0, _characterClasses.isWhiteSpace)(str.charCodeAt(i))) {
-          ++i;
-        }
-        return i;
-      }
-      function isPrintableAsBlockString(value) {
-        if (value === "") {
-          return true;
-        }
-        let isEmptyLine = true;
-        let hasIndent = false;
-        let hasCommonIndent = true;
-        let seenNonEmptyLine = false;
-        for (let i = 0; i < value.length; ++i) {
-          switch (value.codePointAt(i)) {
-            case 0:
-            case 1:
-            case 2:
-            case 3:
-            case 4:
-            case 5:
-            case 6:
-            case 7:
-            case 8:
-            case 11:
-            case 12:
-            case 14:
-            case 15:
-              return false;
-            case 13:
-              return false;
-            case 10:
-              if (isEmptyLine && !seenNonEmptyLine) {
-                return false;
-              }
-              seenNonEmptyLine = true;
-              isEmptyLine = true;
-              hasIndent = false;
-              break;
-            case 9:
-            case 32:
-              hasIndent || (hasIndent = isEmptyLine);
-              break;
-            default:
-              hasCommonIndent && (hasCommonIndent = hasIndent);
-              isEmptyLine = false;
-          }
-        }
-        if (isEmptyLine) {
-          return false;
-        }
-        if (hasCommonIndent && seenNonEmptyLine) {
-          return false;
-        }
-        return true;
-      }
-      function printBlockString2(value, options) {
-        const escapedValue = value.replace(/"""/g, '\\"""');
-        const lines = escapedValue.split(/\r\n|[\n\r]/g);
-        const isSingleLine = lines.length === 1;
-        const forceLeadingNewLine = lines.length > 1 && lines.slice(1).every(
-          (line) => line.length === 0 || (0, _characterClasses.isWhiteSpace)(line.charCodeAt(0))
-        );
-        const hasTrailingTripleQuotes = escapedValue.endsWith('\\"""');
-        const hasTrailingQuote = value.endsWith('"') && !hasTrailingTripleQuotes;
-        const hasTrailingSlash = value.endsWith("\\");
-        const forceTrailingNewline = hasTrailingQuote || hasTrailingSlash;
-        const printAsMultipleLines = !(options !== null && options !== void 0 && options.minimize) && // add leading and trailing new lines only if it improves readability
-        (!isSingleLine || value.length > 70 || forceTrailingNewline || forceLeadingNewLine || hasTrailingTripleQuotes);
-        let result = "";
-        const skipLeadingNewLine = isSingleLine && (0, _characterClasses.isWhiteSpace)(value.charCodeAt(0));
-        if (printAsMultipleLines && !skipLeadingNewLine || forceLeadingNewLine) {
-          result += "\n";
-        }
-        result += escapedValue;
-        if (printAsMultipleLines || forceTrailingNewline) {
-          result += "\n";
-        }
-        return '"""' + result + '"""';
-      }
-    }
-  });
-
-  // node_modules/graphql/language/printString.js
-  var require_printString = __commonJS({
-    "node_modules/graphql/language/printString.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.printString = printString2;
-      function printString2(str) {
-        return `"${str.replace(escapedRegExp2, escapedReplacer2)}"`;
-      }
-      var escapedRegExp2 = /[\x00-\x1f\x22\x5c\x7f-\x9f]/g;
-      function escapedReplacer2(str) {
-        return escapeSequences2[str.charCodeAt(0)];
-      }
-      var escapeSequences2 = [
-        "\\u0000",
-        "\\u0001",
-        "\\u0002",
-        "\\u0003",
-        "\\u0004",
-        "\\u0005",
-        "\\u0006",
-        "\\u0007",
-        "\\b",
-        "\\t",
-        "\\n",
-        "\\u000B",
-        "\\f",
-        "\\r",
-        "\\u000E",
-        "\\u000F",
-        "\\u0010",
-        "\\u0011",
-        "\\u0012",
-        "\\u0013",
-        "\\u0014",
-        "\\u0015",
-        "\\u0016",
-        "\\u0017",
-        "\\u0018",
-        "\\u0019",
-        "\\u001A",
-        "\\u001B",
-        "\\u001C",
-        "\\u001D",
-        "\\u001E",
-        "\\u001F",
-        "",
-        "",
-        '\\"',
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        // 2F
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        // 3F
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        // 4F
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "\\\\",
-        "",
-        "",
-        "",
-        // 5F
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        // 6F
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "\\u007F",
-        "\\u0080",
-        "\\u0081",
-        "\\u0082",
-        "\\u0083",
-        "\\u0084",
-        "\\u0085",
-        "\\u0086",
-        "\\u0087",
-        "\\u0088",
-        "\\u0089",
-        "\\u008A",
-        "\\u008B",
-        "\\u008C",
-        "\\u008D",
-        "\\u008E",
-        "\\u008F",
-        "\\u0090",
-        "\\u0091",
-        "\\u0092",
-        "\\u0093",
-        "\\u0094",
-        "\\u0095",
-        "\\u0096",
-        "\\u0097",
-        "\\u0098",
-        "\\u0099",
-        "\\u009A",
-        "\\u009B",
-        "\\u009C",
-        "\\u009D",
-        "\\u009E",
-        "\\u009F"
-      ];
-    }
-  });
-
-  // node_modules/graphql/jsutils/devAssert.js
-  var require_devAssert = __commonJS({
-    "node_modules/graphql/jsutils/devAssert.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.devAssert = devAssert2;
-      function devAssert2(condition, message) {
-        const booleanCondition = Boolean(condition);
-        if (!booleanCondition) {
-          throw new Error(message);
-        }
-      }
-    }
-  });
-
-  // node_modules/graphql/language/ast.js
-  var require_ast = __commonJS({
-    "node_modules/graphql/language/ast.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.Token = exports.QueryDocumentKeys = exports.OperationTypeNode = exports.Location = void 0;
-      exports.isNode = isNode2;
-      var Location3 = class {
-        /**
-         * The character offset at which this Node begins.
-         */
-        /**
-         * The character offset at which this Node ends.
-         */
-        /**
-         * The Token at which this Node begins.
-         */
-        /**
-         * The Token at which this Node ends.
-         */
-        /**
-         * The Source document the AST represents.
-         */
-        constructor(startToken, endToken, source) {
-          this.start = startToken.start;
-          this.end = endToken.end;
-          this.startToken = startToken;
-          this.endToken = endToken;
-          this.source = source;
-        }
-        get [Symbol.toStringTag]() {
-          return "Location";
-        }
-        toJSON() {
-          return {
-            start: this.start,
-            end: this.end
-          };
-        }
-      };
-      exports.Location = Location3;
-      var Token3 = class {
-        /**
-         * The kind of Token.
-         */
-        /**
-         * The character offset at which this Node begins.
-         */
-        /**
-         * The character offset at which this Node ends.
-         */
-        /**
-         * The 1-indexed line number on which this Token appears.
-         */
-        /**
-         * The 1-indexed column number at which this Token begins.
-         */
-        /**
-         * For non-punctuation tokens, represents the interpreted value of the token.
-         *
-         * Note: is undefined for punctuation tokens, but typed as string for
-         * convenience in the parser.
-         */
-        /**
-         * Tokens exist as nodes in a double-linked-list amongst all tokens
-         * including ignored tokens. <SOF> is always the first node and <EOF>
-         * the last.
-         */
-        constructor(kind, start, end, line, column, value) {
-          this.kind = kind;
-          this.start = start;
-          this.end = end;
-          this.line = line;
-          this.column = column;
-          this.value = value;
-          this.prev = null;
-          this.next = null;
-        }
-        get [Symbol.toStringTag]() {
-          return "Token";
-        }
-        toJSON() {
-          return {
-            kind: this.kind,
-            value: this.value,
-            line: this.line,
-            column: this.column
-          };
-        }
-      };
-      exports.Token = Token3;
-      var QueryDocumentKeys2 = {
-        Name: [],
-        Document: ["definitions"],
-        OperationDefinition: [
-          "name",
-          "variableDefinitions",
-          "directives",
-          "selectionSet"
-        ],
-        VariableDefinition: ["variable", "type", "defaultValue", "directives"],
-        Variable: ["name"],
-        SelectionSet: ["selections"],
-        Field: ["alias", "name", "arguments", "directives", "selectionSet"],
-        Argument: ["name", "value"],
-        FragmentSpread: ["name", "directives"],
-        InlineFragment: ["typeCondition", "directives", "selectionSet"],
-        FragmentDefinition: [
-          "name",
-          // Note: fragment variable definitions are deprecated and will removed in v17.0.0
-          "variableDefinitions",
-          "typeCondition",
-          "directives",
-          "selectionSet"
-        ],
-        IntValue: [],
-        FloatValue: [],
-        StringValue: [],
-        BooleanValue: [],
-        NullValue: [],
-        EnumValue: [],
-        ListValue: ["values"],
-        ObjectValue: ["fields"],
-        ObjectField: ["name", "value"],
-        Directive: ["name", "arguments"],
-        NamedType: ["name"],
-        ListType: ["type"],
-        NonNullType: ["type"],
-        SchemaDefinition: ["description", "directives", "operationTypes"],
-        OperationTypeDefinition: ["type"],
-        ScalarTypeDefinition: ["description", "name", "directives"],
-        ObjectTypeDefinition: [
-          "description",
-          "name",
-          "interfaces",
-          "directives",
-          "fields"
-        ],
-        FieldDefinition: ["description", "name", "arguments", "type", "directives"],
-        InputValueDefinition: [
-          "description",
-          "name",
-          "type",
-          "defaultValue",
-          "directives"
-        ],
-        InterfaceTypeDefinition: [
-          "description",
-          "name",
-          "interfaces",
-          "directives",
-          "fields"
-        ],
-        UnionTypeDefinition: ["description", "name", "directives", "types"],
-        EnumTypeDefinition: ["description", "name", "directives", "values"],
-        EnumValueDefinition: ["description", "name", "directives"],
-        InputObjectTypeDefinition: ["description", "name", "directives", "fields"],
-        DirectiveDefinition: ["description", "name", "arguments", "locations"],
-        SchemaExtension: ["directives", "operationTypes"],
-        ScalarTypeExtension: ["name", "directives"],
-        ObjectTypeExtension: ["name", "interfaces", "directives", "fields"],
-        InterfaceTypeExtension: ["name", "interfaces", "directives", "fields"],
-        UnionTypeExtension: ["name", "directives", "types"],
-        EnumTypeExtension: ["name", "directives", "values"],
-        InputObjectTypeExtension: ["name", "directives", "fields"]
-      };
-      exports.QueryDocumentKeys = QueryDocumentKeys2;
-      var kindValues2 = new Set(Object.keys(QueryDocumentKeys2));
-      function isNode2(maybeNode) {
-        const maybeKind = maybeNode === null || maybeNode === void 0 ? void 0 : maybeNode.kind;
-        return typeof maybeKind === "string" && kindValues2.has(maybeKind);
-      }
-      var OperationTypeNode2;
-      exports.OperationTypeNode = OperationTypeNode2;
-      (function(OperationTypeNode3) {
-        OperationTypeNode3["QUERY"] = "query";
-        OperationTypeNode3["MUTATION"] = "mutation";
-        OperationTypeNode3["SUBSCRIPTION"] = "subscription";
-      })(OperationTypeNode2 || (exports.OperationTypeNode = OperationTypeNode2 = {}));
-    }
-  });
-
-  // node_modules/graphql/language/kinds.js
-  var require_kinds = __commonJS({
-    "node_modules/graphql/language/kinds.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.Kind = void 0;
-      var Kind2;
-      exports.Kind = Kind2;
-      (function(Kind3) {
-        Kind3["NAME"] = "Name";
-        Kind3["DOCUMENT"] = "Document";
-        Kind3["OPERATION_DEFINITION"] = "OperationDefinition";
-        Kind3["VARIABLE_DEFINITION"] = "VariableDefinition";
-        Kind3["SELECTION_SET"] = "SelectionSet";
-        Kind3["FIELD"] = "Field";
-        Kind3["ARGUMENT"] = "Argument";
-        Kind3["FRAGMENT_SPREAD"] = "FragmentSpread";
-        Kind3["INLINE_FRAGMENT"] = "InlineFragment";
-        Kind3["FRAGMENT_DEFINITION"] = "FragmentDefinition";
-        Kind3["VARIABLE"] = "Variable";
-        Kind3["INT"] = "IntValue";
-        Kind3["FLOAT"] = "FloatValue";
-        Kind3["STRING"] = "StringValue";
-        Kind3["BOOLEAN"] = "BooleanValue";
-        Kind3["NULL"] = "NullValue";
-        Kind3["ENUM"] = "EnumValue";
-        Kind3["LIST"] = "ListValue";
-        Kind3["OBJECT"] = "ObjectValue";
-        Kind3["OBJECT_FIELD"] = "ObjectField";
-        Kind3["DIRECTIVE"] = "Directive";
-        Kind3["NAMED_TYPE"] = "NamedType";
-        Kind3["LIST_TYPE"] = "ListType";
-        Kind3["NON_NULL_TYPE"] = "NonNullType";
-        Kind3["SCHEMA_DEFINITION"] = "SchemaDefinition";
-        Kind3["OPERATION_TYPE_DEFINITION"] = "OperationTypeDefinition";
-        Kind3["SCALAR_TYPE_DEFINITION"] = "ScalarTypeDefinition";
-        Kind3["OBJECT_TYPE_DEFINITION"] = "ObjectTypeDefinition";
-        Kind3["FIELD_DEFINITION"] = "FieldDefinition";
-        Kind3["INPUT_VALUE_DEFINITION"] = "InputValueDefinition";
-        Kind3["INTERFACE_TYPE_DEFINITION"] = "InterfaceTypeDefinition";
-        Kind3["UNION_TYPE_DEFINITION"] = "UnionTypeDefinition";
-        Kind3["ENUM_TYPE_DEFINITION"] = "EnumTypeDefinition";
-        Kind3["ENUM_VALUE_DEFINITION"] = "EnumValueDefinition";
-        Kind3["INPUT_OBJECT_TYPE_DEFINITION"] = "InputObjectTypeDefinition";
-        Kind3["DIRECTIVE_DEFINITION"] = "DirectiveDefinition";
-        Kind3["SCHEMA_EXTENSION"] = "SchemaExtension";
-        Kind3["SCALAR_TYPE_EXTENSION"] = "ScalarTypeExtension";
-        Kind3["OBJECT_TYPE_EXTENSION"] = "ObjectTypeExtension";
-        Kind3["INTERFACE_TYPE_EXTENSION"] = "InterfaceTypeExtension";
-        Kind3["UNION_TYPE_EXTENSION"] = "UnionTypeExtension";
-        Kind3["ENUM_TYPE_EXTENSION"] = "EnumTypeExtension";
-        Kind3["INPUT_OBJECT_TYPE_EXTENSION"] = "InputObjectTypeExtension";
-      })(Kind2 || (exports.Kind = Kind2 = {}));
-    }
-  });
-
-  // node_modules/graphql/language/visitor.js
-  var require_visitor = __commonJS({
-    "node_modules/graphql/language/visitor.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.BREAK = void 0;
-      exports.getEnterLeaveForKind = getEnterLeaveForKind2;
-      exports.getVisitFn = getVisitFn2;
-      exports.visit = visit2;
-      exports.visitInParallel = visitInParallel2;
-      var _devAssert = require_devAssert();
-      var _inspect = require_inspect();
-      var _ast = require_ast();
-      var _kinds = require_kinds();
-      var BREAK2 = Object.freeze({});
-      exports.BREAK = BREAK2;
-      function visit2(root, visitor, visitorKeys = _ast.QueryDocumentKeys) {
-        const enterLeaveMap = /* @__PURE__ */ new Map();
-        for (const kind of Object.values(_kinds.Kind)) {
-          enterLeaveMap.set(kind, getEnterLeaveForKind2(visitor, kind));
-        }
-        let stack = void 0;
-        let inArray = Array.isArray(root);
-        let keys = [root];
-        let index = -1;
-        let edits = [];
-        let node = root;
-        let key = void 0;
-        let parent = void 0;
-        const path = [];
-        const ancestors = [];
-        do {
-          index++;
-          const isLeaving = index === keys.length;
-          const isEdited = isLeaving && edits.length !== 0;
-          if (isLeaving) {
-            key = ancestors.length === 0 ? void 0 : path[path.length - 1];
-            node = parent;
-            parent = ancestors.pop();
-            if (isEdited) {
-              if (inArray) {
-                node = node.slice();
-                let editOffset = 0;
-                for (const [editKey, editValue] of edits) {
-                  const arrayKey = editKey - editOffset;
-                  if (editValue === null) {
-                    node.splice(arrayKey, 1);
-                    editOffset++;
-                  } else {
-                    node[arrayKey] = editValue;
-                  }
-                }
-              } else {
-                node = Object.defineProperties(
-                  {},
-                  Object.getOwnPropertyDescriptors(node)
-                );
-                for (const [editKey, editValue] of edits) {
-                  node[editKey] = editValue;
-                }
-              }
-            }
-            index = stack.index;
-            keys = stack.keys;
-            edits = stack.edits;
-            inArray = stack.inArray;
-            stack = stack.prev;
-          } else if (parent) {
-            key = inArray ? index : keys[index];
-            node = parent[key];
-            if (node === null || node === void 0) {
-              continue;
-            }
-            path.push(key);
-          }
-          let result;
-          if (!Array.isArray(node)) {
-            var _enterLeaveMap$get, _enterLeaveMap$get2;
-            (0, _ast.isNode)(node) || (0, _devAssert.devAssert)(
-              false,
-              `Invalid AST Node: ${(0, _inspect.inspect)(node)}.`
-            );
-            const visitFn = isLeaving ? (_enterLeaveMap$get = enterLeaveMap.get(node.kind)) === null || _enterLeaveMap$get === void 0 ? void 0 : _enterLeaveMap$get.leave : (_enterLeaveMap$get2 = enterLeaveMap.get(node.kind)) === null || _enterLeaveMap$get2 === void 0 ? void 0 : _enterLeaveMap$get2.enter;
-            result = visitFn === null || visitFn === void 0 ? void 0 : visitFn.call(visitor, node, key, parent, path, ancestors);
-            if (result === BREAK2) {
-              break;
-            }
-            if (result === false) {
-              if (!isLeaving) {
-                path.pop();
-                continue;
-              }
-            } else if (result !== void 0) {
-              edits.push([key, result]);
-              if (!isLeaving) {
-                if ((0, _ast.isNode)(result)) {
-                  node = result;
-                } else {
-                  path.pop();
-                  continue;
-                }
-              }
-            }
-          }
-          if (result === void 0 && isEdited) {
-            edits.push([key, node]);
-          }
-          if (isLeaving) {
-            path.pop();
-          } else {
-            var _node$kind;
-            stack = {
-              inArray,
-              index,
-              keys,
-              edits,
-              prev: stack
-            };
-            inArray = Array.isArray(node);
-            keys = inArray ? node : (_node$kind = visitorKeys[node.kind]) !== null && _node$kind !== void 0 ? _node$kind : [];
-            index = -1;
-            edits = [];
-            if (parent) {
-              ancestors.push(parent);
-            }
-            parent = node;
-          }
-        } while (stack !== void 0);
-        if (edits.length !== 0) {
-          return edits[edits.length - 1][1];
-        }
-        return root;
-      }
-      function visitInParallel2(visitors) {
-        const skipping = new Array(visitors.length).fill(null);
-        const mergedVisitor = /* @__PURE__ */ Object.create(null);
-        for (const kind of Object.values(_kinds.Kind)) {
-          let hasVisitor = false;
-          const enterList = new Array(visitors.length).fill(void 0);
-          const leaveList = new Array(visitors.length).fill(void 0);
-          for (let i = 0; i < visitors.length; ++i) {
-            const { enter, leave } = getEnterLeaveForKind2(visitors[i], kind);
-            hasVisitor || (hasVisitor = enter != null || leave != null);
-            enterList[i] = enter;
-            leaveList[i] = leave;
-          }
-          if (!hasVisitor) {
-            continue;
-          }
-          const mergedEnterLeave = {
-            enter(...args) {
-              const node = args[0];
-              for (let i = 0; i < visitors.length; i++) {
-                if (skipping[i] === null) {
-                  var _enterList$i;
-                  const result = (_enterList$i = enterList[i]) === null || _enterList$i === void 0 ? void 0 : _enterList$i.apply(visitors[i], args);
-                  if (result === false) {
-                    skipping[i] = node;
-                  } else if (result === BREAK2) {
-                    skipping[i] = BREAK2;
-                  } else if (result !== void 0) {
-                    return result;
-                  }
-                }
-              }
-            },
-            leave(...args) {
-              const node = args[0];
-              for (let i = 0; i < visitors.length; i++) {
-                if (skipping[i] === null) {
-                  var _leaveList$i;
-                  const result = (_leaveList$i = leaveList[i]) === null || _leaveList$i === void 0 ? void 0 : _leaveList$i.apply(visitors[i], args);
-                  if (result === BREAK2) {
-                    skipping[i] = BREAK2;
-                  } else if (result !== void 0 && result !== false) {
-                    return result;
-                  }
-                } else if (skipping[i] === node) {
-                  skipping[i] = null;
-                }
-              }
-            }
-          };
-          mergedVisitor[kind] = mergedEnterLeave;
-        }
-        return mergedVisitor;
-      }
-      function getEnterLeaveForKind2(visitor, kind) {
-        const kindVisitor = visitor[kind];
-        if (typeof kindVisitor === "object") {
-          return kindVisitor;
-        } else if (typeof kindVisitor === "function") {
-          return {
-            enter: kindVisitor,
-            leave: void 0
-          };
-        }
-        return {
-          enter: visitor.enter,
-          leave: visitor.leave
-        };
-      }
-      function getVisitFn2(visitor, kind, isLeaving) {
-        const { enter, leave } = getEnterLeaveForKind2(visitor, kind);
-        return isLeaving ? leave : enter;
-      }
-    }
-  });
-
-  // node_modules/graphql/language/printer.js
-  var require_printer = __commonJS({
-    "node_modules/graphql/language/printer.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.print = print2;
-      var _blockString = require_blockString();
-      var _printString = require_printString();
-      var _visitor = require_visitor();
-      function print2(ast) {
-        return (0, _visitor.visit)(ast, printDocASTReducer2);
-      }
-      var MAX_LINE_LENGTH2 = 80;
-      var printDocASTReducer2 = {
-        Name: {
-          leave: (node) => node.value
-        },
-        Variable: {
-          leave: (node) => "$" + node.name
-        },
-        // Document
-        Document: {
-          leave: (node) => join3(node.definitions, "\n\n")
-        },
-        OperationDefinition: {
-          leave(node) {
-            const varDefs = wrap2("(", join3(node.variableDefinitions, ", "), ")");
-            const prefix = join3(
-              [
-                node.operation,
-                join3([node.name, varDefs]),
-                join3(node.directives, " ")
-              ],
-              " "
-            );
-            return (prefix === "query" ? "" : prefix + " ") + node.selectionSet;
-          }
-        },
-        VariableDefinition: {
-          leave: ({ variable, type: type2, defaultValue, directives }) => variable + ": " + type2 + wrap2(" = ", defaultValue) + wrap2(" ", join3(directives, " "))
-        },
-        SelectionSet: {
-          leave: ({ selections }) => block2(selections)
-        },
-        Field: {
-          leave({ alias, name: name2, arguments: args, directives, selectionSet }) {
-            const prefix = wrap2("", alias, ": ") + name2;
-            let argsLine = prefix + wrap2("(", join3(args, ", "), ")");
-            if (argsLine.length > MAX_LINE_LENGTH2) {
-              argsLine = prefix + wrap2("(\n", indent2(join3(args, "\n")), "\n)");
-            }
-            return join3([argsLine, join3(directives, " "), selectionSet], " ");
-          }
-        },
-        Argument: {
-          leave: ({ name: name2, value }) => name2 + ": " + value
-        },
-        // Fragments
-        FragmentSpread: {
-          leave: ({ name: name2, directives }) => "..." + name2 + wrap2(" ", join3(directives, " "))
-        },
-        InlineFragment: {
-          leave: ({ typeCondition, directives, selectionSet }) => join3(
-            [
-              "...",
-              wrap2("on ", typeCondition),
-              join3(directives, " "),
-              selectionSet
-            ],
-            " "
-          )
-        },
-        FragmentDefinition: {
-          leave: ({ name: name2, typeCondition, variableDefinitions, directives, selectionSet }) => (
-            // or removed in the future.
-            `fragment ${name2}${wrap2("(", join3(variableDefinitions, ", "), ")")} on ${typeCondition} ${wrap2("", join3(directives, " "), " ")}` + selectionSet
-          )
-        },
-        // Value
-        IntValue: {
-          leave: ({ value }) => value
-        },
-        FloatValue: {
-          leave: ({ value }) => value
-        },
-        StringValue: {
-          leave: ({ value, block: isBlockString }) => isBlockString ? (0, _blockString.printBlockString)(value) : (0, _printString.printString)(value)
-        },
-        BooleanValue: {
-          leave: ({ value }) => value ? "true" : "false"
-        },
-        NullValue: {
-          leave: () => "null"
-        },
-        EnumValue: {
-          leave: ({ value }) => value
-        },
-        ListValue: {
-          leave: ({ values }) => "[" + join3(values, ", ") + "]"
-        },
-        ObjectValue: {
-          leave: ({ fields }) => "{" + join3(fields, ", ") + "}"
-        },
-        ObjectField: {
-          leave: ({ name: name2, value }) => name2 + ": " + value
-        },
-        // Directive
-        Directive: {
-          leave: ({ name: name2, arguments: args }) => "@" + name2 + wrap2("(", join3(args, ", "), ")")
-        },
-        // Type
-        NamedType: {
-          leave: ({ name: name2 }) => name2
-        },
-        ListType: {
-          leave: ({ type: type2 }) => "[" + type2 + "]"
-        },
-        NonNullType: {
-          leave: ({ type: type2 }) => type2 + "!"
-        },
-        // Type System Definitions
-        SchemaDefinition: {
-          leave: ({ description, directives, operationTypes }) => wrap2("", description, "\n") + join3(["schema", join3(directives, " "), block2(operationTypes)], " ")
-        },
-        OperationTypeDefinition: {
-          leave: ({ operation, type: type2 }) => operation + ": " + type2
-        },
-        ScalarTypeDefinition: {
-          leave: ({ description, name: name2, directives }) => wrap2("", description, "\n") + join3(["scalar", name2, join3(directives, " ")], " ")
-        },
-        ObjectTypeDefinition: {
-          leave: ({ description, name: name2, interfaces, directives, fields }) => wrap2("", description, "\n") + join3(
-            [
-              "type",
-              name2,
-              wrap2("implements ", join3(interfaces, " & ")),
-              join3(directives, " "),
-              block2(fields)
-            ],
-            " "
-          )
-        },
-        FieldDefinition: {
-          leave: ({ description, name: name2, arguments: args, type: type2, directives }) => wrap2("", description, "\n") + name2 + (hasMultilineItems2(args) ? wrap2("(\n", indent2(join3(args, "\n")), "\n)") : wrap2("(", join3(args, ", "), ")")) + ": " + type2 + wrap2(" ", join3(directives, " "))
-        },
-        InputValueDefinition: {
-          leave: ({ description, name: name2, type: type2, defaultValue, directives }) => wrap2("", description, "\n") + join3(
-            [name2 + ": " + type2, wrap2("= ", defaultValue), join3(directives, " ")],
-            " "
-          )
-        },
-        InterfaceTypeDefinition: {
-          leave: ({ description, name: name2, interfaces, directives, fields }) => wrap2("", description, "\n") + join3(
-            [
-              "interface",
-              name2,
-              wrap2("implements ", join3(interfaces, " & ")),
-              join3(directives, " "),
-              block2(fields)
-            ],
-            " "
-          )
-        },
-        UnionTypeDefinition: {
-          leave: ({ description, name: name2, directives, types }) => wrap2("", description, "\n") + join3(
-            ["union", name2, join3(directives, " "), wrap2("= ", join3(types, " | "))],
-            " "
-          )
-        },
-        EnumTypeDefinition: {
-          leave: ({ description, name: name2, directives, values }) => wrap2("", description, "\n") + join3(["enum", name2, join3(directives, " "), block2(values)], " ")
-        },
-        EnumValueDefinition: {
-          leave: ({ description, name: name2, directives }) => wrap2("", description, "\n") + join3([name2, join3(directives, " ")], " ")
-        },
-        InputObjectTypeDefinition: {
-          leave: ({ description, name: name2, directives, fields }) => wrap2("", description, "\n") + join3(["input", name2, join3(directives, " "), block2(fields)], " ")
-        },
-        DirectiveDefinition: {
-          leave: ({ description, name: name2, arguments: args, repeatable, locations }) => wrap2("", description, "\n") + "directive @" + name2 + (hasMultilineItems2(args) ? wrap2("(\n", indent2(join3(args, "\n")), "\n)") : wrap2("(", join3(args, ", "), ")")) + (repeatable ? " repeatable" : "") + " on " + join3(locations, " | ")
-        },
-        SchemaExtension: {
-          leave: ({ directives, operationTypes }) => join3(
-            ["extend schema", join3(directives, " "), block2(operationTypes)],
-            " "
-          )
-        },
-        ScalarTypeExtension: {
-          leave: ({ name: name2, directives }) => join3(["extend scalar", name2, join3(directives, " ")], " ")
-        },
-        ObjectTypeExtension: {
-          leave: ({ name: name2, interfaces, directives, fields }) => join3(
-            [
-              "extend type",
-              name2,
-              wrap2("implements ", join3(interfaces, " & ")),
-              join3(directives, " "),
-              block2(fields)
-            ],
-            " "
-          )
-        },
-        InterfaceTypeExtension: {
-          leave: ({ name: name2, interfaces, directives, fields }) => join3(
-            [
-              "extend interface",
-              name2,
-              wrap2("implements ", join3(interfaces, " & ")),
-              join3(directives, " "),
-              block2(fields)
-            ],
-            " "
-          )
-        },
-        UnionTypeExtension: {
-          leave: ({ name: name2, directives, types }) => join3(
-            [
-              "extend union",
-              name2,
-              join3(directives, " "),
-              wrap2("= ", join3(types, " | "))
-            ],
-            " "
-          )
-        },
-        EnumTypeExtension: {
-          leave: ({ name: name2, directives, values }) => join3(["extend enum", name2, join3(directives, " "), block2(values)], " ")
-        },
-        InputObjectTypeExtension: {
-          leave: ({ name: name2, directives, fields }) => join3(["extend input", name2, join3(directives, " "), block2(fields)], " ")
-        }
-      };
-      function join3(maybeArray, separator = "") {
-        var _maybeArray$filter$jo;
-        return (_maybeArray$filter$jo = maybeArray === null || maybeArray === void 0 ? void 0 : maybeArray.filter((x) => x).join(separator)) !== null && _maybeArray$filter$jo !== void 0 ? _maybeArray$filter$jo : "";
-      }
-      function block2(array) {
-        return wrap2("{\n", indent2(join3(array, "\n")), "\n}");
-      }
-      function wrap2(start, maybeString, end = "") {
-        return maybeString != null && maybeString !== "" ? start + maybeString + end : "";
-      }
-      function indent2(str) {
-        return wrap2("  ", str.replace(/\n/g, "\n  "));
-      }
-      function hasMultilineItems2(maybeArray) {
-        var _maybeArray$some;
-        return (_maybeArray$some = maybeArray === null || maybeArray === void 0 ? void 0 : maybeArray.some((str) => str.includes("\n"))) !== null && _maybeArray$some !== void 0 ? _maybeArray$some : false;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/isIterableObject.js
-  var require_isIterableObject = __commonJS({
-    "node_modules/graphql/jsutils/isIterableObject.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.isIterableObject = isIterableObject2;
-      function isIterableObject2(maybeIterable) {
-        return typeof maybeIterable === "object" && typeof (maybeIterable === null || maybeIterable === void 0 ? void 0 : maybeIterable[Symbol.iterator]) === "function";
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/isObjectLike.js
-  var require_isObjectLike = __commonJS({
-    "node_modules/graphql/jsutils/isObjectLike.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.isObjectLike = isObjectLike2;
-      function isObjectLike2(value) {
-        return typeof value == "object" && value !== null;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/didYouMean.js
-  var require_didYouMean = __commonJS({
-    "node_modules/graphql/jsutils/didYouMean.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.didYouMean = didYouMean2;
-      var MAX_SUGGESTIONS2 = 5;
-      function didYouMean2(firstArg, secondArg) {
-        const [subMessage, suggestionsArg] = secondArg ? [firstArg, secondArg] : [void 0, firstArg];
-        let message = " Did you mean ";
-        if (subMessage) {
-          message += subMessage + " ";
-        }
-        const suggestions = suggestionsArg.map((x) => `"${x}"`);
-        switch (suggestions.length) {
-          case 0:
-            return "";
-          case 1:
-            return message + suggestions[0] + "?";
-          case 2:
-            return message + suggestions[0] + " or " + suggestions[1] + "?";
-        }
-        const selected = suggestions.slice(0, MAX_SUGGESTIONS2);
-        const lastItem = selected.pop();
-        return message + selected.join(", ") + ", or " + lastItem + "?";
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/identityFunc.js
-  var require_identityFunc = __commonJS({
-    "node_modules/graphql/jsutils/identityFunc.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.identityFunc = identityFunc2;
-      function identityFunc2(x) {
-        return x;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/instanceOf.js
-  var require_instanceOf = __commonJS({
-    "node_modules/graphql/jsutils/instanceOf.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.instanceOf = void 0;
-      var _inspect = require_inspect();
-      var instanceOf4 = (
-        /* c8 ignore next 6 */
-        // FIXME: https://github.com/graphql/graphql-js/issues/2317
-        globalThis.process && globalThis.process.env.NODE_ENV === "production" ? function instanceOf5(value, constructor) {
-          return value instanceof constructor;
-        } : function instanceOf5(value, constructor) {
-          if (value instanceof constructor) {
-            return true;
-          }
-          if (typeof value === "object" && value !== null) {
-            var _value$constructor;
-            const className = constructor.prototype[Symbol.toStringTag];
-            const valueClassName = (
-              // We still need to support constructor's name to detect conflicts with older versions of this library.
-              Symbol.toStringTag in value ? value[Symbol.toStringTag] : (_value$constructor = value.constructor) === null || _value$constructor === void 0 ? void 0 : _value$constructor.name
-            );
-            if (className === valueClassName) {
-              const stringifiedValue = (0, _inspect.inspect)(value);
-              throw new Error(`Cannot use ${className} "${stringifiedValue}" from another module or realm.
-
-Ensure that there is only one instance of "graphql" in the node_modules
-directory. If different versions of "graphql" are the dependencies of other
-relied on modules, use "resolutions" to ensure only one version is installed.
-
-https://yarnpkg.com/en/docs/selective-version-resolutions
-
-Duplicate "graphql" modules cannot be used at the same time since different
-versions may have different capabilities and behavior. The data from one
-version used in the function from another could produce confusing and
-spurious results.`);
-            }
-          }
-          return false;
-        }
-      );
-      exports.instanceOf = instanceOf4;
-    }
-  });
-
-  // node_modules/graphql/jsutils/keyMap.js
-  var require_keyMap = __commonJS({
-    "node_modules/graphql/jsutils/keyMap.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.keyMap = keyMap2;
-      function keyMap2(list2, keyFn) {
-        const result = /* @__PURE__ */ Object.create(null);
-        for (const item of list2) {
-          result[keyFn(item)] = item;
-        }
-        return result;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/keyValMap.js
-  var require_keyValMap = __commonJS({
-    "node_modules/graphql/jsutils/keyValMap.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.keyValMap = keyValMap2;
-      function keyValMap2(list2, keyFn, valFn) {
-        const result = /* @__PURE__ */ Object.create(null);
-        for (const item of list2) {
-          result[keyFn(item)] = valFn(item);
-        }
-        return result;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/mapValue.js
-  var require_mapValue = __commonJS({
-    "node_modules/graphql/jsutils/mapValue.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.mapValue = mapValue2;
-      function mapValue2(map, fn) {
-        const result = /* @__PURE__ */ Object.create(null);
-        for (const key of Object.keys(map)) {
-          result[key] = fn(map[key], key);
-        }
-        return result;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/naturalCompare.js
-  var require_naturalCompare = __commonJS({
-    "node_modules/graphql/jsutils/naturalCompare.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.naturalCompare = naturalCompare2;
-      function naturalCompare2(aStr, bStr) {
-        let aIndex = 0;
-        let bIndex = 0;
-        while (aIndex < aStr.length && bIndex < bStr.length) {
-          let aChar = aStr.charCodeAt(aIndex);
-          let bChar = bStr.charCodeAt(bIndex);
-          if (isDigit3(aChar) && isDigit3(bChar)) {
-            let aNum = 0;
-            do {
-              ++aIndex;
-              aNum = aNum * 10 + aChar - DIGIT_02;
-              aChar = aStr.charCodeAt(aIndex);
-            } while (isDigit3(aChar) && aNum > 0);
-            let bNum = 0;
-            do {
-              ++bIndex;
-              bNum = bNum * 10 + bChar - DIGIT_02;
-              bChar = bStr.charCodeAt(bIndex);
-            } while (isDigit3(bChar) && bNum > 0);
-            if (aNum < bNum) {
-              return -1;
-            }
-            if (aNum > bNum) {
-              return 1;
-            }
-          } else {
-            if (aChar < bChar) {
-              return -1;
-            }
-            if (aChar > bChar) {
-              return 1;
-            }
-            ++aIndex;
-            ++bIndex;
-          }
-        }
-        return aStr.length - bStr.length;
-      }
-      var DIGIT_02 = 48;
-      var DIGIT_92 = 57;
-      function isDigit3(code) {
-        return !isNaN(code) && DIGIT_02 <= code && code <= DIGIT_92;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/suggestionList.js
-  var require_suggestionList = __commonJS({
-    "node_modules/graphql/jsutils/suggestionList.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.suggestionList = suggestionList2;
-      var _naturalCompare = require_naturalCompare();
-      function suggestionList2(input, options) {
-        const optionsByDistance = /* @__PURE__ */ Object.create(null);
-        const lexicalDistance2 = new LexicalDistance2(input);
-        const threshold = Math.floor(input.length * 0.4) + 1;
-        for (const option of options) {
-          const distance = lexicalDistance2.measure(option, threshold);
-          if (distance !== void 0) {
-            optionsByDistance[option] = distance;
-          }
-        }
-        return Object.keys(optionsByDistance).sort((a, b) => {
-          const distanceDiff = optionsByDistance[a] - optionsByDistance[b];
-          return distanceDiff !== 0 ? distanceDiff : (0, _naturalCompare.naturalCompare)(a, b);
-        });
-      }
-      var LexicalDistance2 = class {
-        constructor(input) {
-          this._input = input;
-          this._inputLowerCase = input.toLowerCase();
-          this._inputArray = stringToArray2(this._inputLowerCase);
-          this._rows = [
-            new Array(input.length + 1).fill(0),
-            new Array(input.length + 1).fill(0),
-            new Array(input.length + 1).fill(0)
-          ];
-        }
-        measure(option, threshold) {
-          if (this._input === option) {
-            return 0;
-          }
-          const optionLowerCase = option.toLowerCase();
-          if (this._inputLowerCase === optionLowerCase) {
-            return 1;
-          }
-          let a = stringToArray2(optionLowerCase);
-          let b = this._inputArray;
-          if (a.length < b.length) {
-            const tmp = a;
-            a = b;
-            b = tmp;
-          }
-          const aLength = a.length;
-          const bLength = b.length;
-          if (aLength - bLength > threshold) {
-            return void 0;
-          }
-          const rows = this._rows;
-          for (let j = 0; j <= bLength; j++) {
-            rows[0][j] = j;
-          }
-          for (let i = 1; i <= aLength; i++) {
-            const upRow = rows[(i - 1) % 3];
-            const currentRow = rows[i % 3];
-            let smallestCell = currentRow[0] = i;
-            for (let j = 1; j <= bLength; j++) {
-              const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-              let currentCell = Math.min(
-                upRow[j] + 1,
-                // delete
-                currentRow[j - 1] + 1,
-                // insert
-                upRow[j - 1] + cost
-                // substitute
-              );
-              if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-                const doubleDiagonalCell = rows[(i - 2) % 3][j - 2];
-                currentCell = Math.min(currentCell, doubleDiagonalCell + 1);
-              }
-              if (currentCell < smallestCell) {
-                smallestCell = currentCell;
-              }
-              currentRow[j] = currentCell;
-            }
-            if (smallestCell > threshold) {
-              return void 0;
-            }
-          }
-          const distance = rows[aLength % 3][bLength];
-          return distance <= threshold ? distance : void 0;
-        }
-      };
-      function stringToArray2(str) {
-        const strLength = str.length;
-        const array = new Array(strLength);
-        for (let i = 0; i < strLength; ++i) {
-          array[i] = str.charCodeAt(i);
-        }
-        return array;
-      }
-    }
-  });
-
-  // node_modules/graphql/jsutils/toObjMap.js
-  var require_toObjMap = __commonJS({
-    "node_modules/graphql/jsutils/toObjMap.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.toObjMap = toObjMap2;
-      function toObjMap2(obj) {
-        if (obj == null) {
-          return /* @__PURE__ */ Object.create(null);
-        }
-        if (Object.getPrototypeOf(obj) === null) {
-          return obj;
-        }
-        const map = /* @__PURE__ */ Object.create(null);
-        for (const [key, value] of Object.entries(obj)) {
-          map[key] = value;
-        }
-        return map;
-      }
-    }
-  });
-
-  // node_modules/graphql/language/location.js
-  var require_location = __commonJS({
-    "node_modules/graphql/language/location.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.getLocation = getLocation3;
-      var _invariant = require_invariant();
-      var LineRegExp2 = /\r\n|[\n\r]/g;
-      function getLocation3(source, position) {
-        let lastLineStart = 0;
-        let line = 1;
-        for (const match of source.body.matchAll(LineRegExp2)) {
-          typeof match.index === "number" || (0, _invariant.invariant)(false);
-          if (match.index >= position) {
-            break;
-          }
-          lastLineStart = match.index + match[0].length;
-          line += 1;
-        }
-        return {
-          line,
-          column: position + 1 - lastLineStart
-        };
-      }
-    }
-  });
-
-  // node_modules/graphql/language/printLocation.js
-  var require_printLocation = __commonJS({
-    "node_modules/graphql/language/printLocation.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.printLocation = printLocation2;
-      exports.printSourceLocation = printSourceLocation2;
-      var _location = require_location();
-      function printLocation2(location) {
-        return printSourceLocation2(
-          location.source,
-          (0, _location.getLocation)(location.source, location.start)
-        );
-      }
-      function printSourceLocation2(source, sourceLocation) {
-        const firstLineColumnOffset = source.locationOffset.column - 1;
-        const body = "".padStart(firstLineColumnOffset) + source.body;
-        const lineIndex = sourceLocation.line - 1;
-        const lineOffset = source.locationOffset.line - 1;
-        const lineNum = sourceLocation.line + lineOffset;
-        const columnOffset = sourceLocation.line === 1 ? firstLineColumnOffset : 0;
-        const columnNum = sourceLocation.column + columnOffset;
-        const locationStr = `${source.name}:${lineNum}:${columnNum}
-`;
-        const lines = body.split(/\r\n|[\n\r]/g);
-        const locationLine = lines[lineIndex];
-        if (locationLine.length > 120) {
-          const subLineIndex = Math.floor(columnNum / 80);
-          const subLineColumnNum = columnNum % 80;
-          const subLines = [];
-          for (let i = 0; i < locationLine.length; i += 80) {
-            subLines.push(locationLine.slice(i, i + 80));
-          }
-          return locationStr + printPrefixedLines2([
-            [`${lineNum} |`, subLines[0]],
-            ...subLines.slice(1, subLineIndex + 1).map((subLine) => ["|", subLine]),
-            ["|", "^".padStart(subLineColumnNum)],
-            ["|", subLines[subLineIndex + 1]]
-          ]);
-        }
-        return locationStr + printPrefixedLines2([
-          // Lines specified like this: ["prefix", "string"],
-          [`${lineNum - 1} |`, lines[lineIndex - 1]],
-          [`${lineNum} |`, locationLine],
-          ["|", "^".padStart(columnNum)],
-          [`${lineNum + 1} |`, lines[lineIndex + 1]]
-        ]);
-      }
-      function printPrefixedLines2(lines) {
-        const existingLines = lines.filter(([_, line]) => line !== void 0);
-        const padLen = Math.max(...existingLines.map(([prefix]) => prefix.length));
-        return existingLines.map(([prefix, line]) => prefix.padStart(padLen) + (line ? " " + line : "")).join("\n");
-      }
-    }
-  });
-
-  // node_modules/graphql/error/GraphQLError.js
-  var require_GraphQLError = __commonJS({
-    "node_modules/graphql/error/GraphQLError.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.GraphQLError = void 0;
-      exports.formatError = formatError2;
-      exports.printError = printError2;
-      var _isObjectLike = require_isObjectLike();
-      var _location = require_location();
-      var _printLocation = require_printLocation();
-      function toNormalizedOptions2(args) {
-        const firstArg = args[0];
-        if (firstArg == null || "kind" in firstArg || "length" in firstArg) {
-          return {
-            nodes: firstArg,
-            source: args[1],
-            positions: args[2],
-            path: args[3],
-            originalError: args[4],
-            extensions: args[5]
-          };
-        }
-        return firstArg;
-      }
-      var GraphQLError2 = class _GraphQLError extends Error {
-        /**
-         * An array of `{ line, column }` locations within the source GraphQL document
-         * which correspond to this error.
-         *
-         * Errors during validation often contain multiple locations, for example to
-         * point out two things with the same name. Errors during execution include a
-         * single location, the field which produced the error.
-         *
-         * Enumerable, and appears in the result of JSON.stringify().
-         */
-        /**
-         * An array describing the JSON-path into the execution response which
-         * corresponds to this error. Only included for errors during execution.
-         *
-         * Enumerable, and appears in the result of JSON.stringify().
-         */
-        /**
-         * An array of GraphQL AST Nodes corresponding to this error.
-         */
-        /**
-         * The source GraphQL document for the first location of this error.
-         *
-         * Note that if this Error represents more than one node, the source may not
-         * represent nodes after the first node.
-         */
-        /**
-         * An array of character offsets within the source GraphQL document
-         * which correspond to this error.
-         */
-        /**
-         * The original error thrown from a field resolver during execution.
-         */
-        /**
-         * Extension fields to add to the formatted error.
-         */
-        /**
-         * @deprecated Please use the `GraphQLErrorOptions` constructor overload instead.
-         */
-        constructor(message, ...rawArgs) {
-          var _this$nodes, _nodeLocations$, _ref;
-          const { nodes, source, positions, path, originalError, extensions } = toNormalizedOptions2(rawArgs);
-          super(message);
-          this.name = "GraphQLError";
-          this.path = path !== null && path !== void 0 ? path : void 0;
-          this.originalError = originalError !== null && originalError !== void 0 ? originalError : void 0;
-          this.nodes = undefinedIfEmpty2(
-            Array.isArray(nodes) ? nodes : nodes ? [nodes] : void 0
-          );
-          const nodeLocations = undefinedIfEmpty2(
-            (_this$nodes = this.nodes) === null || _this$nodes === void 0 ? void 0 : _this$nodes.map((node) => node.loc).filter((loc) => loc != null)
-          );
-          this.source = source !== null && source !== void 0 ? source : nodeLocations === null || nodeLocations === void 0 ? void 0 : (_nodeLocations$ = nodeLocations[0]) === null || _nodeLocations$ === void 0 ? void 0 : _nodeLocations$.source;
-          this.positions = positions !== null && positions !== void 0 ? positions : nodeLocations === null || nodeLocations === void 0 ? void 0 : nodeLocations.map((loc) => loc.start);
-          this.locations = positions && source ? positions.map((pos) => (0, _location.getLocation)(source, pos)) : nodeLocations === null || nodeLocations === void 0 ? void 0 : nodeLocations.map(
-            (loc) => (0, _location.getLocation)(loc.source, loc.start)
-          );
-          const originalExtensions = (0, _isObjectLike.isObjectLike)(
-            originalError === null || originalError === void 0 ? void 0 : originalError.extensions
-          ) ? originalError === null || originalError === void 0 ? void 0 : originalError.extensions : void 0;
-          this.extensions = (_ref = extensions !== null && extensions !== void 0 ? extensions : originalExtensions) !== null && _ref !== void 0 ? _ref : /* @__PURE__ */ Object.create(null);
-          Object.defineProperties(this, {
-            message: {
-              writable: true,
-              enumerable: true
-            },
-            name: {
-              enumerable: false
-            },
-            nodes: {
-              enumerable: false
-            },
-            source: {
-              enumerable: false
-            },
-            positions: {
-              enumerable: false
-            },
-            originalError: {
-              enumerable: false
-            }
-          });
-          if (originalError !== null && originalError !== void 0 && originalError.stack) {
-            Object.defineProperty(this, "stack", {
-              value: originalError.stack,
-              writable: true,
-              configurable: true
-            });
-          } else if (Error.captureStackTrace) {
-            Error.captureStackTrace(this, _GraphQLError);
-          } else {
-            Object.defineProperty(this, "stack", {
-              value: Error().stack,
-              writable: true,
-              configurable: true
-            });
-          }
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLError";
-        }
-        toString() {
-          let output = this.message;
-          if (this.nodes) {
-            for (const node of this.nodes) {
-              if (node.loc) {
-                output += "\n\n" + (0, _printLocation.printLocation)(node.loc);
-              }
-            }
-          } else if (this.source && this.locations) {
-            for (const location of this.locations) {
-              output += "\n\n" + (0, _printLocation.printSourceLocation)(this.source, location);
-            }
-          }
-          return output;
-        }
-        toJSON() {
-          const formattedError = {
-            message: this.message
-          };
-          if (this.locations != null) {
-            formattedError.locations = this.locations;
-          }
-          if (this.path != null) {
-            formattedError.path = this.path;
-          }
-          if (this.extensions != null && Object.keys(this.extensions).length > 0) {
-            formattedError.extensions = this.extensions;
-          }
-          return formattedError;
-        }
-      };
-      exports.GraphQLError = GraphQLError2;
-      function undefinedIfEmpty2(array) {
-        return array === void 0 || array.length === 0 ? void 0 : array;
-      }
-      function printError2(error) {
-        return error.toString();
-      }
-      function formatError2(error) {
-        return error.toJSON();
-      }
-    }
-  });
-
-  // node_modules/graphql/utilities/valueFromASTUntyped.js
-  var require_valueFromASTUntyped = __commonJS({
-    "node_modules/graphql/utilities/valueFromASTUntyped.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.valueFromASTUntyped = valueFromASTUntyped2;
-      var _keyValMap = require_keyValMap();
-      var _kinds = require_kinds();
-      function valueFromASTUntyped2(valueNode, variables) {
-        switch (valueNode.kind) {
-          case _kinds.Kind.NULL:
-            return null;
-          case _kinds.Kind.INT:
-            return parseInt(valueNode.value, 10);
-          case _kinds.Kind.FLOAT:
-            return parseFloat(valueNode.value);
-          case _kinds.Kind.STRING:
-          case _kinds.Kind.ENUM:
-          case _kinds.Kind.BOOLEAN:
-            return valueNode.value;
-          case _kinds.Kind.LIST:
-            return valueNode.values.map(
-              (node) => valueFromASTUntyped2(node, variables)
-            );
-          case _kinds.Kind.OBJECT:
-            return (0, _keyValMap.keyValMap)(
-              valueNode.fields,
-              (field) => field.name.value,
-              (field) => valueFromASTUntyped2(field.value, variables)
-            );
-          case _kinds.Kind.VARIABLE:
-            return variables === null || variables === void 0 ? void 0 : variables[valueNode.name.value];
-        }
-      }
-    }
-  });
-
-  // node_modules/graphql/type/assertName.js
-  var require_assertName = __commonJS({
-    "node_modules/graphql/type/assertName.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.assertEnumValueName = assertEnumValueName2;
-      exports.assertName = assertName2;
-      var _devAssert = require_devAssert();
-      var _GraphQLError = require_GraphQLError();
-      var _characterClasses = require_characterClasses();
-      function assertName2(name2) {
-        name2 != null || (0, _devAssert.devAssert)(false, "Must provide name.");
-        typeof name2 === "string" || (0, _devAssert.devAssert)(false, "Expected name to be a string.");
-        if (name2.length === 0) {
-          throw new _GraphQLError.GraphQLError(
-            "Expected name to be a non-empty string."
-          );
-        }
-        for (let i = 1; i < name2.length; ++i) {
-          if (!(0, _characterClasses.isNameContinue)(name2.charCodeAt(i))) {
-            throw new _GraphQLError.GraphQLError(
-              `Names must only contain [_a-zA-Z0-9] but "${name2}" does not.`
-            );
-          }
-        }
-        if (!(0, _characterClasses.isNameStart)(name2.charCodeAt(0))) {
-          throw new _GraphQLError.GraphQLError(
-            `Names must start with [_a-zA-Z] but "${name2}" does not.`
-          );
-        }
-        return name2;
-      }
-      function assertEnumValueName2(name2) {
-        if (name2 === "true" || name2 === "false" || name2 === "null") {
-          throw new _GraphQLError.GraphQLError(
-            `Enum values cannot be named: ${name2}`
-          );
-        }
-        return assertName2(name2);
-      }
-    }
-  });
-
-  // node_modules/graphql/type/definition.js
-  var require_definition = __commonJS({
-    "node_modules/graphql/type/definition.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.GraphQLUnionType = exports.GraphQLScalarType = exports.GraphQLObjectType = exports.GraphQLNonNull = exports.GraphQLList = exports.GraphQLInterfaceType = exports.GraphQLInputObjectType = exports.GraphQLEnumType = void 0;
-      exports.argsToArgsConfig = argsToArgsConfig2;
-      exports.assertAbstractType = assertAbstractType2;
-      exports.assertCompositeType = assertCompositeType2;
-      exports.assertEnumType = assertEnumType2;
-      exports.assertInputObjectType = assertInputObjectType2;
-      exports.assertInputType = assertInputType2;
-      exports.assertInterfaceType = assertInterfaceType2;
-      exports.assertLeafType = assertLeafType2;
-      exports.assertListType = assertListType2;
-      exports.assertNamedType = assertNamedType2;
-      exports.assertNonNullType = assertNonNullType2;
-      exports.assertNullableType = assertNullableType2;
-      exports.assertObjectType = assertObjectType2;
-      exports.assertOutputType = assertOutputType2;
-      exports.assertScalarType = assertScalarType2;
-      exports.assertType = assertType2;
-      exports.assertUnionType = assertUnionType2;
-      exports.assertWrappingType = assertWrappingType2;
-      exports.defineArguments = defineArguments2;
-      exports.getNamedType = getNamedType2;
-      exports.getNullableType = getNullableType2;
-      exports.isAbstractType = isAbstractType2;
-      exports.isCompositeType = isCompositeType2;
-      exports.isEnumType = isEnumType2;
-      exports.isInputObjectType = isInputObjectType2;
-      exports.isInputType = isInputType2;
-      exports.isInterfaceType = isInterfaceType2;
-      exports.isLeafType = isLeafType2;
-      exports.isListType = isListType2;
-      exports.isNamedType = isNamedType2;
-      exports.isNonNullType = isNonNullType2;
-      exports.isNullableType = isNullableType2;
-      exports.isObjectType = isObjectType2;
-      exports.isOutputType = isOutputType2;
-      exports.isRequiredArgument = isRequiredArgument2;
-      exports.isRequiredInputField = isRequiredInputField2;
-      exports.isScalarType = isScalarType2;
-      exports.isType = isType2;
-      exports.isUnionType = isUnionType2;
-      exports.isWrappingType = isWrappingType2;
-      exports.resolveObjMapThunk = resolveObjMapThunk2;
-      exports.resolveReadonlyArrayThunk = resolveReadonlyArrayThunk2;
-      var _devAssert = require_devAssert();
-      var _didYouMean = require_didYouMean();
-      var _identityFunc = require_identityFunc();
-      var _inspect = require_inspect();
-      var _instanceOf = require_instanceOf();
-      var _isObjectLike = require_isObjectLike();
-      var _keyMap = require_keyMap();
-      var _keyValMap = require_keyValMap();
-      var _mapValue = require_mapValue();
-      var _suggestionList = require_suggestionList();
-      var _toObjMap = require_toObjMap();
-      var _GraphQLError = require_GraphQLError();
-      var _kinds = require_kinds();
-      var _printer = require_printer();
-      var _valueFromASTUntyped = require_valueFromASTUntyped();
-      var _assertName = require_assertName();
-      function isType2(type2) {
-        return isScalarType2(type2) || isObjectType2(type2) || isInterfaceType2(type2) || isUnionType2(type2) || isEnumType2(type2) || isInputObjectType2(type2) || isListType2(type2) || isNonNullType2(type2);
-      }
-      function assertType2(type2) {
-        if (!isType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL type.`
-          );
-        }
-        return type2;
-      }
-      function isScalarType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLScalarType2);
-      }
-      function assertScalarType2(type2) {
-        if (!isScalarType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL Scalar type.`
-          );
-        }
-        return type2;
-      }
-      function isObjectType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLObjectType2);
-      }
-      function assertObjectType2(type2) {
-        if (!isObjectType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL Object type.`
-          );
-        }
-        return type2;
-      }
-      function isInterfaceType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLInterfaceType2);
-      }
-      function assertInterfaceType2(type2) {
-        if (!isInterfaceType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL Interface type.`
-          );
-        }
-        return type2;
-      }
-      function isUnionType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLUnionType2);
-      }
-      function assertUnionType2(type2) {
-        if (!isUnionType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL Union type.`
-          );
-        }
-        return type2;
-      }
-      function isEnumType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLEnumType2);
-      }
-      function assertEnumType2(type2) {
-        if (!isEnumType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL Enum type.`
-          );
-        }
-        return type2;
-      }
-      function isInputObjectType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLInputObjectType2);
-      }
-      function assertInputObjectType2(type2) {
-        if (!isInputObjectType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(
-              type2
-            )} to be a GraphQL Input Object type.`
-          );
-        }
-        return type2;
-      }
-      function isListType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLList2);
-      }
-      function assertListType2(type2) {
-        if (!isListType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL List type.`
-          );
-        }
-        return type2;
-      }
-      function isNonNullType2(type2) {
-        return (0, _instanceOf.instanceOf)(type2, GraphQLNonNull2);
-      }
-      function assertNonNullType2(type2) {
-        if (!isNonNullType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL Non-Null type.`
-          );
-        }
-        return type2;
-      }
-      function isInputType2(type2) {
-        return isScalarType2(type2) || isEnumType2(type2) || isInputObjectType2(type2) || isWrappingType2(type2) && isInputType2(type2.ofType);
-      }
-      function assertInputType2(type2) {
-        if (!isInputType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL input type.`
-          );
-        }
-        return type2;
-      }
-      function isOutputType2(type2) {
-        return isScalarType2(type2) || isObjectType2(type2) || isInterfaceType2(type2) || isUnionType2(type2) || isEnumType2(type2) || isWrappingType2(type2) && isOutputType2(type2.ofType);
-      }
-      function assertOutputType2(type2) {
-        if (!isOutputType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL output type.`
-          );
-        }
-        return type2;
-      }
-      function isLeafType2(type2) {
-        return isScalarType2(type2) || isEnumType2(type2);
-      }
-      function assertLeafType2(type2) {
-        if (!isLeafType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL leaf type.`
-          );
-        }
-        return type2;
-      }
-      function isCompositeType2(type2) {
-        return isObjectType2(type2) || isInterfaceType2(type2) || isUnionType2(type2);
-      }
-      function assertCompositeType2(type2) {
-        if (!isCompositeType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL composite type.`
-          );
-        }
-        return type2;
-      }
-      function isAbstractType2(type2) {
-        return isInterfaceType2(type2) || isUnionType2(type2);
-      }
-      function assertAbstractType2(type2) {
-        if (!isAbstractType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL abstract type.`
-          );
-        }
-        return type2;
-      }
-      var GraphQLList2 = class {
-        constructor(ofType) {
-          isType2(ofType) || (0, _devAssert.devAssert)(
-            false,
-            `Expected ${(0, _inspect.inspect)(ofType)} to be a GraphQL type.`
-          );
-          this.ofType = ofType;
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLList";
-        }
-        toString() {
-          return "[" + String(this.ofType) + "]";
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLList = GraphQLList2;
-      var GraphQLNonNull2 = class {
-        constructor(ofType) {
-          isNullableType2(ofType) || (0, _devAssert.devAssert)(
-            false,
-            `Expected ${(0, _inspect.inspect)(
-              ofType
-            )} to be a GraphQL nullable type.`
-          );
-          this.ofType = ofType;
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLNonNull";
-        }
-        toString() {
-          return String(this.ofType) + "!";
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLNonNull = GraphQLNonNull2;
-      function isWrappingType2(type2) {
-        return isListType2(type2) || isNonNullType2(type2);
-      }
-      function assertWrappingType2(type2) {
-        if (!isWrappingType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL wrapping type.`
-          );
-        }
-        return type2;
-      }
-      function isNullableType2(type2) {
-        return isType2(type2) && !isNonNullType2(type2);
-      }
-      function assertNullableType2(type2) {
-        if (!isNullableType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL nullable type.`
-          );
-        }
-        return type2;
-      }
-      function getNullableType2(type2) {
-        if (type2) {
-          return isNonNullType2(type2) ? type2.ofType : type2;
-        }
-      }
-      function isNamedType2(type2) {
-        return isScalarType2(type2) || isObjectType2(type2) || isInterfaceType2(type2) || isUnionType2(type2) || isEnumType2(type2) || isInputObjectType2(type2);
-      }
-      function assertNamedType2(type2) {
-        if (!isNamedType2(type2)) {
-          throw new Error(
-            `Expected ${(0, _inspect.inspect)(type2)} to be a GraphQL named type.`
-          );
-        }
-        return type2;
-      }
-      function getNamedType2(type2) {
-        if (type2) {
-          let unwrappedType = type2;
-          while (isWrappingType2(unwrappedType)) {
-            unwrappedType = unwrappedType.ofType;
-          }
-          return unwrappedType;
-        }
-      }
-      function resolveReadonlyArrayThunk2(thunk) {
-        return typeof thunk === "function" ? thunk() : thunk;
-      }
-      function resolveObjMapThunk2(thunk) {
-        return typeof thunk === "function" ? thunk() : thunk;
-      }
-      var GraphQLScalarType2 = class {
-        constructor(config) {
-          var _config$parseValue, _config$serialize, _config$parseLiteral, _config$extensionASTN;
-          const parseValue2 = (_config$parseValue = config.parseValue) !== null && _config$parseValue !== void 0 ? _config$parseValue : _identityFunc.identityFunc;
-          this.name = (0, _assertName.assertName)(config.name);
-          this.description = config.description;
-          this.specifiedByURL = config.specifiedByURL;
-          this.serialize = (_config$serialize = config.serialize) !== null && _config$serialize !== void 0 ? _config$serialize : _identityFunc.identityFunc;
-          this.parseValue = parseValue2;
-          this.parseLiteral = (_config$parseLiteral = config.parseLiteral) !== null && _config$parseLiteral !== void 0 ? _config$parseLiteral : (node, variables) => parseValue2(
-            (0, _valueFromASTUntyped.valueFromASTUntyped)(node, variables)
-          );
-          this.extensions = (0, _toObjMap.toObjMap)(config.extensions);
-          this.astNode = config.astNode;
-          this.extensionASTNodes = (_config$extensionASTN = config.extensionASTNodes) !== null && _config$extensionASTN !== void 0 ? _config$extensionASTN : [];
-          config.specifiedByURL == null || typeof config.specifiedByURL === "string" || (0, _devAssert.devAssert)(
-            false,
-            `${this.name} must provide "specifiedByURL" as a string, but got: ${(0, _inspect.inspect)(config.specifiedByURL)}.`
-          );
-          config.serialize == null || typeof config.serialize === "function" || (0, _devAssert.devAssert)(
-            false,
-            `${this.name} must provide "serialize" function. If this custom Scalar is also used as an input type, ensure "parseValue" and "parseLiteral" functions are also provided.`
-          );
-          if (config.parseLiteral) {
-            typeof config.parseValue === "function" && typeof config.parseLiteral === "function" || (0, _devAssert.devAssert)(
-              false,
-              `${this.name} must provide both "parseValue" and "parseLiteral" functions.`
-            );
-          }
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLScalarType";
-        }
-        toConfig() {
-          return {
-            name: this.name,
-            description: this.description,
-            specifiedByURL: this.specifiedByURL,
-            serialize: this.serialize,
-            parseValue: this.parseValue,
-            parseLiteral: this.parseLiteral,
-            extensions: this.extensions,
-            astNode: this.astNode,
-            extensionASTNodes: this.extensionASTNodes
-          };
-        }
-        toString() {
-          return this.name;
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLScalarType = GraphQLScalarType2;
-      var GraphQLObjectType2 = class {
-        constructor(config) {
-          var _config$extensionASTN2;
-          this.name = (0, _assertName.assertName)(config.name);
-          this.description = config.description;
-          this.isTypeOf = config.isTypeOf;
-          this.extensions = (0, _toObjMap.toObjMap)(config.extensions);
-          this.astNode = config.astNode;
-          this.extensionASTNodes = (_config$extensionASTN2 = config.extensionASTNodes) !== null && _config$extensionASTN2 !== void 0 ? _config$extensionASTN2 : [];
-          this._fields = () => defineFieldMap2(config);
-          this._interfaces = () => defineInterfaces2(config);
-          config.isTypeOf == null || typeof config.isTypeOf === "function" || (0, _devAssert.devAssert)(
-            false,
-            `${this.name} must provide "isTypeOf" as a function, but got: ${(0, _inspect.inspect)(config.isTypeOf)}.`
-          );
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLObjectType";
-        }
-        getFields() {
-          if (typeof this._fields === "function") {
-            this._fields = this._fields();
-          }
-          return this._fields;
-        }
-        getInterfaces() {
-          if (typeof this._interfaces === "function") {
-            this._interfaces = this._interfaces();
-          }
-          return this._interfaces;
-        }
-        toConfig() {
-          return {
-            name: this.name,
-            description: this.description,
-            interfaces: this.getInterfaces(),
-            fields: fieldsToFieldsConfig2(this.getFields()),
-            isTypeOf: this.isTypeOf,
-            extensions: this.extensions,
-            astNode: this.astNode,
-            extensionASTNodes: this.extensionASTNodes
-          };
-        }
-        toString() {
-          return this.name;
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLObjectType = GraphQLObjectType2;
-      function defineInterfaces2(config) {
-        var _config$interfaces;
-        const interfaces = resolveReadonlyArrayThunk2(
-          (_config$interfaces = config.interfaces) !== null && _config$interfaces !== void 0 ? _config$interfaces : []
-        );
-        Array.isArray(interfaces) || (0, _devAssert.devAssert)(
-          false,
-          `${config.name} interfaces must be an Array or a function which returns an Array.`
-        );
-        return interfaces;
-      }
-      function defineFieldMap2(config) {
-        const fieldMap = resolveObjMapThunk2(config.fields);
-        isPlainObj2(fieldMap) || (0, _devAssert.devAssert)(
-          false,
-          `${config.name} fields must be an object with field names as keys or a function which returns such an object.`
-        );
-        return (0, _mapValue.mapValue)(fieldMap, (fieldConfig, fieldName) => {
-          var _fieldConfig$args;
-          isPlainObj2(fieldConfig) || (0, _devAssert.devAssert)(
-            false,
-            `${config.name}.${fieldName} field config must be an object.`
-          );
-          fieldConfig.resolve == null || typeof fieldConfig.resolve === "function" || (0, _devAssert.devAssert)(
-            false,
-            `${config.name}.${fieldName} field resolver must be a function if provided, but got: ${(0, _inspect.inspect)(fieldConfig.resolve)}.`
-          );
-          const argsConfig = (_fieldConfig$args = fieldConfig.args) !== null && _fieldConfig$args !== void 0 ? _fieldConfig$args : {};
-          isPlainObj2(argsConfig) || (0, _devAssert.devAssert)(
-            false,
-            `${config.name}.${fieldName} args must be an object with argument names as keys.`
-          );
-          return {
-            name: (0, _assertName.assertName)(fieldName),
-            description: fieldConfig.description,
-            type: fieldConfig.type,
-            args: defineArguments2(argsConfig),
-            resolve: fieldConfig.resolve,
-            subscribe: fieldConfig.subscribe,
-            deprecationReason: fieldConfig.deprecationReason,
-            extensions: (0, _toObjMap.toObjMap)(fieldConfig.extensions),
-            astNode: fieldConfig.astNode
-          };
-        });
-      }
-      function defineArguments2(config) {
-        return Object.entries(config).map(([argName, argConfig]) => ({
-          name: (0, _assertName.assertName)(argName),
-          description: argConfig.description,
-          type: argConfig.type,
-          defaultValue: argConfig.defaultValue,
-          deprecationReason: argConfig.deprecationReason,
-          extensions: (0, _toObjMap.toObjMap)(argConfig.extensions),
-          astNode: argConfig.astNode
-        }));
-      }
-      function isPlainObj2(obj) {
-        return (0, _isObjectLike.isObjectLike)(obj) && !Array.isArray(obj);
-      }
-      function fieldsToFieldsConfig2(fields) {
-        return (0, _mapValue.mapValue)(fields, (field) => ({
-          description: field.description,
-          type: field.type,
-          args: argsToArgsConfig2(field.args),
-          resolve: field.resolve,
-          subscribe: field.subscribe,
-          deprecationReason: field.deprecationReason,
-          extensions: field.extensions,
-          astNode: field.astNode
-        }));
-      }
-      function argsToArgsConfig2(args) {
-        return (0, _keyValMap.keyValMap)(
-          args,
-          (arg) => arg.name,
-          (arg) => ({
-            description: arg.description,
-            type: arg.type,
-            defaultValue: arg.defaultValue,
-            deprecationReason: arg.deprecationReason,
-            extensions: arg.extensions,
-            astNode: arg.astNode
-          })
-        );
-      }
-      function isRequiredArgument2(arg) {
-        return isNonNullType2(arg.type) && arg.defaultValue === void 0;
-      }
-      var GraphQLInterfaceType2 = class {
-        constructor(config) {
-          var _config$extensionASTN3;
-          this.name = (0, _assertName.assertName)(config.name);
-          this.description = config.description;
-          this.resolveType = config.resolveType;
-          this.extensions = (0, _toObjMap.toObjMap)(config.extensions);
-          this.astNode = config.astNode;
-          this.extensionASTNodes = (_config$extensionASTN3 = config.extensionASTNodes) !== null && _config$extensionASTN3 !== void 0 ? _config$extensionASTN3 : [];
-          this._fields = defineFieldMap2.bind(void 0, config);
-          this._interfaces = defineInterfaces2.bind(void 0, config);
-          config.resolveType == null || typeof config.resolveType === "function" || (0, _devAssert.devAssert)(
-            false,
-            `${this.name} must provide "resolveType" as a function, but got: ${(0, _inspect.inspect)(config.resolveType)}.`
-          );
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLInterfaceType";
-        }
-        getFields() {
-          if (typeof this._fields === "function") {
-            this._fields = this._fields();
-          }
-          return this._fields;
-        }
-        getInterfaces() {
-          if (typeof this._interfaces === "function") {
-            this._interfaces = this._interfaces();
-          }
-          return this._interfaces;
-        }
-        toConfig() {
-          return {
-            name: this.name,
-            description: this.description,
-            interfaces: this.getInterfaces(),
-            fields: fieldsToFieldsConfig2(this.getFields()),
-            resolveType: this.resolveType,
-            extensions: this.extensions,
-            astNode: this.astNode,
-            extensionASTNodes: this.extensionASTNodes
-          };
-        }
-        toString() {
-          return this.name;
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLInterfaceType = GraphQLInterfaceType2;
-      var GraphQLUnionType2 = class {
-        constructor(config) {
-          var _config$extensionASTN4;
-          this.name = (0, _assertName.assertName)(config.name);
-          this.description = config.description;
-          this.resolveType = config.resolveType;
-          this.extensions = (0, _toObjMap.toObjMap)(config.extensions);
-          this.astNode = config.astNode;
-          this.extensionASTNodes = (_config$extensionASTN4 = config.extensionASTNodes) !== null && _config$extensionASTN4 !== void 0 ? _config$extensionASTN4 : [];
-          this._types = defineTypes2.bind(void 0, config);
-          config.resolveType == null || typeof config.resolveType === "function" || (0, _devAssert.devAssert)(
-            false,
-            `${this.name} must provide "resolveType" as a function, but got: ${(0, _inspect.inspect)(config.resolveType)}.`
-          );
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLUnionType";
-        }
-        getTypes() {
-          if (typeof this._types === "function") {
-            this._types = this._types();
-          }
-          return this._types;
-        }
-        toConfig() {
-          return {
-            name: this.name,
-            description: this.description,
-            types: this.getTypes(),
-            resolveType: this.resolveType,
-            extensions: this.extensions,
-            astNode: this.astNode,
-            extensionASTNodes: this.extensionASTNodes
-          };
-        }
-        toString() {
-          return this.name;
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLUnionType = GraphQLUnionType2;
-      function defineTypes2(config) {
-        const types = resolveReadonlyArrayThunk2(config.types);
-        Array.isArray(types) || (0, _devAssert.devAssert)(
-          false,
-          `Must provide Array of types or a function which returns such an array for Union ${config.name}.`
-        );
-        return types;
-      }
-      var GraphQLEnumType2 = class {
-        /* <T> */
-        constructor(config) {
-          var _config$extensionASTN5;
-          this.name = (0, _assertName.assertName)(config.name);
-          this.description = config.description;
-          this.extensions = (0, _toObjMap.toObjMap)(config.extensions);
-          this.astNode = config.astNode;
-          this.extensionASTNodes = (_config$extensionASTN5 = config.extensionASTNodes) !== null && _config$extensionASTN5 !== void 0 ? _config$extensionASTN5 : [];
-          this._values = defineEnumValues2(this.name, config.values);
-          this._valueLookup = new Map(
-            this._values.map((enumValue) => [enumValue.value, enumValue])
-          );
-          this._nameLookup = (0, _keyMap.keyMap)(this._values, (value) => value.name);
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLEnumType";
-        }
-        getValues() {
-          return this._values;
-        }
-        getValue(name2) {
-          return this._nameLookup[name2];
-        }
-        serialize(outputValue) {
-          const enumValue = this._valueLookup.get(outputValue);
-          if (enumValue === void 0) {
-            throw new _GraphQLError.GraphQLError(
-              `Enum "${this.name}" cannot represent value: ${(0, _inspect.inspect)(
-                outputValue
-              )}`
-            );
-          }
-          return enumValue.name;
-        }
-        parseValue(inputValue) {
-          if (typeof inputValue !== "string") {
-            const valueStr = (0, _inspect.inspect)(inputValue);
-            throw new _GraphQLError.GraphQLError(
-              `Enum "${this.name}" cannot represent non-string value: ${valueStr}.` + didYouMeanEnumValue2(this, valueStr)
-            );
-          }
-          const enumValue = this.getValue(inputValue);
-          if (enumValue == null) {
-            throw new _GraphQLError.GraphQLError(
-              `Value "${inputValue}" does not exist in "${this.name}" enum.` + didYouMeanEnumValue2(this, inputValue)
-            );
-          }
-          return enumValue.value;
-        }
-        parseLiteral(valueNode, _variables) {
-          if (valueNode.kind !== _kinds.Kind.ENUM) {
-            const valueStr = (0, _printer.print)(valueNode);
-            throw new _GraphQLError.GraphQLError(
-              `Enum "${this.name}" cannot represent non-enum value: ${valueStr}.` + didYouMeanEnumValue2(this, valueStr),
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          const enumValue = this.getValue(valueNode.value);
-          if (enumValue == null) {
-            const valueStr = (0, _printer.print)(valueNode);
-            throw new _GraphQLError.GraphQLError(
-              `Value "${valueStr}" does not exist in "${this.name}" enum.` + didYouMeanEnumValue2(this, valueStr),
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          return enumValue.value;
-        }
-        toConfig() {
-          const values = (0, _keyValMap.keyValMap)(
-            this.getValues(),
-            (value) => value.name,
-            (value) => ({
-              description: value.description,
-              value: value.value,
-              deprecationReason: value.deprecationReason,
-              extensions: value.extensions,
-              astNode: value.astNode
-            })
-          );
-          return {
-            name: this.name,
-            description: this.description,
-            values,
-            extensions: this.extensions,
-            astNode: this.astNode,
-            extensionASTNodes: this.extensionASTNodes
-          };
-        }
-        toString() {
-          return this.name;
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLEnumType = GraphQLEnumType2;
-      function didYouMeanEnumValue2(enumType, unknownValueStr) {
-        const allNames = enumType.getValues().map((value) => value.name);
-        const suggestedValues = (0, _suggestionList.suggestionList)(
-          unknownValueStr,
-          allNames
-        );
-        return (0, _didYouMean.didYouMean)("the enum value", suggestedValues);
-      }
-      function defineEnumValues2(typeName, valueMap) {
-        isPlainObj2(valueMap) || (0, _devAssert.devAssert)(
-          false,
-          `${typeName} values must be an object with value names as keys.`
-        );
-        return Object.entries(valueMap).map(([valueName, valueConfig]) => {
-          isPlainObj2(valueConfig) || (0, _devAssert.devAssert)(
-            false,
-            `${typeName}.${valueName} must refer to an object with a "value" key representing an internal value but got: ${(0, _inspect.inspect)(
-              valueConfig
-            )}.`
-          );
-          return {
-            name: (0, _assertName.assertEnumValueName)(valueName),
-            description: valueConfig.description,
-            value: valueConfig.value !== void 0 ? valueConfig.value : valueName,
-            deprecationReason: valueConfig.deprecationReason,
-            extensions: (0, _toObjMap.toObjMap)(valueConfig.extensions),
-            astNode: valueConfig.astNode
-          };
-        });
-      }
-      var GraphQLInputObjectType2 = class {
-        constructor(config) {
-          var _config$extensionASTN6;
-          this.name = (0, _assertName.assertName)(config.name);
-          this.description = config.description;
-          this.extensions = (0, _toObjMap.toObjMap)(config.extensions);
-          this.astNode = config.astNode;
-          this.extensionASTNodes = (_config$extensionASTN6 = config.extensionASTNodes) !== null && _config$extensionASTN6 !== void 0 ? _config$extensionASTN6 : [];
-          this._fields = defineInputFieldMap2.bind(void 0, config);
-        }
-        get [Symbol.toStringTag]() {
-          return "GraphQLInputObjectType";
-        }
-        getFields() {
-          if (typeof this._fields === "function") {
-            this._fields = this._fields();
-          }
-          return this._fields;
-        }
-        toConfig() {
-          const fields = (0, _mapValue.mapValue)(this.getFields(), (field) => ({
-            description: field.description,
-            type: field.type,
-            defaultValue: field.defaultValue,
-            deprecationReason: field.deprecationReason,
-            extensions: field.extensions,
-            astNode: field.astNode
-          }));
-          return {
-            name: this.name,
-            description: this.description,
-            fields,
-            extensions: this.extensions,
-            astNode: this.astNode,
-            extensionASTNodes: this.extensionASTNodes
-          };
-        }
-        toString() {
-          return this.name;
-        }
-        toJSON() {
-          return this.toString();
-        }
-      };
-      exports.GraphQLInputObjectType = GraphQLInputObjectType2;
-      function defineInputFieldMap2(config) {
-        const fieldMap = resolveObjMapThunk2(config.fields);
-        isPlainObj2(fieldMap) || (0, _devAssert.devAssert)(
-          false,
-          `${config.name} fields must be an object with field names as keys or a function which returns such an object.`
-        );
-        return (0, _mapValue.mapValue)(fieldMap, (fieldConfig, fieldName) => {
-          !("resolve" in fieldConfig) || (0, _devAssert.devAssert)(
-            false,
-            `${config.name}.${fieldName} field has a resolve property, but Input Types cannot define resolvers.`
-          );
-          return {
-            name: (0, _assertName.assertName)(fieldName),
-            description: fieldConfig.description,
-            type: fieldConfig.type,
-            defaultValue: fieldConfig.defaultValue,
-            deprecationReason: fieldConfig.deprecationReason,
-            extensions: (0, _toObjMap.toObjMap)(fieldConfig.extensions),
-            astNode: fieldConfig.astNode
-          };
-        });
-      }
-      function isRequiredInputField2(field) {
-        return isNonNullType2(field.type) && field.defaultValue === void 0;
-      }
-    }
-  });
-
-  // node_modules/graphql/type/scalars.js
-  var require_scalars = __commonJS({
-    "node_modules/graphql/type/scalars.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.GraphQLString = exports.GraphQLInt = exports.GraphQLID = exports.GraphQLFloat = exports.GraphQLBoolean = exports.GRAPHQL_MIN_INT = exports.GRAPHQL_MAX_INT = void 0;
-      exports.isSpecifiedScalarType = isSpecifiedScalarType2;
-      exports.specifiedScalarTypes = void 0;
-      var _inspect = require_inspect();
-      var _isObjectLike = require_isObjectLike();
-      var _GraphQLError = require_GraphQLError();
-      var _kinds = require_kinds();
-      var _printer = require_printer();
-      var _definition = require_definition();
-      var GRAPHQL_MAX_INT2 = 2147483647;
-      exports.GRAPHQL_MAX_INT = GRAPHQL_MAX_INT2;
-      var GRAPHQL_MIN_INT2 = -2147483648;
-      exports.GRAPHQL_MIN_INT = GRAPHQL_MIN_INT2;
-      var GraphQLInt2 = new _definition.GraphQLScalarType({
-        name: "Int",
-        description: "The `Int` scalar type represents non-fractional signed whole numeric values. Int can represent values between -(2^31) and 2^31 - 1.",
-        serialize(outputValue) {
-          const coercedValue = serializeObject2(outputValue);
-          if (typeof coercedValue === "boolean") {
-            return coercedValue ? 1 : 0;
-          }
-          let num = coercedValue;
-          if (typeof coercedValue === "string" && coercedValue !== "") {
-            num = Number(coercedValue);
-          }
-          if (typeof num !== "number" || !Number.isInteger(num)) {
-            throw new _GraphQLError.GraphQLError(
-              `Int cannot represent non-integer value: ${(0, _inspect.inspect)(
-                coercedValue
-              )}`
-            );
-          }
-          if (num > GRAPHQL_MAX_INT2 || num < GRAPHQL_MIN_INT2) {
-            throw new _GraphQLError.GraphQLError(
-              "Int cannot represent non 32-bit signed integer value: " + (0, _inspect.inspect)(coercedValue)
-            );
-          }
-          return num;
-        },
-        parseValue(inputValue) {
-          if (typeof inputValue !== "number" || !Number.isInteger(inputValue)) {
-            throw new _GraphQLError.GraphQLError(
-              `Int cannot represent non-integer value: ${(0, _inspect.inspect)(
-                inputValue
-              )}`
-            );
-          }
-          if (inputValue > GRAPHQL_MAX_INT2 || inputValue < GRAPHQL_MIN_INT2) {
-            throw new _GraphQLError.GraphQLError(
-              `Int cannot represent non 32-bit signed integer value: ${inputValue}`
-            );
-          }
-          return inputValue;
-        },
-        parseLiteral(valueNode) {
-          if (valueNode.kind !== _kinds.Kind.INT) {
-            throw new _GraphQLError.GraphQLError(
-              `Int cannot represent non-integer value: ${(0, _printer.print)(
-                valueNode
-              )}`,
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          const num = parseInt(valueNode.value, 10);
-          if (num > GRAPHQL_MAX_INT2 || num < GRAPHQL_MIN_INT2) {
-            throw new _GraphQLError.GraphQLError(
-              `Int cannot represent non 32-bit signed integer value: ${valueNode.value}`,
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          return num;
-        }
-      });
-      exports.GraphQLInt = GraphQLInt2;
-      var GraphQLFloat2 = new _definition.GraphQLScalarType({
-        name: "Float",
-        description: "The `Float` scalar type represents signed double-precision fractional values as specified by [IEEE 754](https://en.wikipedia.org/wiki/IEEE_floating_point).",
-        serialize(outputValue) {
-          const coercedValue = serializeObject2(outputValue);
-          if (typeof coercedValue === "boolean") {
-            return coercedValue ? 1 : 0;
-          }
-          let num = coercedValue;
-          if (typeof coercedValue === "string" && coercedValue !== "") {
-            num = Number(coercedValue);
-          }
-          if (typeof num !== "number" || !Number.isFinite(num)) {
-            throw new _GraphQLError.GraphQLError(
-              `Float cannot represent non numeric value: ${(0, _inspect.inspect)(
-                coercedValue
-              )}`
-            );
-          }
-          return num;
-        },
-        parseValue(inputValue) {
-          if (typeof inputValue !== "number" || !Number.isFinite(inputValue)) {
-            throw new _GraphQLError.GraphQLError(
-              `Float cannot represent non numeric value: ${(0, _inspect.inspect)(
-                inputValue
-              )}`
-            );
-          }
-          return inputValue;
-        },
-        parseLiteral(valueNode) {
-          if (valueNode.kind !== _kinds.Kind.FLOAT && valueNode.kind !== _kinds.Kind.INT) {
-            throw new _GraphQLError.GraphQLError(
-              `Float cannot represent non numeric value: ${(0, _printer.print)(
-                valueNode
-              )}`,
-              valueNode
-            );
-          }
-          return parseFloat(valueNode.value);
-        }
-      });
-      exports.GraphQLFloat = GraphQLFloat2;
-      var GraphQLString2 = new _definition.GraphQLScalarType({
-        name: "String",
-        description: "The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.",
-        serialize(outputValue) {
-          const coercedValue = serializeObject2(outputValue);
-          if (typeof coercedValue === "string") {
-            return coercedValue;
-          }
-          if (typeof coercedValue === "boolean") {
-            return coercedValue ? "true" : "false";
-          }
-          if (typeof coercedValue === "number" && Number.isFinite(coercedValue)) {
-            return coercedValue.toString();
-          }
-          throw new _GraphQLError.GraphQLError(
-            `String cannot represent value: ${(0, _inspect.inspect)(outputValue)}`
-          );
-        },
-        parseValue(inputValue) {
-          if (typeof inputValue !== "string") {
-            throw new _GraphQLError.GraphQLError(
-              `String cannot represent a non string value: ${(0, _inspect.inspect)(
-                inputValue
-              )}`
-            );
-          }
-          return inputValue;
-        },
-        parseLiteral(valueNode) {
-          if (valueNode.kind !== _kinds.Kind.STRING) {
-            throw new _GraphQLError.GraphQLError(
-              `String cannot represent a non string value: ${(0, _printer.print)(
-                valueNode
-              )}`,
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          return valueNode.value;
-        }
-      });
-      exports.GraphQLString = GraphQLString2;
-      var GraphQLBoolean2 = new _definition.GraphQLScalarType({
-        name: "Boolean",
-        description: "The `Boolean` scalar type represents `true` or `false`.",
-        serialize(outputValue) {
-          const coercedValue = serializeObject2(outputValue);
-          if (typeof coercedValue === "boolean") {
-            return coercedValue;
-          }
-          if (Number.isFinite(coercedValue)) {
-            return coercedValue !== 0;
-          }
-          throw new _GraphQLError.GraphQLError(
-            `Boolean cannot represent a non boolean value: ${(0, _inspect.inspect)(
-              coercedValue
-            )}`
-          );
-        },
-        parseValue(inputValue) {
-          if (typeof inputValue !== "boolean") {
-            throw new _GraphQLError.GraphQLError(
-              `Boolean cannot represent a non boolean value: ${(0, _inspect.inspect)(
-                inputValue
-              )}`
-            );
-          }
-          return inputValue;
-        },
-        parseLiteral(valueNode) {
-          if (valueNode.kind !== _kinds.Kind.BOOLEAN) {
-            throw new _GraphQLError.GraphQLError(
-              `Boolean cannot represent a non boolean value: ${(0, _printer.print)(
-                valueNode
-              )}`,
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          return valueNode.value;
-        }
-      });
-      exports.GraphQLBoolean = GraphQLBoolean2;
-      var GraphQLID2 = new _definition.GraphQLScalarType({
-        name: "ID",
-        description: 'The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID.',
-        serialize(outputValue) {
-          const coercedValue = serializeObject2(outputValue);
-          if (typeof coercedValue === "string") {
-            return coercedValue;
-          }
-          if (Number.isInteger(coercedValue)) {
-            return String(coercedValue);
-          }
-          throw new _GraphQLError.GraphQLError(
-            `ID cannot represent value: ${(0, _inspect.inspect)(outputValue)}`
-          );
-        },
-        parseValue(inputValue) {
-          if (typeof inputValue === "string") {
-            return inputValue;
-          }
-          if (typeof inputValue === "number" && Number.isInteger(inputValue)) {
-            return inputValue.toString();
-          }
-          throw new _GraphQLError.GraphQLError(
-            `ID cannot represent value: ${(0, _inspect.inspect)(inputValue)}`
-          );
-        },
-        parseLiteral(valueNode) {
-          if (valueNode.kind !== _kinds.Kind.STRING && valueNode.kind !== _kinds.Kind.INT) {
-            throw new _GraphQLError.GraphQLError(
-              "ID cannot represent a non-string and non-integer value: " + (0, _printer.print)(valueNode),
-              {
-                nodes: valueNode
-              }
-            );
-          }
-          return valueNode.value;
-        }
-      });
-      exports.GraphQLID = GraphQLID2;
-      var specifiedScalarTypes2 = Object.freeze([
-        GraphQLString2,
-        GraphQLInt2,
-        GraphQLFloat2,
-        GraphQLBoolean2,
-        GraphQLID2
-      ]);
-      exports.specifiedScalarTypes = specifiedScalarTypes2;
-      function isSpecifiedScalarType2(type2) {
-        return specifiedScalarTypes2.some(({ name: name2 }) => type2.name === name2);
-      }
-      function serializeObject2(outputValue) {
-        if ((0, _isObjectLike.isObjectLike)(outputValue)) {
-          if (typeof outputValue.valueOf === "function") {
-            const valueOfResult = outputValue.valueOf();
-            if (!(0, _isObjectLike.isObjectLike)(valueOfResult)) {
-              return valueOfResult;
-            }
-          }
-          if (typeof outputValue.toJSON === "function") {
-            return outputValue.toJSON();
-          }
-        }
-        return outputValue;
-      }
-    }
-  });
-
-  // node_modules/graphql/utilities/astFromValue.js
-  var require_astFromValue = __commonJS({
-    "node_modules/graphql/utilities/astFromValue.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.astFromValue = astFromValue2;
-      var _inspect = require_inspect();
-      var _invariant = require_invariant();
-      var _isIterableObject = require_isIterableObject();
-      var _isObjectLike = require_isObjectLike();
-      var _kinds = require_kinds();
-      var _definition = require_definition();
-      var _scalars = require_scalars();
-      function astFromValue2(value, type2) {
-        if ((0, _definition.isNonNullType)(type2)) {
-          const astValue = astFromValue2(value, type2.ofType);
-          if ((astValue === null || astValue === void 0 ? void 0 : astValue.kind) === _kinds.Kind.NULL) {
-            return null;
-          }
-          return astValue;
-        }
-        if (value === null) {
-          return {
-            kind: _kinds.Kind.NULL
-          };
-        }
-        if (value === void 0) {
-          return null;
-        }
-        if ((0, _definition.isListType)(type2)) {
-          const itemType = type2.ofType;
-          if ((0, _isIterableObject.isIterableObject)(value)) {
-            const valuesNodes = [];
-            for (const item of value) {
-              const itemNode = astFromValue2(item, itemType);
-              if (itemNode != null) {
-                valuesNodes.push(itemNode);
-              }
-            }
-            return {
-              kind: _kinds.Kind.LIST,
-              values: valuesNodes
-            };
-          }
-          return astFromValue2(value, itemType);
-        }
-        if ((0, _definition.isInputObjectType)(type2)) {
-          if (!(0, _isObjectLike.isObjectLike)(value)) {
-            return null;
-          }
-          const fieldNodes = [];
-          for (const field of Object.values(type2.getFields())) {
-            const fieldValue = astFromValue2(value[field.name], field.type);
-            if (fieldValue) {
-              fieldNodes.push({
-                kind: _kinds.Kind.OBJECT_FIELD,
-                name: {
-                  kind: _kinds.Kind.NAME,
-                  value: field.name
-                },
-                value: fieldValue
-              });
-            }
-          }
-          return {
-            kind: _kinds.Kind.OBJECT,
-            fields: fieldNodes
-          };
-        }
-        if ((0, _definition.isLeafType)(type2)) {
-          const serialized = type2.serialize(value);
-          if (serialized == null) {
-            return null;
-          }
-          if (typeof serialized === "boolean") {
-            return {
-              kind: _kinds.Kind.BOOLEAN,
-              value: serialized
-            };
-          }
-          if (typeof serialized === "number" && Number.isFinite(serialized)) {
-            const stringNum = String(serialized);
-            return integerStringRegExp2.test(stringNum) ? {
-              kind: _kinds.Kind.INT,
-              value: stringNum
-            } : {
-              kind: _kinds.Kind.FLOAT,
-              value: stringNum
-            };
-          }
-          if (typeof serialized === "string") {
-            if ((0, _definition.isEnumType)(type2)) {
-              return {
-                kind: _kinds.Kind.ENUM,
-                value: serialized
-              };
-            }
-            if (type2 === _scalars.GraphQLID && integerStringRegExp2.test(serialized)) {
-              return {
-                kind: _kinds.Kind.INT,
-                value: serialized
-              };
-            }
-            return {
-              kind: _kinds.Kind.STRING,
-              value: serialized
-            };
-          }
-          throw new TypeError(
-            `Cannot convert value to AST: ${(0, _inspect.inspect)(serialized)}.`
-          );
-        }
-        (0, _invariant.invariant)(
-          false,
-          "Unexpected input type: " + (0, _inspect.inspect)(type2)
-        );
-      }
-      var integerStringRegExp2 = /^-?(?:0|[1-9][0-9]*)$/;
-    }
-  });
-
-  // node_modules/graphql/type/introspection.js
-  var require_introspection = __commonJS({
-    "node_modules/graphql/type/introspection.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", {
-        value: true
-      });
-      exports.introspectionTypes = exports.__TypeKind = exports.__Type = exports.__Schema = exports.__InputValue = exports.__Field = exports.__EnumValue = exports.__DirectiveLocation = exports.__Directive = exports.TypeNameMetaFieldDef = exports.TypeMetaFieldDef = exports.TypeKind = exports.SchemaMetaFieldDef = void 0;
-      exports.isIntrospectionType = isIntrospectionType2;
-      var _inspect = require_inspect();
-      var _invariant = require_invariant();
-      var _directiveLocation = require_directiveLocation();
-      var _printer = require_printer();
-      var _astFromValue = require_astFromValue();
-      var _definition = require_definition();
-      var _scalars = require_scalars();
-      var __Schema2 = new _definition.GraphQLObjectType({
-        name: "__Schema",
-        description: "A GraphQL Schema defines the capabilities of a GraphQL server. It exposes all available types and directives on the server, as well as the entry points for query, mutation, and subscription operations.",
-        fields: () => ({
-          description: {
-            type: _scalars.GraphQLString,
-            resolve: (schema) => schema.description
-          },
-          types: {
-            description: "A list of all types supported by this server.",
-            type: new _definition.GraphQLNonNull(
-              new _definition.GraphQLList(new _definition.GraphQLNonNull(__Type2))
-            ),
-            resolve(schema) {
-              return Object.values(schema.getTypeMap());
-            }
-          },
-          queryType: {
-            description: "The type that query operations will be rooted at.",
-            type: new _definition.GraphQLNonNull(__Type2),
-            resolve: (schema) => schema.getQueryType()
-          },
-          mutationType: {
-            description: "If this server supports mutation, the type that mutation operations will be rooted at.",
-            type: __Type2,
-            resolve: (schema) => schema.getMutationType()
-          },
-          subscriptionType: {
-            description: "If this server support subscription, the type that subscription operations will be rooted at.",
-            type: __Type2,
-            resolve: (schema) => schema.getSubscriptionType()
-          },
-          directives: {
-            description: "A list of all directives supported by this server.",
-            type: new _definition.GraphQLNonNull(
-              new _definition.GraphQLList(
-                new _definition.GraphQLNonNull(__Directive2)
-              )
-            ),
-            resolve: (schema) => schema.getDirectives()
-          }
-        })
-      });
-      exports.__Schema = __Schema2;
-      var __Directive2 = new _definition.GraphQLObjectType({
-        name: "__Directive",
-        description: "A Directive provides a way to describe alternate runtime execution and type validation behavior in a GraphQL document.\n\nIn some cases, you need to provide options to alter GraphQL's execution behavior in ways field arguments will not suffice, such as conditionally including or skipping a field. Directives provide this by describing additional information to the executor.",
-        fields: () => ({
-          name: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLString),
-            resolve: (directive) => directive.name
-          },
-          description: {
-            type: _scalars.GraphQLString,
-            resolve: (directive) => directive.description
-          },
-          isRepeatable: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLBoolean),
-            resolve: (directive) => directive.isRepeatable
-          },
-          locations: {
-            type: new _definition.GraphQLNonNull(
-              new _definition.GraphQLList(
-                new _definition.GraphQLNonNull(__DirectiveLocation2)
-              )
-            ),
-            resolve: (directive) => directive.locations
-          },
-          args: {
-            type: new _definition.GraphQLNonNull(
-              new _definition.GraphQLList(
-                new _definition.GraphQLNonNull(__InputValue2)
-              )
-            ),
-            args: {
-              includeDeprecated: {
-                type: _scalars.GraphQLBoolean,
-                defaultValue: false
-              }
-            },
-            resolve(field, { includeDeprecated }) {
-              return includeDeprecated ? field.args : field.args.filter((arg) => arg.deprecationReason == null);
-            }
-          }
-        })
-      });
-      exports.__Directive = __Directive2;
-      var __DirectiveLocation2 = new _definition.GraphQLEnumType({
-        name: "__DirectiveLocation",
-        description: "A Directive can be adjacent to many parts of the GraphQL language, a __DirectiveLocation describes one such possible adjacencies.",
-        values: {
-          QUERY: {
-            value: _directiveLocation.DirectiveLocation.QUERY,
-            description: "Location adjacent to a query operation."
-          },
-          MUTATION: {
-            value: _directiveLocation.DirectiveLocation.MUTATION,
-            description: "Location adjacent to a mutation operation."
-          },
-          SUBSCRIPTION: {
-            value: _directiveLocation.DirectiveLocation.SUBSCRIPTION,
-            description: "Location adjacent to a subscription operation."
-          },
-          FIELD: {
-            value: _directiveLocation.DirectiveLocation.FIELD,
-            description: "Location adjacent to a field."
-          },
-          FRAGMENT_DEFINITION: {
-            value: _directiveLocation.DirectiveLocation.FRAGMENT_DEFINITION,
-            description: "Location adjacent to a fragment definition."
-          },
-          FRAGMENT_SPREAD: {
-            value: _directiveLocation.DirectiveLocation.FRAGMENT_SPREAD,
-            description: "Location adjacent to a fragment spread."
-          },
-          INLINE_FRAGMENT: {
-            value: _directiveLocation.DirectiveLocation.INLINE_FRAGMENT,
-            description: "Location adjacent to an inline fragment."
-          },
-          VARIABLE_DEFINITION: {
-            value: _directiveLocation.DirectiveLocation.VARIABLE_DEFINITION,
-            description: "Location adjacent to a variable definition."
-          },
-          SCHEMA: {
-            value: _directiveLocation.DirectiveLocation.SCHEMA,
-            description: "Location adjacent to a schema definition."
-          },
-          SCALAR: {
-            value: _directiveLocation.DirectiveLocation.SCALAR,
-            description: "Location adjacent to a scalar definition."
-          },
-          OBJECT: {
-            value: _directiveLocation.DirectiveLocation.OBJECT,
-            description: "Location adjacent to an object type definition."
-          },
-          FIELD_DEFINITION: {
-            value: _directiveLocation.DirectiveLocation.FIELD_DEFINITION,
-            description: "Location adjacent to a field definition."
-          },
-          ARGUMENT_DEFINITION: {
-            value: _directiveLocation.DirectiveLocation.ARGUMENT_DEFINITION,
-            description: "Location adjacent to an argument definition."
-          },
-          INTERFACE: {
-            value: _directiveLocation.DirectiveLocation.INTERFACE,
-            description: "Location adjacent to an interface definition."
-          },
-          UNION: {
-            value: _directiveLocation.DirectiveLocation.UNION,
-            description: "Location adjacent to a union definition."
-          },
-          ENUM: {
-            value: _directiveLocation.DirectiveLocation.ENUM,
-            description: "Location adjacent to an enum definition."
-          },
-          ENUM_VALUE: {
-            value: _directiveLocation.DirectiveLocation.ENUM_VALUE,
-            description: "Location adjacent to an enum value definition."
-          },
-          INPUT_OBJECT: {
-            value: _directiveLocation.DirectiveLocation.INPUT_OBJECT,
-            description: "Location adjacent to an input object type definition."
-          },
-          INPUT_FIELD_DEFINITION: {
-            value: _directiveLocation.DirectiveLocation.INPUT_FIELD_DEFINITION,
-            description: "Location adjacent to an input object field definition."
-          }
-        }
-      });
-      exports.__DirectiveLocation = __DirectiveLocation2;
-      var __Type2 = new _definition.GraphQLObjectType({
-        name: "__Type",
-        description: "The fundamental unit of any GraphQL Schema is the type. There are many kinds of types in GraphQL as represented by the `__TypeKind` enum.\n\nDepending on the kind of a type, certain fields describe information about that type. Scalar types provide no information beyond a name, description and optional `specifiedByURL`, while Enum types provide their values. Object and Interface types provide the fields they describe. Abstract types, Union and Interface, provide the Object types possible at runtime. List and NonNull types compose other types.",
-        fields: () => ({
-          kind: {
-            type: new _definition.GraphQLNonNull(__TypeKind2),
-            resolve(type2) {
-              if ((0, _definition.isScalarType)(type2)) {
-                return TypeKind2.SCALAR;
-              }
-              if ((0, _definition.isObjectType)(type2)) {
-                return TypeKind2.OBJECT;
-              }
-              if ((0, _definition.isInterfaceType)(type2)) {
-                return TypeKind2.INTERFACE;
-              }
-              if ((0, _definition.isUnionType)(type2)) {
-                return TypeKind2.UNION;
-              }
-              if ((0, _definition.isEnumType)(type2)) {
-                return TypeKind2.ENUM;
-              }
-              if ((0, _definition.isInputObjectType)(type2)) {
-                return TypeKind2.INPUT_OBJECT;
-              }
-              if ((0, _definition.isListType)(type2)) {
-                return TypeKind2.LIST;
-              }
-              if ((0, _definition.isNonNullType)(type2)) {
-                return TypeKind2.NON_NULL;
-              }
-              (0, _invariant.invariant)(
-                false,
-                `Unexpected type: "${(0, _inspect.inspect)(type2)}".`
-              );
-            }
-          },
-          name: {
-            type: _scalars.GraphQLString,
-            resolve: (type2) => "name" in type2 ? type2.name : void 0
-          },
-          description: {
-            type: _scalars.GraphQLString,
-            resolve: (type2) => (
-              /* c8 ignore next */
-              "description" in type2 ? type2.description : void 0
-            )
-          },
-          specifiedByURL: {
-            type: _scalars.GraphQLString,
-            resolve: (obj) => "specifiedByURL" in obj ? obj.specifiedByURL : void 0
-          },
-          fields: {
-            type: new _definition.GraphQLList(
-              new _definition.GraphQLNonNull(__Field2)
-            ),
-            args: {
-              includeDeprecated: {
-                type: _scalars.GraphQLBoolean,
-                defaultValue: false
-              }
-            },
-            resolve(type2, { includeDeprecated }) {
-              if ((0, _definition.isObjectType)(type2) || (0, _definition.isInterfaceType)(type2)) {
-                const fields = Object.values(type2.getFields());
-                return includeDeprecated ? fields : fields.filter((field) => field.deprecationReason == null);
-              }
-            }
-          },
-          interfaces: {
-            type: new _definition.GraphQLList(new _definition.GraphQLNonNull(__Type2)),
-            resolve(type2) {
-              if ((0, _definition.isObjectType)(type2) || (0, _definition.isInterfaceType)(type2)) {
-                return type2.getInterfaces();
-              }
-            }
-          },
-          possibleTypes: {
-            type: new _definition.GraphQLList(new _definition.GraphQLNonNull(__Type2)),
-            resolve(type2, _args, _context, { schema }) {
-              if ((0, _definition.isAbstractType)(type2)) {
-                return schema.getPossibleTypes(type2);
-              }
-            }
-          },
-          enumValues: {
-            type: new _definition.GraphQLList(
-              new _definition.GraphQLNonNull(__EnumValue2)
-            ),
-            args: {
-              includeDeprecated: {
-                type: _scalars.GraphQLBoolean,
-                defaultValue: false
-              }
-            },
-            resolve(type2, { includeDeprecated }) {
-              if ((0, _definition.isEnumType)(type2)) {
-                const values = type2.getValues();
-                return includeDeprecated ? values : values.filter((field) => field.deprecationReason == null);
-              }
-            }
-          },
-          inputFields: {
-            type: new _definition.GraphQLList(
-              new _definition.GraphQLNonNull(__InputValue2)
-            ),
-            args: {
-              includeDeprecated: {
-                type: _scalars.GraphQLBoolean,
-                defaultValue: false
-              }
-            },
-            resolve(type2, { includeDeprecated }) {
-              if ((0, _definition.isInputObjectType)(type2)) {
-                const values = Object.values(type2.getFields());
-                return includeDeprecated ? values : values.filter((field) => field.deprecationReason == null);
-              }
-            }
-          },
-          ofType: {
-            type: __Type2,
-            resolve: (type2) => "ofType" in type2 ? type2.ofType : void 0
-          }
-        })
-      });
-      exports.__Type = __Type2;
-      var __Field2 = new _definition.GraphQLObjectType({
-        name: "__Field",
-        description: "Object and Interface types are described by a list of Fields, each of which has a name, potentially a list of arguments, and a return type.",
-        fields: () => ({
-          name: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLString),
-            resolve: (field) => field.name
-          },
-          description: {
-            type: _scalars.GraphQLString,
-            resolve: (field) => field.description
-          },
-          args: {
-            type: new _definition.GraphQLNonNull(
-              new _definition.GraphQLList(
-                new _definition.GraphQLNonNull(__InputValue2)
-              )
-            ),
-            args: {
-              includeDeprecated: {
-                type: _scalars.GraphQLBoolean,
-                defaultValue: false
-              }
-            },
-            resolve(field, { includeDeprecated }) {
-              return includeDeprecated ? field.args : field.args.filter((arg) => arg.deprecationReason == null);
-            }
-          },
-          type: {
-            type: new _definition.GraphQLNonNull(__Type2),
-            resolve: (field) => field.type
-          },
-          isDeprecated: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLBoolean),
-            resolve: (field) => field.deprecationReason != null
-          },
-          deprecationReason: {
-            type: _scalars.GraphQLString,
-            resolve: (field) => field.deprecationReason
-          }
-        })
-      });
-      exports.__Field = __Field2;
-      var __InputValue2 = new _definition.GraphQLObjectType({
-        name: "__InputValue",
-        description: "Arguments provided to Fields or Directives and the input fields of an InputObject are represented as Input Values which describe their type and optionally a default value.",
-        fields: () => ({
-          name: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLString),
-            resolve: (inputValue) => inputValue.name
-          },
-          description: {
-            type: _scalars.GraphQLString,
-            resolve: (inputValue) => inputValue.description
-          },
-          type: {
-            type: new _definition.GraphQLNonNull(__Type2),
-            resolve: (inputValue) => inputValue.type
-          },
-          defaultValue: {
-            type: _scalars.GraphQLString,
-            description: "A GraphQL-formatted string representing the default value for this input value.",
-            resolve(inputValue) {
-              const { type: type2, defaultValue } = inputValue;
-              const valueAST = (0, _astFromValue.astFromValue)(defaultValue, type2);
-              return valueAST ? (0, _printer.print)(valueAST) : null;
-            }
-          },
-          isDeprecated: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLBoolean),
-            resolve: (field) => field.deprecationReason != null
-          },
-          deprecationReason: {
-            type: _scalars.GraphQLString,
-            resolve: (obj) => obj.deprecationReason
-          }
-        })
-      });
-      exports.__InputValue = __InputValue2;
-      var __EnumValue2 = new _definition.GraphQLObjectType({
-        name: "__EnumValue",
-        description: "One possible value for a given Enum. Enum values are unique values, not a placeholder for a string or numeric value. However an Enum value is returned in a JSON response as a string.",
-        fields: () => ({
-          name: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLString),
-            resolve: (enumValue) => enumValue.name
-          },
-          description: {
-            type: _scalars.GraphQLString,
-            resolve: (enumValue) => enumValue.description
-          },
-          isDeprecated: {
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLBoolean),
-            resolve: (enumValue) => enumValue.deprecationReason != null
-          },
-          deprecationReason: {
-            type: _scalars.GraphQLString,
-            resolve: (enumValue) => enumValue.deprecationReason
-          }
-        })
-      });
-      exports.__EnumValue = __EnumValue2;
-      var TypeKind2;
-      exports.TypeKind = TypeKind2;
-      (function(TypeKind3) {
-        TypeKind3["SCALAR"] = "SCALAR";
-        TypeKind3["OBJECT"] = "OBJECT";
-        TypeKind3["INTERFACE"] = "INTERFACE";
-        TypeKind3["UNION"] = "UNION";
-        TypeKind3["ENUM"] = "ENUM";
-        TypeKind3["INPUT_OBJECT"] = "INPUT_OBJECT";
-        TypeKind3["LIST"] = "LIST";
-        TypeKind3["NON_NULL"] = "NON_NULL";
-      })(TypeKind2 || (exports.TypeKind = TypeKind2 = {}));
-      var __TypeKind2 = new _definition.GraphQLEnumType({
-        name: "__TypeKind",
-        description: "An enum describing what kind of type a given `__Type` is.",
-        values: {
-          SCALAR: {
-            value: TypeKind2.SCALAR,
-            description: "Indicates this type is a scalar."
-          },
-          OBJECT: {
-            value: TypeKind2.OBJECT,
-            description: "Indicates this type is an object. `fields` and `interfaces` are valid fields."
-          },
-          INTERFACE: {
-            value: TypeKind2.INTERFACE,
-            description: "Indicates this type is an interface. `fields`, `interfaces`, and `possibleTypes` are valid fields."
-          },
-          UNION: {
-            value: TypeKind2.UNION,
-            description: "Indicates this type is a union. `possibleTypes` is a valid field."
-          },
-          ENUM: {
-            value: TypeKind2.ENUM,
-            description: "Indicates this type is an enum. `enumValues` is a valid field."
-          },
-          INPUT_OBJECT: {
-            value: TypeKind2.INPUT_OBJECT,
-            description: "Indicates this type is an input object. `inputFields` is a valid field."
-          },
-          LIST: {
-            value: TypeKind2.LIST,
-            description: "Indicates this type is a list. `ofType` is a valid field."
-          },
-          NON_NULL: {
-            value: TypeKind2.NON_NULL,
-            description: "Indicates this type is a non-null. `ofType` is a valid field."
-          }
-        }
-      });
-      exports.__TypeKind = __TypeKind2;
-      var SchemaMetaFieldDef3 = {
-        name: "__schema",
-        type: new _definition.GraphQLNonNull(__Schema2),
-        description: "Access the current type schema of this server.",
-        args: [],
-        resolve: (_source, _args, _context, { schema }) => schema,
-        deprecationReason: void 0,
-        extensions: /* @__PURE__ */ Object.create(null),
-        astNode: void 0
-      };
-      exports.SchemaMetaFieldDef = SchemaMetaFieldDef3;
-      var TypeMetaFieldDef3 = {
-        name: "__type",
-        type: __Type2,
-        description: "Request the type information of a single type.",
-        args: [
-          {
-            name: "name",
-            description: void 0,
-            type: new _definition.GraphQLNonNull(_scalars.GraphQLString),
-            defaultValue: void 0,
-            deprecationReason: void 0,
-            extensions: /* @__PURE__ */ Object.create(null),
-            astNode: void 0
-          }
-        ],
-        resolve: (_source, { name: name2 }, _context, { schema }) => schema.getType(name2),
-        deprecationReason: void 0,
-        extensions: /* @__PURE__ */ Object.create(null),
-        astNode: void 0
-      };
-      exports.TypeMetaFieldDef = TypeMetaFieldDef3;
-      var TypeNameMetaFieldDef3 = {
-        name: "__typename",
-        type: new _definition.GraphQLNonNull(_scalars.GraphQLString),
-        description: "The name of the current Object type at runtime.",
-        args: [],
-        resolve: (_source, _args, _context, { parentType }) => parentType.name,
-        deprecationReason: void 0,
-        extensions: /* @__PURE__ */ Object.create(null),
-        astNode: void 0
-      };
-      exports.TypeNameMetaFieldDef = TypeNameMetaFieldDef3;
-      var introspectionTypes2 = Object.freeze([
-        __Schema2,
-        __Directive2,
-        __DirectiveLocation2,
-        __Type2,
-        __Field2,
-        __InputValue2,
-        __EnumValue2,
-        __TypeKind2
-      ]);
-      exports.introspectionTypes = introspectionTypes2;
-      function isIntrospectionType2(type2) {
-        return introspectionTypes2.some(({ name: name2 }) => type2.name === name2);
-      }
-    }
-  });
-
   // node_modules/nullthrows/nullthrows.js
   var require_nullthrows = __commonJS({
     "node_modules/nullthrows/nullthrows.js"(exports, module) {
@@ -5580,12 +1936,12 @@ spurious results.`);
           Us.exports = {};
         });
         var Ks = xe((Y0, Xs) => {
-          var wc = Vs(), zs = pt(), _c = St(), Pc = Dn(), vn = Ct(), Cn = gr(), Ic = Gs(), kc = hn(), Js = "Object already initialized", En = zs.TypeError, Lc = zs.WeakMap, Cr, Gt, Er, Oc = function(e) {
+          var wc = Vs(), zs = pt(), _c2 = St(), Pc = Dn(), vn = Ct(), Cn = gr(), Ic = Gs(), kc = hn(), Js = "Object already initialized", En = zs.TypeError, Lc = zs.WeakMap, Cr, Gt, Er, Oc = function(e) {
             return Er(e) ? Gt(e) : Cr(e, {});
           }, jc = function(e) {
             return function(r) {
               var t2;
-              if (!_c(r) || (t2 = Gt(r)).type !== e)
+              if (!_c2(r) || (t2 = Gt(r)).type !== e)
                 throw En("Incompatible receiver, " + e + " required");
               return t2;
             };
@@ -10112,7 +6468,7 @@ ${P}`), h ? g.reset(P) : P;
           var Tr, Vn, Wn, vo, sd = ht({ "node-modules-polyfills:os"() {
             ne(), Vn = $n, Wn = `
 `, vo = { EOL: Wn, tmpdir: Vn, tmpDir: $n, networkInterfaces: yo, getNetworkInterfaces: ho, release: go, type: mo, cpus: Do, totalmem: fo, freemem: po, uptime: co, loadavg: lo, hostname: oo, endianness: ao };
-          } }), id = te({ "node-modules-polyfills-commonjs:os"(e, r) {
+          } }), id2 = te({ "node-modules-polyfills-commonjs:os"(e, r) {
             ne();
             var t2 = (sd(), ft(io));
             if (t2 && t2.default) {
@@ -10142,7 +6498,7 @@ ${P}`), h ? g.reset(P) : P;
             "use strict";
             ne(), Object.defineProperty(e, "__esModule", { value: true }), e.extract = c, e.parse = F, e.parseWithComments = _, e.print = w, e.strip = f;
             function r() {
-              let N = id();
+              let N = id2();
               return r = function() {
                 return N;
               }, N;
@@ -14985,12 +11341,12 @@ ${u.content}`;
             r.exports = { proseWrap: t2.proseWrap, singleQuote: t2.singleQuote };
           } }), mg = te({ "src/language-markdown/parsers.js"() {
             ne();
-          } }), _a3 = te({ "node_modules/linguist-languages/data/Markdown.json"(e, r) {
+          } }), _a4 = te({ "node_modules/linguist-languages/data/Markdown.json"(e, r) {
             r.exports = { name: "Markdown", type: "prose", color: "#083fa1", aliases: ["pandoc"], aceMode: "markdown", codemirrorMode: "gfm", codemirrorMimeType: "text/x-gfm", wrap: true, extensions: [".md", ".livemd", ".markdown", ".mdown", ".mdwn", ".mdx", ".mkd", ".mkdn", ".mkdown", ".ronn", ".scd", ".workbook"], filenames: ["contents.lr"], tmScope: "source.gfm", languageId: 222 };
           } }), dg = te({ "src/language-markdown/index.js"(e, r) {
             "use strict";
             ne();
-            var t2 = _t(), s = fg(), a = Dg(), n = mg(), u = [t2(_a3(), (l) => ({ since: "1.8.0", parsers: ["markdown"], vscodeLanguageIds: ["markdown"], filenames: [...l.filenames, "README"], extensions: l.extensions.filter((p2) => p2 !== ".mdx") })), t2(_a3(), () => ({ name: "MDX", since: "1.15.0", parsers: ["mdx"], vscodeLanguageIds: ["mdx"], filenames: [], extensions: [".mdx"] }))], i = { mdast: s };
+            var t2 = _t(), s = fg(), a = Dg(), n = mg(), u = [t2(_a4(), (l) => ({ since: "1.8.0", parsers: ["markdown"], vscodeLanguageIds: ["markdown"], filenames: [...l.filenames, "README"], extensions: l.extensions.filter((p2) => p2 !== ".mdx") })), t2(_a4(), () => ({ name: "MDX", since: "1.15.0", parsers: ["mdx"], vscodeLanguageIds: ["mdx"], filenames: [], extensions: [".mdx"] }))], i = { mdast: s };
             r.exports = { languages: u, options: a, printers: i, parsers: n };
           } }), gg = te({ "src/language-html/clean.js"(e, r) {
             "use strict";
@@ -18192,12 +14548,11 @@ ${n}`;
     constructor(message) {
       super(message || "An unexpected bug occurred.");
       Object.setPrototypeOf(this, _BugIndicatingError.prototype);
-      debugger;
     }
   };
 
   // node_modules/monaco-editor/esm/vs/base/common/functional.js
-  function once(fn) {
+  function createSingleCallFunction(fn) {
     const _this = this;
     let didCall = false;
     let result;
@@ -18210,6 +14565,709 @@ ${n}`;
       return result;
     };
   }
+
+  // node_modules/monaco-editor/esm/vs/base/common/arraysFind.js
+  function findLastMonotonous(array, predicate) {
+    const idx = findLastIdxMonotonous(array, predicate);
+    return idx === -1 ? void 0 : array[idx];
+  }
+  function findLastIdxMonotonous(array, predicate, startIdx = 0, endIdxEx = array.length) {
+    let i = startIdx;
+    let j = endIdxEx;
+    while (i < j) {
+      const k = Math.floor((i + j) / 2);
+      if (predicate(array[k])) {
+        i = k + 1;
+      } else {
+        j = k;
+      }
+    }
+    return i - 1;
+  }
+  function findFirstMonotonous(array, predicate) {
+    const idx = findFirstIdxMonotonousOrArrLen(array, predicate);
+    return idx === array.length ? void 0 : array[idx];
+  }
+  function findFirstIdxMonotonousOrArrLen(array, predicate, startIdx = 0, endIdxEx = array.length) {
+    let i = startIdx;
+    let j = endIdxEx;
+    while (i < j) {
+      const k = Math.floor((i + j) / 2);
+      if (predicate(array[k])) {
+        j = k;
+      } else {
+        i = k + 1;
+      }
+    }
+    return i;
+  }
+  var MonotonousArray = class _MonotonousArray {
+    constructor(_array) {
+      this._array = _array;
+      this._findLastMonotonousLastIdx = 0;
+    }
+    /**
+     * The predicate must be monotonous, i.e. `arr.map(predicate)` must be like `[true, ..., true, false, ..., false]`!
+     * For subsequent calls, current predicate must be weaker than (or equal to) the previous predicate, i.e. more entries must be `true`.
+     */
+    findLastMonotonous(predicate) {
+      if (_MonotonousArray.assertInvariants) {
+        if (this._prevFindLastPredicate) {
+          for (const item of this._array) {
+            if (this._prevFindLastPredicate(item) && !predicate(item)) {
+              throw new Error("MonotonousArray: current predicate must be weaker than (or equal to) the previous predicate.");
+            }
+          }
+        }
+        this._prevFindLastPredicate = predicate;
+      }
+      const idx = findLastIdxMonotonous(this._array, predicate, this._findLastMonotonousLastIdx);
+      this._findLastMonotonousLastIdx = idx + 1;
+      return idx === -1 ? void 0 : this._array[idx];
+    }
+  };
+  MonotonousArray.assertInvariants = false;
+
+  // node_modules/monaco-editor/esm/vs/base/common/arrays.js
+  function equals(one, other, itemEquals = (a, b) => a === b) {
+    if (one === other) {
+      return true;
+    }
+    if (!one || !other) {
+      return false;
+    }
+    if (one.length !== other.length) {
+      return false;
+    }
+    for (let i = 0, len = one.length; i < len; i++) {
+      if (!itemEquals(one[i], other[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  function* groupAdjacentBy(items, shouldBeGrouped) {
+    let currentGroup;
+    let last;
+    for (const item of items) {
+      if (last !== void 0 && shouldBeGrouped(last, item)) {
+        currentGroup.push(item);
+      } else {
+        if (currentGroup) {
+          yield currentGroup;
+        }
+        currentGroup = [item];
+      }
+      last = item;
+    }
+    if (currentGroup) {
+      yield currentGroup;
+    }
+  }
+  function forEachAdjacent(arr, f) {
+    for (let i = 0; i <= arr.length; i++) {
+      f(i === 0 ? void 0 : arr[i - 1], i === arr.length ? void 0 : arr[i]);
+    }
+  }
+  function forEachWithNeighbors(arr, f) {
+    for (let i = 0; i < arr.length; i++) {
+      f(i === 0 ? void 0 : arr[i - 1], arr[i], i + 1 === arr.length ? void 0 : arr[i + 1]);
+    }
+  }
+  function pushMany(arr, items) {
+    for (const item of items) {
+      arr.push(item);
+    }
+  }
+  var CompareResult;
+  (function(CompareResult2) {
+    function isLessThan(result) {
+      return result < 0;
+    }
+    CompareResult2.isLessThan = isLessThan;
+    function isLessThanOrEqual(result) {
+      return result <= 0;
+    }
+    CompareResult2.isLessThanOrEqual = isLessThanOrEqual;
+    function isGreaterThan(result) {
+      return result > 0;
+    }
+    CompareResult2.isGreaterThan = isGreaterThan;
+    function isNeitherLessOrGreaterThan(result) {
+      return result === 0;
+    }
+    CompareResult2.isNeitherLessOrGreaterThan = isNeitherLessOrGreaterThan;
+    CompareResult2.greaterThan = 1;
+    CompareResult2.lessThan = -1;
+    CompareResult2.neitherLessOrGreaterThan = 0;
+  })(CompareResult || (CompareResult = {}));
+  function compareBy(selector, comparator) {
+    return (a, b) => comparator(selector(a), selector(b));
+  }
+  var numberComparator = (a, b) => a - b;
+  function reverseOrder(comparator) {
+    return (a, b) => -comparator(a, b);
+  }
+  var CallbackIterable = class _CallbackIterable {
+    constructor(iterate) {
+      this.iterate = iterate;
+    }
+    forEach(handler) {
+      this.iterate((item) => {
+        handler(item);
+        return true;
+      });
+    }
+    toArray() {
+      const result = [];
+      this.iterate((item) => {
+        result.push(item);
+        return true;
+      });
+      return result;
+    }
+    filter(predicate) {
+      return new _CallbackIterable((cb) => this.iterate((item) => predicate(item) ? cb(item) : true));
+    }
+    map(mapFn) {
+      return new _CallbackIterable((cb) => this.iterate((item) => cb(mapFn(item))));
+    }
+    some(predicate) {
+      let result = false;
+      this.iterate((item) => {
+        result = predicate(item);
+        return !result;
+      });
+      return result;
+    }
+    findFirst(predicate) {
+      let result;
+      this.iterate((item) => {
+        if (predicate(item)) {
+          result = item;
+          return false;
+        }
+        return true;
+      });
+      return result;
+    }
+    findLast(predicate) {
+      let result;
+      this.iterate((item) => {
+        if (predicate(item)) {
+          result = item;
+        }
+        return true;
+      });
+      return result;
+    }
+    findLastMaxBy(comparator) {
+      let result;
+      let first = true;
+      this.iterate((item) => {
+        if (first || CompareResult.isGreaterThan(comparator(item, result))) {
+          first = false;
+          result = item;
+        }
+        return true;
+      });
+      return result;
+    }
+  };
+  CallbackIterable.empty = new CallbackIterable((_callback) => {
+  });
+
+  // node_modules/monaco-editor/esm/vs/base/common/collections.js
+  function groupBy(data, groupFn) {
+    const result = /* @__PURE__ */ Object.create(null);
+    for (const element of data) {
+      const key = groupFn(element);
+      let target = result[key];
+      if (!target) {
+        target = result[key] = [];
+      }
+      target.push(element);
+    }
+    return result;
+  }
+
+  // node_modules/monaco-editor/esm/vs/base/common/map.js
+  var _a;
+  var _b;
+  var _c;
+  var ResourceMapEntry = class {
+    constructor(uri, value) {
+      this.uri = uri;
+      this.value = value;
+    }
+  };
+  function isEntries(arg) {
+    return Array.isArray(arg);
+  }
+  var ResourceMap = class _ResourceMap {
+    constructor(arg, toKey) {
+      this[_a] = "ResourceMap";
+      if (arg instanceof _ResourceMap) {
+        this.map = new Map(arg.map);
+        this.toKey = toKey !== null && toKey !== void 0 ? toKey : _ResourceMap.defaultToKey;
+      } else if (isEntries(arg)) {
+        this.map = /* @__PURE__ */ new Map();
+        this.toKey = toKey !== null && toKey !== void 0 ? toKey : _ResourceMap.defaultToKey;
+        for (const [resource, value] of arg) {
+          this.set(resource, value);
+        }
+      } else {
+        this.map = /* @__PURE__ */ new Map();
+        this.toKey = arg !== null && arg !== void 0 ? arg : _ResourceMap.defaultToKey;
+      }
+    }
+    set(resource, value) {
+      this.map.set(this.toKey(resource), new ResourceMapEntry(resource, value));
+      return this;
+    }
+    get(resource) {
+      var _d;
+      return (_d = this.map.get(this.toKey(resource))) === null || _d === void 0 ? void 0 : _d.value;
+    }
+    has(resource) {
+      return this.map.has(this.toKey(resource));
+    }
+    get size() {
+      return this.map.size;
+    }
+    clear() {
+      this.map.clear();
+    }
+    delete(resource) {
+      return this.map.delete(this.toKey(resource));
+    }
+    forEach(clb, thisArg) {
+      if (typeof thisArg !== "undefined") {
+        clb = clb.bind(thisArg);
+      }
+      for (const [_, entry] of this.map) {
+        clb(entry.value, entry.uri, this);
+      }
+    }
+    *values() {
+      for (const entry of this.map.values()) {
+        yield entry.value;
+      }
+    }
+    *keys() {
+      for (const entry of this.map.values()) {
+        yield entry.uri;
+      }
+    }
+    *entries() {
+      for (const entry of this.map.values()) {
+        yield [entry.uri, entry.value];
+      }
+    }
+    *[(_a = Symbol.toStringTag, Symbol.iterator)]() {
+      for (const [, entry] of this.map) {
+        yield [entry.uri, entry.value];
+      }
+    }
+  };
+  ResourceMap.defaultToKey = (resource) => resource.toString();
+  var ResourceSet = class {
+    constructor(entriesOrKey, toKey) {
+      this[_b] = "ResourceSet";
+      if (!entriesOrKey || typeof entriesOrKey === "function") {
+        this._map = new ResourceMap(entriesOrKey);
+      } else {
+        this._map = new ResourceMap(toKey);
+        entriesOrKey.forEach(this.add, this);
+      }
+    }
+    get size() {
+      return this._map.size;
+    }
+    add(value) {
+      this._map.set(value, value);
+      return this;
+    }
+    clear() {
+      this._map.clear();
+    }
+    delete(value) {
+      return this._map.delete(value);
+    }
+    forEach(callbackfn, thisArg) {
+      this._map.forEach((_value, key) => callbackfn.call(thisArg, key, key, this));
+    }
+    has(value) {
+      return this._map.has(value);
+    }
+    entries() {
+      return this._map.entries();
+    }
+    keys() {
+      return this._map.keys();
+    }
+    values() {
+      return this._map.keys();
+    }
+    [(_b = Symbol.toStringTag, Symbol.iterator)]() {
+      return this.keys();
+    }
+  };
+  var LinkedMap = class {
+    constructor() {
+      this[_c] = "LinkedMap";
+      this._map = /* @__PURE__ */ new Map();
+      this._head = void 0;
+      this._tail = void 0;
+      this._size = 0;
+      this._state = 0;
+    }
+    clear() {
+      this._map.clear();
+      this._head = void 0;
+      this._tail = void 0;
+      this._size = 0;
+      this._state++;
+    }
+    isEmpty() {
+      return !this._head && !this._tail;
+    }
+    get size() {
+      return this._size;
+    }
+    get first() {
+      var _d;
+      return (_d = this._head) === null || _d === void 0 ? void 0 : _d.value;
+    }
+    get last() {
+      var _d;
+      return (_d = this._tail) === null || _d === void 0 ? void 0 : _d.value;
+    }
+    has(key) {
+      return this._map.has(key);
+    }
+    get(key, touch = 0) {
+      const item = this._map.get(key);
+      if (!item) {
+        return void 0;
+      }
+      if (touch !== 0) {
+        this.touch(item, touch);
+      }
+      return item.value;
+    }
+    set(key, value, touch = 0) {
+      let item = this._map.get(key);
+      if (item) {
+        item.value = value;
+        if (touch !== 0) {
+          this.touch(item, touch);
+        }
+      } else {
+        item = { key, value, next: void 0, previous: void 0 };
+        switch (touch) {
+          case 0:
+            this.addItemLast(item);
+            break;
+          case 1:
+            this.addItemFirst(item);
+            break;
+          case 2:
+            this.addItemLast(item);
+            break;
+          default:
+            this.addItemLast(item);
+            break;
+        }
+        this._map.set(key, item);
+        this._size++;
+      }
+      return this;
+    }
+    delete(key) {
+      return !!this.remove(key);
+    }
+    remove(key) {
+      const item = this._map.get(key);
+      if (!item) {
+        return void 0;
+      }
+      this._map.delete(key);
+      this.removeItem(item);
+      this._size--;
+      return item.value;
+    }
+    shift() {
+      if (!this._head && !this._tail) {
+        return void 0;
+      }
+      if (!this._head || !this._tail) {
+        throw new Error("Invalid list");
+      }
+      const item = this._head;
+      this._map.delete(item.key);
+      this.removeItem(item);
+      this._size--;
+      return item.value;
+    }
+    forEach(callbackfn, thisArg) {
+      const state = this._state;
+      let current = this._head;
+      while (current) {
+        if (thisArg) {
+          callbackfn.bind(thisArg)(current.value, current.key, this);
+        } else {
+          callbackfn(current.value, current.key, this);
+        }
+        if (this._state !== state) {
+          throw new Error(`LinkedMap got modified during iteration.`);
+        }
+        current = current.next;
+      }
+    }
+    keys() {
+      const map = this;
+      const state = this._state;
+      let current = this._head;
+      const iterator = {
+        [Symbol.iterator]() {
+          return iterator;
+        },
+        next() {
+          if (map._state !== state) {
+            throw new Error(`LinkedMap got modified during iteration.`);
+          }
+          if (current) {
+            const result = { value: current.key, done: false };
+            current = current.next;
+            return result;
+          } else {
+            return { value: void 0, done: true };
+          }
+        }
+      };
+      return iterator;
+    }
+    values() {
+      const map = this;
+      const state = this._state;
+      let current = this._head;
+      const iterator = {
+        [Symbol.iterator]() {
+          return iterator;
+        },
+        next() {
+          if (map._state !== state) {
+            throw new Error(`LinkedMap got modified during iteration.`);
+          }
+          if (current) {
+            const result = { value: current.value, done: false };
+            current = current.next;
+            return result;
+          } else {
+            return { value: void 0, done: true };
+          }
+        }
+      };
+      return iterator;
+    }
+    entries() {
+      const map = this;
+      const state = this._state;
+      let current = this._head;
+      const iterator = {
+        [Symbol.iterator]() {
+          return iterator;
+        },
+        next() {
+          if (map._state !== state) {
+            throw new Error(`LinkedMap got modified during iteration.`);
+          }
+          if (current) {
+            const result = { value: [current.key, current.value], done: false };
+            current = current.next;
+            return result;
+          } else {
+            return { value: void 0, done: true };
+          }
+        }
+      };
+      return iterator;
+    }
+    [(_c = Symbol.toStringTag, Symbol.iterator)]() {
+      return this.entries();
+    }
+    trimOld(newSize) {
+      if (newSize >= this.size) {
+        return;
+      }
+      if (newSize === 0) {
+        this.clear();
+        return;
+      }
+      let current = this._head;
+      let currentSize = this.size;
+      while (current && currentSize > newSize) {
+        this._map.delete(current.key);
+        current = current.next;
+        currentSize--;
+      }
+      this._head = current;
+      this._size = currentSize;
+      if (current) {
+        current.previous = void 0;
+      }
+      this._state++;
+    }
+    addItemFirst(item) {
+      if (!this._head && !this._tail) {
+        this._tail = item;
+      } else if (!this._head) {
+        throw new Error("Invalid list");
+      } else {
+        item.next = this._head;
+        this._head.previous = item;
+      }
+      this._head = item;
+      this._state++;
+    }
+    addItemLast(item) {
+      if (!this._head && !this._tail) {
+        this._head = item;
+      } else if (!this._tail) {
+        throw new Error("Invalid list");
+      } else {
+        item.previous = this._tail;
+        this._tail.next = item;
+      }
+      this._tail = item;
+      this._state++;
+    }
+    removeItem(item) {
+      if (item === this._head && item === this._tail) {
+        this._head = void 0;
+        this._tail = void 0;
+      } else if (item === this._head) {
+        if (!item.next) {
+          throw new Error("Invalid list");
+        }
+        item.next.previous = void 0;
+        this._head = item.next;
+      } else if (item === this._tail) {
+        if (!item.previous) {
+          throw new Error("Invalid list");
+        }
+        item.previous.next = void 0;
+        this._tail = item.previous;
+      } else {
+        const next = item.next;
+        const previous = item.previous;
+        if (!next || !previous) {
+          throw new Error("Invalid list");
+        }
+        next.previous = previous;
+        previous.next = next;
+      }
+      item.next = void 0;
+      item.previous = void 0;
+      this._state++;
+    }
+    touch(item, touch) {
+      if (!this._head || !this._tail) {
+        throw new Error("Invalid list");
+      }
+      if (touch !== 1 && touch !== 2) {
+        return;
+      }
+      if (touch === 1) {
+        if (item === this._head) {
+          return;
+        }
+        const next = item.next;
+        const previous = item.previous;
+        if (item === this._tail) {
+          previous.next = void 0;
+          this._tail = previous;
+        } else {
+          next.previous = previous;
+          previous.next = next;
+        }
+        item.previous = void 0;
+        item.next = this._head;
+        this._head.previous = item;
+        this._head = item;
+        this._state++;
+      } else if (touch === 2) {
+        if (item === this._tail) {
+          return;
+        }
+        const next = item.next;
+        const previous = item.previous;
+        if (item === this._head) {
+          next.previous = void 0;
+          this._head = next;
+        } else {
+          next.previous = previous;
+          previous.next = next;
+        }
+        item.next = void 0;
+        item.previous = this._tail;
+        this._tail.next = item;
+        this._tail = item;
+        this._state++;
+      }
+    }
+    toJSON() {
+      const data = [];
+      this.forEach((value, key) => {
+        data.push([key, value]);
+      });
+      return data;
+    }
+    fromJSON(data) {
+      this.clear();
+      for (const [key, value] of data) {
+        this.set(key, value);
+      }
+    }
+  };
+  var SetMap = class {
+    constructor() {
+      this.map = /* @__PURE__ */ new Map();
+    }
+    add(key, value) {
+      let values = this.map.get(key);
+      if (!values) {
+        values = /* @__PURE__ */ new Set();
+        this.map.set(key, values);
+      }
+      values.add(value);
+    }
+    delete(key, value) {
+      const values = this.map.get(key);
+      if (!values) {
+        return;
+      }
+      values.delete(value);
+      if (values.size === 0) {
+        this.map.delete(key);
+      }
+    }
+    forEach(key, fn) {
+      const values = this.map.get(key);
+      if (!values) {
+        return;
+      }
+      values.forEach(fn);
+    }
+    get(key) {
+      const values = this.map.get(key);
+      if (!values) {
+        return /* @__PURE__ */ new Set();
+      }
+      return values;
+    }
+  };
 
   // node_modules/monaco-editor/esm/vs/base/common/iterator.js
   var Iterable;
@@ -18239,6 +15297,12 @@ ${n}`;
       return iterable || _empty2;
     }
     Iterable2.from = from;
+    function* reverse(array) {
+      for (let i = array.length - 1; i >= 0; i--) {
+        yield array[i];
+      }
+    }
+    Iterable2.reverse = reverse;
     function isEmpty(iterable) {
       return !iterable || iterable[Symbol.iterator]().next().done === true;
     }
@@ -18333,6 +15397,126 @@ ${n}`;
   // node_modules/monaco-editor/esm/vs/base/common/lifecycle.js
   var TRACK_DISPOSABLES = false;
   var disposableTracker = null;
+  var DisposableTracker = class _DisposableTracker {
+    constructor() {
+      this.livingDisposables = /* @__PURE__ */ new Map();
+    }
+    getDisposableData(d) {
+      let val = this.livingDisposables.get(d);
+      if (!val) {
+        val = { parent: null, source: null, isSingleton: false, value: d, idx: _DisposableTracker.idx++ };
+        this.livingDisposables.set(d, val);
+      }
+      return val;
+    }
+    trackDisposable(d) {
+      const data = this.getDisposableData(d);
+      if (!data.source) {
+        data.source = new Error().stack;
+      }
+    }
+    setParent(child, parent) {
+      const data = this.getDisposableData(child);
+      data.parent = parent;
+    }
+    markAsDisposed(x) {
+      this.livingDisposables.delete(x);
+    }
+    markAsSingleton(disposable) {
+      this.getDisposableData(disposable).isSingleton = true;
+    }
+    getRootParent(data, cache) {
+      const cacheValue = cache.get(data);
+      if (cacheValue) {
+        return cacheValue;
+      }
+      const result = data.parent ? this.getRootParent(this.getDisposableData(data.parent), cache) : data;
+      cache.set(data, result);
+      return result;
+    }
+    getTrackedDisposables() {
+      const rootParentCache = /* @__PURE__ */ new Map();
+      const leaking = [...this.livingDisposables.entries()].filter(([, v]) => v.source !== null && !this.getRootParent(v, rootParentCache).isSingleton).map(([k]) => k).flat();
+      return leaking;
+    }
+    computeLeakingDisposables(maxReported = 10, preComputedLeaks) {
+      let uncoveredLeakingObjs;
+      if (preComputedLeaks) {
+        uncoveredLeakingObjs = preComputedLeaks;
+      } else {
+        const rootParentCache = /* @__PURE__ */ new Map();
+        const leakingObjects = [...this.livingDisposables.values()].filter((info) => info.source !== null && !this.getRootParent(info, rootParentCache).isSingleton);
+        if (leakingObjects.length === 0) {
+          return;
+        }
+        const leakingObjsSet = new Set(leakingObjects.map((o) => o.value));
+        uncoveredLeakingObjs = leakingObjects.filter((l) => {
+          return !(l.parent && leakingObjsSet.has(l.parent));
+        });
+        if (uncoveredLeakingObjs.length === 0) {
+          throw new Error("There are cyclic diposable chains!");
+        }
+      }
+      if (!uncoveredLeakingObjs) {
+        return void 0;
+      }
+      function getStackTracePath(leaking) {
+        function removePrefix(array, linesToRemove) {
+          while (array.length > 0 && linesToRemove.some((regexp) => typeof regexp === "string" ? regexp === array[0] : array[0].match(regexp))) {
+            array.shift();
+          }
+        }
+        const lines = leaking.source.split("\n").map((p2) => p2.trim().replace("at ", "")).filter((l) => l !== "");
+        removePrefix(lines, ["Error", /^trackDisposable \(.*\)$/, /^DisposableTracker.trackDisposable \(.*\)$/]);
+        return lines.reverse();
+      }
+      const stackTraceStarts = new SetMap();
+      for (const leaking of uncoveredLeakingObjs) {
+        const stackTracePath = getStackTracePath(leaking);
+        for (let i2 = 0; i2 <= stackTracePath.length; i2++) {
+          stackTraceStarts.add(stackTracePath.slice(0, i2).join("\n"), leaking);
+        }
+      }
+      uncoveredLeakingObjs.sort(compareBy((l) => l.idx, numberComparator));
+      let message = "";
+      let i = 0;
+      for (const leaking of uncoveredLeakingObjs.slice(0, maxReported)) {
+        i++;
+        const stackTracePath = getStackTracePath(leaking);
+        const stackTraceFormattedLines = [];
+        for (let i2 = 0; i2 < stackTracePath.length; i2++) {
+          let line = stackTracePath[i2];
+          const starts = stackTraceStarts.get(stackTracePath.slice(0, i2 + 1).join("\n"));
+          line = `(shared with ${starts.size}/${uncoveredLeakingObjs.length} leaks) at ${line}`;
+          const prevStarts = stackTraceStarts.get(stackTracePath.slice(0, i2).join("\n"));
+          const continuations = groupBy([...prevStarts].map((d) => getStackTracePath(d)[i2]), (v) => v);
+          delete continuations[stackTracePath[i2]];
+          for (const [cont, set] of Object.entries(continuations)) {
+            stackTraceFormattedLines.unshift(`    - stacktraces of ${set.length} other leaks continue with ${cont}`);
+          }
+          stackTraceFormattedLines.unshift(line);
+        }
+        message += `
+
+
+==================== Leaking disposable ${i}/${uncoveredLeakingObjs.length}: ${leaking.value.constructor.name} ====================
+${stackTraceFormattedLines.join("\n")}
+============================================================
+
+`;
+      }
+      if (uncoveredLeakingObjs.length > maxReported) {
+        message += `
+
+
+... and ${uncoveredLeakingObjs.length - maxReported} more leaking disposables
+
+`;
+      }
+      return { leaks: uncoveredLeakingObjs, details: message };
+    }
+  };
+  DisposableTracker.idx = 0;
   function setDisposableTracker(tracker) {
     disposableTracker = tracker;
   }
@@ -18351,7 +15535,7 @@ ${n}`;
         if (child && child !== Disposable.None) {
           try {
             child[__is_disposable_tracked__] = true;
-          } catch (_a3) {
+          } catch (_a4) {
           }
         }
       }
@@ -18359,7 +15543,7 @@ ${n}`;
         if (disposable && disposable !== Disposable.None) {
           try {
             disposable[__is_disposable_tracked__] = true;
-          } catch (_a3) {
+          } catch (_a4) {
           }
         }
       }
@@ -18415,7 +15599,7 @@ ${n}`;
   }
   function toDisposable(fn) {
     const self2 = trackDisposable({
-      dispose: once(() => {
+      dispose: createSingleCallFunction(() => {
         markAsDisposed(self2);
         fn();
       })
@@ -18480,6 +15664,32 @@ ${n}`;
       }
       return o;
     }
+    /**
+     * Deletes a disposable from store and disposes of it. This will not throw or warn and proceed to dispose the
+     * disposable even when the disposable is not part in the store.
+     */
+    delete(o) {
+      if (!o) {
+        return;
+      }
+      if (o === this) {
+        throw new Error("Cannot dispose a disposable on itself!");
+      }
+      this._toDispose.delete(o);
+      o.dispose();
+    }
+    /**
+     * Deletes the value from the store, but does not dispose it.
+     */
+    deleteAndLeak(o) {
+      if (!o) {
+        return;
+      }
+      if (this._toDispose.has(o)) {
+        this._toDispose.delete(o);
+        setParentOfDisposable(o, null);
+      }
+    }
   };
   DisposableStore.DISABLE_DISPOSED_WARNING = false;
   var Disposable = class {
@@ -18504,29 +15714,6 @@ ${n}`;
   };
   Disposable.None = Object.freeze({ dispose() {
   } });
-  var SafeDisposable = class {
-    constructor() {
-      this.dispose = () => {
-      };
-      this.unset = () => {
-      };
-      this.isset = () => false;
-      trackDisposable(this);
-    }
-    set(fn) {
-      let callback = fn;
-      this.unset = () => callback = void 0;
-      this.isset = () => callback !== void 0;
-      this.dispose = () => {
-        if (callback) {
-          callback();
-          callback = void 0;
-          markAsDisposed(this);
-        }
-      };
-      return this;
-    }
-  };
   var DisposableMap = class {
     constructor() {
       this._store = /* @__PURE__ */ new Map();
@@ -18559,16 +15746,19 @@ ${n}`;
     has(key) {
       return this._store.has(key);
     }
+    get size() {
+      return this._store.size;
+    }
     get(key) {
       return this._store.get(key);
     }
     set(key, value, skipDisposeOnOverwrite = false) {
-      var _a3;
+      var _a4;
       if (this._isDisposed) {
         console.warn(new Error("Trying to add a disposable to a DisposableMap that has already been disposed of. The added object will be leaked!").stack);
       }
       if (!skipDisposeOnOverwrite) {
-        (_a3 = this._store.get(key)) === null || _a3 === void 0 ? void 0 : _a3.dispose();
+        (_a4 = this._store.get(key)) === null || _a4 === void 0 ? void 0 : _a4.dispose();
       }
       this._store.set(key, value);
     }
@@ -18576,8 +15766,8 @@ ${n}`;
      * Delete the value stored for `key` from this map and also dispose of it.
      */
     deleteAndDispose(key) {
-      var _a3;
-      (_a3 = this._store.get(key)) === null || _a3 === void 0 ? void 0 : _a3.dispose();
+      var _a4;
+      (_a4 = this._store.get(key)) === null || _a4 === void 0 ? void 0 : _a4.dispose();
       this._store.delete(key);
     }
     [Symbol.iterator]() {
@@ -18693,6 +15883,784 @@ ${n}`;
     }
   };
 
+  // node_modules/monaco-editor/esm/vs/base/common/stopwatch.js
+  var hasPerformanceNow = globalThis.performance && typeof globalThis.performance.now === "function";
+  var StopWatch = class _StopWatch {
+    static create(highResolution) {
+      return new _StopWatch(highResolution);
+    }
+    constructor(highResolution) {
+      this._now = hasPerformanceNow && highResolution === false ? Date.now : globalThis.performance.now.bind(globalThis.performance);
+      this._startTime = this._now();
+      this._stopTime = -1;
+    }
+    stop() {
+      this._stopTime = this._now();
+    }
+    reset() {
+      this._startTime = this._now();
+      this._stopTime = -1;
+    }
+    elapsed() {
+      if (this._stopTime !== -1) {
+        return this._stopTime - this._startTime;
+      }
+      return this._now() - this._startTime;
+    }
+  };
+
+  // node_modules/monaco-editor/esm/vs/base/common/event.js
+  var _enableDisposeWithListenerWarning = false;
+  var _enableSnapshotPotentialLeakWarning = false;
+  var Event;
+  (function(Event2) {
+    Event2.None = () => Disposable.None;
+    function _addLeakageTraceLogic(options) {
+      if (_enableSnapshotPotentialLeakWarning) {
+        const { onDidAddListener: origListenerDidAdd } = options;
+        const stack = Stacktrace.create();
+        let count = 0;
+        options.onDidAddListener = () => {
+          if (++count === 2) {
+            console.warn("snapshotted emitter LIKELY used public and SHOULD HAVE BEEN created with DisposableStore. snapshotted here");
+            stack.print();
+          }
+          origListenerDidAdd === null || origListenerDidAdd === void 0 ? void 0 : origListenerDidAdd();
+        };
+      }
+    }
+    function defer(event, disposable) {
+      return debounce(event, () => void 0, 0, void 0, true, void 0, disposable);
+    }
+    Event2.defer = defer;
+    function once2(event) {
+      return (listener, thisArgs = null, disposables) => {
+        let didFire = false;
+        let result = void 0;
+        result = event((e) => {
+          if (didFire) {
+            return;
+          } else if (result) {
+            result.dispose();
+          } else {
+            didFire = true;
+          }
+          return listener.call(thisArgs, e);
+        }, null, disposables);
+        if (didFire) {
+          result.dispose();
+        }
+        return result;
+      };
+    }
+    Event2.once = once2;
+    function map(event, map2, disposable) {
+      return snapshot((listener, thisArgs = null, disposables) => event((i) => listener.call(thisArgs, map2(i)), null, disposables), disposable);
+    }
+    Event2.map = map;
+    function forEach(event, each, disposable) {
+      return snapshot((listener, thisArgs = null, disposables) => event((i) => {
+        each(i);
+        listener.call(thisArgs, i);
+      }, null, disposables), disposable);
+    }
+    Event2.forEach = forEach;
+    function filter(event, filter2, disposable) {
+      return snapshot((listener, thisArgs = null, disposables) => event((e) => filter2(e) && listener.call(thisArgs, e), null, disposables), disposable);
+    }
+    Event2.filter = filter;
+    function signal(event) {
+      return event;
+    }
+    Event2.signal = signal;
+    function any(...events) {
+      return (listener, thisArgs = null, disposables) => {
+        const disposable = combinedDisposable(...events.map((event) => event((e) => listener.call(thisArgs, e))));
+        return addAndReturnDisposable(disposable, disposables);
+      };
+    }
+    Event2.any = any;
+    function reduce(event, merge, initial, disposable) {
+      let output = initial;
+      return map(event, (e) => {
+        output = merge(output, e);
+        return output;
+      }, disposable);
+    }
+    Event2.reduce = reduce;
+    function snapshot(event, disposable) {
+      let listener;
+      const options = {
+        onWillAddFirstListener() {
+          listener = event(emitter.fire, emitter);
+        },
+        onDidRemoveLastListener() {
+          listener === null || listener === void 0 ? void 0 : listener.dispose();
+        }
+      };
+      if (!disposable) {
+        _addLeakageTraceLogic(options);
+      }
+      const emitter = new Emitter(options);
+      disposable === null || disposable === void 0 ? void 0 : disposable.add(emitter);
+      return emitter.event;
+    }
+    function addAndReturnDisposable(d, store) {
+      if (store instanceof Array) {
+        store.push(d);
+      } else if (store) {
+        store.add(d);
+      }
+      return d;
+    }
+    function debounce(event, merge, delay = 100, leading = false, flushOnListenerRemove = false, leakWarningThreshold, disposable) {
+      let subscription;
+      let output = void 0;
+      let handle = void 0;
+      let numDebouncedCalls = 0;
+      let doFire;
+      const options = {
+        leakWarningThreshold,
+        onWillAddFirstListener() {
+          subscription = event((cur) => {
+            numDebouncedCalls++;
+            output = merge(output, cur);
+            if (leading && !handle) {
+              emitter.fire(output);
+              output = void 0;
+            }
+            doFire = () => {
+              const _output = output;
+              output = void 0;
+              handle = void 0;
+              if (!leading || numDebouncedCalls > 1) {
+                emitter.fire(_output);
+              }
+              numDebouncedCalls = 0;
+            };
+            if (typeof delay === "number") {
+              clearTimeout(handle);
+              handle = setTimeout(doFire, delay);
+            } else {
+              if (handle === void 0) {
+                handle = 0;
+                queueMicrotask(doFire);
+              }
+            }
+          });
+        },
+        onWillRemoveListener() {
+          if (flushOnListenerRemove && numDebouncedCalls > 0) {
+            doFire === null || doFire === void 0 ? void 0 : doFire();
+          }
+        },
+        onDidRemoveLastListener() {
+          doFire = void 0;
+          subscription.dispose();
+        }
+      };
+      if (!disposable) {
+        _addLeakageTraceLogic(options);
+      }
+      const emitter = new Emitter(options);
+      disposable === null || disposable === void 0 ? void 0 : disposable.add(emitter);
+      return emitter.event;
+    }
+    Event2.debounce = debounce;
+    function accumulate(event, delay = 0, disposable) {
+      return Event2.debounce(event, (last, e) => {
+        if (!last) {
+          return [e];
+        }
+        last.push(e);
+        return last;
+      }, delay, void 0, true, void 0, disposable);
+    }
+    Event2.accumulate = accumulate;
+    function latch(event, equals3 = (a, b) => a === b, disposable) {
+      let firstCall = true;
+      let cache;
+      return filter(event, (value) => {
+        const shouldEmit = firstCall || !equals3(value, cache);
+        firstCall = false;
+        cache = value;
+        return shouldEmit;
+      }, disposable);
+    }
+    Event2.latch = latch;
+    function split(event, isT, disposable) {
+      return [
+        Event2.filter(event, isT, disposable),
+        Event2.filter(event, (e) => !isT(e), disposable)
+      ];
+    }
+    Event2.split = split;
+    function buffer(event, flushAfterTimeout = false, _buffer = [], disposable) {
+      let buffer2 = _buffer.slice();
+      let listener = event((e) => {
+        if (buffer2) {
+          buffer2.push(e);
+        } else {
+          emitter.fire(e);
+        }
+      });
+      if (disposable) {
+        disposable.add(listener);
+      }
+      const flush = () => {
+        buffer2 === null || buffer2 === void 0 ? void 0 : buffer2.forEach((e) => emitter.fire(e));
+        buffer2 = null;
+      };
+      const emitter = new Emitter({
+        onWillAddFirstListener() {
+          if (!listener) {
+            listener = event((e) => emitter.fire(e));
+            if (disposable) {
+              disposable.add(listener);
+            }
+          }
+        },
+        onDidAddFirstListener() {
+          if (buffer2) {
+            if (flushAfterTimeout) {
+              setTimeout(flush);
+            } else {
+              flush();
+            }
+          }
+        },
+        onDidRemoveLastListener() {
+          if (listener) {
+            listener.dispose();
+          }
+          listener = null;
+        }
+      });
+      if (disposable) {
+        disposable.add(emitter);
+      }
+      return emitter.event;
+    }
+    Event2.buffer = buffer;
+    function chain(event, sythensize) {
+      const fn = (listener, thisArgs, disposables) => {
+        const cs = sythensize(new ChainableSynthesis());
+        return event(function(value) {
+          const result = cs.evaluate(value);
+          if (result !== HaltChainable) {
+            listener.call(thisArgs, result);
+          }
+        }, void 0, disposables);
+      };
+      return fn;
+    }
+    Event2.chain = chain;
+    const HaltChainable = Symbol("HaltChainable");
+    class ChainableSynthesis {
+      constructor() {
+        this.steps = [];
+      }
+      map(fn) {
+        this.steps.push(fn);
+        return this;
+      }
+      forEach(fn) {
+        this.steps.push((v) => {
+          fn(v);
+          return v;
+        });
+        return this;
+      }
+      filter(fn) {
+        this.steps.push((v) => fn(v) ? v : HaltChainable);
+        return this;
+      }
+      reduce(merge, initial) {
+        let last = initial;
+        this.steps.push((v) => {
+          last = merge(last, v);
+          return last;
+        });
+        return this;
+      }
+      latch(equals3 = (a, b) => a === b) {
+        let firstCall = true;
+        let cache;
+        this.steps.push((value) => {
+          const shouldEmit = firstCall || !equals3(value, cache);
+          firstCall = false;
+          cache = value;
+          return shouldEmit ? value : HaltChainable;
+        });
+        return this;
+      }
+      evaluate(value) {
+        for (const step of this.steps) {
+          value = step(value);
+          if (value === HaltChainable) {
+            break;
+          }
+        }
+        return value;
+      }
+    }
+    function fromNodeEventEmitter(emitter, eventName, map2 = (id2) => id2) {
+      const fn = (...args) => result.fire(map2(...args));
+      const onFirstListenerAdd = () => emitter.on(eventName, fn);
+      const onLastListenerRemove = () => emitter.removeListener(eventName, fn);
+      const result = new Emitter({ onWillAddFirstListener: onFirstListenerAdd, onDidRemoveLastListener: onLastListenerRemove });
+      return result.event;
+    }
+    Event2.fromNodeEventEmitter = fromNodeEventEmitter;
+    function fromDOMEventEmitter(emitter, eventName, map2 = (id2) => id2) {
+      const fn = (...args) => result.fire(map2(...args));
+      const onFirstListenerAdd = () => emitter.addEventListener(eventName, fn);
+      const onLastListenerRemove = () => emitter.removeEventListener(eventName, fn);
+      const result = new Emitter({ onWillAddFirstListener: onFirstListenerAdd, onDidRemoveLastListener: onLastListenerRemove });
+      return result.event;
+    }
+    Event2.fromDOMEventEmitter = fromDOMEventEmitter;
+    function toPromise(event) {
+      return new Promise((resolve2) => once2(event)(resolve2));
+    }
+    Event2.toPromise = toPromise;
+    function fromPromise(promise) {
+      const result = new Emitter();
+      promise.then((res) => {
+        result.fire(res);
+      }, () => {
+        result.fire(void 0);
+      }).finally(() => {
+        result.dispose();
+      });
+      return result.event;
+    }
+    Event2.fromPromise = fromPromise;
+    function runAndSubscribe(event, handler) {
+      handler(void 0);
+      return event((e) => handler(e));
+    }
+    Event2.runAndSubscribe = runAndSubscribe;
+    function runAndSubscribeWithStore(event, handler) {
+      let store = null;
+      function run(e) {
+        store === null || store === void 0 ? void 0 : store.dispose();
+        store = new DisposableStore();
+        handler(e, store);
+      }
+      run(void 0);
+      const disposable = event((e) => run(e));
+      return toDisposable(() => {
+        disposable.dispose();
+        store === null || store === void 0 ? void 0 : store.dispose();
+      });
+    }
+    Event2.runAndSubscribeWithStore = runAndSubscribeWithStore;
+    class EmitterObserver {
+      constructor(_observable, store) {
+        this._observable = _observable;
+        this._counter = 0;
+        this._hasChanged = false;
+        const options = {
+          onWillAddFirstListener: () => {
+            _observable.addObserver(this);
+          },
+          onDidRemoveLastListener: () => {
+            _observable.removeObserver(this);
+          }
+        };
+        if (!store) {
+          _addLeakageTraceLogic(options);
+        }
+        this.emitter = new Emitter(options);
+        if (store) {
+          store.add(this.emitter);
+        }
+      }
+      beginUpdate(_observable) {
+        this._counter++;
+      }
+      handlePossibleChange(_observable) {
+      }
+      handleChange(_observable, _change) {
+        this._hasChanged = true;
+      }
+      endUpdate(_observable) {
+        this._counter--;
+        if (this._counter === 0) {
+          this._observable.reportChanges();
+          if (this._hasChanged) {
+            this._hasChanged = false;
+            this.emitter.fire(this._observable.get());
+          }
+        }
+      }
+    }
+    function fromObservable(obs, store) {
+      const observer = new EmitterObserver(obs, store);
+      return observer.emitter.event;
+    }
+    Event2.fromObservable = fromObservable;
+    function fromObservableLight(observable) {
+      return (listener) => {
+        let count = 0;
+        let didChange = false;
+        const observer = {
+          beginUpdate() {
+            count++;
+          },
+          endUpdate() {
+            count--;
+            if (count === 0) {
+              observable.reportChanges();
+              if (didChange) {
+                didChange = false;
+                listener();
+              }
+            }
+          },
+          handlePossibleChange() {
+          },
+          handleChange() {
+            didChange = true;
+          }
+        };
+        observable.addObserver(observer);
+        observable.reportChanges();
+        return {
+          dispose() {
+            observable.removeObserver(observer);
+          }
+        };
+      };
+    }
+    Event2.fromObservableLight = fromObservableLight;
+  })(Event || (Event = {}));
+  var EventProfiling = class _EventProfiling {
+    constructor(name2) {
+      this.listenerCount = 0;
+      this.invocationCount = 0;
+      this.elapsedOverall = 0;
+      this.durations = [];
+      this.name = `${name2}_${_EventProfiling._idPool++}`;
+      _EventProfiling.all.add(this);
+    }
+    start(listenerCount) {
+      this._stopWatch = new StopWatch();
+      this.listenerCount = listenerCount;
+    }
+    stop() {
+      if (this._stopWatch) {
+        const elapsed = this._stopWatch.elapsed();
+        this.durations.push(elapsed);
+        this.elapsedOverall += elapsed;
+        this.invocationCount += 1;
+        this._stopWatch = void 0;
+      }
+    }
+  };
+  EventProfiling.all = /* @__PURE__ */ new Set();
+  EventProfiling._idPool = 0;
+  var _globalLeakWarningThreshold = -1;
+  var LeakageMonitor = class {
+    constructor(threshold, name2 = Math.random().toString(18).slice(2, 5)) {
+      this.threshold = threshold;
+      this.name = name2;
+      this._warnCountdown = 0;
+    }
+    dispose() {
+      var _a4;
+      (_a4 = this._stacks) === null || _a4 === void 0 ? void 0 : _a4.clear();
+    }
+    check(stack, listenerCount) {
+      const threshold = this.threshold;
+      if (threshold <= 0 || listenerCount < threshold) {
+        return void 0;
+      }
+      if (!this._stacks) {
+        this._stacks = /* @__PURE__ */ new Map();
+      }
+      const count = this._stacks.get(stack.value) || 0;
+      this._stacks.set(stack.value, count + 1);
+      this._warnCountdown -= 1;
+      if (this._warnCountdown <= 0) {
+        this._warnCountdown = threshold * 0.5;
+        let topStack;
+        let topCount = 0;
+        for (const [stack2, count2] of this._stacks) {
+          if (!topStack || topCount < count2) {
+            topStack = stack2;
+            topCount = count2;
+          }
+        }
+        console.warn(`[${this.name}] potential listener LEAK detected, having ${listenerCount} listeners already. MOST frequent listener (${topCount}):`);
+        console.warn(topStack);
+      }
+      return () => {
+        const count2 = this._stacks.get(stack.value) || 0;
+        this._stacks.set(stack.value, count2 - 1);
+      };
+    }
+  };
+  var Stacktrace = class _Stacktrace {
+    static create() {
+      var _a4;
+      return new _Stacktrace((_a4 = new Error().stack) !== null && _a4 !== void 0 ? _a4 : "");
+    }
+    constructor(value) {
+      this.value = value;
+    }
+    print() {
+      console.warn(this.value.split("\n").slice(2).join("\n"));
+    }
+  };
+  var id = 0;
+  var UniqueContainer = class {
+    constructor(value) {
+      this.value = value;
+      this.id = id++;
+    }
+  };
+  var compactionThreshold = 2;
+  var forEachListener = (listeners, fn) => {
+    if (listeners instanceof UniqueContainer) {
+      fn(listeners);
+    } else {
+      for (let i = 0; i < listeners.length; i++) {
+        const l = listeners[i];
+        if (l) {
+          fn(l);
+        }
+      }
+    }
+  };
+  var Emitter = class {
+    constructor(options) {
+      var _a4, _b2, _c2, _d, _e;
+      this._size = 0;
+      this._options = options;
+      this._leakageMon = _globalLeakWarningThreshold > 0 || ((_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.leakWarningThreshold) ? new LeakageMonitor((_c2 = (_b2 = this._options) === null || _b2 === void 0 ? void 0 : _b2.leakWarningThreshold) !== null && _c2 !== void 0 ? _c2 : _globalLeakWarningThreshold) : void 0;
+      this._perfMon = ((_d = this._options) === null || _d === void 0 ? void 0 : _d._profName) ? new EventProfiling(this._options._profName) : void 0;
+      this._deliveryQueue = (_e = this._options) === null || _e === void 0 ? void 0 : _e.deliveryQueue;
+    }
+    dispose() {
+      var _a4, _b2, _c2, _d;
+      if (!this._disposed) {
+        this._disposed = true;
+        if (((_a4 = this._deliveryQueue) === null || _a4 === void 0 ? void 0 : _a4.current) === this) {
+          this._deliveryQueue.reset();
+        }
+        if (this._listeners) {
+          if (_enableDisposeWithListenerWarning) {
+            const listeners = this._listeners;
+            queueMicrotask(() => {
+              forEachListener(listeners, (l) => {
+                var _a5;
+                return (_a5 = l.stack) === null || _a5 === void 0 ? void 0 : _a5.print();
+              });
+            });
+          }
+          this._listeners = void 0;
+          this._size = 0;
+        }
+        (_c2 = (_b2 = this._options) === null || _b2 === void 0 ? void 0 : _b2.onDidRemoveLastListener) === null || _c2 === void 0 ? void 0 : _c2.call(_b2);
+        (_d = this._leakageMon) === null || _d === void 0 ? void 0 : _d.dispose();
+      }
+    }
+    /**
+     * For the public to allow to subscribe
+     * to events from this Emitter
+     */
+    get event() {
+      var _a4;
+      (_a4 = this._event) !== null && _a4 !== void 0 ? _a4 : this._event = (callback, thisArgs, disposables) => {
+        var _a5, _b2, _c2, _d, _e;
+        if (this._leakageMon && this._size > this._leakageMon.threshold * 3) {
+          console.warn(`[${this._leakageMon.name}] REFUSES to accept new listeners because it exceeded its threshold by far`);
+          return Disposable.None;
+        }
+        if (this._disposed) {
+          return Disposable.None;
+        }
+        if (thisArgs) {
+          callback = callback.bind(thisArgs);
+        }
+        const contained = new UniqueContainer(callback);
+        let removeMonitor;
+        let stack;
+        if (this._leakageMon && this._size >= Math.ceil(this._leakageMon.threshold * 0.2)) {
+          contained.stack = Stacktrace.create();
+          removeMonitor = this._leakageMon.check(contained.stack, this._size + 1);
+        }
+        if (_enableDisposeWithListenerWarning) {
+          contained.stack = stack !== null && stack !== void 0 ? stack : Stacktrace.create();
+        }
+        if (!this._listeners) {
+          (_b2 = (_a5 = this._options) === null || _a5 === void 0 ? void 0 : _a5.onWillAddFirstListener) === null || _b2 === void 0 ? void 0 : _b2.call(_a5, this);
+          this._listeners = contained;
+          (_d = (_c2 = this._options) === null || _c2 === void 0 ? void 0 : _c2.onDidAddFirstListener) === null || _d === void 0 ? void 0 : _d.call(_c2, this);
+        } else if (this._listeners instanceof UniqueContainer) {
+          (_e = this._deliveryQueue) !== null && _e !== void 0 ? _e : this._deliveryQueue = new EventDeliveryQueuePrivate();
+          this._listeners = [this._listeners, contained];
+        } else {
+          this._listeners.push(contained);
+        }
+        this._size++;
+        const result = toDisposable(() => {
+          removeMonitor === null || removeMonitor === void 0 ? void 0 : removeMonitor();
+          this._removeListener(contained);
+        });
+        if (disposables instanceof DisposableStore) {
+          disposables.add(result);
+        } else if (Array.isArray(disposables)) {
+          disposables.push(result);
+        }
+        return result;
+      };
+      return this._event;
+    }
+    _removeListener(listener) {
+      var _a4, _b2, _c2, _d;
+      (_b2 = (_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.onWillRemoveListener) === null || _b2 === void 0 ? void 0 : _b2.call(_a4, this);
+      if (!this._listeners) {
+        return;
+      }
+      if (this._size === 1) {
+        this._listeners = void 0;
+        (_d = (_c2 = this._options) === null || _c2 === void 0 ? void 0 : _c2.onDidRemoveLastListener) === null || _d === void 0 ? void 0 : _d.call(_c2, this);
+        this._size = 0;
+        return;
+      }
+      const listeners = this._listeners;
+      const index = listeners.indexOf(listener);
+      if (index === -1) {
+        console.log("disposed?", this._disposed);
+        console.log("size?", this._size);
+        console.log("arr?", JSON.stringify(this._listeners));
+        throw new Error("Attempted to dispose unknown listener");
+      }
+      this._size--;
+      listeners[index] = void 0;
+      const adjustDeliveryQueue = this._deliveryQueue.current === this;
+      if (this._size * compactionThreshold <= listeners.length) {
+        let n = 0;
+        for (let i = 0; i < listeners.length; i++) {
+          if (listeners[i]) {
+            listeners[n++] = listeners[i];
+          } else if (adjustDeliveryQueue) {
+            this._deliveryQueue.end--;
+            if (n < this._deliveryQueue.i) {
+              this._deliveryQueue.i--;
+            }
+          }
+        }
+        listeners.length = n;
+      }
+    }
+    _deliver(listener, value) {
+      var _a4;
+      if (!listener) {
+        return;
+      }
+      const errorHandler2 = ((_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.onListenerError) || onUnexpectedError;
+      if (!errorHandler2) {
+        listener.value(value);
+        return;
+      }
+      try {
+        listener.value(value);
+      } catch (e) {
+        errorHandler2(e);
+      }
+    }
+    /** Delivers items in the queue. Assumes the queue is ready to go. */
+    _deliverQueue(dq) {
+      const listeners = dq.current._listeners;
+      while (dq.i < dq.end) {
+        this._deliver(listeners[dq.i++], dq.value);
+      }
+      dq.reset();
+    }
+    /**
+     * To be kept private to fire an event to
+     * subscribers
+     */
+    fire(event) {
+      var _a4, _b2, _c2, _d;
+      if ((_a4 = this._deliveryQueue) === null || _a4 === void 0 ? void 0 : _a4.current) {
+        this._deliverQueue(this._deliveryQueue);
+        (_b2 = this._perfMon) === null || _b2 === void 0 ? void 0 : _b2.stop();
+      }
+      (_c2 = this._perfMon) === null || _c2 === void 0 ? void 0 : _c2.start(this._size);
+      if (!this._listeners) {
+      } else if (this._listeners instanceof UniqueContainer) {
+        this._deliver(this._listeners, event);
+      } else {
+        const dq = this._deliveryQueue;
+        dq.enqueue(this, event, this._listeners.length);
+        this._deliverQueue(dq);
+      }
+      (_d = this._perfMon) === null || _d === void 0 ? void 0 : _d.stop();
+    }
+    hasListeners() {
+      return this._size > 0;
+    }
+  };
+  var EventDeliveryQueuePrivate = class {
+    constructor() {
+      this.i = -1;
+      this.end = 0;
+    }
+    enqueue(emitter, value, end) {
+      this.i = 0;
+      this.end = end;
+      this.current = emitter;
+      this.value = value;
+    }
+    reset() {
+      this.i = this.end;
+      this.current = void 0;
+      this.value = void 0;
+    }
+  };
+
+  // node_modules/monaco-editor/esm/vs/base/common/types.js
+  function isString(str) {
+    return typeof str === "string";
+  }
+
+  // node_modules/monaco-editor/esm/vs/base/common/objects.js
+  function getAllPropertyNames(obj) {
+    let res = [];
+    while (Object.prototype !== obj) {
+      res = res.concat(Object.getOwnPropertyNames(obj));
+      obj = Object.getPrototypeOf(obj);
+    }
+    return res;
+  }
+  function getAllMethodNames(obj) {
+    const methods = [];
+    for (const prop of getAllPropertyNames(obj)) {
+      if (typeof obj[prop] === "function") {
+        methods.push(prop);
+      }
+    }
+    return methods;
+  }
+  function createProxyObject(methodNames, invoke) {
+    const createProxyMethod = (method) => {
+      return function() {
+        const args = Array.prototype.slice.call(arguments, 0);
+        return invoke(method, args);
+      };
+    };
+    const result = {};
+    for (const methodName of methodNames) {
+      result[methodName] = createProxyMethod(methodName);
+    }
+    return result;
+  }
+
   // node_modules/monaco-editor/esm/vs/nls.js
   var isPseudo = typeof document !== "undefined" && document.location && document.location.hash.indexOf("pseudo=true") >= 0;
   function _format(message, args) {
@@ -18717,15 +16685,20 @@ ${n}`;
     }
     return result;
   }
-  function localize(data, message, ...args) {
+  var locale = void 0;
+  var translations = {};
+  function localizeWithPath(path, data, defaultMessage, ...args) {
+    var _a4, _b2;
+    const key = typeof data === "object" ? data.key : data;
+    const message = (_b2 = ((_a4 = translations[path]) !== null && _a4 !== void 0 ? _a4 : {})[key]) !== null && _b2 !== void 0 ? _b2 : defaultMessage;
     return _format(message, args);
   }
   function getConfiguredDefaultLocale(_) {
-    return void 0;
+    return locale;
   }
 
   // node_modules/monaco-editor/esm/vs/base/common/platform.js
-  var _a;
+  var _a2;
   var LANGUAGE_DEFAULT = "en";
   var _isWindows = false;
   var _isMacintosh = false;
@@ -18749,7 +16722,7 @@ ${n}`;
   } else if (typeof process !== "undefined") {
     nodeProcess = process;
   }
-  var isElectronProcess = typeof ((_a = nodeProcess === null || nodeProcess === void 0 ? void 0 : nodeProcess.versions) === null || _a === void 0 ? void 0 : _a.electron) === "string";
+  var isElectronProcess = typeof ((_a2 = nodeProcess === null || nodeProcess === void 0 ? void 0 : nodeProcess.versions) === null || _a2 === void 0 ? void 0 : _a2.electron) === "string";
   var isElectronRenderer = isElectronProcess && (nodeProcess === null || nodeProcess === void 0 ? void 0 : nodeProcess.type) === "renderer";
   if (typeof navigator === "object" && !isElectronRenderer) {
     _userAgent = navigator.userAgent;
@@ -18764,7 +16737,7 @@ ${n}`;
       // to ensure that the NLS AMD Loader plugin has been loaded and configured.
       // This is because the loader plugin decides what the default locale is based on
       // how it's able to resolve the strings.
-      localize({ key: "ensureLoaderPluginIsLoaded", comment: ["{Locked}"] }, "_")
+      localizeWithPath("vs/base/common/platform", { key: "ensureLoaderPluginIsLoaded", comment: ["{Locked}"] }, "_")
     );
     _locale = configuredLocale || LANGUAGE_DEFAULT;
     _language = _locale;
@@ -18862,664 +16835,6 @@ ${n}`;
   var isEdge = !!(userAgent && userAgent.indexOf("Edg/") >= 0);
   var isAndroid = !!(userAgent && userAgent.indexOf("Android") >= 0);
 
-  // node_modules/monaco-editor/esm/vs/base/common/stopwatch.js
-  var hasPerformanceNow = globals.performance && typeof globals.performance.now === "function";
-  var StopWatch = class _StopWatch {
-    static create(highResolution = true) {
-      return new _StopWatch(highResolution);
-    }
-    constructor(highResolution) {
-      this._highResolution = hasPerformanceNow && highResolution;
-      this._startTime = this._now();
-      this._stopTime = -1;
-    }
-    stop() {
-      this._stopTime = this._now();
-    }
-    reset() {
-      this._startTime = this._now();
-      this._stopTime = -1;
-    }
-    elapsed() {
-      if (this._stopTime !== -1) {
-        return this._stopTime - this._startTime;
-      }
-      return this._now() - this._startTime;
-    }
-    _now() {
-      return this._highResolution ? globals.performance.now() : Date.now();
-    }
-  };
-
-  // node_modules/monaco-editor/esm/vs/base/common/event.js
-  var _enableDisposeWithListenerWarning = false;
-  var _enableSnapshotPotentialLeakWarning = false;
-  var Event;
-  (function(Event2) {
-    Event2.None = () => Disposable.None;
-    function _addLeakageTraceLogic(options) {
-      if (_enableSnapshotPotentialLeakWarning) {
-        const { onDidAddListener: origListenerDidAdd } = options;
-        const stack = Stacktrace.create();
-        let count = 0;
-        options.onDidAddListener = () => {
-          if (++count === 2) {
-            console.warn("snapshotted emitter LIKELY used public and SHOULD HAVE BEEN created with DisposableStore. snapshotted here");
-            stack.print();
-          }
-          origListenerDidAdd === null || origListenerDidAdd === void 0 ? void 0 : origListenerDidAdd();
-        };
-      }
-    }
-    function defer(event, disposable) {
-      return debounce(event, () => void 0, 0, void 0, true, void 0, disposable);
-    }
-    Event2.defer = defer;
-    function once3(event) {
-      return (listener, thisArgs = null, disposables) => {
-        let didFire = false;
-        let result = void 0;
-        result = event((e) => {
-          if (didFire) {
-            return;
-          } else if (result) {
-            result.dispose();
-          } else {
-            didFire = true;
-          }
-          return listener.call(thisArgs, e);
-        }, null, disposables);
-        if (didFire) {
-          result.dispose();
-        }
-        return result;
-      };
-    }
-    Event2.once = once3;
-    function map(event, map2, disposable) {
-      return snapshot((listener, thisArgs = null, disposables) => event((i) => listener.call(thisArgs, map2(i)), null, disposables), disposable);
-    }
-    Event2.map = map;
-    function forEach(event, each, disposable) {
-      return snapshot((listener, thisArgs = null, disposables) => event((i) => {
-        each(i);
-        listener.call(thisArgs, i);
-      }, null, disposables), disposable);
-    }
-    Event2.forEach = forEach;
-    function filter(event, filter2, disposable) {
-      return snapshot((listener, thisArgs = null, disposables) => event((e) => filter2(e) && listener.call(thisArgs, e), null, disposables), disposable);
-    }
-    Event2.filter = filter;
-    function signal(event) {
-      return event;
-    }
-    Event2.signal = signal;
-    function any(...events) {
-      return (listener, thisArgs = null, disposables) => combinedDisposable(...events.map((event) => event((e) => listener.call(thisArgs, e), null, disposables)));
-    }
-    Event2.any = any;
-    function reduce(event, merge, initial, disposable) {
-      let output = initial;
-      return map(event, (e) => {
-        output = merge(output, e);
-        return output;
-      }, disposable);
-    }
-    Event2.reduce = reduce;
-    function snapshot(event, disposable) {
-      let listener;
-      const options = {
-        onWillAddFirstListener() {
-          listener = event(emitter.fire, emitter);
-        },
-        onDidRemoveLastListener() {
-          listener === null || listener === void 0 ? void 0 : listener.dispose();
-        }
-      };
-      if (!disposable) {
-        _addLeakageTraceLogic(options);
-      }
-      const emitter = new Emitter(options);
-      disposable === null || disposable === void 0 ? void 0 : disposable.add(emitter);
-      return emitter.event;
-    }
-    function debounce(event, merge, delay = 100, leading = false, flushOnListenerRemove = false, leakWarningThreshold, disposable) {
-      let subscription;
-      let output = void 0;
-      let handle = void 0;
-      let numDebouncedCalls = 0;
-      let doFire;
-      const options = {
-        leakWarningThreshold,
-        onWillAddFirstListener() {
-          subscription = event((cur) => {
-            numDebouncedCalls++;
-            output = merge(output, cur);
-            if (leading && !handle) {
-              emitter.fire(output);
-              output = void 0;
-            }
-            doFire = () => {
-              const _output = output;
-              output = void 0;
-              handle = void 0;
-              if (!leading || numDebouncedCalls > 1) {
-                emitter.fire(_output);
-              }
-              numDebouncedCalls = 0;
-            };
-            if (typeof delay === "number") {
-              clearTimeout(handle);
-              handle = setTimeout(doFire, delay);
-            } else {
-              if (handle === void 0) {
-                handle = 0;
-                queueMicrotask(doFire);
-              }
-            }
-          });
-        },
-        onWillRemoveListener() {
-          if (flushOnListenerRemove && numDebouncedCalls > 0) {
-            doFire === null || doFire === void 0 ? void 0 : doFire();
-          }
-        },
-        onDidRemoveLastListener() {
-          doFire = void 0;
-          subscription.dispose();
-        }
-      };
-      if (!disposable) {
-        _addLeakageTraceLogic(options);
-      }
-      const emitter = new Emitter(options);
-      disposable === null || disposable === void 0 ? void 0 : disposable.add(emitter);
-      return emitter.event;
-    }
-    Event2.debounce = debounce;
-    function accumulate(event, delay = 0, disposable) {
-      return Event2.debounce(event, (last, e) => {
-        if (!last) {
-          return [e];
-        }
-        last.push(e);
-        return last;
-      }, delay, void 0, true, void 0, disposable);
-    }
-    Event2.accumulate = accumulate;
-    function latch(event, equals2 = (a, b) => a === b, disposable) {
-      let firstCall = true;
-      let cache;
-      return filter(event, (value) => {
-        const shouldEmit = firstCall || !equals2(value, cache);
-        firstCall = false;
-        cache = value;
-        return shouldEmit;
-      }, disposable);
-    }
-    Event2.latch = latch;
-    function split(event, isT, disposable) {
-      return [
-        Event2.filter(event, isT, disposable),
-        Event2.filter(event, (e) => !isT(e), disposable)
-      ];
-    }
-    Event2.split = split;
-    function buffer(event, flushAfterTimeout = false, _buffer = []) {
-      let buffer2 = _buffer.slice();
-      let listener = event((e) => {
-        if (buffer2) {
-          buffer2.push(e);
-        } else {
-          emitter.fire(e);
-        }
-      });
-      const flush = () => {
-        buffer2 === null || buffer2 === void 0 ? void 0 : buffer2.forEach((e) => emitter.fire(e));
-        buffer2 = null;
-      };
-      const emitter = new Emitter({
-        onWillAddFirstListener() {
-          if (!listener) {
-            listener = event((e) => emitter.fire(e));
-          }
-        },
-        onDidAddFirstListener() {
-          if (buffer2) {
-            if (flushAfterTimeout) {
-              setTimeout(flush);
-            } else {
-              flush();
-            }
-          }
-        },
-        onDidRemoveLastListener() {
-          if (listener) {
-            listener.dispose();
-          }
-          listener = null;
-        }
-      });
-      return emitter.event;
-    }
-    Event2.buffer = buffer;
-    class ChainableEvent {
-      constructor(event) {
-        this.event = event;
-        this.disposables = new DisposableStore();
-      }
-      /** @see {@link Event.map} */
-      map(fn) {
-        return new ChainableEvent(map(this.event, fn, this.disposables));
-      }
-      /** @see {@link Event.forEach} */
-      forEach(fn) {
-        return new ChainableEvent(forEach(this.event, fn, this.disposables));
-      }
-      filter(fn) {
-        return new ChainableEvent(filter(this.event, fn, this.disposables));
-      }
-      /** @see {@link Event.reduce} */
-      reduce(merge, initial) {
-        return new ChainableEvent(reduce(this.event, merge, initial, this.disposables));
-      }
-      /** @see {@link Event.reduce} */
-      latch() {
-        return new ChainableEvent(latch(this.event, void 0, this.disposables));
-      }
-      debounce(merge, delay = 100, leading = false, flushOnListenerRemove = false, leakWarningThreshold) {
-        return new ChainableEvent(debounce(this.event, merge, delay, leading, flushOnListenerRemove, leakWarningThreshold, this.disposables));
-      }
-      /**
-       * Attach a listener to the event.
-       */
-      on(listener, thisArgs, disposables) {
-        return this.event(listener, thisArgs, disposables);
-      }
-      /** @see {@link Event.once} */
-      once(listener, thisArgs, disposables) {
-        return once3(this.event)(listener, thisArgs, disposables);
-      }
-      dispose() {
-        this.disposables.dispose();
-      }
-    }
-    function chain(event) {
-      return new ChainableEvent(event);
-    }
-    Event2.chain = chain;
-    function fromNodeEventEmitter(emitter, eventName, map2 = (id) => id) {
-      const fn = (...args) => result.fire(map2(...args));
-      const onFirstListenerAdd = () => emitter.on(eventName, fn);
-      const onLastListenerRemove = () => emitter.removeListener(eventName, fn);
-      const result = new Emitter({ onWillAddFirstListener: onFirstListenerAdd, onDidRemoveLastListener: onLastListenerRemove });
-      return result.event;
-    }
-    Event2.fromNodeEventEmitter = fromNodeEventEmitter;
-    function fromDOMEventEmitter(emitter, eventName, map2 = (id) => id) {
-      const fn = (...args) => result.fire(map2(...args));
-      const onFirstListenerAdd = () => emitter.addEventListener(eventName, fn);
-      const onLastListenerRemove = () => emitter.removeEventListener(eventName, fn);
-      const result = new Emitter({ onWillAddFirstListener: onFirstListenerAdd, onDidRemoveLastListener: onLastListenerRemove });
-      return result.event;
-    }
-    Event2.fromDOMEventEmitter = fromDOMEventEmitter;
-    function toPromise(event) {
-      return new Promise((resolve2) => once3(event)(resolve2));
-    }
-    Event2.toPromise = toPromise;
-    function runAndSubscribe(event, handler) {
-      handler(void 0);
-      return event((e) => handler(e));
-    }
-    Event2.runAndSubscribe = runAndSubscribe;
-    function runAndSubscribeWithStore(event, handler) {
-      let store = null;
-      function run(e) {
-        store === null || store === void 0 ? void 0 : store.dispose();
-        store = new DisposableStore();
-        handler(e, store);
-      }
-      run(void 0);
-      const disposable = event((e) => run(e));
-      return toDisposable(() => {
-        disposable.dispose();
-        store === null || store === void 0 ? void 0 : store.dispose();
-      });
-    }
-    Event2.runAndSubscribeWithStore = runAndSubscribeWithStore;
-    class EmitterObserver {
-      constructor(obs, store) {
-        this.obs = obs;
-        this._counter = 0;
-        this._hasChanged = false;
-        const options = {
-          onWillAddFirstListener: () => {
-            obs.addObserver(this);
-          },
-          onDidRemoveLastListener: () => {
-            obs.removeObserver(this);
-          }
-        };
-        if (!store) {
-          _addLeakageTraceLogic(options);
-        }
-        this.emitter = new Emitter(options);
-        if (store) {
-          store.add(this.emitter);
-        }
-      }
-      beginUpdate(_observable) {
-        this._counter++;
-      }
-      handleChange(_observable, _change) {
-        this._hasChanged = true;
-      }
-      endUpdate(_observable) {
-        if (--this._counter === 0) {
-          if (this._hasChanged) {
-            this._hasChanged = false;
-            this.emitter.fire(this.obs.get());
-          }
-        }
-      }
-    }
-    function fromObservable(obs, store) {
-      const observer = new EmitterObserver(obs, store);
-      return observer.emitter.event;
-    }
-    Event2.fromObservable = fromObservable;
-  })(Event || (Event = {}));
-  var EventProfiling = class _EventProfiling {
-    constructor(name2) {
-      this.listenerCount = 0;
-      this.invocationCount = 0;
-      this.elapsedOverall = 0;
-      this.durations = [];
-      this.name = `${name2}_${_EventProfiling._idPool++}`;
-      _EventProfiling.all.add(this);
-    }
-    start(listenerCount) {
-      this._stopWatch = new StopWatch(true);
-      this.listenerCount = listenerCount;
-    }
-    stop() {
-      if (this._stopWatch) {
-        const elapsed = this._stopWatch.elapsed();
-        this.durations.push(elapsed);
-        this.elapsedOverall += elapsed;
-        this.invocationCount += 1;
-        this._stopWatch = void 0;
-      }
-    }
-  };
-  EventProfiling.all = /* @__PURE__ */ new Set();
-  EventProfiling._idPool = 0;
-  var _globalLeakWarningThreshold = -1;
-  var LeakageMonitor = class {
-    constructor(threshold, name2 = Math.random().toString(18).slice(2, 5)) {
-      this.threshold = threshold;
-      this.name = name2;
-      this._warnCountdown = 0;
-    }
-    dispose() {
-      var _a3;
-      (_a3 = this._stacks) === null || _a3 === void 0 ? void 0 : _a3.clear();
-    }
-    check(stack, listenerCount) {
-      const threshold = this.threshold;
-      if (threshold <= 0 || listenerCount < threshold) {
-        return void 0;
-      }
-      if (!this._stacks) {
-        this._stacks = /* @__PURE__ */ new Map();
-      }
-      const count = this._stacks.get(stack.value) || 0;
-      this._stacks.set(stack.value, count + 1);
-      this._warnCountdown -= 1;
-      if (this._warnCountdown <= 0) {
-        this._warnCountdown = threshold * 0.5;
-        let topStack;
-        let topCount = 0;
-        for (const [stack2, count2] of this._stacks) {
-          if (!topStack || topCount < count2) {
-            topStack = stack2;
-            topCount = count2;
-          }
-        }
-        console.warn(`[${this.name}] potential listener LEAK detected, having ${listenerCount} listeners already. MOST frequent listener (${topCount}):`);
-        console.warn(topStack);
-      }
-      return () => {
-        const count2 = this._stacks.get(stack.value) || 0;
-        this._stacks.set(stack.value, count2 - 1);
-      };
-    }
-  };
-  var Stacktrace = class _Stacktrace {
-    static create() {
-      var _a3;
-      return new _Stacktrace((_a3 = new Error().stack) !== null && _a3 !== void 0 ? _a3 : "");
-    }
-    constructor(value) {
-      this.value = value;
-    }
-    print() {
-      console.warn(this.value.split("\n").slice(2).join("\n"));
-    }
-  };
-  var Listener = class {
-    constructor(callback, callbackThis, stack) {
-      this.callback = callback;
-      this.callbackThis = callbackThis;
-      this.stack = stack;
-      this.subscription = new SafeDisposable();
-    }
-    invoke(e) {
-      this.callback.call(this.callbackThis, e);
-    }
-  };
-  var Emitter = class {
-    constructor(options) {
-      var _a3, _b, _c, _d, _e;
-      this._disposed = false;
-      this._options = options;
-      this._leakageMon = _globalLeakWarningThreshold > 0 || ((_a3 = this._options) === null || _a3 === void 0 ? void 0 : _a3.leakWarningThreshold) ? new LeakageMonitor((_c = (_b = this._options) === null || _b === void 0 ? void 0 : _b.leakWarningThreshold) !== null && _c !== void 0 ? _c : _globalLeakWarningThreshold) : void 0;
-      this._perfMon = ((_d = this._options) === null || _d === void 0 ? void 0 : _d._profName) ? new EventProfiling(this._options._profName) : void 0;
-      this._deliveryQueue = (_e = this._options) === null || _e === void 0 ? void 0 : _e.deliveryQueue;
-    }
-    dispose() {
-      var _a3, _b, _c, _d;
-      if (!this._disposed) {
-        this._disposed = true;
-        if (this._listeners) {
-          if (_enableDisposeWithListenerWarning) {
-            const listeners = Array.from(this._listeners);
-            queueMicrotask(() => {
-              var _a4;
-              for (const listener of listeners) {
-                if (listener.subscription.isset()) {
-                  listener.subscription.unset();
-                  (_a4 = listener.stack) === null || _a4 === void 0 ? void 0 : _a4.print();
-                }
-              }
-            });
-          }
-          this._listeners.clear();
-        }
-        (_a3 = this._deliveryQueue) === null || _a3 === void 0 ? void 0 : _a3.clear(this);
-        (_c = (_b = this._options) === null || _b === void 0 ? void 0 : _b.onDidRemoveLastListener) === null || _c === void 0 ? void 0 : _c.call(_b);
-        (_d = this._leakageMon) === null || _d === void 0 ? void 0 : _d.dispose();
-      }
-    }
-    /**
-     * For the public to allow to subscribe
-     * to events from this Emitter
-     */
-    get event() {
-      if (!this._event) {
-        this._event = (callback, thisArgs, disposables) => {
-          var _a3, _b, _c;
-          if (!this._listeners) {
-            this._listeners = new LinkedList();
-          }
-          if (this._leakageMon && this._listeners.size > this._leakageMon.threshold * 3) {
-            console.warn(`[${this._leakageMon.name}] REFUSES to accept new listeners because it exceeded its threshold by far`);
-            return Disposable.None;
-          }
-          const firstListener = this._listeners.isEmpty();
-          if (firstListener && ((_a3 = this._options) === null || _a3 === void 0 ? void 0 : _a3.onWillAddFirstListener)) {
-            this._options.onWillAddFirstListener(this);
-          }
-          let removeMonitor;
-          let stack;
-          if (this._leakageMon && this._listeners.size >= Math.ceil(this._leakageMon.threshold * 0.2)) {
-            stack = Stacktrace.create();
-            removeMonitor = this._leakageMon.check(stack, this._listeners.size + 1);
-          }
-          if (_enableDisposeWithListenerWarning) {
-            stack = stack !== null && stack !== void 0 ? stack : Stacktrace.create();
-          }
-          const listener = new Listener(callback, thisArgs, stack);
-          const removeListener = this._listeners.push(listener);
-          if (firstListener && ((_b = this._options) === null || _b === void 0 ? void 0 : _b.onDidAddFirstListener)) {
-            this._options.onDidAddFirstListener(this);
-          }
-          if ((_c = this._options) === null || _c === void 0 ? void 0 : _c.onDidAddListener) {
-            this._options.onDidAddListener(this, callback, thisArgs);
-          }
-          const result = listener.subscription.set(() => {
-            var _a4, _b2;
-            removeMonitor === null || removeMonitor === void 0 ? void 0 : removeMonitor();
-            if (!this._disposed) {
-              (_b2 = (_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.onWillRemoveListener) === null || _b2 === void 0 ? void 0 : _b2.call(_a4, this);
-              removeListener();
-              if (this._options && this._options.onDidRemoveLastListener) {
-                const hasListeners = this._listeners && !this._listeners.isEmpty();
-                if (!hasListeners) {
-                  this._options.onDidRemoveLastListener(this);
-                }
-              }
-            }
-          });
-          if (disposables instanceof DisposableStore) {
-            disposables.add(result);
-          } else if (Array.isArray(disposables)) {
-            disposables.push(result);
-          }
-          return result;
-        };
-      }
-      return this._event;
-    }
-    /**
-     * To be kept private to fire an event to
-     * subscribers
-     */
-    fire(event) {
-      var _a3, _b, _c;
-      if (this._listeners) {
-        if (!this._deliveryQueue) {
-          this._deliveryQueue = new PrivateEventDeliveryQueue((_a3 = this._options) === null || _a3 === void 0 ? void 0 : _a3.onListenerError);
-        }
-        for (const listener of this._listeners) {
-          this._deliveryQueue.push(this, listener, event);
-        }
-        (_b = this._perfMon) === null || _b === void 0 ? void 0 : _b.start(this._deliveryQueue.size);
-        this._deliveryQueue.deliver();
-        (_c = this._perfMon) === null || _c === void 0 ? void 0 : _c.stop();
-      }
-    }
-    hasListeners() {
-      if (!this._listeners) {
-        return false;
-      }
-      return !this._listeners.isEmpty();
-    }
-  };
-  var EventDeliveryQueue = class {
-    constructor(_onListenerError = onUnexpectedError) {
-      this._onListenerError = _onListenerError;
-      this._queue = new LinkedList();
-    }
-    get size() {
-      return this._queue.size;
-    }
-    push(emitter, listener, event) {
-      this._queue.push(new EventDeliveryQueueElement(emitter, listener, event));
-    }
-    clear(emitter) {
-      const newQueue = new LinkedList();
-      for (const element of this._queue) {
-        if (element.emitter !== emitter) {
-          newQueue.push(element);
-        }
-      }
-      this._queue = newQueue;
-    }
-    deliver() {
-      while (this._queue.size > 0) {
-        const element = this._queue.shift();
-        try {
-          element.listener.invoke(element.event);
-        } catch (e) {
-          this._onListenerError(e);
-        }
-      }
-    }
-  };
-  var PrivateEventDeliveryQueue = class extends EventDeliveryQueue {
-    clear(emitter) {
-      this._queue.clear();
-    }
-  };
-  var EventDeliveryQueueElement = class {
-    constructor(emitter, listener, event) {
-      this.emitter = emitter;
-      this.listener = listener;
-      this.event = event;
-    }
-  };
-
-  // node_modules/monaco-editor/esm/vs/base/common/types.js
-  function isString(str) {
-    return typeof str === "string";
-  }
-
-  // node_modules/monaco-editor/esm/vs/base/common/objects.js
-  function getAllPropertyNames(obj) {
-    let res = [];
-    let proto = Object.getPrototypeOf(obj);
-    while (Object.prototype !== proto) {
-      res = res.concat(Object.getOwnPropertyNames(proto));
-      proto = Object.getPrototypeOf(proto);
-    }
-    return res;
-  }
-  function getAllMethodNames(obj) {
-    const methods = [];
-    for (const prop of getAllPropertyNames(obj)) {
-      if (typeof obj[prop] === "function") {
-        methods.push(prop);
-      }
-    }
-    return methods;
-  }
-  function createProxyObject(methodNames, invoke) {
-    const createProxyMethod = (method) => {
-      return function() {
-        const args = Array.prototype.slice.call(arguments, 0);
-        return invoke(method, args);
-      };
-    };
-    const result = {};
-    for (const methodName of methodNames) {
-      result[methodName] = createProxyMethod(methodName);
-    }
-    return result;
-  }
-
   // node_modules/monaco-editor/esm/vs/base/common/cancellation.js
   var shortcutEvent = Object.freeze(function(callback, context) {
     const handle = setTimeout(callback.bind(context), 0);
@@ -19604,11 +16919,11 @@ ${n}`;
       }
     }
     dispose(cancel = false) {
-      var _a3;
+      var _a4;
       if (cancel) {
         this.cancel();
       }
-      (_a3 = this._parentListener) === null || _a3 === void 0 ? void 0 : _a3.dispose();
+      (_a4 = this._parentListener) === null || _a4 === void 0 ? void 0 : _a4.dispose();
       if (!this._token) {
         this._token = CancellationToken.None;
       } else if (this._token instanceof MutableToken) {
@@ -19676,7 +16991,7 @@ ${n}`;
   };
 
   // node_modules/monaco-editor/esm/vs/base/common/strings.js
-  var _a2;
+  var _a3;
   function escapeRegExpCharacters(value) {
     return value.replace(/[\\\{\}\*\+\?\|\^\$\.\[\]\(\)]/g, "\\$&");
   }
@@ -19773,12 +17088,12 @@ ${n}`;
   function getGraphemeBreakRawData() {
     return JSON.parse("[0,0,0,51229,51255,12,44061,44087,12,127462,127487,6,7083,7085,5,47645,47671,12,54813,54839,12,128678,128678,14,3270,3270,5,9919,9923,14,45853,45879,12,49437,49463,12,53021,53047,12,71216,71218,7,128398,128399,14,129360,129374,14,2519,2519,5,4448,4519,9,9742,9742,14,12336,12336,14,44957,44983,12,46749,46775,12,48541,48567,12,50333,50359,12,52125,52151,12,53917,53943,12,69888,69890,5,73018,73018,5,127990,127990,14,128558,128559,14,128759,128760,14,129653,129655,14,2027,2035,5,2891,2892,7,3761,3761,5,6683,6683,5,8293,8293,4,9825,9826,14,9999,9999,14,43452,43453,5,44509,44535,12,45405,45431,12,46301,46327,12,47197,47223,12,48093,48119,12,48989,49015,12,49885,49911,12,50781,50807,12,51677,51703,12,52573,52599,12,53469,53495,12,54365,54391,12,65279,65279,4,70471,70472,7,72145,72147,7,119173,119179,5,127799,127818,14,128240,128244,14,128512,128512,14,128652,128652,14,128721,128722,14,129292,129292,14,129445,129450,14,129734,129743,14,1476,1477,5,2366,2368,7,2750,2752,7,3076,3076,5,3415,3415,5,4141,4144,5,6109,6109,5,6964,6964,5,7394,7400,5,9197,9198,14,9770,9770,14,9877,9877,14,9968,9969,14,10084,10084,14,43052,43052,5,43713,43713,5,44285,44311,12,44733,44759,12,45181,45207,12,45629,45655,12,46077,46103,12,46525,46551,12,46973,46999,12,47421,47447,12,47869,47895,12,48317,48343,12,48765,48791,12,49213,49239,12,49661,49687,12,50109,50135,12,50557,50583,12,51005,51031,12,51453,51479,12,51901,51927,12,52349,52375,12,52797,52823,12,53245,53271,12,53693,53719,12,54141,54167,12,54589,54615,12,55037,55063,12,69506,69509,5,70191,70193,5,70841,70841,7,71463,71467,5,72330,72342,5,94031,94031,5,123628,123631,5,127763,127765,14,127941,127941,14,128043,128062,14,128302,128317,14,128465,128467,14,128539,128539,14,128640,128640,14,128662,128662,14,128703,128703,14,128745,128745,14,129004,129007,14,129329,129330,14,129402,129402,14,129483,129483,14,129686,129704,14,130048,131069,14,173,173,4,1757,1757,1,2200,2207,5,2434,2435,7,2631,2632,5,2817,2817,5,3008,3008,5,3201,3201,5,3387,3388,5,3542,3542,5,3902,3903,7,4190,4192,5,6002,6003,5,6439,6440,5,6765,6770,7,7019,7027,5,7154,7155,7,8205,8205,13,8505,8505,14,9654,9654,14,9757,9757,14,9792,9792,14,9852,9853,14,9890,9894,14,9937,9937,14,9981,9981,14,10035,10036,14,11035,11036,14,42654,42655,5,43346,43347,7,43587,43587,5,44006,44007,7,44173,44199,12,44397,44423,12,44621,44647,12,44845,44871,12,45069,45095,12,45293,45319,12,45517,45543,12,45741,45767,12,45965,45991,12,46189,46215,12,46413,46439,12,46637,46663,12,46861,46887,12,47085,47111,12,47309,47335,12,47533,47559,12,47757,47783,12,47981,48007,12,48205,48231,12,48429,48455,12,48653,48679,12,48877,48903,12,49101,49127,12,49325,49351,12,49549,49575,12,49773,49799,12,49997,50023,12,50221,50247,12,50445,50471,12,50669,50695,12,50893,50919,12,51117,51143,12,51341,51367,12,51565,51591,12,51789,51815,12,52013,52039,12,52237,52263,12,52461,52487,12,52685,52711,12,52909,52935,12,53133,53159,12,53357,53383,12,53581,53607,12,53805,53831,12,54029,54055,12,54253,54279,12,54477,54503,12,54701,54727,12,54925,54951,12,55149,55175,12,68101,68102,5,69762,69762,7,70067,70069,7,70371,70378,5,70720,70721,7,71087,71087,5,71341,71341,5,71995,71996,5,72249,72249,7,72850,72871,5,73109,73109,5,118576,118598,5,121505,121519,5,127245,127247,14,127568,127569,14,127777,127777,14,127872,127891,14,127956,127967,14,128015,128016,14,128110,128172,14,128259,128259,14,128367,128368,14,128424,128424,14,128488,128488,14,128530,128532,14,128550,128551,14,128566,128566,14,128647,128647,14,128656,128656,14,128667,128673,14,128691,128693,14,128715,128715,14,128728,128732,14,128752,128752,14,128765,128767,14,129096,129103,14,129311,129311,14,129344,129349,14,129394,129394,14,129413,129425,14,129466,129471,14,129511,129535,14,129664,129666,14,129719,129722,14,129760,129767,14,917536,917631,5,13,13,2,1160,1161,5,1564,1564,4,1807,1807,1,2085,2087,5,2307,2307,7,2382,2383,7,2497,2500,5,2563,2563,7,2677,2677,5,2763,2764,7,2879,2879,5,2914,2915,5,3021,3021,5,3142,3144,5,3263,3263,5,3285,3286,5,3398,3400,7,3530,3530,5,3633,3633,5,3864,3865,5,3974,3975,5,4155,4156,7,4229,4230,5,5909,5909,7,6078,6085,7,6277,6278,5,6451,6456,7,6744,6750,5,6846,6846,5,6972,6972,5,7074,7077,5,7146,7148,7,7222,7223,5,7416,7417,5,8234,8238,4,8417,8417,5,9000,9000,14,9203,9203,14,9730,9731,14,9748,9749,14,9762,9763,14,9776,9783,14,9800,9811,14,9831,9831,14,9872,9873,14,9882,9882,14,9900,9903,14,9929,9933,14,9941,9960,14,9974,9974,14,9989,9989,14,10006,10006,14,10062,10062,14,10160,10160,14,11647,11647,5,12953,12953,14,43019,43019,5,43232,43249,5,43443,43443,5,43567,43568,7,43696,43696,5,43765,43765,7,44013,44013,5,44117,44143,12,44229,44255,12,44341,44367,12,44453,44479,12,44565,44591,12,44677,44703,12,44789,44815,12,44901,44927,12,45013,45039,12,45125,45151,12,45237,45263,12,45349,45375,12,45461,45487,12,45573,45599,12,45685,45711,12,45797,45823,12,45909,45935,12,46021,46047,12,46133,46159,12,46245,46271,12,46357,46383,12,46469,46495,12,46581,46607,12,46693,46719,12,46805,46831,12,46917,46943,12,47029,47055,12,47141,47167,12,47253,47279,12,47365,47391,12,47477,47503,12,47589,47615,12,47701,47727,12,47813,47839,12,47925,47951,12,48037,48063,12,48149,48175,12,48261,48287,12,48373,48399,12,48485,48511,12,48597,48623,12,48709,48735,12,48821,48847,12,48933,48959,12,49045,49071,12,49157,49183,12,49269,49295,12,49381,49407,12,49493,49519,12,49605,49631,12,49717,49743,12,49829,49855,12,49941,49967,12,50053,50079,12,50165,50191,12,50277,50303,12,50389,50415,12,50501,50527,12,50613,50639,12,50725,50751,12,50837,50863,12,50949,50975,12,51061,51087,12,51173,51199,12,51285,51311,12,51397,51423,12,51509,51535,12,51621,51647,12,51733,51759,12,51845,51871,12,51957,51983,12,52069,52095,12,52181,52207,12,52293,52319,12,52405,52431,12,52517,52543,12,52629,52655,12,52741,52767,12,52853,52879,12,52965,52991,12,53077,53103,12,53189,53215,12,53301,53327,12,53413,53439,12,53525,53551,12,53637,53663,12,53749,53775,12,53861,53887,12,53973,53999,12,54085,54111,12,54197,54223,12,54309,54335,12,54421,54447,12,54533,54559,12,54645,54671,12,54757,54783,12,54869,54895,12,54981,55007,12,55093,55119,12,55243,55291,10,66045,66045,5,68325,68326,5,69688,69702,5,69817,69818,5,69957,69958,7,70089,70092,5,70198,70199,5,70462,70462,5,70502,70508,5,70750,70750,5,70846,70846,7,71100,71101,5,71230,71230,7,71351,71351,5,71737,71738,5,72000,72000,7,72160,72160,5,72273,72278,5,72752,72758,5,72882,72883,5,73031,73031,5,73461,73462,7,94192,94193,7,119149,119149,7,121403,121452,5,122915,122916,5,126980,126980,14,127358,127359,14,127535,127535,14,127759,127759,14,127771,127771,14,127792,127793,14,127825,127867,14,127897,127899,14,127945,127945,14,127985,127986,14,128000,128007,14,128021,128021,14,128066,128100,14,128184,128235,14,128249,128252,14,128266,128276,14,128335,128335,14,128379,128390,14,128407,128419,14,128444,128444,14,128481,128481,14,128499,128499,14,128526,128526,14,128536,128536,14,128543,128543,14,128556,128556,14,128564,128564,14,128577,128580,14,128643,128645,14,128649,128649,14,128654,128654,14,128660,128660,14,128664,128664,14,128675,128675,14,128686,128689,14,128695,128696,14,128705,128709,14,128717,128719,14,128725,128725,14,128736,128741,14,128747,128748,14,128755,128755,14,128762,128762,14,128981,128991,14,129009,129023,14,129160,129167,14,129296,129304,14,129320,129327,14,129340,129342,14,129356,129356,14,129388,129392,14,129399,129400,14,129404,129407,14,129432,129442,14,129454,129455,14,129473,129474,14,129485,129487,14,129648,129651,14,129659,129660,14,129671,129679,14,129709,129711,14,129728,129730,14,129751,129753,14,129776,129782,14,917505,917505,4,917760,917999,5,10,10,3,127,159,4,768,879,5,1471,1471,5,1536,1541,1,1648,1648,5,1767,1768,5,1840,1866,5,2070,2073,5,2137,2139,5,2274,2274,1,2363,2363,7,2377,2380,7,2402,2403,5,2494,2494,5,2507,2508,7,2558,2558,5,2622,2624,7,2641,2641,5,2691,2691,7,2759,2760,5,2786,2787,5,2876,2876,5,2881,2884,5,2901,2902,5,3006,3006,5,3014,3016,7,3072,3072,5,3134,3136,5,3157,3158,5,3260,3260,5,3266,3266,5,3274,3275,7,3328,3329,5,3391,3392,7,3405,3405,5,3457,3457,5,3536,3537,7,3551,3551,5,3636,3642,5,3764,3772,5,3895,3895,5,3967,3967,7,3993,4028,5,4146,4151,5,4182,4183,7,4226,4226,5,4253,4253,5,4957,4959,5,5940,5940,7,6070,6070,7,6087,6088,7,6158,6158,4,6432,6434,5,6448,6449,7,6679,6680,5,6742,6742,5,6754,6754,5,6783,6783,5,6912,6915,5,6966,6970,5,6978,6978,5,7042,7042,7,7080,7081,5,7143,7143,7,7150,7150,7,7212,7219,5,7380,7392,5,7412,7412,5,8203,8203,4,8232,8232,4,8265,8265,14,8400,8412,5,8421,8432,5,8617,8618,14,9167,9167,14,9200,9200,14,9410,9410,14,9723,9726,14,9733,9733,14,9745,9745,14,9752,9752,14,9760,9760,14,9766,9766,14,9774,9774,14,9786,9786,14,9794,9794,14,9823,9823,14,9828,9828,14,9833,9850,14,9855,9855,14,9875,9875,14,9880,9880,14,9885,9887,14,9896,9897,14,9906,9916,14,9926,9927,14,9935,9935,14,9939,9939,14,9962,9962,14,9972,9972,14,9978,9978,14,9986,9986,14,9997,9997,14,10002,10002,14,10017,10017,14,10055,10055,14,10071,10071,14,10133,10135,14,10548,10549,14,11093,11093,14,12330,12333,5,12441,12442,5,42608,42610,5,43010,43010,5,43045,43046,5,43188,43203,7,43302,43309,5,43392,43394,5,43446,43449,5,43493,43493,5,43571,43572,7,43597,43597,7,43703,43704,5,43756,43757,5,44003,44004,7,44009,44010,7,44033,44059,12,44089,44115,12,44145,44171,12,44201,44227,12,44257,44283,12,44313,44339,12,44369,44395,12,44425,44451,12,44481,44507,12,44537,44563,12,44593,44619,12,44649,44675,12,44705,44731,12,44761,44787,12,44817,44843,12,44873,44899,12,44929,44955,12,44985,45011,12,45041,45067,12,45097,45123,12,45153,45179,12,45209,45235,12,45265,45291,12,45321,45347,12,45377,45403,12,45433,45459,12,45489,45515,12,45545,45571,12,45601,45627,12,45657,45683,12,45713,45739,12,45769,45795,12,45825,45851,12,45881,45907,12,45937,45963,12,45993,46019,12,46049,46075,12,46105,46131,12,46161,46187,12,46217,46243,12,46273,46299,12,46329,46355,12,46385,46411,12,46441,46467,12,46497,46523,12,46553,46579,12,46609,46635,12,46665,46691,12,46721,46747,12,46777,46803,12,46833,46859,12,46889,46915,12,46945,46971,12,47001,47027,12,47057,47083,12,47113,47139,12,47169,47195,12,47225,47251,12,47281,47307,12,47337,47363,12,47393,47419,12,47449,47475,12,47505,47531,12,47561,47587,12,47617,47643,12,47673,47699,12,47729,47755,12,47785,47811,12,47841,47867,12,47897,47923,12,47953,47979,12,48009,48035,12,48065,48091,12,48121,48147,12,48177,48203,12,48233,48259,12,48289,48315,12,48345,48371,12,48401,48427,12,48457,48483,12,48513,48539,12,48569,48595,12,48625,48651,12,48681,48707,12,48737,48763,12,48793,48819,12,48849,48875,12,48905,48931,12,48961,48987,12,49017,49043,12,49073,49099,12,49129,49155,12,49185,49211,12,49241,49267,12,49297,49323,12,49353,49379,12,49409,49435,12,49465,49491,12,49521,49547,12,49577,49603,12,49633,49659,12,49689,49715,12,49745,49771,12,49801,49827,12,49857,49883,12,49913,49939,12,49969,49995,12,50025,50051,12,50081,50107,12,50137,50163,12,50193,50219,12,50249,50275,12,50305,50331,12,50361,50387,12,50417,50443,12,50473,50499,12,50529,50555,12,50585,50611,12,50641,50667,12,50697,50723,12,50753,50779,12,50809,50835,12,50865,50891,12,50921,50947,12,50977,51003,12,51033,51059,12,51089,51115,12,51145,51171,12,51201,51227,12,51257,51283,12,51313,51339,12,51369,51395,12,51425,51451,12,51481,51507,12,51537,51563,12,51593,51619,12,51649,51675,12,51705,51731,12,51761,51787,12,51817,51843,12,51873,51899,12,51929,51955,12,51985,52011,12,52041,52067,12,52097,52123,12,52153,52179,12,52209,52235,12,52265,52291,12,52321,52347,12,52377,52403,12,52433,52459,12,52489,52515,12,52545,52571,12,52601,52627,12,52657,52683,12,52713,52739,12,52769,52795,12,52825,52851,12,52881,52907,12,52937,52963,12,52993,53019,12,53049,53075,12,53105,53131,12,53161,53187,12,53217,53243,12,53273,53299,12,53329,53355,12,53385,53411,12,53441,53467,12,53497,53523,12,53553,53579,12,53609,53635,12,53665,53691,12,53721,53747,12,53777,53803,12,53833,53859,12,53889,53915,12,53945,53971,12,54001,54027,12,54057,54083,12,54113,54139,12,54169,54195,12,54225,54251,12,54281,54307,12,54337,54363,12,54393,54419,12,54449,54475,12,54505,54531,12,54561,54587,12,54617,54643,12,54673,54699,12,54729,54755,12,54785,54811,12,54841,54867,12,54897,54923,12,54953,54979,12,55009,55035,12,55065,55091,12,55121,55147,12,55177,55203,12,65024,65039,5,65520,65528,4,66422,66426,5,68152,68154,5,69291,69292,5,69633,69633,5,69747,69748,5,69811,69814,5,69826,69826,5,69932,69932,7,70016,70017,5,70079,70080,7,70095,70095,5,70196,70196,5,70367,70367,5,70402,70403,7,70464,70464,5,70487,70487,5,70709,70711,7,70725,70725,7,70833,70834,7,70843,70844,7,70849,70849,7,71090,71093,5,71103,71104,5,71227,71228,7,71339,71339,5,71344,71349,5,71458,71461,5,71727,71735,5,71985,71989,7,71998,71998,5,72002,72002,7,72154,72155,5,72193,72202,5,72251,72254,5,72281,72283,5,72344,72345,5,72766,72766,7,72874,72880,5,72885,72886,5,73023,73029,5,73104,73105,5,73111,73111,5,92912,92916,5,94095,94098,5,113824,113827,4,119142,119142,7,119155,119162,4,119362,119364,5,121476,121476,5,122888,122904,5,123184,123190,5,125252,125258,5,127183,127183,14,127340,127343,14,127377,127386,14,127491,127503,14,127548,127551,14,127744,127756,14,127761,127761,14,127769,127769,14,127773,127774,14,127780,127788,14,127796,127797,14,127820,127823,14,127869,127869,14,127894,127895,14,127902,127903,14,127943,127943,14,127947,127950,14,127972,127972,14,127988,127988,14,127992,127994,14,128009,128011,14,128019,128019,14,128023,128041,14,128064,128064,14,128102,128107,14,128174,128181,14,128238,128238,14,128246,128247,14,128254,128254,14,128264,128264,14,128278,128299,14,128329,128330,14,128348,128359,14,128371,128377,14,128392,128393,14,128401,128404,14,128421,128421,14,128433,128434,14,128450,128452,14,128476,128478,14,128483,128483,14,128495,128495,14,128506,128506,14,128519,128520,14,128528,128528,14,128534,128534,14,128538,128538,14,128540,128542,14,128544,128549,14,128552,128555,14,128557,128557,14,128560,128563,14,128565,128565,14,128567,128576,14,128581,128591,14,128641,128642,14,128646,128646,14,128648,128648,14,128650,128651,14,128653,128653,14,128655,128655,14,128657,128659,14,128661,128661,14,128663,128663,14,128665,128666,14,128674,128674,14,128676,128677,14,128679,128685,14,128690,128690,14,128694,128694,14,128697,128702,14,128704,128704,14,128710,128714,14,128716,128716,14,128720,128720,14,128723,128724,14,128726,128727,14,128733,128735,14,128742,128744,14,128746,128746,14,128749,128751,14,128753,128754,14,128756,128758,14,128761,128761,14,128763,128764,14,128884,128895,14,128992,129003,14,129008,129008,14,129036,129039,14,129114,129119,14,129198,129279,14,129293,129295,14,129305,129310,14,129312,129319,14,129328,129328,14,129331,129338,14,129343,129343,14,129351,129355,14,129357,129359,14,129375,129387,14,129393,129393,14,129395,129398,14,129401,129401,14,129403,129403,14,129408,129412,14,129426,129431,14,129443,129444,14,129451,129453,14,129456,129465,14,129472,129472,14,129475,129482,14,129484,129484,14,129488,129510,14,129536,129647,14,129652,129652,14,129656,129658,14,129661,129663,14,129667,129670,14,129680,129685,14,129705,129708,14,129712,129718,14,129723,129727,14,129731,129733,14,129744,129750,14,129754,129759,14,129768,129775,14,129783,129791,14,917504,917504,4,917506,917535,4,917632,917759,4,918000,921599,4,0,9,4,11,12,4,14,31,4,169,169,14,174,174,14,1155,1159,5,1425,1469,5,1473,1474,5,1479,1479,5,1552,1562,5,1611,1631,5,1750,1756,5,1759,1764,5,1770,1773,5,1809,1809,5,1958,1968,5,2045,2045,5,2075,2083,5,2089,2093,5,2192,2193,1,2250,2273,5,2275,2306,5,2362,2362,5,2364,2364,5,2369,2376,5,2381,2381,5,2385,2391,5,2433,2433,5,2492,2492,5,2495,2496,7,2503,2504,7,2509,2509,5,2530,2531,5,2561,2562,5,2620,2620,5,2625,2626,5,2635,2637,5,2672,2673,5,2689,2690,5,2748,2748,5,2753,2757,5,2761,2761,7,2765,2765,5,2810,2815,5,2818,2819,7,2878,2878,5,2880,2880,7,2887,2888,7,2893,2893,5,2903,2903,5,2946,2946,5,3007,3007,7,3009,3010,7,3018,3020,7,3031,3031,5,3073,3075,7,3132,3132,5,3137,3140,7,3146,3149,5,3170,3171,5,3202,3203,7,3262,3262,7,3264,3265,7,3267,3268,7,3271,3272,7,3276,3277,5,3298,3299,5,3330,3331,7,3390,3390,5,3393,3396,5,3402,3404,7,3406,3406,1,3426,3427,5,3458,3459,7,3535,3535,5,3538,3540,5,3544,3550,7,3570,3571,7,3635,3635,7,3655,3662,5,3763,3763,7,3784,3789,5,3893,3893,5,3897,3897,5,3953,3966,5,3968,3972,5,3981,3991,5,4038,4038,5,4145,4145,7,4153,4154,5,4157,4158,5,4184,4185,5,4209,4212,5,4228,4228,7,4237,4237,5,4352,4447,8,4520,4607,10,5906,5908,5,5938,5939,5,5970,5971,5,6068,6069,5,6071,6077,5,6086,6086,5,6089,6099,5,6155,6157,5,6159,6159,5,6313,6313,5,6435,6438,7,6441,6443,7,6450,6450,5,6457,6459,5,6681,6682,7,6741,6741,7,6743,6743,7,6752,6752,5,6757,6764,5,6771,6780,5,6832,6845,5,6847,6862,5,6916,6916,7,6965,6965,5,6971,6971,7,6973,6977,7,6979,6980,7,7040,7041,5,7073,7073,7,7078,7079,7,7082,7082,7,7142,7142,5,7144,7145,5,7149,7149,5,7151,7153,5,7204,7211,7,7220,7221,7,7376,7378,5,7393,7393,7,7405,7405,5,7415,7415,7,7616,7679,5,8204,8204,5,8206,8207,4,8233,8233,4,8252,8252,14,8288,8292,4,8294,8303,4,8413,8416,5,8418,8420,5,8482,8482,14,8596,8601,14,8986,8987,14,9096,9096,14,9193,9196,14,9199,9199,14,9201,9202,14,9208,9210,14,9642,9643,14,9664,9664,14,9728,9729,14,9732,9732,14,9735,9741,14,9743,9744,14,9746,9746,14,9750,9751,14,9753,9756,14,9758,9759,14,9761,9761,14,9764,9765,14,9767,9769,14,9771,9773,14,9775,9775,14,9784,9785,14,9787,9791,14,9793,9793,14,9795,9799,14,9812,9822,14,9824,9824,14,9827,9827,14,9829,9830,14,9832,9832,14,9851,9851,14,9854,9854,14,9856,9861,14,9874,9874,14,9876,9876,14,9878,9879,14,9881,9881,14,9883,9884,14,9888,9889,14,9895,9895,14,9898,9899,14,9904,9905,14,9917,9918,14,9924,9925,14,9928,9928,14,9934,9934,14,9936,9936,14,9938,9938,14,9940,9940,14,9961,9961,14,9963,9967,14,9970,9971,14,9973,9973,14,9975,9977,14,9979,9980,14,9982,9985,14,9987,9988,14,9992,9996,14,9998,9998,14,10000,10001,14,10004,10004,14,10013,10013,14,10024,10024,14,10052,10052,14,10060,10060,14,10067,10069,14,10083,10083,14,10085,10087,14,10145,10145,14,10175,10175,14,11013,11015,14,11088,11088,14,11503,11505,5,11744,11775,5,12334,12335,5,12349,12349,14,12951,12951,14,42607,42607,5,42612,42621,5,42736,42737,5,43014,43014,5,43043,43044,7,43047,43047,7,43136,43137,7,43204,43205,5,43263,43263,5,43335,43345,5,43360,43388,8,43395,43395,7,43444,43445,7,43450,43451,7,43454,43456,7,43561,43566,5,43569,43570,5,43573,43574,5,43596,43596,5,43644,43644,5,43698,43700,5,43710,43711,5,43755,43755,7,43758,43759,7,43766,43766,5,44005,44005,5,44008,44008,5,44012,44012,7,44032,44032,11,44060,44060,11,44088,44088,11,44116,44116,11,44144,44144,11,44172,44172,11,44200,44200,11,44228,44228,11,44256,44256,11,44284,44284,11,44312,44312,11,44340,44340,11,44368,44368,11,44396,44396,11,44424,44424,11,44452,44452,11,44480,44480,11,44508,44508,11,44536,44536,11,44564,44564,11,44592,44592,11,44620,44620,11,44648,44648,11,44676,44676,11,44704,44704,11,44732,44732,11,44760,44760,11,44788,44788,11,44816,44816,11,44844,44844,11,44872,44872,11,44900,44900,11,44928,44928,11,44956,44956,11,44984,44984,11,45012,45012,11,45040,45040,11,45068,45068,11,45096,45096,11,45124,45124,11,45152,45152,11,45180,45180,11,45208,45208,11,45236,45236,11,45264,45264,11,45292,45292,11,45320,45320,11,45348,45348,11,45376,45376,11,45404,45404,11,45432,45432,11,45460,45460,11,45488,45488,11,45516,45516,11,45544,45544,11,45572,45572,11,45600,45600,11,45628,45628,11,45656,45656,11,45684,45684,11,45712,45712,11,45740,45740,11,45768,45768,11,45796,45796,11,45824,45824,11,45852,45852,11,45880,45880,11,45908,45908,11,45936,45936,11,45964,45964,11,45992,45992,11,46020,46020,11,46048,46048,11,46076,46076,11,46104,46104,11,46132,46132,11,46160,46160,11,46188,46188,11,46216,46216,11,46244,46244,11,46272,46272,11,46300,46300,11,46328,46328,11,46356,46356,11,46384,46384,11,46412,46412,11,46440,46440,11,46468,46468,11,46496,46496,11,46524,46524,11,46552,46552,11,46580,46580,11,46608,46608,11,46636,46636,11,46664,46664,11,46692,46692,11,46720,46720,11,46748,46748,11,46776,46776,11,46804,46804,11,46832,46832,11,46860,46860,11,46888,46888,11,46916,46916,11,46944,46944,11,46972,46972,11,47000,47000,11,47028,47028,11,47056,47056,11,47084,47084,11,47112,47112,11,47140,47140,11,47168,47168,11,47196,47196,11,47224,47224,11,47252,47252,11,47280,47280,11,47308,47308,11,47336,47336,11,47364,47364,11,47392,47392,11,47420,47420,11,47448,47448,11,47476,47476,11,47504,47504,11,47532,47532,11,47560,47560,11,47588,47588,11,47616,47616,11,47644,47644,11,47672,47672,11,47700,47700,11,47728,47728,11,47756,47756,11,47784,47784,11,47812,47812,11,47840,47840,11,47868,47868,11,47896,47896,11,47924,47924,11,47952,47952,11,47980,47980,11,48008,48008,11,48036,48036,11,48064,48064,11,48092,48092,11,48120,48120,11,48148,48148,11,48176,48176,11,48204,48204,11,48232,48232,11,48260,48260,11,48288,48288,11,48316,48316,11,48344,48344,11,48372,48372,11,48400,48400,11,48428,48428,11,48456,48456,11,48484,48484,11,48512,48512,11,48540,48540,11,48568,48568,11,48596,48596,11,48624,48624,11,48652,48652,11,48680,48680,11,48708,48708,11,48736,48736,11,48764,48764,11,48792,48792,11,48820,48820,11,48848,48848,11,48876,48876,11,48904,48904,11,48932,48932,11,48960,48960,11,48988,48988,11,49016,49016,11,49044,49044,11,49072,49072,11,49100,49100,11,49128,49128,11,49156,49156,11,49184,49184,11,49212,49212,11,49240,49240,11,49268,49268,11,49296,49296,11,49324,49324,11,49352,49352,11,49380,49380,11,49408,49408,11,49436,49436,11,49464,49464,11,49492,49492,11,49520,49520,11,49548,49548,11,49576,49576,11,49604,49604,11,49632,49632,11,49660,49660,11,49688,49688,11,49716,49716,11,49744,49744,11,49772,49772,11,49800,49800,11,49828,49828,11,49856,49856,11,49884,49884,11,49912,49912,11,49940,49940,11,49968,49968,11,49996,49996,11,50024,50024,11,50052,50052,11,50080,50080,11,50108,50108,11,50136,50136,11,50164,50164,11,50192,50192,11,50220,50220,11,50248,50248,11,50276,50276,11,50304,50304,11,50332,50332,11,50360,50360,11,50388,50388,11,50416,50416,11,50444,50444,11,50472,50472,11,50500,50500,11,50528,50528,11,50556,50556,11,50584,50584,11,50612,50612,11,50640,50640,11,50668,50668,11,50696,50696,11,50724,50724,11,50752,50752,11,50780,50780,11,50808,50808,11,50836,50836,11,50864,50864,11,50892,50892,11,50920,50920,11,50948,50948,11,50976,50976,11,51004,51004,11,51032,51032,11,51060,51060,11,51088,51088,11,51116,51116,11,51144,51144,11,51172,51172,11,51200,51200,11,51228,51228,11,51256,51256,11,51284,51284,11,51312,51312,11,51340,51340,11,51368,51368,11,51396,51396,11,51424,51424,11,51452,51452,11,51480,51480,11,51508,51508,11,51536,51536,11,51564,51564,11,51592,51592,11,51620,51620,11,51648,51648,11,51676,51676,11,51704,51704,11,51732,51732,11,51760,51760,11,51788,51788,11,51816,51816,11,51844,51844,11,51872,51872,11,51900,51900,11,51928,51928,11,51956,51956,11,51984,51984,11,52012,52012,11,52040,52040,11,52068,52068,11,52096,52096,11,52124,52124,11,52152,52152,11,52180,52180,11,52208,52208,11,52236,52236,11,52264,52264,11,52292,52292,11,52320,52320,11,52348,52348,11,52376,52376,11,52404,52404,11,52432,52432,11,52460,52460,11,52488,52488,11,52516,52516,11,52544,52544,11,52572,52572,11,52600,52600,11,52628,52628,11,52656,52656,11,52684,52684,11,52712,52712,11,52740,52740,11,52768,52768,11,52796,52796,11,52824,52824,11,52852,52852,11,52880,52880,11,52908,52908,11,52936,52936,11,52964,52964,11,52992,52992,11,53020,53020,11,53048,53048,11,53076,53076,11,53104,53104,11,53132,53132,11,53160,53160,11,53188,53188,11,53216,53216,11,53244,53244,11,53272,53272,11,53300,53300,11,53328,53328,11,53356,53356,11,53384,53384,11,53412,53412,11,53440,53440,11,53468,53468,11,53496,53496,11,53524,53524,11,53552,53552,11,53580,53580,11,53608,53608,11,53636,53636,11,53664,53664,11,53692,53692,11,53720,53720,11,53748,53748,11,53776,53776,11,53804,53804,11,53832,53832,11,53860,53860,11,53888,53888,11,53916,53916,11,53944,53944,11,53972,53972,11,54000,54000,11,54028,54028,11,54056,54056,11,54084,54084,11,54112,54112,11,54140,54140,11,54168,54168,11,54196,54196,11,54224,54224,11,54252,54252,11,54280,54280,11,54308,54308,11,54336,54336,11,54364,54364,11,54392,54392,11,54420,54420,11,54448,54448,11,54476,54476,11,54504,54504,11,54532,54532,11,54560,54560,11,54588,54588,11,54616,54616,11,54644,54644,11,54672,54672,11,54700,54700,11,54728,54728,11,54756,54756,11,54784,54784,11,54812,54812,11,54840,54840,11,54868,54868,11,54896,54896,11,54924,54924,11,54952,54952,11,54980,54980,11,55008,55008,11,55036,55036,11,55064,55064,11,55092,55092,11,55120,55120,11,55148,55148,11,55176,55176,11,55216,55238,9,64286,64286,5,65056,65071,5,65438,65439,5,65529,65531,4,66272,66272,5,68097,68099,5,68108,68111,5,68159,68159,5,68900,68903,5,69446,69456,5,69632,69632,7,69634,69634,7,69744,69744,5,69759,69761,5,69808,69810,7,69815,69816,7,69821,69821,1,69837,69837,1,69927,69931,5,69933,69940,5,70003,70003,5,70018,70018,7,70070,70078,5,70082,70083,1,70094,70094,7,70188,70190,7,70194,70195,7,70197,70197,7,70206,70206,5,70368,70370,7,70400,70401,5,70459,70460,5,70463,70463,7,70465,70468,7,70475,70477,7,70498,70499,7,70512,70516,5,70712,70719,5,70722,70724,5,70726,70726,5,70832,70832,5,70835,70840,5,70842,70842,5,70845,70845,5,70847,70848,5,70850,70851,5,71088,71089,7,71096,71099,7,71102,71102,7,71132,71133,5,71219,71226,5,71229,71229,5,71231,71232,5,71340,71340,7,71342,71343,7,71350,71350,7,71453,71455,5,71462,71462,7,71724,71726,7,71736,71736,7,71984,71984,5,71991,71992,7,71997,71997,7,71999,71999,1,72001,72001,1,72003,72003,5,72148,72151,5,72156,72159,7,72164,72164,7,72243,72248,5,72250,72250,1,72263,72263,5,72279,72280,7,72324,72329,1,72343,72343,7,72751,72751,7,72760,72765,5,72767,72767,5,72873,72873,7,72881,72881,7,72884,72884,7,73009,73014,5,73020,73021,5,73030,73030,1,73098,73102,7,73107,73108,7,73110,73110,7,73459,73460,5,78896,78904,4,92976,92982,5,94033,94087,7,94180,94180,5,113821,113822,5,118528,118573,5,119141,119141,5,119143,119145,5,119150,119154,5,119163,119170,5,119210,119213,5,121344,121398,5,121461,121461,5,121499,121503,5,122880,122886,5,122907,122913,5,122918,122922,5,123566,123566,5,125136,125142,5,126976,126979,14,126981,127182,14,127184,127231,14,127279,127279,14,127344,127345,14,127374,127374,14,127405,127461,14,127489,127490,14,127514,127514,14,127538,127546,14,127561,127567,14,127570,127743,14,127757,127758,14,127760,127760,14,127762,127762,14,127766,127768,14,127770,127770,14,127772,127772,14,127775,127776,14,127778,127779,14,127789,127791,14,127794,127795,14,127798,127798,14,127819,127819,14,127824,127824,14,127868,127868,14,127870,127871,14,127892,127893,14,127896,127896,14,127900,127901,14,127904,127940,14,127942,127942,14,127944,127944,14,127946,127946,14,127951,127955,14,127968,127971,14,127973,127984,14,127987,127987,14,127989,127989,14,127991,127991,14,127995,127999,5,128008,128008,14,128012,128014,14,128017,128018,14,128020,128020,14,128022,128022,14,128042,128042,14,128063,128063,14,128065,128065,14,128101,128101,14,128108,128109,14,128173,128173,14,128182,128183,14,128236,128237,14,128239,128239,14,128245,128245,14,128248,128248,14,128253,128253,14,128255,128258,14,128260,128263,14,128265,128265,14,128277,128277,14,128300,128301,14,128326,128328,14,128331,128334,14,128336,128347,14,128360,128366,14,128369,128370,14,128378,128378,14,128391,128391,14,128394,128397,14,128400,128400,14,128405,128406,14,128420,128420,14,128422,128423,14,128425,128432,14,128435,128443,14,128445,128449,14,128453,128464,14,128468,128475,14,128479,128480,14,128482,128482,14,128484,128487,14,128489,128494,14,128496,128498,14,128500,128505,14,128507,128511,14,128513,128518,14,128521,128525,14,128527,128527,14,128529,128529,14,128533,128533,14,128535,128535,14,128537,128537,14]");
   }
-  var AmbiguousCharacters = class _AmbiguousCharacters {
+  var AmbiguousCharacters = class {
     static getInstance(locales) {
-      return _AmbiguousCharacters.cache.get(Array.from(locales));
+      return _a3.cache.get(Array.from(locales));
     }
     static getLocales() {
-      return _AmbiguousCharacters._locales.value;
+      return _a3._locales.value;
     }
     constructor(confusableDictionary) {
       this.confusableDictionary = confusableDictionary;
@@ -19797,7 +17112,7 @@ ${n}`;
       return new Set(this.confusableDictionary.keys());
     }
   };
-  _a2 = AmbiguousCharacters;
+  _a3 = AmbiguousCharacters;
   AmbiguousCharacters.ambiguousCharacterData = new Lazy(() => {
     return JSON.parse('{"_common":[8232,32,8233,32,5760,32,8192,32,8193,32,8194,32,8195,32,8196,32,8197,32,8198,32,8200,32,8201,32,8202,32,8287,32,8199,32,8239,32,2042,95,65101,95,65102,95,65103,95,8208,45,8209,45,8210,45,65112,45,1748,45,8259,45,727,45,8722,45,10134,45,11450,45,1549,44,1643,44,8218,44,184,44,42233,44,894,59,2307,58,2691,58,1417,58,1795,58,1796,58,5868,58,65072,58,6147,58,6153,58,8282,58,1475,58,760,58,42889,58,8758,58,720,58,42237,58,451,33,11601,33,660,63,577,63,2429,63,5038,63,42731,63,119149,46,8228,46,1793,46,1794,46,42510,46,68176,46,1632,46,1776,46,42232,46,1373,96,65287,96,8219,96,8242,96,1370,96,1523,96,8175,96,65344,96,900,96,8189,96,8125,96,8127,96,8190,96,697,96,884,96,712,96,714,96,715,96,756,96,699,96,701,96,700,96,702,96,42892,96,1497,96,2036,96,2037,96,5194,96,5836,96,94033,96,94034,96,65339,91,10088,40,10098,40,12308,40,64830,40,65341,93,10089,41,10099,41,12309,41,64831,41,10100,123,119060,123,10101,125,65342,94,8270,42,1645,42,8727,42,66335,42,5941,47,8257,47,8725,47,8260,47,9585,47,10187,47,10744,47,119354,47,12755,47,12339,47,11462,47,20031,47,12035,47,65340,92,65128,92,8726,92,10189,92,10741,92,10745,92,119311,92,119355,92,12756,92,20022,92,12034,92,42872,38,708,94,710,94,5869,43,10133,43,66203,43,8249,60,10094,60,706,60,119350,60,5176,60,5810,60,5120,61,11840,61,12448,61,42239,61,8250,62,10095,62,707,62,119351,62,5171,62,94015,62,8275,126,732,126,8128,126,8764,126,65372,124,65293,45,120784,50,120794,50,120804,50,120814,50,120824,50,130034,50,42842,50,423,50,1000,50,42564,50,5311,50,42735,50,119302,51,120785,51,120795,51,120805,51,120815,51,120825,51,130035,51,42923,51,540,51,439,51,42858,51,11468,51,1248,51,94011,51,71882,51,120786,52,120796,52,120806,52,120816,52,120826,52,130036,52,5070,52,71855,52,120787,53,120797,53,120807,53,120817,53,120827,53,130037,53,444,53,71867,53,120788,54,120798,54,120808,54,120818,54,120828,54,130038,54,11474,54,5102,54,71893,54,119314,55,120789,55,120799,55,120809,55,120819,55,120829,55,130039,55,66770,55,71878,55,2819,56,2538,56,2666,56,125131,56,120790,56,120800,56,120810,56,120820,56,120830,56,130040,56,547,56,546,56,66330,56,2663,57,2920,57,2541,57,3437,57,120791,57,120801,57,120811,57,120821,57,120831,57,130041,57,42862,57,11466,57,71884,57,71852,57,71894,57,9082,97,65345,97,119834,97,119886,97,119938,97,119990,97,120042,97,120094,97,120146,97,120198,97,120250,97,120302,97,120354,97,120406,97,120458,97,593,97,945,97,120514,97,120572,97,120630,97,120688,97,120746,97,65313,65,119808,65,119860,65,119912,65,119964,65,120016,65,120068,65,120120,65,120172,65,120224,65,120276,65,120328,65,120380,65,120432,65,913,65,120488,65,120546,65,120604,65,120662,65,120720,65,5034,65,5573,65,42222,65,94016,65,66208,65,119835,98,119887,98,119939,98,119991,98,120043,98,120095,98,120147,98,120199,98,120251,98,120303,98,120355,98,120407,98,120459,98,388,98,5071,98,5234,98,5551,98,65314,66,8492,66,119809,66,119861,66,119913,66,120017,66,120069,66,120121,66,120173,66,120225,66,120277,66,120329,66,120381,66,120433,66,42932,66,914,66,120489,66,120547,66,120605,66,120663,66,120721,66,5108,66,5623,66,42192,66,66178,66,66209,66,66305,66,65347,99,8573,99,119836,99,119888,99,119940,99,119992,99,120044,99,120096,99,120148,99,120200,99,120252,99,120304,99,120356,99,120408,99,120460,99,7428,99,1010,99,11429,99,43951,99,66621,99,128844,67,71922,67,71913,67,65315,67,8557,67,8450,67,8493,67,119810,67,119862,67,119914,67,119966,67,120018,67,120174,67,120226,67,120278,67,120330,67,120382,67,120434,67,1017,67,11428,67,5087,67,42202,67,66210,67,66306,67,66581,67,66844,67,8574,100,8518,100,119837,100,119889,100,119941,100,119993,100,120045,100,120097,100,120149,100,120201,100,120253,100,120305,100,120357,100,120409,100,120461,100,1281,100,5095,100,5231,100,42194,100,8558,68,8517,68,119811,68,119863,68,119915,68,119967,68,120019,68,120071,68,120123,68,120175,68,120227,68,120279,68,120331,68,120383,68,120435,68,5024,68,5598,68,5610,68,42195,68,8494,101,65349,101,8495,101,8519,101,119838,101,119890,101,119942,101,120046,101,120098,101,120150,101,120202,101,120254,101,120306,101,120358,101,120410,101,120462,101,43826,101,1213,101,8959,69,65317,69,8496,69,119812,69,119864,69,119916,69,120020,69,120072,69,120124,69,120176,69,120228,69,120280,69,120332,69,120384,69,120436,69,917,69,120492,69,120550,69,120608,69,120666,69,120724,69,11577,69,5036,69,42224,69,71846,69,71854,69,66182,69,119839,102,119891,102,119943,102,119995,102,120047,102,120099,102,120151,102,120203,102,120255,102,120307,102,120359,102,120411,102,120463,102,43829,102,42905,102,383,102,7837,102,1412,102,119315,70,8497,70,119813,70,119865,70,119917,70,120021,70,120073,70,120125,70,120177,70,120229,70,120281,70,120333,70,120385,70,120437,70,42904,70,988,70,120778,70,5556,70,42205,70,71874,70,71842,70,66183,70,66213,70,66853,70,65351,103,8458,103,119840,103,119892,103,119944,103,120048,103,120100,103,120152,103,120204,103,120256,103,120308,103,120360,103,120412,103,120464,103,609,103,7555,103,397,103,1409,103,119814,71,119866,71,119918,71,119970,71,120022,71,120074,71,120126,71,120178,71,120230,71,120282,71,120334,71,120386,71,120438,71,1292,71,5056,71,5107,71,42198,71,65352,104,8462,104,119841,104,119945,104,119997,104,120049,104,120101,104,120153,104,120205,104,120257,104,120309,104,120361,104,120413,104,120465,104,1211,104,1392,104,5058,104,65320,72,8459,72,8460,72,8461,72,119815,72,119867,72,119919,72,120023,72,120179,72,120231,72,120283,72,120335,72,120387,72,120439,72,919,72,120494,72,120552,72,120610,72,120668,72,120726,72,11406,72,5051,72,5500,72,42215,72,66255,72,731,105,9075,105,65353,105,8560,105,8505,105,8520,105,119842,105,119894,105,119946,105,119998,105,120050,105,120102,105,120154,105,120206,105,120258,105,120310,105,120362,105,120414,105,120466,105,120484,105,618,105,617,105,953,105,8126,105,890,105,120522,105,120580,105,120638,105,120696,105,120754,105,1110,105,42567,105,1231,105,43893,105,5029,105,71875,105,65354,106,8521,106,119843,106,119895,106,119947,106,119999,106,120051,106,120103,106,120155,106,120207,106,120259,106,120311,106,120363,106,120415,106,120467,106,1011,106,1112,106,65322,74,119817,74,119869,74,119921,74,119973,74,120025,74,120077,74,120129,74,120181,74,120233,74,120285,74,120337,74,120389,74,120441,74,42930,74,895,74,1032,74,5035,74,5261,74,42201,74,119844,107,119896,107,119948,107,120000,107,120052,107,120104,107,120156,107,120208,107,120260,107,120312,107,120364,107,120416,107,120468,107,8490,75,65323,75,119818,75,119870,75,119922,75,119974,75,120026,75,120078,75,120130,75,120182,75,120234,75,120286,75,120338,75,120390,75,120442,75,922,75,120497,75,120555,75,120613,75,120671,75,120729,75,11412,75,5094,75,5845,75,42199,75,66840,75,1472,108,8739,73,9213,73,65512,73,1633,108,1777,73,66336,108,125127,108,120783,73,120793,73,120803,73,120813,73,120823,73,130033,73,65321,73,8544,73,8464,73,8465,73,119816,73,119868,73,119920,73,120024,73,120128,73,120180,73,120232,73,120284,73,120336,73,120388,73,120440,73,65356,108,8572,73,8467,108,119845,108,119897,108,119949,108,120001,108,120053,108,120105,73,120157,73,120209,73,120261,73,120313,73,120365,73,120417,73,120469,73,448,73,120496,73,120554,73,120612,73,120670,73,120728,73,11410,73,1030,73,1216,73,1493,108,1503,108,1575,108,126464,108,126592,108,65166,108,65165,108,1994,108,11599,73,5825,73,42226,73,93992,73,66186,124,66313,124,119338,76,8556,76,8466,76,119819,76,119871,76,119923,76,120027,76,120079,76,120131,76,120183,76,120235,76,120287,76,120339,76,120391,76,120443,76,11472,76,5086,76,5290,76,42209,76,93974,76,71843,76,71858,76,66587,76,66854,76,65325,77,8559,77,8499,77,119820,77,119872,77,119924,77,120028,77,120080,77,120132,77,120184,77,120236,77,120288,77,120340,77,120392,77,120444,77,924,77,120499,77,120557,77,120615,77,120673,77,120731,77,1018,77,11416,77,5047,77,5616,77,5846,77,42207,77,66224,77,66321,77,119847,110,119899,110,119951,110,120003,110,120055,110,120107,110,120159,110,120211,110,120263,110,120315,110,120367,110,120419,110,120471,110,1400,110,1404,110,65326,78,8469,78,119821,78,119873,78,119925,78,119977,78,120029,78,120081,78,120185,78,120237,78,120289,78,120341,78,120393,78,120445,78,925,78,120500,78,120558,78,120616,78,120674,78,120732,78,11418,78,42208,78,66835,78,3074,111,3202,111,3330,111,3458,111,2406,111,2662,111,2790,111,3046,111,3174,111,3302,111,3430,111,3664,111,3792,111,4160,111,1637,111,1781,111,65359,111,8500,111,119848,111,119900,111,119952,111,120056,111,120108,111,120160,111,120212,111,120264,111,120316,111,120368,111,120420,111,120472,111,7439,111,7441,111,43837,111,959,111,120528,111,120586,111,120644,111,120702,111,120760,111,963,111,120532,111,120590,111,120648,111,120706,111,120764,111,11423,111,4351,111,1413,111,1505,111,1607,111,126500,111,126564,111,126596,111,65259,111,65260,111,65258,111,65257,111,1726,111,64428,111,64429,111,64427,111,64426,111,1729,111,64424,111,64425,111,64423,111,64422,111,1749,111,3360,111,4125,111,66794,111,71880,111,71895,111,66604,111,1984,79,2534,79,2918,79,12295,79,70864,79,71904,79,120782,79,120792,79,120802,79,120812,79,120822,79,130032,79,65327,79,119822,79,119874,79,119926,79,119978,79,120030,79,120082,79,120134,79,120186,79,120238,79,120290,79,120342,79,120394,79,120446,79,927,79,120502,79,120560,79,120618,79,120676,79,120734,79,11422,79,1365,79,11604,79,4816,79,2848,79,66754,79,42227,79,71861,79,66194,79,66219,79,66564,79,66838,79,9076,112,65360,112,119849,112,119901,112,119953,112,120005,112,120057,112,120109,112,120161,112,120213,112,120265,112,120317,112,120369,112,120421,112,120473,112,961,112,120530,112,120544,112,120588,112,120602,112,120646,112,120660,112,120704,112,120718,112,120762,112,120776,112,11427,112,65328,80,8473,80,119823,80,119875,80,119927,80,119979,80,120031,80,120083,80,120187,80,120239,80,120291,80,120343,80,120395,80,120447,80,929,80,120504,80,120562,80,120620,80,120678,80,120736,80,11426,80,5090,80,5229,80,42193,80,66197,80,119850,113,119902,113,119954,113,120006,113,120058,113,120110,113,120162,113,120214,113,120266,113,120318,113,120370,113,120422,113,120474,113,1307,113,1379,113,1382,113,8474,81,119824,81,119876,81,119928,81,119980,81,120032,81,120084,81,120188,81,120240,81,120292,81,120344,81,120396,81,120448,81,11605,81,119851,114,119903,114,119955,114,120007,114,120059,114,120111,114,120163,114,120215,114,120267,114,120319,114,120371,114,120423,114,120475,114,43847,114,43848,114,7462,114,11397,114,43905,114,119318,82,8475,82,8476,82,8477,82,119825,82,119877,82,119929,82,120033,82,120189,82,120241,82,120293,82,120345,82,120397,82,120449,82,422,82,5025,82,5074,82,66740,82,5511,82,42211,82,94005,82,65363,115,119852,115,119904,115,119956,115,120008,115,120060,115,120112,115,120164,115,120216,115,120268,115,120320,115,120372,115,120424,115,120476,115,42801,115,445,115,1109,115,43946,115,71873,115,66632,115,65331,83,119826,83,119878,83,119930,83,119982,83,120034,83,120086,83,120138,83,120190,83,120242,83,120294,83,120346,83,120398,83,120450,83,1029,83,1359,83,5077,83,5082,83,42210,83,94010,83,66198,83,66592,83,119853,116,119905,116,119957,116,120009,116,120061,116,120113,116,120165,116,120217,116,120269,116,120321,116,120373,116,120425,116,120477,116,8868,84,10201,84,128872,84,65332,84,119827,84,119879,84,119931,84,119983,84,120035,84,120087,84,120139,84,120191,84,120243,84,120295,84,120347,84,120399,84,120451,84,932,84,120507,84,120565,84,120623,84,120681,84,120739,84,11430,84,5026,84,42196,84,93962,84,71868,84,66199,84,66225,84,66325,84,119854,117,119906,117,119958,117,120010,117,120062,117,120114,117,120166,117,120218,117,120270,117,120322,117,120374,117,120426,117,120478,117,42911,117,7452,117,43854,117,43858,117,651,117,965,117,120534,117,120592,117,120650,117,120708,117,120766,117,1405,117,66806,117,71896,117,8746,85,8899,85,119828,85,119880,85,119932,85,119984,85,120036,85,120088,85,120140,85,120192,85,120244,85,120296,85,120348,85,120400,85,120452,85,1357,85,4608,85,66766,85,5196,85,42228,85,94018,85,71864,85,8744,118,8897,118,65366,118,8564,118,119855,118,119907,118,119959,118,120011,118,120063,118,120115,118,120167,118,120219,118,120271,118,120323,118,120375,118,120427,118,120479,118,7456,118,957,118,120526,118,120584,118,120642,118,120700,118,120758,118,1141,118,1496,118,71430,118,43945,118,71872,118,119309,86,1639,86,1783,86,8548,86,119829,86,119881,86,119933,86,119985,86,120037,86,120089,86,120141,86,120193,86,120245,86,120297,86,120349,86,120401,86,120453,86,1140,86,11576,86,5081,86,5167,86,42719,86,42214,86,93960,86,71840,86,66845,86,623,119,119856,119,119908,119,119960,119,120012,119,120064,119,120116,119,120168,119,120220,119,120272,119,120324,119,120376,119,120428,119,120480,119,7457,119,1121,119,1309,119,1377,119,71434,119,71438,119,71439,119,43907,119,71919,87,71910,87,119830,87,119882,87,119934,87,119986,87,120038,87,120090,87,120142,87,120194,87,120246,87,120298,87,120350,87,120402,87,120454,87,1308,87,5043,87,5076,87,42218,87,5742,120,10539,120,10540,120,10799,120,65368,120,8569,120,119857,120,119909,120,119961,120,120013,120,120065,120,120117,120,120169,120,120221,120,120273,120,120325,120,120377,120,120429,120,120481,120,5441,120,5501,120,5741,88,9587,88,66338,88,71916,88,65336,88,8553,88,119831,88,119883,88,119935,88,119987,88,120039,88,120091,88,120143,88,120195,88,120247,88,120299,88,120351,88,120403,88,120455,88,42931,88,935,88,120510,88,120568,88,120626,88,120684,88,120742,88,11436,88,11613,88,5815,88,42219,88,66192,88,66228,88,66327,88,66855,88,611,121,7564,121,65369,121,119858,121,119910,121,119962,121,120014,121,120066,121,120118,121,120170,121,120222,121,120274,121,120326,121,120378,121,120430,121,120482,121,655,121,7935,121,43866,121,947,121,8509,121,120516,121,120574,121,120632,121,120690,121,120748,121,1199,121,4327,121,71900,121,65337,89,119832,89,119884,89,119936,89,119988,89,120040,89,120092,89,120144,89,120196,89,120248,89,120300,89,120352,89,120404,89,120456,89,933,89,978,89,120508,89,120566,89,120624,89,120682,89,120740,89,11432,89,1198,89,5033,89,5053,89,42220,89,94019,89,71844,89,66226,89,119859,122,119911,122,119963,122,120015,122,120067,122,120119,122,120171,122,120223,122,120275,122,120327,122,120379,122,120431,122,120483,122,7458,122,43923,122,71876,122,66293,90,71909,90,65338,90,8484,90,8488,90,119833,90,119885,90,119937,90,119989,90,120041,90,120197,90,120249,90,120301,90,120353,90,120405,90,120457,90,918,90,120493,90,120551,90,120609,90,120667,90,120725,90,5059,90,42204,90,71849,90,65282,34,65284,36,65285,37,65286,38,65290,42,65291,43,65294,46,65295,47,65296,48,65297,49,65298,50,65299,51,65300,52,65301,53,65302,54,65303,55,65304,56,65305,57,65308,60,65309,61,65310,62,65312,64,65316,68,65318,70,65319,71,65324,76,65329,81,65330,82,65333,85,65334,86,65335,87,65343,95,65346,98,65348,100,65350,102,65355,107,65357,109,65358,110,65361,113,65362,114,65364,116,65365,117,65367,119,65370,122,65371,123,65373,125,119846,109],"_default":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"cs":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"de":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"es":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"fr":[65374,126,65306,58,65281,33,8216,96,8245,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"it":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ja":[8211,45,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65292,44,65307,59],"ko":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pl":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pt-BR":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"qps-ploc":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ru":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,305,105,921,73,1009,112,215,120,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"tr":[160,32,8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"zh-hans":[65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65288,40,65289,41],"zh-hant":[8211,45,65374,126,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65307,59]}');
   });
@@ -19828,21 +17143,21 @@ ${n}`;
       }
       return result;
     }
-    const data = _a2.ambiguousCharacterData.value;
+    const data = _a3.ambiguousCharacterData.value;
     let filteredLocales = locales.filter((l) => !l.startsWith("_") && l in data);
     if (filteredLocales.length === 0) {
       filteredLocales = ["_default"];
     }
     let languageSpecificMap = void 0;
-    for (const locale of filteredLocales) {
-      const map2 = arrayToMap(data[locale]);
+    for (const locale2 of filteredLocales) {
+      const map2 = arrayToMap(data[locale2]);
       languageSpecificMap = intersectMaps(languageSpecificMap, map2);
     }
     const commonMap = arrayToMap(data["_common"]);
     const map = mergeMaps(commonMap, languageSpecificMap);
-    return new AmbiguousCharacters(map);
+    return new _a3(map);
   });
-  AmbiguousCharacters._locales = new Lazy(() => Object.keys(AmbiguousCharacters.ambiguousCharacterData.value).filter((k) => !k.startsWith("_")));
+  AmbiguousCharacters._locales = new Lazy(() => Object.keys(_a3.ambiguousCharacterData.value).filter((k) => !k.startsWith("_")));
   var InvisibleCharacters = class _InvisibleCharacters {
     static getRawData() {
       return JSON.parse("[9,10,11,12,13,32,127,160,173,847,1564,4447,4448,6068,6069,6155,6156,6157,6158,7355,7356,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8203,8204,8205,8206,8207,8234,8235,8236,8237,8238,8239,8287,8288,8289,8290,8291,8292,8293,8294,8295,8296,8297,8298,8299,8300,8301,8302,8303,10240,12288,12644,65024,65025,65026,65027,65028,65029,65030,65031,65032,65033,65034,65035,65036,65037,65038,65039,65279,65440,65520,65521,65522,65523,65524,65525,65526,65527,65528,65532,78844,119155,119156,119157,119158,119159,119160,119161,119162,917504,917505,917506,917507,917508,917509,917510,917511,917512,917513,917514,917515,917516,917517,917518,917519,917520,917521,917522,917523,917524,917525,917526,917527,917528,917529,917530,917531,917532,917533,917534,917535,917536,917537,917538,917539,917540,917541,917542,917543,917544,917545,917546,917547,917548,917549,917550,917551,917552,917553,917554,917555,917556,917557,917558,917559,917560,917561,917562,917563,917564,917565,917566,917567,917568,917569,917570,917571,917572,917573,917574,917575,917576,917577,917578,917579,917580,917581,917582,917583,917584,917585,917586,917587,917588,917589,917590,917591,917592,917593,917594,917595,917596,917597,917598,917599,917600,917601,917602,917603,917604,917605,917606,917607,917608,917609,917610,917611,917612,917613,917614,917615,917616,917617,917618,917619,917620,917621,917622,917623,917624,917625,917626,917627,917628,917629,917630,917631,917760,917761,917762,917763,917764,917765,917766,917767,917768,917769,917770,917771,917772,917773,917774,917775,917776,917777,917778,917779,917780,917781,917782,917783,917784,917785,917786,917787,917788,917789,917790,917791,917792,917793,917794,917795,917796,917797,917798,917799,917800,917801,917802,917803,917804,917805,917806,917807,917808,917809,917810,917811,917812,917813,917814,917815,917816,917817,917818,917819,917820,917821,917822,917823,917824,917825,917826,917827,917828,917829,917830,917831,917832,917833,917834,917835,917836,917837,917838,917839,917840,917841,917842,917843,917844,917845,917846,917847,917848,917849,917850,917851,917852,917853,917854,917855,917856,917857,917858,917859,917860,917861,917862,917863,917864,917865,917866,917867,917868,917869,917870,917871,917872,917873,917874,917875,917876,917877,917878,917879,917880,917881,917882,917883,917884,917885,917886,917887,917888,917889,917890,917891,917892,917893,917894,917895,917896,917897,917898,917899,917900,917901,917902,917903,917904,917905,917906,917907,917908,917909,917910,917911,917912,917913,917914,917915,917916,917917,917918,917919,917920,917921,917922,917923,917924,917925,917926,917927,917928,917929,917930,917931,917932,917933,917934,917935,917936,917937,917938,917939,917940,917941,917942,917943,917944,917945,917946,917947,917948,917949,917950,917951,917952,917953,917954,917955,917956,917957,917958,917959,917960,917961,917962,917963,917964,917965,917966,917967,917968,917969,917970,917971,917972,917973,917974,917975,917976,917977,917978,917979,917980,917981,917982,917983,917984,917985,917986,917987,917988,917989,917990,917991,917992,917993,917994,917995,917996,917997,917998,917999]");
@@ -22421,9 +19736,15 @@ ${n}`;
       }
       return new Uri("file", authority, path, _empty, _empty);
     }
-    static from(components) {
-      const result = new Uri(components.scheme, components.authority, components.path, components.query, components.fragment);
-      _validateUri(result, true);
+    /**
+     * Creates new URI from uri components.
+     *
+     * Unless `strict` is `true` the scheme is defaults to be `file`. This function performs
+     * validation and should be used for untrusted uri components retrieved from storage,
+     * user input, command arguments etc
+     */
+    static from(components, strict) {
+      const result = new Uri(components.scheme, components.authority, components.path, components.query, components.fragment, strict);
       return result;
     }
     /**
@@ -22464,14 +19785,15 @@ ${n}`;
       return this;
     }
     static revive(data) {
+      var _a4, _b2;
       if (!data) {
         return data;
       } else if (data instanceof _URI) {
         return data;
       } else {
         const result = new Uri(data);
-        result._formatted = data.external;
-        result._fsPath = data._sep === _pathSepMarker ? data.fsPath : null;
+        result._formatted = (_a4 = data.external) !== null && _a4 !== void 0 ? _a4 : null;
+        result._fsPath = data._sep === _pathSepMarker ? (_b2 = data.fsPath) !== null && _b2 !== void 0 ? _b2 : null : null;
         return result;
       }
     }
@@ -22534,6 +19856,7 @@ ${n}`;
       58
       /* CharCode.Colon */
     ]: "%3A",
+    // gen-delims
     [
       47
       /* CharCode.Slash */
@@ -22562,6 +19885,7 @@ ${n}`;
       33
       /* CharCode.ExclamationMark */
     ]: "%21",
+    // sub-delims
     [
       36
       /* CharCode.DollarSign */
@@ -22739,7 +20063,7 @@ ${n}`;
   function decodeURIComponentGraceful(str) {
     try {
       return decodeURIComponent(str);
-    } catch (_a3) {
+    } catch (_a4) {
       if (str.length > 3) {
         return str.substr(0, 3) + decodeURIComponentGraceful(str.substr(3));
       } else {
@@ -23248,94 +20572,6 @@ ${n}`;
       return this;
     }
   };
-
-  // node_modules/monaco-editor/esm/vs/base/common/arrays.js
-  var CompareResult;
-  (function(CompareResult2) {
-    function isLessThan(result) {
-      return result < 0;
-    }
-    CompareResult2.isLessThan = isLessThan;
-    function isGreaterThan(result) {
-      return result > 0;
-    }
-    CompareResult2.isGreaterThan = isGreaterThan;
-    function isNeitherLessOrGreaterThan(result) {
-      return result === 0;
-    }
-    CompareResult2.isNeitherLessOrGreaterThan = isNeitherLessOrGreaterThan;
-    CompareResult2.greaterThan = 1;
-    CompareResult2.lessThan = -1;
-    CompareResult2.neitherLessOrGreaterThan = 0;
-  })(CompareResult || (CompareResult = {}));
-  var CallbackIterable = class _CallbackIterable {
-    constructor(iterate) {
-      this.iterate = iterate;
-    }
-    forEach(handler) {
-      this.iterate((item) => {
-        handler(item);
-        return true;
-      });
-    }
-    toArray() {
-      const result = [];
-      this.iterate((item) => {
-        result.push(item);
-        return true;
-      });
-      return result;
-    }
-    filter(predicate) {
-      return new _CallbackIterable((cb) => this.iterate((item) => predicate(item) ? cb(item) : true));
-    }
-    map(mapFn) {
-      return new _CallbackIterable((cb) => this.iterate((item) => cb(mapFn(item))));
-    }
-    some(predicate) {
-      let result = false;
-      this.iterate((item) => {
-        result = predicate(item);
-        return !result;
-      });
-      return result;
-    }
-    findFirst(predicate) {
-      let result;
-      this.iterate((item) => {
-        if (predicate(item)) {
-          result = item;
-          return false;
-        }
-        return true;
-      });
-      return result;
-    }
-    findLast(predicate) {
-      let result;
-      this.iterate((item) => {
-        if (predicate(item)) {
-          result = item;
-        }
-        return true;
-      });
-      return result;
-    }
-    findLastMaxBy(comparator) {
-      let result;
-      let first = true;
-      this.iterate((item) => {
-        if (first || CompareResult.isGreaterThan(comparator(item, result))) {
-          first = false;
-          result = item;
-        }
-        return true;
-      });
-      return result;
-    }
-  };
-  CallbackIterable.empty = new CallbackIterable((_callback) => {
-  });
 
   // node_modules/monaco-editor/esm/vs/base/common/uint.js
   function toUint8(v) {
@@ -24193,249 +21429,250 @@ ${n}`;
   for (let i = 0; i <= 193; i++) {
     IMMUTABLE_CODE_TO_KEY_CODE[i] = -1;
   }
-  for (let i = 0; i <= 127; i++) {
+  for (let i = 0; i <= 132; i++) {
     IMMUTABLE_KEY_CODE_TO_CODE[i] = -1;
   }
   (function() {
     const empty = "";
     const mappings = [
-      // keyCodeOrd, immutable, scanCode, scanCodeStr, keyCode, keyCodeStr, eventKeyCode, vkey, usUserSettingsLabel, generalUserSettingsLabel
-      [0, 1, 0, "None", 0, "unknown", 0, "VK_UNKNOWN", empty, empty],
-      [0, 1, 1, "Hyper", 0, empty, 0, empty, empty, empty],
-      [0, 1, 2, "Super", 0, empty, 0, empty, empty, empty],
-      [0, 1, 3, "Fn", 0, empty, 0, empty, empty, empty],
-      [0, 1, 4, "FnLock", 0, empty, 0, empty, empty, empty],
-      [0, 1, 5, "Suspend", 0, empty, 0, empty, empty, empty],
-      [0, 1, 6, "Resume", 0, empty, 0, empty, empty, empty],
-      [0, 1, 7, "Turbo", 0, empty, 0, empty, empty, empty],
-      [0, 1, 8, "Sleep", 0, empty, 0, "VK_SLEEP", empty, empty],
-      [0, 1, 9, "WakeUp", 0, empty, 0, empty, empty, empty],
-      [31, 0, 10, "KeyA", 31, "A", 65, "VK_A", empty, empty],
-      [32, 0, 11, "KeyB", 32, "B", 66, "VK_B", empty, empty],
-      [33, 0, 12, "KeyC", 33, "C", 67, "VK_C", empty, empty],
-      [34, 0, 13, "KeyD", 34, "D", 68, "VK_D", empty, empty],
-      [35, 0, 14, "KeyE", 35, "E", 69, "VK_E", empty, empty],
-      [36, 0, 15, "KeyF", 36, "F", 70, "VK_F", empty, empty],
-      [37, 0, 16, "KeyG", 37, "G", 71, "VK_G", empty, empty],
-      [38, 0, 17, "KeyH", 38, "H", 72, "VK_H", empty, empty],
-      [39, 0, 18, "KeyI", 39, "I", 73, "VK_I", empty, empty],
-      [40, 0, 19, "KeyJ", 40, "J", 74, "VK_J", empty, empty],
-      [41, 0, 20, "KeyK", 41, "K", 75, "VK_K", empty, empty],
-      [42, 0, 21, "KeyL", 42, "L", 76, "VK_L", empty, empty],
-      [43, 0, 22, "KeyM", 43, "M", 77, "VK_M", empty, empty],
-      [44, 0, 23, "KeyN", 44, "N", 78, "VK_N", empty, empty],
-      [45, 0, 24, "KeyO", 45, "O", 79, "VK_O", empty, empty],
-      [46, 0, 25, "KeyP", 46, "P", 80, "VK_P", empty, empty],
-      [47, 0, 26, "KeyQ", 47, "Q", 81, "VK_Q", empty, empty],
-      [48, 0, 27, "KeyR", 48, "R", 82, "VK_R", empty, empty],
-      [49, 0, 28, "KeyS", 49, "S", 83, "VK_S", empty, empty],
-      [50, 0, 29, "KeyT", 50, "T", 84, "VK_T", empty, empty],
-      [51, 0, 30, "KeyU", 51, "U", 85, "VK_U", empty, empty],
-      [52, 0, 31, "KeyV", 52, "V", 86, "VK_V", empty, empty],
-      [53, 0, 32, "KeyW", 53, "W", 87, "VK_W", empty, empty],
-      [54, 0, 33, "KeyX", 54, "X", 88, "VK_X", empty, empty],
-      [55, 0, 34, "KeyY", 55, "Y", 89, "VK_Y", empty, empty],
-      [56, 0, 35, "KeyZ", 56, "Z", 90, "VK_Z", empty, empty],
-      [22, 0, 36, "Digit1", 22, "1", 49, "VK_1", empty, empty],
-      [23, 0, 37, "Digit2", 23, "2", 50, "VK_2", empty, empty],
-      [24, 0, 38, "Digit3", 24, "3", 51, "VK_3", empty, empty],
-      [25, 0, 39, "Digit4", 25, "4", 52, "VK_4", empty, empty],
-      [26, 0, 40, "Digit5", 26, "5", 53, "VK_5", empty, empty],
-      [27, 0, 41, "Digit6", 27, "6", 54, "VK_6", empty, empty],
-      [28, 0, 42, "Digit7", 28, "7", 55, "VK_7", empty, empty],
-      [29, 0, 43, "Digit8", 29, "8", 56, "VK_8", empty, empty],
-      [30, 0, 44, "Digit9", 30, "9", 57, "VK_9", empty, empty],
-      [21, 0, 45, "Digit0", 21, "0", 48, "VK_0", empty, empty],
-      [3, 1, 46, "Enter", 3, "Enter", 13, "VK_RETURN", empty, empty],
-      [9, 1, 47, "Escape", 9, "Escape", 27, "VK_ESCAPE", empty, empty],
-      [1, 1, 48, "Backspace", 1, "Backspace", 8, "VK_BACK", empty, empty],
-      [2, 1, 49, "Tab", 2, "Tab", 9, "VK_TAB", empty, empty],
-      [10, 1, 50, "Space", 10, "Space", 32, "VK_SPACE", empty, empty],
-      [83, 0, 51, "Minus", 83, "-", 189, "VK_OEM_MINUS", "-", "OEM_MINUS"],
-      [81, 0, 52, "Equal", 81, "=", 187, "VK_OEM_PLUS", "=", "OEM_PLUS"],
-      [87, 0, 53, "BracketLeft", 87, "[", 219, "VK_OEM_4", "[", "OEM_4"],
-      [89, 0, 54, "BracketRight", 89, "]", 221, "VK_OEM_6", "]", "OEM_6"],
-      [88, 0, 55, "Backslash", 88, "\\", 220, "VK_OEM_5", "\\", "OEM_5"],
-      [0, 0, 56, "IntlHash", 0, empty, 0, empty, empty, empty],
-      [80, 0, 57, "Semicolon", 80, ";", 186, "VK_OEM_1", ";", "OEM_1"],
-      [90, 0, 58, "Quote", 90, "'", 222, "VK_OEM_7", "'", "OEM_7"],
-      [86, 0, 59, "Backquote", 86, "`", 192, "VK_OEM_3", "`", "OEM_3"],
-      [82, 0, 60, "Comma", 82, ",", 188, "VK_OEM_COMMA", ",", "OEM_COMMA"],
-      [84, 0, 61, "Period", 84, ".", 190, "VK_OEM_PERIOD", ".", "OEM_PERIOD"],
-      [85, 0, 62, "Slash", 85, "/", 191, "VK_OEM_2", "/", "OEM_2"],
-      [8, 1, 63, "CapsLock", 8, "CapsLock", 20, "VK_CAPITAL", empty, empty],
-      [59, 1, 64, "F1", 59, "F1", 112, "VK_F1", empty, empty],
-      [60, 1, 65, "F2", 60, "F2", 113, "VK_F2", empty, empty],
-      [61, 1, 66, "F3", 61, "F3", 114, "VK_F3", empty, empty],
-      [62, 1, 67, "F4", 62, "F4", 115, "VK_F4", empty, empty],
-      [63, 1, 68, "F5", 63, "F5", 116, "VK_F5", empty, empty],
-      [64, 1, 69, "F6", 64, "F6", 117, "VK_F6", empty, empty],
-      [65, 1, 70, "F7", 65, "F7", 118, "VK_F7", empty, empty],
-      [66, 1, 71, "F8", 66, "F8", 119, "VK_F8", empty, empty],
-      [67, 1, 72, "F9", 67, "F9", 120, "VK_F9", empty, empty],
-      [68, 1, 73, "F10", 68, "F10", 121, "VK_F10", empty, empty],
-      [69, 1, 74, "F11", 69, "F11", 122, "VK_F11", empty, empty],
-      [70, 1, 75, "F12", 70, "F12", 123, "VK_F12", empty, empty],
-      [0, 1, 76, "PrintScreen", 0, empty, 0, empty, empty, empty],
-      [79, 1, 77, "ScrollLock", 79, "ScrollLock", 145, "VK_SCROLL", empty, empty],
-      [7, 1, 78, "Pause", 7, "PauseBreak", 19, "VK_PAUSE", empty, empty],
-      [19, 1, 79, "Insert", 19, "Insert", 45, "VK_INSERT", empty, empty],
-      [14, 1, 80, "Home", 14, "Home", 36, "VK_HOME", empty, empty],
-      [11, 1, 81, "PageUp", 11, "PageUp", 33, "VK_PRIOR", empty, empty],
-      [20, 1, 82, "Delete", 20, "Delete", 46, "VK_DELETE", empty, empty],
-      [13, 1, 83, "End", 13, "End", 35, "VK_END", empty, empty],
-      [12, 1, 84, "PageDown", 12, "PageDown", 34, "VK_NEXT", empty, empty],
-      [17, 1, 85, "ArrowRight", 17, "RightArrow", 39, "VK_RIGHT", "Right", empty],
-      [15, 1, 86, "ArrowLeft", 15, "LeftArrow", 37, "VK_LEFT", "Left", empty],
-      [18, 1, 87, "ArrowDown", 18, "DownArrow", 40, "VK_DOWN", "Down", empty],
-      [16, 1, 88, "ArrowUp", 16, "UpArrow", 38, "VK_UP", "Up", empty],
-      [78, 1, 89, "NumLock", 78, "NumLock", 144, "VK_NUMLOCK", empty, empty],
-      [108, 1, 90, "NumpadDivide", 108, "NumPad_Divide", 111, "VK_DIVIDE", empty, empty],
-      [103, 1, 91, "NumpadMultiply", 103, "NumPad_Multiply", 106, "VK_MULTIPLY", empty, empty],
-      [106, 1, 92, "NumpadSubtract", 106, "NumPad_Subtract", 109, "VK_SUBTRACT", empty, empty],
-      [104, 1, 93, "NumpadAdd", 104, "NumPad_Add", 107, "VK_ADD", empty, empty],
-      [3, 1, 94, "NumpadEnter", 3, empty, 0, empty, empty, empty],
-      [94, 1, 95, "Numpad1", 94, "NumPad1", 97, "VK_NUMPAD1", empty, empty],
-      [95, 1, 96, "Numpad2", 95, "NumPad2", 98, "VK_NUMPAD2", empty, empty],
-      [96, 1, 97, "Numpad3", 96, "NumPad3", 99, "VK_NUMPAD3", empty, empty],
-      [97, 1, 98, "Numpad4", 97, "NumPad4", 100, "VK_NUMPAD4", empty, empty],
-      [98, 1, 99, "Numpad5", 98, "NumPad5", 101, "VK_NUMPAD5", empty, empty],
-      [99, 1, 100, "Numpad6", 99, "NumPad6", 102, "VK_NUMPAD6", empty, empty],
-      [100, 1, 101, "Numpad7", 100, "NumPad7", 103, "VK_NUMPAD7", empty, empty],
-      [101, 1, 102, "Numpad8", 101, "NumPad8", 104, "VK_NUMPAD8", empty, empty],
-      [102, 1, 103, "Numpad9", 102, "NumPad9", 105, "VK_NUMPAD9", empty, empty],
-      [93, 1, 104, "Numpad0", 93, "NumPad0", 96, "VK_NUMPAD0", empty, empty],
-      [107, 1, 105, "NumpadDecimal", 107, "NumPad_Decimal", 110, "VK_DECIMAL", empty, empty],
-      [92, 0, 106, "IntlBackslash", 92, "OEM_102", 226, "VK_OEM_102", empty, empty],
-      [58, 1, 107, "ContextMenu", 58, "ContextMenu", 93, empty, empty, empty],
-      [0, 1, 108, "Power", 0, empty, 0, empty, empty, empty],
-      [0, 1, 109, "NumpadEqual", 0, empty, 0, empty, empty, empty],
-      [71, 1, 110, "F13", 71, "F13", 124, "VK_F13", empty, empty],
-      [72, 1, 111, "F14", 72, "F14", 125, "VK_F14", empty, empty],
-      [73, 1, 112, "F15", 73, "F15", 126, "VK_F15", empty, empty],
-      [74, 1, 113, "F16", 74, "F16", 127, "VK_F16", empty, empty],
-      [75, 1, 114, "F17", 75, "F17", 128, "VK_F17", empty, empty],
-      [76, 1, 115, "F18", 76, "F18", 129, "VK_F18", empty, empty],
-      [77, 1, 116, "F19", 77, "F19", 130, "VK_F19", empty, empty],
-      [0, 1, 117, "F20", 0, empty, 0, "VK_F20", empty, empty],
-      [0, 1, 118, "F21", 0, empty, 0, "VK_F21", empty, empty],
-      [0, 1, 119, "F22", 0, empty, 0, "VK_F22", empty, empty],
-      [0, 1, 120, "F23", 0, empty, 0, "VK_F23", empty, empty],
-      [0, 1, 121, "F24", 0, empty, 0, "VK_F24", empty, empty],
-      [0, 1, 122, "Open", 0, empty, 0, empty, empty, empty],
-      [0, 1, 123, "Help", 0, empty, 0, empty, empty, empty],
-      [0, 1, 124, "Select", 0, empty, 0, empty, empty, empty],
-      [0, 1, 125, "Again", 0, empty, 0, empty, empty, empty],
-      [0, 1, 126, "Undo", 0, empty, 0, empty, empty, empty],
-      [0, 1, 127, "Cut", 0, empty, 0, empty, empty, empty],
-      [0, 1, 128, "Copy", 0, empty, 0, empty, empty, empty],
-      [0, 1, 129, "Paste", 0, empty, 0, empty, empty, empty],
-      [0, 1, 130, "Find", 0, empty, 0, empty, empty, empty],
-      [0, 1, 131, "AudioVolumeMute", 112, "AudioVolumeMute", 173, "VK_VOLUME_MUTE", empty, empty],
-      [0, 1, 132, "AudioVolumeUp", 113, "AudioVolumeUp", 175, "VK_VOLUME_UP", empty, empty],
-      [0, 1, 133, "AudioVolumeDown", 114, "AudioVolumeDown", 174, "VK_VOLUME_DOWN", empty, empty],
-      [105, 1, 134, "NumpadComma", 105, "NumPad_Separator", 108, "VK_SEPARATOR", empty, empty],
-      [110, 0, 135, "IntlRo", 110, "ABNT_C1", 193, "VK_ABNT_C1", empty, empty],
-      [0, 1, 136, "KanaMode", 0, empty, 0, empty, empty, empty],
-      [0, 0, 137, "IntlYen", 0, empty, 0, empty, empty, empty],
-      [0, 1, 138, "Convert", 0, empty, 0, empty, empty, empty],
-      [0, 1, 139, "NonConvert", 0, empty, 0, empty, empty, empty],
-      [0, 1, 140, "Lang1", 0, empty, 0, empty, empty, empty],
-      [0, 1, 141, "Lang2", 0, empty, 0, empty, empty, empty],
-      [0, 1, 142, "Lang3", 0, empty, 0, empty, empty, empty],
-      [0, 1, 143, "Lang4", 0, empty, 0, empty, empty, empty],
-      [0, 1, 144, "Lang5", 0, empty, 0, empty, empty, empty],
-      [0, 1, 145, "Abort", 0, empty, 0, empty, empty, empty],
-      [0, 1, 146, "Props", 0, empty, 0, empty, empty, empty],
-      [0, 1, 147, "NumpadParenLeft", 0, empty, 0, empty, empty, empty],
-      [0, 1, 148, "NumpadParenRight", 0, empty, 0, empty, empty, empty],
-      [0, 1, 149, "NumpadBackspace", 0, empty, 0, empty, empty, empty],
-      [0, 1, 150, "NumpadMemoryStore", 0, empty, 0, empty, empty, empty],
-      [0, 1, 151, "NumpadMemoryRecall", 0, empty, 0, empty, empty, empty],
-      [0, 1, 152, "NumpadMemoryClear", 0, empty, 0, empty, empty, empty],
-      [0, 1, 153, "NumpadMemoryAdd", 0, empty, 0, empty, empty, empty],
-      [0, 1, 154, "NumpadMemorySubtract", 0, empty, 0, empty, empty, empty],
-      [0, 1, 155, "NumpadClear", 126, "Clear", 12, "VK_CLEAR", empty, empty],
-      [0, 1, 156, "NumpadClearEntry", 0, empty, 0, empty, empty, empty],
-      [5, 1, 0, empty, 5, "Ctrl", 17, "VK_CONTROL", empty, empty],
-      [4, 1, 0, empty, 4, "Shift", 16, "VK_SHIFT", empty, empty],
-      [6, 1, 0, empty, 6, "Alt", 18, "VK_MENU", empty, empty],
-      [57, 1, 0, empty, 57, "Meta", 91, "VK_COMMAND", empty, empty],
-      [5, 1, 157, "ControlLeft", 5, empty, 0, "VK_LCONTROL", empty, empty],
-      [4, 1, 158, "ShiftLeft", 4, empty, 0, "VK_LSHIFT", empty, empty],
-      [6, 1, 159, "AltLeft", 6, empty, 0, "VK_LMENU", empty, empty],
-      [57, 1, 160, "MetaLeft", 57, empty, 0, "VK_LWIN", empty, empty],
-      [5, 1, 161, "ControlRight", 5, empty, 0, "VK_RCONTROL", empty, empty],
-      [4, 1, 162, "ShiftRight", 4, empty, 0, "VK_RSHIFT", empty, empty],
-      [6, 1, 163, "AltRight", 6, empty, 0, "VK_RMENU", empty, empty],
-      [57, 1, 164, "MetaRight", 57, empty, 0, "VK_RWIN", empty, empty],
-      [0, 1, 165, "BrightnessUp", 0, empty, 0, empty, empty, empty],
-      [0, 1, 166, "BrightnessDown", 0, empty, 0, empty, empty, empty],
-      [0, 1, 167, "MediaPlay", 0, empty, 0, empty, empty, empty],
-      [0, 1, 168, "MediaRecord", 0, empty, 0, empty, empty, empty],
-      [0, 1, 169, "MediaFastForward", 0, empty, 0, empty, empty, empty],
-      [0, 1, 170, "MediaRewind", 0, empty, 0, empty, empty, empty],
-      [114, 1, 171, "MediaTrackNext", 119, "MediaTrackNext", 176, "VK_MEDIA_NEXT_TRACK", empty, empty],
-      [115, 1, 172, "MediaTrackPrevious", 120, "MediaTrackPrevious", 177, "VK_MEDIA_PREV_TRACK", empty, empty],
-      [116, 1, 173, "MediaStop", 121, "MediaStop", 178, "VK_MEDIA_STOP", empty, empty],
-      [0, 1, 174, "Eject", 0, empty, 0, empty, empty, empty],
-      [117, 1, 175, "MediaPlayPause", 122, "MediaPlayPause", 179, "VK_MEDIA_PLAY_PAUSE", empty, empty],
-      [0, 1, 176, "MediaSelect", 123, "LaunchMediaPlayer", 181, "VK_MEDIA_LAUNCH_MEDIA_SELECT", empty, empty],
-      [0, 1, 177, "LaunchMail", 124, "LaunchMail", 180, "VK_MEDIA_LAUNCH_MAIL", empty, empty],
-      [0, 1, 178, "LaunchApp2", 125, "LaunchApp2", 183, "VK_MEDIA_LAUNCH_APP2", empty, empty],
-      [0, 1, 179, "LaunchApp1", 0, empty, 0, "VK_MEDIA_LAUNCH_APP1", empty, empty],
-      [0, 1, 180, "SelectTask", 0, empty, 0, empty, empty, empty],
-      [0, 1, 181, "LaunchScreenSaver", 0, empty, 0, empty, empty, empty],
-      [0, 1, 182, "BrowserSearch", 115, "BrowserSearch", 170, "VK_BROWSER_SEARCH", empty, empty],
-      [0, 1, 183, "BrowserHome", 116, "BrowserHome", 172, "VK_BROWSER_HOME", empty, empty],
-      [112, 1, 184, "BrowserBack", 117, "BrowserBack", 166, "VK_BROWSER_BACK", empty, empty],
-      [113, 1, 185, "BrowserForward", 118, "BrowserForward", 167, "VK_BROWSER_FORWARD", empty, empty],
-      [0, 1, 186, "BrowserStop", 0, empty, 0, "VK_BROWSER_STOP", empty, empty],
-      [0, 1, 187, "BrowserRefresh", 0, empty, 0, "VK_BROWSER_REFRESH", empty, empty],
-      [0, 1, 188, "BrowserFavorites", 0, empty, 0, "VK_BROWSER_FAVORITES", empty, empty],
-      [0, 1, 189, "ZoomToggle", 0, empty, 0, empty, empty, empty],
-      [0, 1, 190, "MailReply", 0, empty, 0, empty, empty, empty],
-      [0, 1, 191, "MailForward", 0, empty, 0, empty, empty, empty],
-      [0, 1, 192, "MailSend", 0, empty, 0, empty, empty, empty],
+      // immutable, scanCode, scanCodeStr, keyCode, keyCodeStr, eventKeyCode, vkey, usUserSettingsLabel, generalUserSettingsLabel
+      [1, 0, "None", 0, "unknown", 0, "VK_UNKNOWN", empty, empty],
+      [1, 1, "Hyper", 0, empty, 0, empty, empty, empty],
+      [1, 2, "Super", 0, empty, 0, empty, empty, empty],
+      [1, 3, "Fn", 0, empty, 0, empty, empty, empty],
+      [1, 4, "FnLock", 0, empty, 0, empty, empty, empty],
+      [1, 5, "Suspend", 0, empty, 0, empty, empty, empty],
+      [1, 6, "Resume", 0, empty, 0, empty, empty, empty],
+      [1, 7, "Turbo", 0, empty, 0, empty, empty, empty],
+      [1, 8, "Sleep", 0, empty, 0, "VK_SLEEP", empty, empty],
+      [1, 9, "WakeUp", 0, empty, 0, empty, empty, empty],
+      [0, 10, "KeyA", 31, "A", 65, "VK_A", empty, empty],
+      [0, 11, "KeyB", 32, "B", 66, "VK_B", empty, empty],
+      [0, 12, "KeyC", 33, "C", 67, "VK_C", empty, empty],
+      [0, 13, "KeyD", 34, "D", 68, "VK_D", empty, empty],
+      [0, 14, "KeyE", 35, "E", 69, "VK_E", empty, empty],
+      [0, 15, "KeyF", 36, "F", 70, "VK_F", empty, empty],
+      [0, 16, "KeyG", 37, "G", 71, "VK_G", empty, empty],
+      [0, 17, "KeyH", 38, "H", 72, "VK_H", empty, empty],
+      [0, 18, "KeyI", 39, "I", 73, "VK_I", empty, empty],
+      [0, 19, "KeyJ", 40, "J", 74, "VK_J", empty, empty],
+      [0, 20, "KeyK", 41, "K", 75, "VK_K", empty, empty],
+      [0, 21, "KeyL", 42, "L", 76, "VK_L", empty, empty],
+      [0, 22, "KeyM", 43, "M", 77, "VK_M", empty, empty],
+      [0, 23, "KeyN", 44, "N", 78, "VK_N", empty, empty],
+      [0, 24, "KeyO", 45, "O", 79, "VK_O", empty, empty],
+      [0, 25, "KeyP", 46, "P", 80, "VK_P", empty, empty],
+      [0, 26, "KeyQ", 47, "Q", 81, "VK_Q", empty, empty],
+      [0, 27, "KeyR", 48, "R", 82, "VK_R", empty, empty],
+      [0, 28, "KeyS", 49, "S", 83, "VK_S", empty, empty],
+      [0, 29, "KeyT", 50, "T", 84, "VK_T", empty, empty],
+      [0, 30, "KeyU", 51, "U", 85, "VK_U", empty, empty],
+      [0, 31, "KeyV", 52, "V", 86, "VK_V", empty, empty],
+      [0, 32, "KeyW", 53, "W", 87, "VK_W", empty, empty],
+      [0, 33, "KeyX", 54, "X", 88, "VK_X", empty, empty],
+      [0, 34, "KeyY", 55, "Y", 89, "VK_Y", empty, empty],
+      [0, 35, "KeyZ", 56, "Z", 90, "VK_Z", empty, empty],
+      [0, 36, "Digit1", 22, "1", 49, "VK_1", empty, empty],
+      [0, 37, "Digit2", 23, "2", 50, "VK_2", empty, empty],
+      [0, 38, "Digit3", 24, "3", 51, "VK_3", empty, empty],
+      [0, 39, "Digit4", 25, "4", 52, "VK_4", empty, empty],
+      [0, 40, "Digit5", 26, "5", 53, "VK_5", empty, empty],
+      [0, 41, "Digit6", 27, "6", 54, "VK_6", empty, empty],
+      [0, 42, "Digit7", 28, "7", 55, "VK_7", empty, empty],
+      [0, 43, "Digit8", 29, "8", 56, "VK_8", empty, empty],
+      [0, 44, "Digit9", 30, "9", 57, "VK_9", empty, empty],
+      [0, 45, "Digit0", 21, "0", 48, "VK_0", empty, empty],
+      [1, 46, "Enter", 3, "Enter", 13, "VK_RETURN", empty, empty],
+      [1, 47, "Escape", 9, "Escape", 27, "VK_ESCAPE", empty, empty],
+      [1, 48, "Backspace", 1, "Backspace", 8, "VK_BACK", empty, empty],
+      [1, 49, "Tab", 2, "Tab", 9, "VK_TAB", empty, empty],
+      [1, 50, "Space", 10, "Space", 32, "VK_SPACE", empty, empty],
+      [0, 51, "Minus", 88, "-", 189, "VK_OEM_MINUS", "-", "OEM_MINUS"],
+      [0, 52, "Equal", 86, "=", 187, "VK_OEM_PLUS", "=", "OEM_PLUS"],
+      [0, 53, "BracketLeft", 92, "[", 219, "VK_OEM_4", "[", "OEM_4"],
+      [0, 54, "BracketRight", 94, "]", 221, "VK_OEM_6", "]", "OEM_6"],
+      [0, 55, "Backslash", 93, "\\", 220, "VK_OEM_5", "\\", "OEM_5"],
+      [0, 56, "IntlHash", 0, empty, 0, empty, empty, empty],
+      // has been dropped from the w3c spec
+      [0, 57, "Semicolon", 85, ";", 186, "VK_OEM_1", ";", "OEM_1"],
+      [0, 58, "Quote", 95, "'", 222, "VK_OEM_7", "'", "OEM_7"],
+      [0, 59, "Backquote", 91, "`", 192, "VK_OEM_3", "`", "OEM_3"],
+      [0, 60, "Comma", 87, ",", 188, "VK_OEM_COMMA", ",", "OEM_COMMA"],
+      [0, 61, "Period", 89, ".", 190, "VK_OEM_PERIOD", ".", "OEM_PERIOD"],
+      [0, 62, "Slash", 90, "/", 191, "VK_OEM_2", "/", "OEM_2"],
+      [1, 63, "CapsLock", 8, "CapsLock", 20, "VK_CAPITAL", empty, empty],
+      [1, 64, "F1", 59, "F1", 112, "VK_F1", empty, empty],
+      [1, 65, "F2", 60, "F2", 113, "VK_F2", empty, empty],
+      [1, 66, "F3", 61, "F3", 114, "VK_F3", empty, empty],
+      [1, 67, "F4", 62, "F4", 115, "VK_F4", empty, empty],
+      [1, 68, "F5", 63, "F5", 116, "VK_F5", empty, empty],
+      [1, 69, "F6", 64, "F6", 117, "VK_F6", empty, empty],
+      [1, 70, "F7", 65, "F7", 118, "VK_F7", empty, empty],
+      [1, 71, "F8", 66, "F8", 119, "VK_F8", empty, empty],
+      [1, 72, "F9", 67, "F9", 120, "VK_F9", empty, empty],
+      [1, 73, "F10", 68, "F10", 121, "VK_F10", empty, empty],
+      [1, 74, "F11", 69, "F11", 122, "VK_F11", empty, empty],
+      [1, 75, "F12", 70, "F12", 123, "VK_F12", empty, empty],
+      [1, 76, "PrintScreen", 0, empty, 0, empty, empty, empty],
+      [1, 77, "ScrollLock", 84, "ScrollLock", 145, "VK_SCROLL", empty, empty],
+      [1, 78, "Pause", 7, "PauseBreak", 19, "VK_PAUSE", empty, empty],
+      [1, 79, "Insert", 19, "Insert", 45, "VK_INSERT", empty, empty],
+      [1, 80, "Home", 14, "Home", 36, "VK_HOME", empty, empty],
+      [1, 81, "PageUp", 11, "PageUp", 33, "VK_PRIOR", empty, empty],
+      [1, 82, "Delete", 20, "Delete", 46, "VK_DELETE", empty, empty],
+      [1, 83, "End", 13, "End", 35, "VK_END", empty, empty],
+      [1, 84, "PageDown", 12, "PageDown", 34, "VK_NEXT", empty, empty],
+      [1, 85, "ArrowRight", 17, "RightArrow", 39, "VK_RIGHT", "Right", empty],
+      [1, 86, "ArrowLeft", 15, "LeftArrow", 37, "VK_LEFT", "Left", empty],
+      [1, 87, "ArrowDown", 18, "DownArrow", 40, "VK_DOWN", "Down", empty],
+      [1, 88, "ArrowUp", 16, "UpArrow", 38, "VK_UP", "Up", empty],
+      [1, 89, "NumLock", 83, "NumLock", 144, "VK_NUMLOCK", empty, empty],
+      [1, 90, "NumpadDivide", 113, "NumPad_Divide", 111, "VK_DIVIDE", empty, empty],
+      [1, 91, "NumpadMultiply", 108, "NumPad_Multiply", 106, "VK_MULTIPLY", empty, empty],
+      [1, 92, "NumpadSubtract", 111, "NumPad_Subtract", 109, "VK_SUBTRACT", empty, empty],
+      [1, 93, "NumpadAdd", 109, "NumPad_Add", 107, "VK_ADD", empty, empty],
+      [1, 94, "NumpadEnter", 3, empty, 0, empty, empty, empty],
+      [1, 95, "Numpad1", 99, "NumPad1", 97, "VK_NUMPAD1", empty, empty],
+      [1, 96, "Numpad2", 100, "NumPad2", 98, "VK_NUMPAD2", empty, empty],
+      [1, 97, "Numpad3", 101, "NumPad3", 99, "VK_NUMPAD3", empty, empty],
+      [1, 98, "Numpad4", 102, "NumPad4", 100, "VK_NUMPAD4", empty, empty],
+      [1, 99, "Numpad5", 103, "NumPad5", 101, "VK_NUMPAD5", empty, empty],
+      [1, 100, "Numpad6", 104, "NumPad6", 102, "VK_NUMPAD6", empty, empty],
+      [1, 101, "Numpad7", 105, "NumPad7", 103, "VK_NUMPAD7", empty, empty],
+      [1, 102, "Numpad8", 106, "NumPad8", 104, "VK_NUMPAD8", empty, empty],
+      [1, 103, "Numpad9", 107, "NumPad9", 105, "VK_NUMPAD9", empty, empty],
+      [1, 104, "Numpad0", 98, "NumPad0", 96, "VK_NUMPAD0", empty, empty],
+      [1, 105, "NumpadDecimal", 112, "NumPad_Decimal", 110, "VK_DECIMAL", empty, empty],
+      [0, 106, "IntlBackslash", 97, "OEM_102", 226, "VK_OEM_102", empty, empty],
+      [1, 107, "ContextMenu", 58, "ContextMenu", 93, empty, empty, empty],
+      [1, 108, "Power", 0, empty, 0, empty, empty, empty],
+      [1, 109, "NumpadEqual", 0, empty, 0, empty, empty, empty],
+      [1, 110, "F13", 71, "F13", 124, "VK_F13", empty, empty],
+      [1, 111, "F14", 72, "F14", 125, "VK_F14", empty, empty],
+      [1, 112, "F15", 73, "F15", 126, "VK_F15", empty, empty],
+      [1, 113, "F16", 74, "F16", 127, "VK_F16", empty, empty],
+      [1, 114, "F17", 75, "F17", 128, "VK_F17", empty, empty],
+      [1, 115, "F18", 76, "F18", 129, "VK_F18", empty, empty],
+      [1, 116, "F19", 77, "F19", 130, "VK_F19", empty, empty],
+      [1, 117, "F20", 78, "F20", 131, "VK_F20", empty, empty],
+      [1, 118, "F21", 79, "F21", 132, "VK_F21", empty, empty],
+      [1, 119, "F22", 80, "F22", 133, "VK_F22", empty, empty],
+      [1, 120, "F23", 81, "F23", 134, "VK_F23", empty, empty],
+      [1, 121, "F24", 82, "F24", 135, "VK_F24", empty, empty],
+      [1, 122, "Open", 0, empty, 0, empty, empty, empty],
+      [1, 123, "Help", 0, empty, 0, empty, empty, empty],
+      [1, 124, "Select", 0, empty, 0, empty, empty, empty],
+      [1, 125, "Again", 0, empty, 0, empty, empty, empty],
+      [1, 126, "Undo", 0, empty, 0, empty, empty, empty],
+      [1, 127, "Cut", 0, empty, 0, empty, empty, empty],
+      [1, 128, "Copy", 0, empty, 0, empty, empty, empty],
+      [1, 129, "Paste", 0, empty, 0, empty, empty, empty],
+      [1, 130, "Find", 0, empty, 0, empty, empty, empty],
+      [1, 131, "AudioVolumeMute", 117, "AudioVolumeMute", 173, "VK_VOLUME_MUTE", empty, empty],
+      [1, 132, "AudioVolumeUp", 118, "AudioVolumeUp", 175, "VK_VOLUME_UP", empty, empty],
+      [1, 133, "AudioVolumeDown", 119, "AudioVolumeDown", 174, "VK_VOLUME_DOWN", empty, empty],
+      [1, 134, "NumpadComma", 110, "NumPad_Separator", 108, "VK_SEPARATOR", empty, empty],
+      [0, 135, "IntlRo", 115, "ABNT_C1", 193, "VK_ABNT_C1", empty, empty],
+      [1, 136, "KanaMode", 0, empty, 0, empty, empty, empty],
+      [0, 137, "IntlYen", 0, empty, 0, empty, empty, empty],
+      [1, 138, "Convert", 0, empty, 0, empty, empty, empty],
+      [1, 139, "NonConvert", 0, empty, 0, empty, empty, empty],
+      [1, 140, "Lang1", 0, empty, 0, empty, empty, empty],
+      [1, 141, "Lang2", 0, empty, 0, empty, empty, empty],
+      [1, 142, "Lang3", 0, empty, 0, empty, empty, empty],
+      [1, 143, "Lang4", 0, empty, 0, empty, empty, empty],
+      [1, 144, "Lang5", 0, empty, 0, empty, empty, empty],
+      [1, 145, "Abort", 0, empty, 0, empty, empty, empty],
+      [1, 146, "Props", 0, empty, 0, empty, empty, empty],
+      [1, 147, "NumpadParenLeft", 0, empty, 0, empty, empty, empty],
+      [1, 148, "NumpadParenRight", 0, empty, 0, empty, empty, empty],
+      [1, 149, "NumpadBackspace", 0, empty, 0, empty, empty, empty],
+      [1, 150, "NumpadMemoryStore", 0, empty, 0, empty, empty, empty],
+      [1, 151, "NumpadMemoryRecall", 0, empty, 0, empty, empty, empty],
+      [1, 152, "NumpadMemoryClear", 0, empty, 0, empty, empty, empty],
+      [1, 153, "NumpadMemoryAdd", 0, empty, 0, empty, empty, empty],
+      [1, 154, "NumpadMemorySubtract", 0, empty, 0, empty, empty, empty],
+      [1, 155, "NumpadClear", 131, "Clear", 12, "VK_CLEAR", empty, empty],
+      [1, 156, "NumpadClearEntry", 0, empty, 0, empty, empty, empty],
+      [1, 0, empty, 5, "Ctrl", 17, "VK_CONTROL", empty, empty],
+      [1, 0, empty, 4, "Shift", 16, "VK_SHIFT", empty, empty],
+      [1, 0, empty, 6, "Alt", 18, "VK_MENU", empty, empty],
+      [1, 0, empty, 57, "Meta", 91, "VK_COMMAND", empty, empty],
+      [1, 157, "ControlLeft", 5, empty, 0, "VK_LCONTROL", empty, empty],
+      [1, 158, "ShiftLeft", 4, empty, 0, "VK_LSHIFT", empty, empty],
+      [1, 159, "AltLeft", 6, empty, 0, "VK_LMENU", empty, empty],
+      [1, 160, "MetaLeft", 57, empty, 0, "VK_LWIN", empty, empty],
+      [1, 161, "ControlRight", 5, empty, 0, "VK_RCONTROL", empty, empty],
+      [1, 162, "ShiftRight", 4, empty, 0, "VK_RSHIFT", empty, empty],
+      [1, 163, "AltRight", 6, empty, 0, "VK_RMENU", empty, empty],
+      [1, 164, "MetaRight", 57, empty, 0, "VK_RWIN", empty, empty],
+      [1, 165, "BrightnessUp", 0, empty, 0, empty, empty, empty],
+      [1, 166, "BrightnessDown", 0, empty, 0, empty, empty, empty],
+      [1, 167, "MediaPlay", 0, empty, 0, empty, empty, empty],
+      [1, 168, "MediaRecord", 0, empty, 0, empty, empty, empty],
+      [1, 169, "MediaFastForward", 0, empty, 0, empty, empty, empty],
+      [1, 170, "MediaRewind", 0, empty, 0, empty, empty, empty],
+      [1, 171, "MediaTrackNext", 124, "MediaTrackNext", 176, "VK_MEDIA_NEXT_TRACK", empty, empty],
+      [1, 172, "MediaTrackPrevious", 125, "MediaTrackPrevious", 177, "VK_MEDIA_PREV_TRACK", empty, empty],
+      [1, 173, "MediaStop", 126, "MediaStop", 178, "VK_MEDIA_STOP", empty, empty],
+      [1, 174, "Eject", 0, empty, 0, empty, empty, empty],
+      [1, 175, "MediaPlayPause", 127, "MediaPlayPause", 179, "VK_MEDIA_PLAY_PAUSE", empty, empty],
+      [1, 176, "MediaSelect", 128, "LaunchMediaPlayer", 181, "VK_MEDIA_LAUNCH_MEDIA_SELECT", empty, empty],
+      [1, 177, "LaunchMail", 129, "LaunchMail", 180, "VK_MEDIA_LAUNCH_MAIL", empty, empty],
+      [1, 178, "LaunchApp2", 130, "LaunchApp2", 183, "VK_MEDIA_LAUNCH_APP2", empty, empty],
+      [1, 179, "LaunchApp1", 0, empty, 0, "VK_MEDIA_LAUNCH_APP1", empty, empty],
+      [1, 180, "SelectTask", 0, empty, 0, empty, empty, empty],
+      [1, 181, "LaunchScreenSaver", 0, empty, 0, empty, empty, empty],
+      [1, 182, "BrowserSearch", 120, "BrowserSearch", 170, "VK_BROWSER_SEARCH", empty, empty],
+      [1, 183, "BrowserHome", 121, "BrowserHome", 172, "VK_BROWSER_HOME", empty, empty],
+      [1, 184, "BrowserBack", 122, "BrowserBack", 166, "VK_BROWSER_BACK", empty, empty],
+      [1, 185, "BrowserForward", 123, "BrowserForward", 167, "VK_BROWSER_FORWARD", empty, empty],
+      [1, 186, "BrowserStop", 0, empty, 0, "VK_BROWSER_STOP", empty, empty],
+      [1, 187, "BrowserRefresh", 0, empty, 0, "VK_BROWSER_REFRESH", empty, empty],
+      [1, 188, "BrowserFavorites", 0, empty, 0, "VK_BROWSER_FAVORITES", empty, empty],
+      [1, 189, "ZoomToggle", 0, empty, 0, empty, empty, empty],
+      [1, 190, "MailReply", 0, empty, 0, empty, empty, empty],
+      [1, 191, "MailForward", 0, empty, 0, empty, empty, empty],
+      [1, 192, "MailSend", 0, empty, 0, empty, empty, empty],
       // See https://lists.w3.org/Archives/Public/www-dom/2010JulSep/att-0182/keyCode-spec.html
       // If an Input Method Editor is processing key input and the event is keydown, return 229.
-      [109, 1, 0, empty, 109, "KeyInComposition", 229, empty, empty, empty],
-      [111, 1, 0, empty, 111, "ABNT_C2", 194, "VK_ABNT_C2", empty, empty],
-      [91, 1, 0, empty, 91, "OEM_8", 223, "VK_OEM_8", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_KANA", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_HANGUL", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_JUNJA", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_FINAL", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_HANJA", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_KANJI", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_CONVERT", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_NONCONVERT", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_ACCEPT", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_MODECHANGE", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_SELECT", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_PRINT", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_EXECUTE", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_SNAPSHOT", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_HELP", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_APPS", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_PROCESSKEY", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_PACKET", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_DBE_SBCSCHAR", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_DBE_DBCSCHAR", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_ATTN", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_CRSEL", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_EXSEL", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_EREOF", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_PLAY", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_ZOOM", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_NONAME", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_PA1", empty, empty],
-      [0, 1, 0, empty, 0, empty, 0, "VK_OEM_CLEAR", empty, empty]
+      [1, 0, empty, 114, "KeyInComposition", 229, empty, empty, empty],
+      [1, 0, empty, 116, "ABNT_C2", 194, "VK_ABNT_C2", empty, empty],
+      [1, 0, empty, 96, "OEM_8", 223, "VK_OEM_8", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_KANA", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_HANGUL", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_JUNJA", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_FINAL", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_HANJA", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_KANJI", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_CONVERT", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_NONCONVERT", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_ACCEPT", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_MODECHANGE", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_SELECT", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_PRINT", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_EXECUTE", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_SNAPSHOT", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_HELP", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_APPS", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_PROCESSKEY", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_PACKET", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_DBE_SBCSCHAR", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_DBE_DBCSCHAR", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_ATTN", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_CRSEL", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_EXSEL", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_EREOF", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_PLAY", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_ZOOM", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_NONAME", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_PA1", empty, empty],
+      [1, 0, empty, 0, empty, 0, "VK_OEM_CLEAR", empty, empty]
     ];
     const seenKeyCode = [];
     const seenScanCode = [];
     for (const mapping of mappings) {
-      const [_keyCodeOrd, immutable, scanCode, scanCodeStr, keyCode, keyCodeStr, eventKeyCode, vkey, usUserSettingsLabel, generalUserSettingsLabel] = mapping;
+      const [immutable, scanCode, scanCodeStr, keyCode, keyCodeStr, eventKeyCode, vkey, usUserSettingsLabel, generalUserSettingsLabel] = mapping;
       if (!seenScanCode[scanCode]) {
         seenScanCode[scanCode] = true;
         scanCodeIntToStr[scanCode] = scanCodeStr;
@@ -24492,7 +21729,7 @@ ${n}`;
     }
     KeyCodeUtils2.fromUserSettings = fromUserSettings;
     function toElectronAccelerator(keyCode) {
-      if (keyCode >= 93 && keyCode <= 108) {
+      if (keyCode >= 98 && keyCode <= 113) {
         return null;
       }
       switch (keyCode) {
@@ -24642,16 +21879,16 @@ ${n}`;
 
   // node_modules/monaco-editor/esm/vs/base/common/codicons.js
   var _codiconFontCharacters = /* @__PURE__ */ Object.create(null);
-  function register(id, fontCharacter) {
+  function register(id2, fontCharacter) {
     if (isString(fontCharacter)) {
       const val = _codiconFontCharacters[fontCharacter];
       if (val === void 0) {
-        throw new Error(`${id} references an unknown codicon: ${fontCharacter}`);
+        throw new Error(`${id2} references an unknown codicon: ${fontCharacter}`);
       }
       fontCharacter = val;
     }
-    _codiconFontCharacters[id] = fontCharacter;
-    return { id };
+    _codiconFontCharacters[id2] = fontCharacter;
+    return { id: id2 };
   }
   var Codicon = {
     // built-in icons, with image name
@@ -24672,6 +21909,7 @@ ${n}`;
     tag: register("tag", 60006),
     tagAdd: register("tag-add", 60006),
     tagRemove: register("tag-remove", 60006),
+    gitPullRequestLabel: register("git-pull-request-label", 60006),
     person: register("person", 60007),
     personFollow: register("person-follow", 60007),
     personOutline: register("person-outline", 60007),
@@ -24926,6 +22164,7 @@ ${n}`;
     megaphone: register("megaphone", 60190),
     mention: register("mention", 60191),
     milestone: register("milestone", 60192),
+    gitPullRequestMilestone: register("git-pull-request-milestone", 60192),
     mortarBoard: register("mortar-board", 60193),
     move: register("move", 60194),
     multipleWindows: register("multiple-windows", 60195),
@@ -24934,7 +22173,7 @@ ${n}`;
     note: register("note", 60198),
     octoface: register("octoface", 60199),
     openPreview: register("open-preview", 60200),
-    package_: register("package", 60201),
+    package: register("package", 60201),
     paintcan: register("paintcan", 60202),
     pin: register("pin", 60203),
     play: register("play", 60204),
@@ -25050,9 +22289,11 @@ ${n}`;
     menu: register("menu", 60308),
     expandAll: register("expand-all", 60309),
     feedback: register("feedback", 60310),
+    gitPullRequestReviewer: register("git-pull-request-reviewer", 60310),
     groupByRefType: register("group-by-ref-type", 60311),
     ungroupByRefType: register("ungroup-by-ref-type", 60312),
     account: register("account", 60313),
+    gitPullRequestAssignee: register("git-pull-request-assignee", 60313),
     bellDot: register("bell-dot", 60314),
     debugConsole: register("debug-console", 60315),
     library: register("library", 60316),
@@ -25175,12 +22416,14 @@ ${n}`;
     send: register("send", 60431),
     sparkle: register("sparkle", 60432),
     insert: register("insert", 60433),
+    mic: register("mic", 60434),
     // derived icons, that could become separate icons
     dialogError: register("dialog-error", "error"),
     dialogWarning: register("dialog-warning", "warning"),
     dialogInfo: register("dialog-info", "info"),
     dialogClose: register("dialog-close", "close"),
     treeItemExpanded: register("tree-item-expanded", "chevron-down"),
+    // collapsed is done with rotation
     treeFilterOnTypeOn: register("tree-filter-on-type-on", "list-filter"),
     treeFilterOnTypeOff: register("tree-filter-on-type-off", "list-selection"),
     treeFilterClear: register("tree-filter-clear", "close"),
@@ -25253,8 +22496,8 @@ ${n}`;
       return this._tokenizationSupports.get(languageId) || null;
     }
     registerFactory(languageId, factory) {
-      var _a3;
-      (_a3 = this._factories.get(languageId)) === null || _a3 === void 0 ? void 0 : _a3.dispose();
+      var _a4;
+      (_a4 = this._factories.get(languageId)) === null || _a4 === void 0 ? void 0 : _a4.dispose();
       const myData = new TokenizationSupportFactoryData(this, languageId, factory);
       this._factories.set(languageId, myData);
       return toDisposable(() => {
@@ -25561,9 +22804,9 @@ ${n}`;
     CompletionItemKinds2.fromString = fromString;
   })(CompletionItemKinds || (CompletionItemKinds = {}));
   var InlineCompletionTriggerKind;
-  (function(InlineCompletionTriggerKind3) {
-    InlineCompletionTriggerKind3[InlineCompletionTriggerKind3["Automatic"] = 0] = "Automatic";
-    InlineCompletionTriggerKind3[InlineCompletionTriggerKind3["Explicit"] = 1] = "Explicit";
+  (function(InlineCompletionTriggerKind4) {
+    InlineCompletionTriggerKind4[InlineCompletionTriggerKind4["Automatic"] = 0] = "Automatic";
+    InlineCompletionTriggerKind4[InlineCompletionTriggerKind4["Explicit"] = 1] = "Explicit";
   })(InlineCompletionTriggerKind || (InlineCompletionTriggerKind = {}));
   var SignatureHelpTriggerKind;
   (function(SignatureHelpTriggerKind3) {
@@ -25577,6 +22820,112 @@ ${n}`;
     DocumentHighlightKind4[DocumentHighlightKind4["Read"] = 1] = "Read";
     DocumentHighlightKind4[DocumentHighlightKind4["Write"] = 2] = "Write";
   })(DocumentHighlightKind || (DocumentHighlightKind = {}));
+  var symbolKindNames = {
+    [
+      17
+      /* SymbolKind.Array */
+    ]: localizeWithPath("vs/editor/common/languages", "Array", "array"),
+    [
+      16
+      /* SymbolKind.Boolean */
+    ]: localizeWithPath("vs/editor/common/languages", "Boolean", "boolean"),
+    [
+      4
+      /* SymbolKind.Class */
+    ]: localizeWithPath("vs/editor/common/languages", "Class", "class"),
+    [
+      13
+      /* SymbolKind.Constant */
+    ]: localizeWithPath("vs/editor/common/languages", "Constant", "constant"),
+    [
+      8
+      /* SymbolKind.Constructor */
+    ]: localizeWithPath("vs/editor/common/languages", "Constructor", "constructor"),
+    [
+      9
+      /* SymbolKind.Enum */
+    ]: localizeWithPath("vs/editor/common/languages", "Enum", "enumeration"),
+    [
+      21
+      /* SymbolKind.EnumMember */
+    ]: localizeWithPath("vs/editor/common/languages", "EnumMember", "enumeration member"),
+    [
+      23
+      /* SymbolKind.Event */
+    ]: localizeWithPath("vs/editor/common/languages", "Event", "event"),
+    [
+      7
+      /* SymbolKind.Field */
+    ]: localizeWithPath("vs/editor/common/languages", "Field", "field"),
+    [
+      0
+      /* SymbolKind.File */
+    ]: localizeWithPath("vs/editor/common/languages", "File", "file"),
+    [
+      11
+      /* SymbolKind.Function */
+    ]: localizeWithPath("vs/editor/common/languages", "Function", "function"),
+    [
+      10
+      /* SymbolKind.Interface */
+    ]: localizeWithPath("vs/editor/common/languages", "Interface", "interface"),
+    [
+      19
+      /* SymbolKind.Key */
+    ]: localizeWithPath("vs/editor/common/languages", "Key", "key"),
+    [
+      5
+      /* SymbolKind.Method */
+    ]: localizeWithPath("vs/editor/common/languages", "Method", "method"),
+    [
+      1
+      /* SymbolKind.Module */
+    ]: localizeWithPath("vs/editor/common/languages", "Module", "module"),
+    [
+      2
+      /* SymbolKind.Namespace */
+    ]: localizeWithPath("vs/editor/common/languages", "Namespace", "namespace"),
+    [
+      20
+      /* SymbolKind.Null */
+    ]: localizeWithPath("vs/editor/common/languages", "Null", "null"),
+    [
+      15
+      /* SymbolKind.Number */
+    ]: localizeWithPath("vs/editor/common/languages", "Number", "number"),
+    [
+      18
+      /* SymbolKind.Object */
+    ]: localizeWithPath("vs/editor/common/languages", "Object", "object"),
+    [
+      24
+      /* SymbolKind.Operator */
+    ]: localizeWithPath("vs/editor/common/languages", "Operator", "operator"),
+    [
+      3
+      /* SymbolKind.Package */
+    ]: localizeWithPath("vs/editor/common/languages", "Package", "package"),
+    [
+      6
+      /* SymbolKind.Property */
+    ]: localizeWithPath("vs/editor/common/languages", "Property", "property"),
+    [
+      14
+      /* SymbolKind.String */
+    ]: localizeWithPath("vs/editor/common/languages", "String", "string"),
+    [
+      22
+      /* SymbolKind.Struct */
+    ]: localizeWithPath("vs/editor/common/languages", "Struct", "struct"),
+    [
+      25
+      /* SymbolKind.TypeParameter */
+    ]: localizeWithPath("vs/editor/common/languages", "TypeParameter", "type parameter"),
+    [
+      12
+      /* SymbolKind.Variable */
+    ]: localizeWithPath("vs/editor/common/languages", "Variable", "variable")
+  };
   var SymbolKinds;
   (function(SymbolKinds2) {
     const byKind = /* @__PURE__ */ new Map();
@@ -25790,142 +23139,149 @@ ${n}`;
     EditorOption2[EditorOption2["accessibilitySupport"] = 2] = "accessibilitySupport";
     EditorOption2[EditorOption2["accessibilityPageSize"] = 3] = "accessibilityPageSize";
     EditorOption2[EditorOption2["ariaLabel"] = 4] = "ariaLabel";
-    EditorOption2[EditorOption2["autoClosingBrackets"] = 5] = "autoClosingBrackets";
-    EditorOption2[EditorOption2["screenReaderAnnounceInlineSuggestion"] = 6] = "screenReaderAnnounceInlineSuggestion";
-    EditorOption2[EditorOption2["autoClosingDelete"] = 7] = "autoClosingDelete";
-    EditorOption2[EditorOption2["autoClosingOvertype"] = 8] = "autoClosingOvertype";
-    EditorOption2[EditorOption2["autoClosingQuotes"] = 9] = "autoClosingQuotes";
-    EditorOption2[EditorOption2["autoIndent"] = 10] = "autoIndent";
-    EditorOption2[EditorOption2["automaticLayout"] = 11] = "automaticLayout";
-    EditorOption2[EditorOption2["autoSurround"] = 12] = "autoSurround";
-    EditorOption2[EditorOption2["bracketPairColorization"] = 13] = "bracketPairColorization";
-    EditorOption2[EditorOption2["guides"] = 14] = "guides";
-    EditorOption2[EditorOption2["codeLens"] = 15] = "codeLens";
-    EditorOption2[EditorOption2["codeLensFontFamily"] = 16] = "codeLensFontFamily";
-    EditorOption2[EditorOption2["codeLensFontSize"] = 17] = "codeLensFontSize";
-    EditorOption2[EditorOption2["colorDecorators"] = 18] = "colorDecorators";
-    EditorOption2[EditorOption2["colorDecoratorsLimit"] = 19] = "colorDecoratorsLimit";
-    EditorOption2[EditorOption2["columnSelection"] = 20] = "columnSelection";
-    EditorOption2[EditorOption2["comments"] = 21] = "comments";
-    EditorOption2[EditorOption2["contextmenu"] = 22] = "contextmenu";
-    EditorOption2[EditorOption2["copyWithSyntaxHighlighting"] = 23] = "copyWithSyntaxHighlighting";
-    EditorOption2[EditorOption2["cursorBlinking"] = 24] = "cursorBlinking";
-    EditorOption2[EditorOption2["cursorSmoothCaretAnimation"] = 25] = "cursorSmoothCaretAnimation";
-    EditorOption2[EditorOption2["cursorStyle"] = 26] = "cursorStyle";
-    EditorOption2[EditorOption2["cursorSurroundingLines"] = 27] = "cursorSurroundingLines";
-    EditorOption2[EditorOption2["cursorSurroundingLinesStyle"] = 28] = "cursorSurroundingLinesStyle";
-    EditorOption2[EditorOption2["cursorWidth"] = 29] = "cursorWidth";
-    EditorOption2[EditorOption2["disableLayerHinting"] = 30] = "disableLayerHinting";
-    EditorOption2[EditorOption2["disableMonospaceOptimizations"] = 31] = "disableMonospaceOptimizations";
-    EditorOption2[EditorOption2["domReadOnly"] = 32] = "domReadOnly";
-    EditorOption2[EditorOption2["dragAndDrop"] = 33] = "dragAndDrop";
-    EditorOption2[EditorOption2["dropIntoEditor"] = 34] = "dropIntoEditor";
-    EditorOption2[EditorOption2["emptySelectionClipboard"] = 35] = "emptySelectionClipboard";
-    EditorOption2[EditorOption2["experimentalWhitespaceRendering"] = 36] = "experimentalWhitespaceRendering";
-    EditorOption2[EditorOption2["extraEditorClassName"] = 37] = "extraEditorClassName";
-    EditorOption2[EditorOption2["fastScrollSensitivity"] = 38] = "fastScrollSensitivity";
-    EditorOption2[EditorOption2["find"] = 39] = "find";
-    EditorOption2[EditorOption2["fixedOverflowWidgets"] = 40] = "fixedOverflowWidgets";
-    EditorOption2[EditorOption2["folding"] = 41] = "folding";
-    EditorOption2[EditorOption2["foldingStrategy"] = 42] = "foldingStrategy";
-    EditorOption2[EditorOption2["foldingHighlight"] = 43] = "foldingHighlight";
-    EditorOption2[EditorOption2["foldingImportsByDefault"] = 44] = "foldingImportsByDefault";
-    EditorOption2[EditorOption2["foldingMaximumRegions"] = 45] = "foldingMaximumRegions";
-    EditorOption2[EditorOption2["unfoldOnClickAfterEndOfLine"] = 46] = "unfoldOnClickAfterEndOfLine";
-    EditorOption2[EditorOption2["fontFamily"] = 47] = "fontFamily";
-    EditorOption2[EditorOption2["fontInfo"] = 48] = "fontInfo";
-    EditorOption2[EditorOption2["fontLigatures"] = 49] = "fontLigatures";
-    EditorOption2[EditorOption2["fontSize"] = 50] = "fontSize";
-    EditorOption2[EditorOption2["fontWeight"] = 51] = "fontWeight";
-    EditorOption2[EditorOption2["fontVariations"] = 52] = "fontVariations";
-    EditorOption2[EditorOption2["formatOnPaste"] = 53] = "formatOnPaste";
-    EditorOption2[EditorOption2["formatOnType"] = 54] = "formatOnType";
-    EditorOption2[EditorOption2["glyphMargin"] = 55] = "glyphMargin";
-    EditorOption2[EditorOption2["gotoLocation"] = 56] = "gotoLocation";
-    EditorOption2[EditorOption2["hideCursorInOverviewRuler"] = 57] = "hideCursorInOverviewRuler";
-    EditorOption2[EditorOption2["hover"] = 58] = "hover";
-    EditorOption2[EditorOption2["inDiffEditor"] = 59] = "inDiffEditor";
-    EditorOption2[EditorOption2["inlineSuggest"] = 60] = "inlineSuggest";
-    EditorOption2[EditorOption2["letterSpacing"] = 61] = "letterSpacing";
-    EditorOption2[EditorOption2["lightbulb"] = 62] = "lightbulb";
-    EditorOption2[EditorOption2["lineDecorationsWidth"] = 63] = "lineDecorationsWidth";
-    EditorOption2[EditorOption2["lineHeight"] = 64] = "lineHeight";
-    EditorOption2[EditorOption2["lineNumbers"] = 65] = "lineNumbers";
-    EditorOption2[EditorOption2["lineNumbersMinChars"] = 66] = "lineNumbersMinChars";
-    EditorOption2[EditorOption2["linkedEditing"] = 67] = "linkedEditing";
-    EditorOption2[EditorOption2["links"] = 68] = "links";
-    EditorOption2[EditorOption2["matchBrackets"] = 69] = "matchBrackets";
-    EditorOption2[EditorOption2["minimap"] = 70] = "minimap";
-    EditorOption2[EditorOption2["mouseStyle"] = 71] = "mouseStyle";
-    EditorOption2[EditorOption2["mouseWheelScrollSensitivity"] = 72] = "mouseWheelScrollSensitivity";
-    EditorOption2[EditorOption2["mouseWheelZoom"] = 73] = "mouseWheelZoom";
-    EditorOption2[EditorOption2["multiCursorMergeOverlapping"] = 74] = "multiCursorMergeOverlapping";
-    EditorOption2[EditorOption2["multiCursorModifier"] = 75] = "multiCursorModifier";
-    EditorOption2[EditorOption2["multiCursorPaste"] = 76] = "multiCursorPaste";
-    EditorOption2[EditorOption2["multiCursorLimit"] = 77] = "multiCursorLimit";
-    EditorOption2[EditorOption2["occurrencesHighlight"] = 78] = "occurrencesHighlight";
-    EditorOption2[EditorOption2["overviewRulerBorder"] = 79] = "overviewRulerBorder";
-    EditorOption2[EditorOption2["overviewRulerLanes"] = 80] = "overviewRulerLanes";
-    EditorOption2[EditorOption2["padding"] = 81] = "padding";
-    EditorOption2[EditorOption2["parameterHints"] = 82] = "parameterHints";
-    EditorOption2[EditorOption2["peekWidgetDefaultFocus"] = 83] = "peekWidgetDefaultFocus";
-    EditorOption2[EditorOption2["definitionLinkOpensInPeek"] = 84] = "definitionLinkOpensInPeek";
-    EditorOption2[EditorOption2["quickSuggestions"] = 85] = "quickSuggestions";
-    EditorOption2[EditorOption2["quickSuggestionsDelay"] = 86] = "quickSuggestionsDelay";
-    EditorOption2[EditorOption2["readOnly"] = 87] = "readOnly";
-    EditorOption2[EditorOption2["renameOnType"] = 88] = "renameOnType";
-    EditorOption2[EditorOption2["renderControlCharacters"] = 89] = "renderControlCharacters";
-    EditorOption2[EditorOption2["renderFinalNewline"] = 90] = "renderFinalNewline";
-    EditorOption2[EditorOption2["renderLineHighlight"] = 91] = "renderLineHighlight";
-    EditorOption2[EditorOption2["renderLineHighlightOnlyWhenFocus"] = 92] = "renderLineHighlightOnlyWhenFocus";
-    EditorOption2[EditorOption2["renderValidationDecorations"] = 93] = "renderValidationDecorations";
-    EditorOption2[EditorOption2["renderWhitespace"] = 94] = "renderWhitespace";
-    EditorOption2[EditorOption2["revealHorizontalRightPadding"] = 95] = "revealHorizontalRightPadding";
-    EditorOption2[EditorOption2["roundedSelection"] = 96] = "roundedSelection";
-    EditorOption2[EditorOption2["rulers"] = 97] = "rulers";
-    EditorOption2[EditorOption2["scrollbar"] = 98] = "scrollbar";
-    EditorOption2[EditorOption2["scrollBeyondLastColumn"] = 99] = "scrollBeyondLastColumn";
-    EditorOption2[EditorOption2["scrollBeyondLastLine"] = 100] = "scrollBeyondLastLine";
-    EditorOption2[EditorOption2["scrollPredominantAxis"] = 101] = "scrollPredominantAxis";
-    EditorOption2[EditorOption2["selectionClipboard"] = 102] = "selectionClipboard";
-    EditorOption2[EditorOption2["selectionHighlight"] = 103] = "selectionHighlight";
-    EditorOption2[EditorOption2["selectOnLineNumbers"] = 104] = "selectOnLineNumbers";
-    EditorOption2[EditorOption2["showFoldingControls"] = 105] = "showFoldingControls";
-    EditorOption2[EditorOption2["showUnused"] = 106] = "showUnused";
-    EditorOption2[EditorOption2["snippetSuggestions"] = 107] = "snippetSuggestions";
-    EditorOption2[EditorOption2["smartSelect"] = 108] = "smartSelect";
-    EditorOption2[EditorOption2["smoothScrolling"] = 109] = "smoothScrolling";
-    EditorOption2[EditorOption2["stickyScroll"] = 110] = "stickyScroll";
-    EditorOption2[EditorOption2["stickyTabStops"] = 111] = "stickyTabStops";
-    EditorOption2[EditorOption2["stopRenderingLineAfter"] = 112] = "stopRenderingLineAfter";
-    EditorOption2[EditorOption2["suggest"] = 113] = "suggest";
-    EditorOption2[EditorOption2["suggestFontSize"] = 114] = "suggestFontSize";
-    EditorOption2[EditorOption2["suggestLineHeight"] = 115] = "suggestLineHeight";
-    EditorOption2[EditorOption2["suggestOnTriggerCharacters"] = 116] = "suggestOnTriggerCharacters";
-    EditorOption2[EditorOption2["suggestSelection"] = 117] = "suggestSelection";
-    EditorOption2[EditorOption2["tabCompletion"] = 118] = "tabCompletion";
-    EditorOption2[EditorOption2["tabIndex"] = 119] = "tabIndex";
-    EditorOption2[EditorOption2["unicodeHighlighting"] = 120] = "unicodeHighlighting";
-    EditorOption2[EditorOption2["unusualLineTerminators"] = 121] = "unusualLineTerminators";
-    EditorOption2[EditorOption2["useShadowDOM"] = 122] = "useShadowDOM";
-    EditorOption2[EditorOption2["useTabStops"] = 123] = "useTabStops";
-    EditorOption2[EditorOption2["wordBreak"] = 124] = "wordBreak";
-    EditorOption2[EditorOption2["wordSeparators"] = 125] = "wordSeparators";
-    EditorOption2[EditorOption2["wordWrap"] = 126] = "wordWrap";
-    EditorOption2[EditorOption2["wordWrapBreakAfterCharacters"] = 127] = "wordWrapBreakAfterCharacters";
-    EditorOption2[EditorOption2["wordWrapBreakBeforeCharacters"] = 128] = "wordWrapBreakBeforeCharacters";
-    EditorOption2[EditorOption2["wordWrapColumn"] = 129] = "wordWrapColumn";
-    EditorOption2[EditorOption2["wordWrapOverride1"] = 130] = "wordWrapOverride1";
-    EditorOption2[EditorOption2["wordWrapOverride2"] = 131] = "wordWrapOverride2";
-    EditorOption2[EditorOption2["wrappingIndent"] = 132] = "wrappingIndent";
-    EditorOption2[EditorOption2["wrappingStrategy"] = 133] = "wrappingStrategy";
-    EditorOption2[EditorOption2["showDeprecated"] = 134] = "showDeprecated";
-    EditorOption2[EditorOption2["inlayHints"] = 135] = "inlayHints";
-    EditorOption2[EditorOption2["editorClassName"] = 136] = "editorClassName";
-    EditorOption2[EditorOption2["pixelRatio"] = 137] = "pixelRatio";
-    EditorOption2[EditorOption2["tabFocusMode"] = 138] = "tabFocusMode";
-    EditorOption2[EditorOption2["layoutInfo"] = 139] = "layoutInfo";
-    EditorOption2[EditorOption2["wrappingInfo"] = 140] = "wrappingInfo";
+    EditorOption2[EditorOption2["ariaRequired"] = 5] = "ariaRequired";
+    EditorOption2[EditorOption2["autoClosingBrackets"] = 6] = "autoClosingBrackets";
+    EditorOption2[EditorOption2["autoClosingComments"] = 7] = "autoClosingComments";
+    EditorOption2[EditorOption2["screenReaderAnnounceInlineSuggestion"] = 8] = "screenReaderAnnounceInlineSuggestion";
+    EditorOption2[EditorOption2["autoClosingDelete"] = 9] = "autoClosingDelete";
+    EditorOption2[EditorOption2["autoClosingOvertype"] = 10] = "autoClosingOvertype";
+    EditorOption2[EditorOption2["autoClosingQuotes"] = 11] = "autoClosingQuotes";
+    EditorOption2[EditorOption2["autoIndent"] = 12] = "autoIndent";
+    EditorOption2[EditorOption2["automaticLayout"] = 13] = "automaticLayout";
+    EditorOption2[EditorOption2["autoSurround"] = 14] = "autoSurround";
+    EditorOption2[EditorOption2["bracketPairColorization"] = 15] = "bracketPairColorization";
+    EditorOption2[EditorOption2["guides"] = 16] = "guides";
+    EditorOption2[EditorOption2["codeLens"] = 17] = "codeLens";
+    EditorOption2[EditorOption2["codeLensFontFamily"] = 18] = "codeLensFontFamily";
+    EditorOption2[EditorOption2["codeLensFontSize"] = 19] = "codeLensFontSize";
+    EditorOption2[EditorOption2["colorDecorators"] = 20] = "colorDecorators";
+    EditorOption2[EditorOption2["colorDecoratorsLimit"] = 21] = "colorDecoratorsLimit";
+    EditorOption2[EditorOption2["columnSelection"] = 22] = "columnSelection";
+    EditorOption2[EditorOption2["comments"] = 23] = "comments";
+    EditorOption2[EditorOption2["contextmenu"] = 24] = "contextmenu";
+    EditorOption2[EditorOption2["copyWithSyntaxHighlighting"] = 25] = "copyWithSyntaxHighlighting";
+    EditorOption2[EditorOption2["cursorBlinking"] = 26] = "cursorBlinking";
+    EditorOption2[EditorOption2["cursorSmoothCaretAnimation"] = 27] = "cursorSmoothCaretAnimation";
+    EditorOption2[EditorOption2["cursorStyle"] = 28] = "cursorStyle";
+    EditorOption2[EditorOption2["cursorSurroundingLines"] = 29] = "cursorSurroundingLines";
+    EditorOption2[EditorOption2["cursorSurroundingLinesStyle"] = 30] = "cursorSurroundingLinesStyle";
+    EditorOption2[EditorOption2["cursorWidth"] = 31] = "cursorWidth";
+    EditorOption2[EditorOption2["disableLayerHinting"] = 32] = "disableLayerHinting";
+    EditorOption2[EditorOption2["disableMonospaceOptimizations"] = 33] = "disableMonospaceOptimizations";
+    EditorOption2[EditorOption2["domReadOnly"] = 34] = "domReadOnly";
+    EditorOption2[EditorOption2["dragAndDrop"] = 35] = "dragAndDrop";
+    EditorOption2[EditorOption2["dropIntoEditor"] = 36] = "dropIntoEditor";
+    EditorOption2[EditorOption2["emptySelectionClipboard"] = 37] = "emptySelectionClipboard";
+    EditorOption2[EditorOption2["experimentalWhitespaceRendering"] = 38] = "experimentalWhitespaceRendering";
+    EditorOption2[EditorOption2["extraEditorClassName"] = 39] = "extraEditorClassName";
+    EditorOption2[EditorOption2["fastScrollSensitivity"] = 40] = "fastScrollSensitivity";
+    EditorOption2[EditorOption2["find"] = 41] = "find";
+    EditorOption2[EditorOption2["fixedOverflowWidgets"] = 42] = "fixedOverflowWidgets";
+    EditorOption2[EditorOption2["folding"] = 43] = "folding";
+    EditorOption2[EditorOption2["foldingStrategy"] = 44] = "foldingStrategy";
+    EditorOption2[EditorOption2["foldingHighlight"] = 45] = "foldingHighlight";
+    EditorOption2[EditorOption2["foldingImportsByDefault"] = 46] = "foldingImportsByDefault";
+    EditorOption2[EditorOption2["foldingMaximumRegions"] = 47] = "foldingMaximumRegions";
+    EditorOption2[EditorOption2["unfoldOnClickAfterEndOfLine"] = 48] = "unfoldOnClickAfterEndOfLine";
+    EditorOption2[EditorOption2["fontFamily"] = 49] = "fontFamily";
+    EditorOption2[EditorOption2["fontInfo"] = 50] = "fontInfo";
+    EditorOption2[EditorOption2["fontLigatures"] = 51] = "fontLigatures";
+    EditorOption2[EditorOption2["fontSize"] = 52] = "fontSize";
+    EditorOption2[EditorOption2["fontWeight"] = 53] = "fontWeight";
+    EditorOption2[EditorOption2["fontVariations"] = 54] = "fontVariations";
+    EditorOption2[EditorOption2["formatOnPaste"] = 55] = "formatOnPaste";
+    EditorOption2[EditorOption2["formatOnType"] = 56] = "formatOnType";
+    EditorOption2[EditorOption2["glyphMargin"] = 57] = "glyphMargin";
+    EditorOption2[EditorOption2["gotoLocation"] = 58] = "gotoLocation";
+    EditorOption2[EditorOption2["hideCursorInOverviewRuler"] = 59] = "hideCursorInOverviewRuler";
+    EditorOption2[EditorOption2["hover"] = 60] = "hover";
+    EditorOption2[EditorOption2["inDiffEditor"] = 61] = "inDiffEditor";
+    EditorOption2[EditorOption2["inlineSuggest"] = 62] = "inlineSuggest";
+    EditorOption2[EditorOption2["letterSpacing"] = 63] = "letterSpacing";
+    EditorOption2[EditorOption2["lightbulb"] = 64] = "lightbulb";
+    EditorOption2[EditorOption2["lineDecorationsWidth"] = 65] = "lineDecorationsWidth";
+    EditorOption2[EditorOption2["lineHeight"] = 66] = "lineHeight";
+    EditorOption2[EditorOption2["lineNumbers"] = 67] = "lineNumbers";
+    EditorOption2[EditorOption2["lineNumbersMinChars"] = 68] = "lineNumbersMinChars";
+    EditorOption2[EditorOption2["linkedEditing"] = 69] = "linkedEditing";
+    EditorOption2[EditorOption2["links"] = 70] = "links";
+    EditorOption2[EditorOption2["matchBrackets"] = 71] = "matchBrackets";
+    EditorOption2[EditorOption2["minimap"] = 72] = "minimap";
+    EditorOption2[EditorOption2["mouseStyle"] = 73] = "mouseStyle";
+    EditorOption2[EditorOption2["mouseWheelScrollSensitivity"] = 74] = "mouseWheelScrollSensitivity";
+    EditorOption2[EditorOption2["mouseWheelZoom"] = 75] = "mouseWheelZoom";
+    EditorOption2[EditorOption2["multiCursorMergeOverlapping"] = 76] = "multiCursorMergeOverlapping";
+    EditorOption2[EditorOption2["multiCursorModifier"] = 77] = "multiCursorModifier";
+    EditorOption2[EditorOption2["multiCursorPaste"] = 78] = "multiCursorPaste";
+    EditorOption2[EditorOption2["multiCursorLimit"] = 79] = "multiCursorLimit";
+    EditorOption2[EditorOption2["occurrencesHighlight"] = 80] = "occurrencesHighlight";
+    EditorOption2[EditorOption2["overviewRulerBorder"] = 81] = "overviewRulerBorder";
+    EditorOption2[EditorOption2["overviewRulerLanes"] = 82] = "overviewRulerLanes";
+    EditorOption2[EditorOption2["padding"] = 83] = "padding";
+    EditorOption2[EditorOption2["pasteAs"] = 84] = "pasteAs";
+    EditorOption2[EditorOption2["parameterHints"] = 85] = "parameterHints";
+    EditorOption2[EditorOption2["peekWidgetDefaultFocus"] = 86] = "peekWidgetDefaultFocus";
+    EditorOption2[EditorOption2["definitionLinkOpensInPeek"] = 87] = "definitionLinkOpensInPeek";
+    EditorOption2[EditorOption2["quickSuggestions"] = 88] = "quickSuggestions";
+    EditorOption2[EditorOption2["quickSuggestionsDelay"] = 89] = "quickSuggestionsDelay";
+    EditorOption2[EditorOption2["readOnly"] = 90] = "readOnly";
+    EditorOption2[EditorOption2["readOnlyMessage"] = 91] = "readOnlyMessage";
+    EditorOption2[EditorOption2["renameOnType"] = 92] = "renameOnType";
+    EditorOption2[EditorOption2["renderControlCharacters"] = 93] = "renderControlCharacters";
+    EditorOption2[EditorOption2["renderFinalNewline"] = 94] = "renderFinalNewline";
+    EditorOption2[EditorOption2["renderLineHighlight"] = 95] = "renderLineHighlight";
+    EditorOption2[EditorOption2["renderLineHighlightOnlyWhenFocus"] = 96] = "renderLineHighlightOnlyWhenFocus";
+    EditorOption2[EditorOption2["renderValidationDecorations"] = 97] = "renderValidationDecorations";
+    EditorOption2[EditorOption2["renderWhitespace"] = 98] = "renderWhitespace";
+    EditorOption2[EditorOption2["revealHorizontalRightPadding"] = 99] = "revealHorizontalRightPadding";
+    EditorOption2[EditorOption2["roundedSelection"] = 100] = "roundedSelection";
+    EditorOption2[EditorOption2["rulers"] = 101] = "rulers";
+    EditorOption2[EditorOption2["scrollbar"] = 102] = "scrollbar";
+    EditorOption2[EditorOption2["scrollBeyondLastColumn"] = 103] = "scrollBeyondLastColumn";
+    EditorOption2[EditorOption2["scrollBeyondLastLine"] = 104] = "scrollBeyondLastLine";
+    EditorOption2[EditorOption2["scrollPredominantAxis"] = 105] = "scrollPredominantAxis";
+    EditorOption2[EditorOption2["selectionClipboard"] = 106] = "selectionClipboard";
+    EditorOption2[EditorOption2["selectionHighlight"] = 107] = "selectionHighlight";
+    EditorOption2[EditorOption2["selectOnLineNumbers"] = 108] = "selectOnLineNumbers";
+    EditorOption2[EditorOption2["showFoldingControls"] = 109] = "showFoldingControls";
+    EditorOption2[EditorOption2["showUnused"] = 110] = "showUnused";
+    EditorOption2[EditorOption2["snippetSuggestions"] = 111] = "snippetSuggestions";
+    EditorOption2[EditorOption2["smartSelect"] = 112] = "smartSelect";
+    EditorOption2[EditorOption2["smoothScrolling"] = 113] = "smoothScrolling";
+    EditorOption2[EditorOption2["stickyScroll"] = 114] = "stickyScroll";
+    EditorOption2[EditorOption2["stickyTabStops"] = 115] = "stickyTabStops";
+    EditorOption2[EditorOption2["stopRenderingLineAfter"] = 116] = "stopRenderingLineAfter";
+    EditorOption2[EditorOption2["suggest"] = 117] = "suggest";
+    EditorOption2[EditorOption2["suggestFontSize"] = 118] = "suggestFontSize";
+    EditorOption2[EditorOption2["suggestLineHeight"] = 119] = "suggestLineHeight";
+    EditorOption2[EditorOption2["suggestOnTriggerCharacters"] = 120] = "suggestOnTriggerCharacters";
+    EditorOption2[EditorOption2["suggestSelection"] = 121] = "suggestSelection";
+    EditorOption2[EditorOption2["tabCompletion"] = 122] = "tabCompletion";
+    EditorOption2[EditorOption2["tabIndex"] = 123] = "tabIndex";
+    EditorOption2[EditorOption2["unicodeHighlighting"] = 124] = "unicodeHighlighting";
+    EditorOption2[EditorOption2["unusualLineTerminators"] = 125] = "unusualLineTerminators";
+    EditorOption2[EditorOption2["useShadowDOM"] = 126] = "useShadowDOM";
+    EditorOption2[EditorOption2["useTabStops"] = 127] = "useTabStops";
+    EditorOption2[EditorOption2["wordBreak"] = 128] = "wordBreak";
+    EditorOption2[EditorOption2["wordSeparators"] = 129] = "wordSeparators";
+    EditorOption2[EditorOption2["wordWrap"] = 130] = "wordWrap";
+    EditorOption2[EditorOption2["wordWrapBreakAfterCharacters"] = 131] = "wordWrapBreakAfterCharacters";
+    EditorOption2[EditorOption2["wordWrapBreakBeforeCharacters"] = 132] = "wordWrapBreakBeforeCharacters";
+    EditorOption2[EditorOption2["wordWrapColumn"] = 133] = "wordWrapColumn";
+    EditorOption2[EditorOption2["wordWrapOverride1"] = 134] = "wordWrapOverride1";
+    EditorOption2[EditorOption2["wordWrapOverride2"] = 135] = "wordWrapOverride2";
+    EditorOption2[EditorOption2["wrappingIndent"] = 136] = "wrappingIndent";
+    EditorOption2[EditorOption2["wrappingStrategy"] = 137] = "wrappingStrategy";
+    EditorOption2[EditorOption2["showDeprecated"] = 138] = "showDeprecated";
+    EditorOption2[EditorOption2["inlayHints"] = 139] = "inlayHints";
+    EditorOption2[EditorOption2["editorClassName"] = 140] = "editorClassName";
+    EditorOption2[EditorOption2["pixelRatio"] = 141] = "pixelRatio";
+    EditorOption2[EditorOption2["tabFocusMode"] = 142] = "tabFocusMode";
+    EditorOption2[EditorOption2["layoutInfo"] = 143] = "layoutInfo";
+    EditorOption2[EditorOption2["wrappingInfo"] = 144] = "wrappingInfo";
+    EditorOption2[EditorOption2["defaultColorDecorators"] = 145] = "defaultColorDecorators";
+    EditorOption2[EditorOption2["colorDecoratorsActivatedOn"] = 146] = "colorDecoratorsActivatedOn";
+    EditorOption2[EditorOption2["inlineCompletionsAccessibilityVerbose"] = 147] = "inlineCompletionsAccessibilityVerbose";
   })(EditorOption || (EditorOption = {}));
   var EndOfLinePreference;
   (function(EndOfLinePreference2) {
@@ -25938,6 +23294,11 @@ ${n}`;
     EndOfLineSequence2[EndOfLineSequence2["LF"] = 0] = "LF";
     EndOfLineSequence2[EndOfLineSequence2["CRLF"] = 1] = "CRLF";
   })(EndOfLineSequence || (EndOfLineSequence = {}));
+  var GlyphMarginLane;
+  (function(GlyphMarginLane3) {
+    GlyphMarginLane3[GlyphMarginLane3["Left"] = 1] = "Left";
+    GlyphMarginLane3[GlyphMarginLane3["Right"] = 2] = "Right";
+  })(GlyphMarginLane || (GlyphMarginLane = {}));
   var IndentAction;
   (function(IndentAction2) {
     IndentAction2[IndentAction2["None"] = 0] = "None";
@@ -25958,9 +23319,9 @@ ${n}`;
     InlayHintKind4[InlayHintKind4["Parameter"] = 2] = "Parameter";
   })(InlayHintKind2 || (InlayHintKind2 = {}));
   var InlineCompletionTriggerKind2;
-  (function(InlineCompletionTriggerKind3) {
-    InlineCompletionTriggerKind3[InlineCompletionTriggerKind3["Automatic"] = 0] = "Automatic";
-    InlineCompletionTriggerKind3[InlineCompletionTriggerKind3["Explicit"] = 1] = "Explicit";
+  (function(InlineCompletionTriggerKind4) {
+    InlineCompletionTriggerKind4[InlineCompletionTriggerKind4["Automatic"] = 0] = "Automatic";
+    InlineCompletionTriggerKind4[InlineCompletionTriggerKind4["Explicit"] = 1] = "Explicit";
   })(InlineCompletionTriggerKind2 || (InlineCompletionTriggerKind2 = {}));
   var KeyCode;
   (function(KeyCode2) {
@@ -26043,56 +23404,61 @@ ${n}`;
     KeyCode2[KeyCode2["F17"] = 75] = "F17";
     KeyCode2[KeyCode2["F18"] = 76] = "F18";
     KeyCode2[KeyCode2["F19"] = 77] = "F19";
-    KeyCode2[KeyCode2["NumLock"] = 78] = "NumLock";
-    KeyCode2[KeyCode2["ScrollLock"] = 79] = "ScrollLock";
-    KeyCode2[KeyCode2["Semicolon"] = 80] = "Semicolon";
-    KeyCode2[KeyCode2["Equal"] = 81] = "Equal";
-    KeyCode2[KeyCode2["Comma"] = 82] = "Comma";
-    KeyCode2[KeyCode2["Minus"] = 83] = "Minus";
-    KeyCode2[KeyCode2["Period"] = 84] = "Period";
-    KeyCode2[KeyCode2["Slash"] = 85] = "Slash";
-    KeyCode2[KeyCode2["Backquote"] = 86] = "Backquote";
-    KeyCode2[KeyCode2["BracketLeft"] = 87] = "BracketLeft";
-    KeyCode2[KeyCode2["Backslash"] = 88] = "Backslash";
-    KeyCode2[KeyCode2["BracketRight"] = 89] = "BracketRight";
-    KeyCode2[KeyCode2["Quote"] = 90] = "Quote";
-    KeyCode2[KeyCode2["OEM_8"] = 91] = "OEM_8";
-    KeyCode2[KeyCode2["IntlBackslash"] = 92] = "IntlBackslash";
-    KeyCode2[KeyCode2["Numpad0"] = 93] = "Numpad0";
-    KeyCode2[KeyCode2["Numpad1"] = 94] = "Numpad1";
-    KeyCode2[KeyCode2["Numpad2"] = 95] = "Numpad2";
-    KeyCode2[KeyCode2["Numpad3"] = 96] = "Numpad3";
-    KeyCode2[KeyCode2["Numpad4"] = 97] = "Numpad4";
-    KeyCode2[KeyCode2["Numpad5"] = 98] = "Numpad5";
-    KeyCode2[KeyCode2["Numpad6"] = 99] = "Numpad6";
-    KeyCode2[KeyCode2["Numpad7"] = 100] = "Numpad7";
-    KeyCode2[KeyCode2["Numpad8"] = 101] = "Numpad8";
-    KeyCode2[KeyCode2["Numpad9"] = 102] = "Numpad9";
-    KeyCode2[KeyCode2["NumpadMultiply"] = 103] = "NumpadMultiply";
-    KeyCode2[KeyCode2["NumpadAdd"] = 104] = "NumpadAdd";
-    KeyCode2[KeyCode2["NUMPAD_SEPARATOR"] = 105] = "NUMPAD_SEPARATOR";
-    KeyCode2[KeyCode2["NumpadSubtract"] = 106] = "NumpadSubtract";
-    KeyCode2[KeyCode2["NumpadDecimal"] = 107] = "NumpadDecimal";
-    KeyCode2[KeyCode2["NumpadDivide"] = 108] = "NumpadDivide";
-    KeyCode2[KeyCode2["KEY_IN_COMPOSITION"] = 109] = "KEY_IN_COMPOSITION";
-    KeyCode2[KeyCode2["ABNT_C1"] = 110] = "ABNT_C1";
-    KeyCode2[KeyCode2["ABNT_C2"] = 111] = "ABNT_C2";
-    KeyCode2[KeyCode2["AudioVolumeMute"] = 112] = "AudioVolumeMute";
-    KeyCode2[KeyCode2["AudioVolumeUp"] = 113] = "AudioVolumeUp";
-    KeyCode2[KeyCode2["AudioVolumeDown"] = 114] = "AudioVolumeDown";
-    KeyCode2[KeyCode2["BrowserSearch"] = 115] = "BrowserSearch";
-    KeyCode2[KeyCode2["BrowserHome"] = 116] = "BrowserHome";
-    KeyCode2[KeyCode2["BrowserBack"] = 117] = "BrowserBack";
-    KeyCode2[KeyCode2["BrowserForward"] = 118] = "BrowserForward";
-    KeyCode2[KeyCode2["MediaTrackNext"] = 119] = "MediaTrackNext";
-    KeyCode2[KeyCode2["MediaTrackPrevious"] = 120] = "MediaTrackPrevious";
-    KeyCode2[KeyCode2["MediaStop"] = 121] = "MediaStop";
-    KeyCode2[KeyCode2["MediaPlayPause"] = 122] = "MediaPlayPause";
-    KeyCode2[KeyCode2["LaunchMediaPlayer"] = 123] = "LaunchMediaPlayer";
-    KeyCode2[KeyCode2["LaunchMail"] = 124] = "LaunchMail";
-    KeyCode2[KeyCode2["LaunchApp2"] = 125] = "LaunchApp2";
-    KeyCode2[KeyCode2["Clear"] = 126] = "Clear";
-    KeyCode2[KeyCode2["MAX_VALUE"] = 127] = "MAX_VALUE";
+    KeyCode2[KeyCode2["F20"] = 78] = "F20";
+    KeyCode2[KeyCode2["F21"] = 79] = "F21";
+    KeyCode2[KeyCode2["F22"] = 80] = "F22";
+    KeyCode2[KeyCode2["F23"] = 81] = "F23";
+    KeyCode2[KeyCode2["F24"] = 82] = "F24";
+    KeyCode2[KeyCode2["NumLock"] = 83] = "NumLock";
+    KeyCode2[KeyCode2["ScrollLock"] = 84] = "ScrollLock";
+    KeyCode2[KeyCode2["Semicolon"] = 85] = "Semicolon";
+    KeyCode2[KeyCode2["Equal"] = 86] = "Equal";
+    KeyCode2[KeyCode2["Comma"] = 87] = "Comma";
+    KeyCode2[KeyCode2["Minus"] = 88] = "Minus";
+    KeyCode2[KeyCode2["Period"] = 89] = "Period";
+    KeyCode2[KeyCode2["Slash"] = 90] = "Slash";
+    KeyCode2[KeyCode2["Backquote"] = 91] = "Backquote";
+    KeyCode2[KeyCode2["BracketLeft"] = 92] = "BracketLeft";
+    KeyCode2[KeyCode2["Backslash"] = 93] = "Backslash";
+    KeyCode2[KeyCode2["BracketRight"] = 94] = "BracketRight";
+    KeyCode2[KeyCode2["Quote"] = 95] = "Quote";
+    KeyCode2[KeyCode2["OEM_8"] = 96] = "OEM_8";
+    KeyCode2[KeyCode2["IntlBackslash"] = 97] = "IntlBackslash";
+    KeyCode2[KeyCode2["Numpad0"] = 98] = "Numpad0";
+    KeyCode2[KeyCode2["Numpad1"] = 99] = "Numpad1";
+    KeyCode2[KeyCode2["Numpad2"] = 100] = "Numpad2";
+    KeyCode2[KeyCode2["Numpad3"] = 101] = "Numpad3";
+    KeyCode2[KeyCode2["Numpad4"] = 102] = "Numpad4";
+    KeyCode2[KeyCode2["Numpad5"] = 103] = "Numpad5";
+    KeyCode2[KeyCode2["Numpad6"] = 104] = "Numpad6";
+    KeyCode2[KeyCode2["Numpad7"] = 105] = "Numpad7";
+    KeyCode2[KeyCode2["Numpad8"] = 106] = "Numpad8";
+    KeyCode2[KeyCode2["Numpad9"] = 107] = "Numpad9";
+    KeyCode2[KeyCode2["NumpadMultiply"] = 108] = "NumpadMultiply";
+    KeyCode2[KeyCode2["NumpadAdd"] = 109] = "NumpadAdd";
+    KeyCode2[KeyCode2["NUMPAD_SEPARATOR"] = 110] = "NUMPAD_SEPARATOR";
+    KeyCode2[KeyCode2["NumpadSubtract"] = 111] = "NumpadSubtract";
+    KeyCode2[KeyCode2["NumpadDecimal"] = 112] = "NumpadDecimal";
+    KeyCode2[KeyCode2["NumpadDivide"] = 113] = "NumpadDivide";
+    KeyCode2[KeyCode2["KEY_IN_COMPOSITION"] = 114] = "KEY_IN_COMPOSITION";
+    KeyCode2[KeyCode2["ABNT_C1"] = 115] = "ABNT_C1";
+    KeyCode2[KeyCode2["ABNT_C2"] = 116] = "ABNT_C2";
+    KeyCode2[KeyCode2["AudioVolumeMute"] = 117] = "AudioVolumeMute";
+    KeyCode2[KeyCode2["AudioVolumeUp"] = 118] = "AudioVolumeUp";
+    KeyCode2[KeyCode2["AudioVolumeDown"] = 119] = "AudioVolumeDown";
+    KeyCode2[KeyCode2["BrowserSearch"] = 120] = "BrowserSearch";
+    KeyCode2[KeyCode2["BrowserHome"] = 121] = "BrowserHome";
+    KeyCode2[KeyCode2["BrowserBack"] = 122] = "BrowserBack";
+    KeyCode2[KeyCode2["BrowserForward"] = 123] = "BrowserForward";
+    KeyCode2[KeyCode2["MediaTrackNext"] = 124] = "MediaTrackNext";
+    KeyCode2[KeyCode2["MediaTrackPrevious"] = 125] = "MediaTrackPrevious";
+    KeyCode2[KeyCode2["MediaStop"] = 126] = "MediaStop";
+    KeyCode2[KeyCode2["MediaPlayPause"] = 127] = "MediaPlayPause";
+    KeyCode2[KeyCode2["LaunchMediaPlayer"] = 128] = "LaunchMediaPlayer";
+    KeyCode2[KeyCode2["LaunchMail"] = 129] = "LaunchMail";
+    KeyCode2[KeyCode2["LaunchApp2"] = 130] = "LaunchApp2";
+    KeyCode2[KeyCode2["Clear"] = 131] = "Clear";
+    KeyCode2[KeyCode2["MAX_VALUE"] = 132] = "MAX_VALUE";
   })(KeyCode || (KeyCode = {}));
   var MarkerSeverity;
   (function(MarkerSeverity2) {
@@ -26264,7 +23630,9 @@ ${n}`;
   function createMonacoBaseAPI() {
     return {
       editor: void 0,
+      // undefined override expected here
       languages: void 0,
+      // undefined override expected here
       CancellationTokenSource,
       Emitter,
       KeyCode,
@@ -26306,7 +23674,7 @@ ${n}`;
       );
     }
   };
-  function once2(computeFn) {
+  function once(computeFn) {
     const cache = {};
     return (input) => {
       if (!cache.hasOwnProperty(input)) {
@@ -26315,7 +23683,7 @@ ${n}`;
       return cache[input];
     };
   }
-  var getMapForWordSeparators = once2((input) => new WordCharacterClassifier(input));
+  var getMapForWordSeparators = once((input) => new WordCharacterClassifier(input));
 
   // node_modules/monaco-editor/esm/vs/editor/common/model.js
   var OverviewRulerLane2;
@@ -26325,6 +23693,11 @@ ${n}`;
     OverviewRulerLane3[OverviewRulerLane3["Right"] = 4] = "Right";
     OverviewRulerLane3[OverviewRulerLane3["Full"] = 7] = "Full";
   })(OverviewRulerLane2 || (OverviewRulerLane2 = {}));
+  var GlyphMarginLane2;
+  (function(GlyphMarginLane3) {
+    GlyphMarginLane3[GlyphMarginLane3["Left"] = 1] = "Left";
+    GlyphMarginLane3[GlyphMarginLane3["Right"] = 2] = "Right";
+  })(GlyphMarginLane2 || (GlyphMarginLane2 = {}));
   var MinimapPosition2;
   (function(MinimapPosition3) {
     MinimapPosition3[MinimapPosition3["Inline"] = 1] = "Inline";
@@ -26629,33 +24002,177 @@ ${n}`;
 
   // node_modules/monaco-editor/esm/vs/editor/common/diff/linesDiffComputer.js
   var LinesDiff = class {
-    constructor(changes, hitTimeout) {
+    constructor(changes, moves, hitTimeout) {
       this.changes = changes;
+      this.moves = moves;
       this.hitTimeout = hitTimeout;
     }
   };
-  var LineRangeMapping = class {
-    constructor(originalRange, modifiedRange, innerChanges) {
-      this.originalRange = originalRange;
-      this.modifiedRange = modifiedRange;
-      this.innerChanges = innerChanges;
+  var MovedText = class _MovedText {
+    constructor(lineRangeMapping, changes) {
+      this.lineRangeMapping = lineRangeMapping;
+      this.changes = changes;
     }
-    toString() {
-      return `{${this.originalRange.toString()}->${this.modifiedRange.toString()}}`;
+    flip() {
+      return new _MovedText(this.lineRangeMapping.flip(), this.changes.map((c) => c.flip()));
     }
   };
-  var RangeMapping = class {
-    constructor(originalRange, modifiedRange) {
-      this.originalRange = originalRange;
-      this.modifiedRange = modifiedRange;
+
+  // node_modules/monaco-editor/esm/vs/editor/common/core/offsetRange.js
+  var OffsetRange = class _OffsetRange {
+    static addRange(range, sortedRanges) {
+      let i = 0;
+      while (i < sortedRanges.length && sortedRanges[i].endExclusive < range.start) {
+        i++;
+      }
+      let j = i;
+      while (j < sortedRanges.length && sortedRanges[j].start <= range.endExclusive) {
+        j++;
+      }
+      if (i === j) {
+        sortedRanges.splice(i, 0, range);
+      } else {
+        const start = Math.min(range.start, sortedRanges[i].start);
+        const end = Math.max(range.endExclusive, sortedRanges[j - 1].endExclusive);
+        sortedRanges.splice(i, j - i, new _OffsetRange(start, end));
+      }
+    }
+    static tryCreate(start, endExclusive) {
+      if (start > endExclusive) {
+        return void 0;
+      }
+      return new _OffsetRange(start, endExclusive);
+    }
+    static ofLength(length) {
+      return new _OffsetRange(0, length);
+    }
+    constructor(start, endExclusive) {
+      this.start = start;
+      this.endExclusive = endExclusive;
+      if (start > endExclusive) {
+        throw new BugIndicatingError(`Invalid range: ${this.toString()}`);
+      }
+    }
+    get isEmpty() {
+      return this.start === this.endExclusive;
+    }
+    delta(offset) {
+      return new _OffsetRange(this.start + offset, this.endExclusive + offset);
+    }
+    deltaStart(offset) {
+      return new _OffsetRange(this.start + offset, this.endExclusive);
+    }
+    deltaEnd(offset) {
+      return new _OffsetRange(this.start, this.endExclusive + offset);
+    }
+    get length() {
+      return this.endExclusive - this.start;
     }
     toString() {
-      return `{${this.originalRange.toString()}->${this.modifiedRange.toString()}}`;
+      return `[${this.start}, ${this.endExclusive})`;
+    }
+    equals(other) {
+      return this.start === other.start && this.endExclusive === other.endExclusive;
+    }
+    containsRange(other) {
+      return this.start <= other.start && other.endExclusive <= this.endExclusive;
+    }
+    contains(offset) {
+      return this.start <= offset && offset < this.endExclusive;
+    }
+    /**
+     * for all numbers n: range1.contains(n) or range2.contains(n) => range1.join(range2).contains(n)
+     * The joined range is the smallest range that contains both ranges.
+     */
+    join(other) {
+      return new _OffsetRange(Math.min(this.start, other.start), Math.max(this.endExclusive, other.endExclusive));
+    }
+    /**
+     * for all numbers n: range1.contains(n) and range2.contains(n) <=> range1.intersect(range2).contains(n)
+     *
+     * The resulting range is empty if the ranges do not intersect, but touch.
+     * If the ranges don't even touch, the result is undefined.
+     */
+    intersect(other) {
+      const start = Math.max(this.start, other.start);
+      const end = Math.min(this.endExclusive, other.endExclusive);
+      if (start <= end) {
+        return new _OffsetRange(start, end);
+      }
+      return void 0;
+    }
+    intersectsOrTouches(other) {
+      const start = Math.max(this.start, other.start);
+      const end = Math.min(this.endExclusive, other.endExclusive);
+      return start <= end;
+    }
+    slice(arr) {
+      return arr.slice(this.start, this.endExclusive);
+    }
+    /**
+     * Returns the given value if it is contained in this instance, otherwise the closest value that is contained.
+     * The range must not be empty.
+     */
+    clip(value) {
+      if (this.isEmpty) {
+        throw new BugIndicatingError(`Invalid clipping range: ${this.toString()}`);
+      }
+      return Math.max(this.start, Math.min(this.endExclusive - 1, value));
+    }
+    /**
+     * Returns `r := value + k * length` such that `r` is contained in this range.
+     * The range must not be empty.
+     *
+     * E.g. `[5, 10).clipCyclic(10) === 5`, `[5, 10).clipCyclic(11) === 6` and `[5, 10).clipCyclic(4) === 9`.
+     */
+    clipCyclic(value) {
+      if (this.isEmpty) {
+        throw new BugIndicatingError(`Invalid clipping range: ${this.toString()}`);
+      }
+      if (value < this.start) {
+        return this.endExclusive - (this.start - value) % this.length;
+      }
+      if (value >= this.endExclusive) {
+        return this.start + (value - this.start) % this.length;
+      }
+      return value;
+    }
+    map(f) {
+      const result = [];
+      for (let i = this.start; i < this.endExclusive; i++) {
+        result.push(f(i));
+      }
+      return result;
+    }
+    forEach(f) {
+      for (let i = this.start; i < this.endExclusive; i++) {
+        f(i);
+      }
     }
   };
 
   // node_modules/monaco-editor/esm/vs/editor/common/core/lineRange.js
   var LineRange = class _LineRange {
+    static fromRange(range) {
+      return new _LineRange(range.startLineNumber, range.endLineNumber);
+    }
+    static subtract(a, b) {
+      if (!b) {
+        return [a];
+      }
+      if (a.startLineNumber < b.startLineNumber && b.endLineNumberExclusive < a.endLineNumberExclusive) {
+        return [
+          new _LineRange(a.startLineNumber, b.startLineNumber),
+          new _LineRange(b.endLineNumberExclusive, a.endLineNumberExclusive)
+        ];
+      } else if (b.startLineNumber <= a.startLineNumber && a.endLineNumberExclusive <= b.endLineNumberExclusive) {
+        return [];
+      } else if (b.endLineNumberExclusive < a.endLineNumberExclusive) {
+        return [new _LineRange(Math.max(b.endLineNumberExclusive, a.startLineNumber), a.endLineNumberExclusive)];
+      } else {
+        return [new _LineRange(a.startLineNumber, Math.min(b.startLineNumber, a.endLineNumberExclusive))];
+      }
+    }
     /**
      * @param lineRanges An array of sorted line ranges.
      */
@@ -26663,61 +24180,20 @@ ${n}`;
       if (lineRanges.length === 0) {
         return [];
       }
-      let result = lineRanges[0];
+      let result = new LineRangeSet(lineRanges[0].slice());
       for (let i = 1; i < lineRanges.length; i++) {
-        result = this.join(result, lineRanges[i]);
+        result = result.getUnion(new LineRangeSet(lineRanges[i].slice()));
       }
-      return result;
+      return result.ranges;
+    }
+    static ofLength(startLineNumber, length) {
+      return new _LineRange(startLineNumber, startLineNumber + length);
     }
     /**
-     * @param lineRanges1 Must be sorted.
-     * @param lineRanges2 Must be sorted.
+     * @internal
      */
-    static join(lineRanges1, lineRanges2) {
-      if (lineRanges1.length === 0) {
-        return lineRanges2;
-      }
-      if (lineRanges2.length === 0) {
-        return lineRanges1;
-      }
-      const result = [];
-      let i1 = 0;
-      let i2 = 0;
-      let current = null;
-      while (i1 < lineRanges1.length || i2 < lineRanges2.length) {
-        let next = null;
-        if (i1 < lineRanges1.length && i2 < lineRanges2.length) {
-          const lineRange1 = lineRanges1[i1];
-          const lineRange2 = lineRanges2[i2];
-          if (lineRange1.startLineNumber < lineRange2.startLineNumber) {
-            next = lineRange1;
-            i1++;
-          } else {
-            next = lineRange2;
-            i2++;
-          }
-        } else if (i1 < lineRanges1.length) {
-          next = lineRanges1[i1];
-          i1++;
-        } else {
-          next = lineRanges2[i2];
-          i2++;
-        }
-        if (current === null) {
-          current = next;
-        } else {
-          if (current.endLineNumberExclusive >= next.startLineNumber) {
-            current = new _LineRange(current.startLineNumber, Math.max(current.endLineNumberExclusive, next.endLineNumberExclusive));
-          } else {
-            result.push(current);
-            current = next;
-          }
-        }
-      }
-      if (current !== null) {
-        result.push(current);
-      }
-      return result;
+    static deserialize(lineRange) {
+      return new _LineRange(lineRange[0], lineRange[1]);
     }
     constructor(startLineNumber, endLineNumberExclusive) {
       if (startLineNumber > endLineNumberExclusive) {
@@ -26743,6 +24219,9 @@ ${n}`;
      */
     delta(offset) {
       return new _LineRange(this.startLineNumber + offset, this.endLineNumberExclusive + offset);
+    }
+    deltaLength(offset) {
+      return new _LineRange(this.startLineNumber, this.endLineNumberExclusive + offset);
     }
     /**
      * The number of lines this line range spans.
@@ -26771,19 +24250,245 @@ ${n}`;
       }
       return void 0;
     }
+    intersectsStrict(other) {
+      return this.startLineNumber < other.endLineNumberExclusive && other.startLineNumber < this.endLineNumberExclusive;
+    }
     overlapOrTouch(other) {
       return this.startLineNumber <= other.endLineNumberExclusive && other.startLineNumber <= this.endLineNumberExclusive;
     }
     equals(b) {
       return this.startLineNumber === b.startLineNumber && this.endLineNumberExclusive === b.endLineNumberExclusive;
     }
+    toInclusiveRange() {
+      if (this.isEmpty) {
+        return null;
+      }
+      return new Range(this.startLineNumber, 1, this.endLineNumberExclusive - 1, Number.MAX_SAFE_INTEGER);
+    }
+    toExclusiveRange() {
+      return new Range(this.startLineNumber, 1, this.endLineNumberExclusive, 1);
+    }
+    mapToLineArray(f) {
+      const result = [];
+      for (let lineNumber = this.startLineNumber; lineNumber < this.endLineNumberExclusive; lineNumber++) {
+        result.push(f(lineNumber));
+      }
+      return result;
+    }
+    forEach(f) {
+      for (let lineNumber = this.startLineNumber; lineNumber < this.endLineNumberExclusive; lineNumber++) {
+        f(lineNumber);
+      }
+    }
+    /**
+     * @internal
+     */
+    serialize() {
+      return [this.startLineNumber, this.endLineNumberExclusive];
+    }
+    includes(lineNumber) {
+      return this.startLineNumber <= lineNumber && lineNumber < this.endLineNumberExclusive;
+    }
+    /**
+     * Converts this 1-based line range to a 0-based offset range (subtracts 1!).
+     * @internal
+     */
+    toOffsetRange() {
+      return new OffsetRange(this.startLineNumber - 1, this.endLineNumberExclusive - 1);
+    }
+  };
+  var LineRangeSet = class _LineRangeSet {
+    constructor(_normalizedRanges = []) {
+      this._normalizedRanges = _normalizedRanges;
+    }
+    get ranges() {
+      return this._normalizedRanges;
+    }
+    addRange(range) {
+      if (range.length === 0) {
+        return;
+      }
+      const joinRangeStartIdx = findFirstIdxMonotonousOrArrLen(this._normalizedRanges, (r) => r.endLineNumberExclusive >= range.startLineNumber);
+      const joinRangeEndIdxExclusive = findLastIdxMonotonous(this._normalizedRanges, (r) => r.startLineNumber <= range.endLineNumberExclusive) + 1;
+      if (joinRangeStartIdx === joinRangeEndIdxExclusive) {
+        this._normalizedRanges.splice(joinRangeStartIdx, 0, range);
+      } else if (joinRangeStartIdx === joinRangeEndIdxExclusive - 1) {
+        const joinRange = this._normalizedRanges[joinRangeStartIdx];
+        this._normalizedRanges[joinRangeStartIdx] = joinRange.join(range);
+      } else {
+        const joinRange = this._normalizedRanges[joinRangeStartIdx].join(this._normalizedRanges[joinRangeEndIdxExclusive - 1]).join(range);
+        this._normalizedRanges.splice(joinRangeStartIdx, joinRangeEndIdxExclusive - joinRangeStartIdx, joinRange);
+      }
+    }
+    contains(lineNumber) {
+      const rangeThatStartsBeforeEnd = findLastMonotonous(this._normalizedRanges, (r) => r.startLineNumber <= lineNumber);
+      return !!rangeThatStartsBeforeEnd && rangeThatStartsBeforeEnd.endLineNumberExclusive > lineNumber;
+    }
+    intersects(range) {
+      const rangeThatStartsBeforeEnd = findLastMonotonous(this._normalizedRanges, (r) => r.startLineNumber < range.endLineNumberExclusive);
+      return !!rangeThatStartsBeforeEnd && rangeThatStartsBeforeEnd.endLineNumberExclusive > range.startLineNumber;
+    }
+    getUnion(other) {
+      if (this._normalizedRanges.length === 0) {
+        return other;
+      }
+      if (other._normalizedRanges.length === 0) {
+        return this;
+      }
+      const result = [];
+      let i1 = 0;
+      let i2 = 0;
+      let current = null;
+      while (i1 < this._normalizedRanges.length || i2 < other._normalizedRanges.length) {
+        let next = null;
+        if (i1 < this._normalizedRanges.length && i2 < other._normalizedRanges.length) {
+          const lineRange1 = this._normalizedRanges[i1];
+          const lineRange2 = other._normalizedRanges[i2];
+          if (lineRange1.startLineNumber < lineRange2.startLineNumber) {
+            next = lineRange1;
+            i1++;
+          } else {
+            next = lineRange2;
+            i2++;
+          }
+        } else if (i1 < this._normalizedRanges.length) {
+          next = this._normalizedRanges[i1];
+          i1++;
+        } else {
+          next = other._normalizedRanges[i2];
+          i2++;
+        }
+        if (current === null) {
+          current = next;
+        } else {
+          if (current.endLineNumberExclusive >= next.startLineNumber) {
+            current = new LineRange(current.startLineNumber, Math.max(current.endLineNumberExclusive, next.endLineNumberExclusive));
+          } else {
+            result.push(current);
+            current = next;
+          }
+        }
+      }
+      if (current !== null) {
+        result.push(current);
+      }
+      return new _LineRangeSet(result);
+    }
+    /**
+     * Subtracts all ranges in this set from `range` and returns the result.
+     */
+    subtractFrom(range) {
+      const joinRangeStartIdx = findFirstIdxMonotonousOrArrLen(this._normalizedRanges, (r) => r.endLineNumberExclusive >= range.startLineNumber);
+      const joinRangeEndIdxExclusive = findLastIdxMonotonous(this._normalizedRanges, (r) => r.startLineNumber <= range.endLineNumberExclusive) + 1;
+      if (joinRangeStartIdx === joinRangeEndIdxExclusive) {
+        return new _LineRangeSet([range]);
+      }
+      const result = [];
+      let startLineNumber = range.startLineNumber;
+      for (let i = joinRangeStartIdx; i < joinRangeEndIdxExclusive; i++) {
+        const r = this._normalizedRanges[i];
+        if (r.startLineNumber > startLineNumber) {
+          result.push(new LineRange(startLineNumber, r.startLineNumber));
+        }
+        startLineNumber = r.endLineNumberExclusive;
+      }
+      if (startLineNumber < range.endLineNumberExclusive) {
+        result.push(new LineRange(startLineNumber, range.endLineNumberExclusive));
+      }
+      return new _LineRangeSet(result);
+    }
+    toString() {
+      return this._normalizedRanges.map((r) => r.toString()).join(", ");
+    }
+    getIntersection(other) {
+      const result = [];
+      let i1 = 0;
+      let i2 = 0;
+      while (i1 < this._normalizedRanges.length && i2 < other._normalizedRanges.length) {
+        const r1 = this._normalizedRanges[i1];
+        const r2 = other._normalizedRanges[i2];
+        const i = r1.intersect(r2);
+        if (i && !i.isEmpty) {
+          result.push(i);
+        }
+        if (r1.endLineNumberExclusive < r2.endLineNumberExclusive) {
+          i1++;
+        } else {
+          i2++;
+        }
+      }
+      return new _LineRangeSet(result);
+    }
+    getWithDelta(value) {
+      return new _LineRangeSet(this._normalizedRanges.map((r) => r.delta(value)));
+    }
   };
 
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/smartLinesDiffComputer.js
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/rangeMapping.js
+  var LineRangeMapping = class _LineRangeMapping {
+    static inverse(mapping, originalLineCount, modifiedLineCount) {
+      const result = [];
+      let lastOriginalEndLineNumber = 1;
+      let lastModifiedEndLineNumber = 1;
+      for (const m of mapping) {
+        const r2 = new DetailedLineRangeMapping(new LineRange(lastOriginalEndLineNumber, m.original.startLineNumber), new LineRange(lastModifiedEndLineNumber, m.modified.startLineNumber), void 0);
+        if (!r2.modified.isEmpty) {
+          result.push(r2);
+        }
+        lastOriginalEndLineNumber = m.original.endLineNumberExclusive;
+        lastModifiedEndLineNumber = m.modified.endLineNumberExclusive;
+      }
+      const r = new DetailedLineRangeMapping(new LineRange(lastOriginalEndLineNumber, originalLineCount + 1), new LineRange(lastModifiedEndLineNumber, modifiedLineCount + 1), void 0);
+      if (!r.modified.isEmpty) {
+        result.push(r);
+      }
+      return result;
+    }
+    constructor(originalRange, modifiedRange) {
+      this.original = originalRange;
+      this.modified = modifiedRange;
+    }
+    toString() {
+      return `{${this.original.toString()}->${this.modified.toString()}}`;
+    }
+    flip() {
+      return new _LineRangeMapping(this.modified, this.original);
+    }
+    join(other) {
+      return new _LineRangeMapping(this.original.join(other.original), this.modified.join(other.modified));
+    }
+    get changedLineCount() {
+      return Math.max(this.original.length, this.modified.length);
+    }
+  };
+  var DetailedLineRangeMapping = class _DetailedLineRangeMapping extends LineRangeMapping {
+    constructor(originalRange, modifiedRange, innerChanges) {
+      super(originalRange, modifiedRange);
+      this.innerChanges = innerChanges;
+    }
+    flip() {
+      var _a4;
+      return new _DetailedLineRangeMapping(this.modified, this.original, (_a4 = this.innerChanges) === null || _a4 === void 0 ? void 0 : _a4.map((c) => c.flip()));
+    }
+  };
+  var RangeMapping = class _RangeMapping {
+    constructor(originalRange, modifiedRange) {
+      this.originalRange = originalRange;
+      this.modifiedRange = modifiedRange;
+    }
+    toString() {
+      return `{${this.originalRange.toString()}->${this.modifiedRange.toString()}}`;
+    }
+    flip() {
+      return new _RangeMapping(this.modifiedRange, this.originalRange);
+    }
+  };
+
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/legacyLinesDiffComputer.js
   var MINIMUM_MATCHING_CHARACTER_LENGTH = 3;
-  var SmartLinesDiffComputer = class {
+  var LegacyLinesDiffComputer = class {
     computeDiff(originalLines, modifiedLines, options) {
-      var _a3;
+      var _a4;
       const diffComputer = new DiffComputer(originalLines, modifiedLines, {
         maxComputationTime: options.maxComputationTimeMs,
         shouldIgnoreTrimWhitespace: options.ignoreTrimWhitespace,
@@ -26807,10 +24512,10 @@ ${n}`;
         } else {
           modifiedRange = new LineRange(c.modifiedStartLineNumber, c.modifiedEndLineNumber + 1);
         }
-        let change = new LineRangeMapping(originalRange, modifiedRange, (_a3 = c.charChanges) === null || _a3 === void 0 ? void 0 : _a3.map((c2) => new RangeMapping(new Range(c2.originalStartLineNumber, c2.originalStartColumn, c2.originalEndLineNumber, c2.originalEndColumn), new Range(c2.modifiedStartLineNumber, c2.modifiedStartColumn, c2.modifiedEndLineNumber, c2.modifiedEndColumn))));
+        let change = new DetailedLineRangeMapping(originalRange, modifiedRange, (_a4 = c.charChanges) === null || _a4 === void 0 ? void 0 : _a4.map((c2) => new RangeMapping(new Range(c2.originalStartLineNumber, c2.originalStartColumn, c2.originalEndLineNumber, c2.originalEndColumn), new Range(c2.modifiedStartLineNumber, c2.modifiedStartColumn, c2.modifiedEndLineNumber, c2.modifiedEndColumn))));
         if (lastChange) {
-          if (lastChange.modifiedRange.endLineNumberExclusive === change.modifiedRange.startLineNumber || lastChange.originalRange.endLineNumberExclusive === change.originalRange.startLineNumber) {
-            change = new LineRangeMapping(lastChange.originalRange.join(change.originalRange), lastChange.modifiedRange.join(change.modifiedRange), lastChange.innerChanges && change.innerChanges ? lastChange.innerChanges.concat(change.innerChanges) : void 0);
+          if (lastChange.modified.endLineNumberExclusive === change.modified.startLineNumber || lastChange.original.endLineNumberExclusive === change.original.startLineNumber) {
+            change = new DetailedLineRangeMapping(lastChange.original.join(change.original), lastChange.modified.join(change.modified), lastChange.innerChanges && change.innerChanges ? lastChange.innerChanges.concat(change.innerChanges) : void 0);
             changes.pop();
           }
         }
@@ -26818,10 +24523,10 @@ ${n}`;
         lastChange = change;
       }
       assertFn(() => {
-        return checkAdjacentItems(changes, (m1, m2) => m2.originalRange.startLineNumber - m1.originalRange.endLineNumberExclusive === m2.modifiedRange.startLineNumber - m1.modifiedRange.endLineNumberExclusive && // There has to be an unchanged line in between (otherwise both diffs should have been joined)
-        m1.originalRange.endLineNumberExclusive < m2.originalRange.startLineNumber && m1.modifiedRange.endLineNumberExclusive < m2.modifiedRange.startLineNumber);
+        return checkAdjacentItems(changes, (m1, m2) => m2.original.startLineNumber - m1.original.endLineNumberExclusive === m2.modified.startLineNumber - m1.modified.endLineNumberExclusive && // There has to be an unchanged line in between (otherwise both diffs should have been joined)
+        m1.original.endLineNumberExclusive < m2.original.startLineNumber && m1.modified.endLineNumberExclusive < m2.modified.startLineNumber);
       });
-      return new LinesDiff(changes, result.quitEarly);
+      return new LinesDiff(changes, [], result.quitEarly);
     }
   };
   function computeDiff(originalSequence, modifiedSequence, continueProcessingPredicate, pretty) {
@@ -27199,89 +24904,13 @@ ${n}`;
     };
   }
 
-  // node_modules/monaco-editor/esm/vs/editor/common/core/offsetRange.js
-  var OffsetRange = class _OffsetRange {
-    static addRange(range, sortedRanges) {
-      let i = 0;
-      while (i < sortedRanges.length && sortedRanges[i].endExclusive < range.start) {
-        i++;
-      }
-      let j = i;
-      while (j < sortedRanges.length && sortedRanges[j].start <= range.endExclusive) {
-        j++;
-      }
-      if (i === j) {
-        sortedRanges.splice(i, 0, range);
-      } else {
-        const start = Math.min(range.start, sortedRanges[i].start);
-        const end = Math.max(range.endExclusive, sortedRanges[j - 1].endExclusive);
-        sortedRanges.splice(i, j - i, new _OffsetRange(start, end));
-      }
-    }
-    static tryCreate(start, endExclusive) {
-      if (start > endExclusive) {
-        return void 0;
-      }
-      return new _OffsetRange(start, endExclusive);
-    }
-    constructor(start, endExclusive) {
-      this.start = start;
-      this.endExclusive = endExclusive;
-      if (start > endExclusive) {
-        throw new BugIndicatingError(`Invalid range: ${this.toString()}`);
-      }
-    }
-    get isEmpty() {
-      return this.start === this.endExclusive;
-    }
-    delta(offset) {
-      return new _OffsetRange(this.start + offset, this.endExclusive + offset);
-    }
-    get length() {
-      return this.endExclusive - this.start;
-    }
-    toString() {
-      return `[${this.start}, ${this.endExclusive})`;
-    }
-    equals(other) {
-      return this.start === other.start && this.endExclusive === other.endExclusive;
-    }
-    containsRange(other) {
-      return this.start <= other.start && other.endExclusive <= this.endExclusive;
-    }
-    contains(offset) {
-      return this.start <= offset && offset < this.endExclusive;
-    }
-    /**
-     * for all numbers n: range1.contains(n) or range2.contains(n) => range1.join(range2).contains(n)
-     * The joined range is the smallest range that contains both ranges.
-     */
-    join(other) {
-      return new _OffsetRange(Math.min(this.start, other.start), Math.max(this.endExclusive, other.endExclusive));
-    }
-    /**
-     * for all numbers n: range1.contains(n) and range2.contains(n) <=> range1.intersect(range2).contains(n)
-     *
-     * The resulting range is empty if the ranges do not intersect, but touch.
-     * If the ranges don't even touch, the result is undefined.
-     */
-    intersect(other) {
-      const start = Math.max(this.start, other.start);
-      const end = Math.min(this.endExclusive, other.endExclusive);
-      if (start <= end) {
-        return new _OffsetRange(start, end);
-      }
-      return void 0;
-    }
-  };
-
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/algorithms/diffAlgorithm.js
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/algorithms/diffAlgorithm.js
   var DiffAlgorithmResult = class _DiffAlgorithmResult {
     static trivial(seq1, seq2) {
-      return new _DiffAlgorithmResult([new SequenceDiff(new OffsetRange(0, seq1.length), new OffsetRange(0, seq2.length))], false);
+      return new _DiffAlgorithmResult([new SequenceDiff(OffsetRange.ofLength(seq1.length), OffsetRange.ofLength(seq2.length))], false);
     }
     static trivialTimedOut(seq1, seq2) {
-      return new _DiffAlgorithmResult([new SequenceDiff(new OffsetRange(0, seq1.length), new OffsetRange(0, seq2.length))], true);
+      return new _DiffAlgorithmResult([new SequenceDiff(OffsetRange.ofLength(seq1.length), OffsetRange.ofLength(seq2.length))], true);
     }
     constructor(diffs, hitTimeout) {
       this.diffs = diffs;
@@ -27289,11 +24918,21 @@ ${n}`;
     }
   };
   var SequenceDiff = class _SequenceDiff {
+    static invert(sequenceDiffs, doc1Length) {
+      const result = [];
+      forEachAdjacent(sequenceDiffs, (a, b) => {
+        result.push(_SequenceDiff.fromOffsetPairs(a ? a.getEndExclusives() : OffsetPair.zero, b ? b.getStarts() : new OffsetPair(doc1Length, (a ? a.seq2Range.endExclusive - a.seq1Range.endExclusive : 0) + doc1Length)));
+      });
+      return result;
+    }
+    static fromOffsetPairs(start, endExclusive) {
+      return new _SequenceDiff(new OffsetRange(start.offset1, endExclusive.offset1), new OffsetRange(start.offset2, endExclusive.offset2));
+    }
     constructor(seq1Range, seq2Range) {
       this.seq1Range = seq1Range;
       this.seq2Range = seq2Range;
     }
-    reverse() {
+    swap() {
       return new _SequenceDiff(this.seq2Range, this.seq1Range);
     }
     toString() {
@@ -27302,7 +24941,53 @@ ${n}`;
     join(other) {
       return new _SequenceDiff(this.seq1Range.join(other.seq1Range), this.seq2Range.join(other.seq2Range));
     }
+    delta(offset) {
+      if (offset === 0) {
+        return this;
+      }
+      return new _SequenceDiff(this.seq1Range.delta(offset), this.seq2Range.delta(offset));
+    }
+    deltaStart(offset) {
+      if (offset === 0) {
+        return this;
+      }
+      return new _SequenceDiff(this.seq1Range.deltaStart(offset), this.seq2Range.deltaStart(offset));
+    }
+    deltaEnd(offset) {
+      if (offset === 0) {
+        return this;
+      }
+      return new _SequenceDiff(this.seq1Range.deltaEnd(offset), this.seq2Range.deltaEnd(offset));
+    }
+    intersectsOrTouches(other) {
+      return this.seq1Range.intersectsOrTouches(other.seq1Range) || this.seq2Range.intersectsOrTouches(other.seq2Range);
+    }
+    intersect(other) {
+      const i1 = this.seq1Range.intersect(other.seq1Range);
+      const i2 = this.seq2Range.intersect(other.seq2Range);
+      if (!i1 || !i2) {
+        return void 0;
+      }
+      return new _SequenceDiff(i1, i2);
+    }
+    getStarts() {
+      return new OffsetPair(this.seq1Range.start, this.seq2Range.start);
+    }
+    getEndExclusives() {
+      return new OffsetPair(this.seq1Range.endExclusive, this.seq2Range.endExclusive);
+    }
   };
+  var OffsetPair = class {
+    constructor(offset1, offset2) {
+      this.offset1 = offset1;
+      this.offset2 = offset2;
+    }
+    toString() {
+      return `${this.offset1} <-> ${this.offset2}`;
+    }
+  };
+  OffsetPair.zero = new OffsetPair(0, 0);
+  OffsetPair.max = new OffsetPair(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
   var InfiniteTimeout = class {
     isValid() {
       return true;
@@ -27334,7 +25019,7 @@ ${n}`;
     }
   };
 
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/algorithms/utils.js
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/utils.js
   var Array2D = class {
     constructor(width, height) {
       this.width = width;
@@ -27349,8 +25034,51 @@ ${n}`;
       this.array[x + y * this.width] = value;
     }
   };
+  function isSpace(charCode) {
+    return charCode === 32 || charCode === 9;
+  }
+  var LineRangeFragment = class _LineRangeFragment {
+    static getKey(chr) {
+      let key = this.chrKeys.get(chr);
+      if (key === void 0) {
+        key = this.chrKeys.size;
+        this.chrKeys.set(chr, key);
+      }
+      return key;
+    }
+    constructor(range, lines, source) {
+      this.range = range;
+      this.lines = lines;
+      this.source = source;
+      this.histogram = [];
+      let counter = 0;
+      for (let i = range.startLineNumber - 1; i < range.endLineNumberExclusive - 1; i++) {
+        const line = lines[i];
+        for (let j = 0; j < line.length; j++) {
+          counter++;
+          const chr = line[j];
+          const key2 = _LineRangeFragment.getKey(chr);
+          this.histogram[key2] = (this.histogram[key2] || 0) + 1;
+        }
+        counter++;
+        const key = _LineRangeFragment.getKey("\n");
+        this.histogram[key] = (this.histogram[key] || 0) + 1;
+      }
+      this.totalCount = counter;
+    }
+    computeSimilarity(other) {
+      var _a4, _b2;
+      let sumDifferences = 0;
+      const maxLength = Math.max(this.histogram.length, other.histogram.length);
+      for (let i = 0; i < maxLength; i++) {
+        sumDifferences += Math.abs(((_a4 = this.histogram[i]) !== null && _a4 !== void 0 ? _a4 : 0) - ((_b2 = other.histogram[i]) !== null && _b2 !== void 0 ? _b2 : 0));
+      }
+      return 1 - sumDifferences / (this.totalCount + other.totalCount);
+    }
+  };
+  LineRangeFragment.chrKeys = /* @__PURE__ */ new Map();
 
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/algorithms/dynamicProgrammingDiffing.js
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/algorithms/dynamicProgrammingDiffing.js
   var DynamicProgrammingDiffing = class {
     compute(sequence1, sequence2, timeout = InfiniteTimeout.instance, equalityScore) {
       if (sequence1.length === 0 || sequence2.length === 0) {
@@ -27426,113 +25154,16 @@ ${n}`;
     }
   };
 
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/algorithms/joinSequenceDiffs.js
-  function optimizeSequenceDiffs(sequence1, sequence2, sequenceDiffs) {
-    let result = sequenceDiffs;
-    result = joinSequenceDiffs(sequence1, sequence2, result);
-    result = shiftSequenceDiffs(sequence1, sequence2, result);
-    return result;
-  }
-  function smoothenSequenceDiffs(sequence1, sequence2, sequenceDiffs) {
-    const result = [];
-    for (const s of sequenceDiffs) {
-      const last = result[result.length - 1];
-      if (!last) {
-        result.push(s);
-        continue;
-      }
-      if (s.seq1Range.start - last.seq1Range.endExclusive <= 2 || s.seq2Range.start - last.seq2Range.endExclusive <= 2) {
-        result[result.length - 1] = new SequenceDiff(last.seq1Range.join(s.seq1Range), last.seq2Range.join(s.seq2Range));
-      } else {
-        result.push(s);
-      }
-    }
-    return result;
-  }
-  function joinSequenceDiffs(sequence1, sequence2, sequenceDiffs) {
-    const result = [];
-    if (sequenceDiffs.length > 0) {
-      result.push(sequenceDiffs[0]);
-    }
-    for (let i = 1; i < sequenceDiffs.length; i++) {
-      const lastResult = result[result.length - 1];
-      const cur = sequenceDiffs[i];
-      if (cur.seq1Range.isEmpty) {
-        let all = true;
-        const length = cur.seq1Range.start - lastResult.seq1Range.endExclusive;
-        for (let i2 = 1; i2 <= length; i2++) {
-          if (sequence2.getElement(cur.seq2Range.start - i2) !== sequence2.getElement(cur.seq2Range.endExclusive - i2)) {
-            all = false;
-            break;
-          }
-        }
-        if (all) {
-          result[result.length - 1] = new SequenceDiff(lastResult.seq1Range, new OffsetRange(lastResult.seq2Range.start, cur.seq2Range.endExclusive - length));
-          continue;
-        }
-      }
-      result.push(cur);
-    }
-    return result;
-  }
-  function shiftSequenceDiffs(sequence1, sequence2, sequenceDiffs) {
-    if (!sequence1.getBoundaryScore || !sequence2.getBoundaryScore) {
-      return sequenceDiffs;
-    }
-    for (let i = 0; i < sequenceDiffs.length; i++) {
-      const diff = sequenceDiffs[i];
-      if (diff.seq1Range.isEmpty) {
-        const seq2PrevEndExclusive = i > 0 ? sequenceDiffs[i - 1].seq2Range.endExclusive : -1;
-        const seq2NextStart = i + 1 < sequenceDiffs.length ? sequenceDiffs[i + 1].seq2Range.start : sequence2.length;
-        sequenceDiffs[i] = shiftDiffToBetterPosition(diff, sequence1, sequence2, seq2NextStart, seq2PrevEndExclusive);
-      } else if (diff.seq2Range.isEmpty) {
-        const seq1PrevEndExclusive = i > 0 ? sequenceDiffs[i - 1].seq1Range.endExclusive : -1;
-        const seq1NextStart = i + 1 < sequenceDiffs.length ? sequenceDiffs[i + 1].seq1Range.start : sequence1.length;
-        sequenceDiffs[i] = shiftDiffToBetterPosition(diff.reverse(), sequence2, sequence1, seq1NextStart, seq1PrevEndExclusive).reverse();
-      }
-    }
-    return sequenceDiffs;
-  }
-  function shiftDiffToBetterPosition(diff, sequence1, sequence2, seq2NextStart, seq2PrevEndExclusive) {
-    const maxShiftLimit = 20;
-    let deltaBefore = 1;
-    while (diff.seq2Range.start - deltaBefore > seq2PrevEndExclusive && sequence2.getElement(diff.seq2Range.start - deltaBefore) === sequence2.getElement(diff.seq2Range.endExclusive - deltaBefore) && deltaBefore < maxShiftLimit) {
-      deltaBefore++;
-    }
-    deltaBefore--;
-    let deltaAfter = 0;
-    while (diff.seq2Range.start + deltaAfter < seq2NextStart && sequence2.getElement(diff.seq2Range.start + deltaAfter) === sequence2.getElement(diff.seq2Range.endExclusive + deltaAfter) && deltaAfter < maxShiftLimit) {
-      deltaAfter++;
-    }
-    if (deltaBefore === 0 && deltaAfter === 0) {
-      return diff;
-    }
-    let bestDelta = 0;
-    let bestScore = -1;
-    for (let delta = -deltaBefore; delta <= deltaAfter; delta++) {
-      const seq2OffsetStart = diff.seq2Range.start + delta;
-      const seq2OffsetEndExclusive = diff.seq2Range.endExclusive + delta;
-      const seq1Offset = diff.seq1Range.start + delta;
-      const score2 = sequence1.getBoundaryScore(seq1Offset) + sequence2.getBoundaryScore(seq2OffsetStart) + sequence2.getBoundaryScore(seq2OffsetEndExclusive);
-      if (score2 > bestScore) {
-        bestScore = score2;
-        bestDelta = delta;
-      }
-    }
-    if (bestDelta !== 0) {
-      return new SequenceDiff(diff.seq1Range.delta(bestDelta), diff.seq2Range.delta(bestDelta));
-    }
-    return diff;
-  }
-
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/algorithms/myersDiffAlgorithm.js
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/algorithms/myersDiffAlgorithm.js
   var MyersDiffAlgorithm = class {
     compute(seq1, seq2, timeout = InfiniteTimeout.instance) {
       if (seq1.length === 0 || seq2.length === 0) {
         return DiffAlgorithmResult.trivial(seq1, seq2);
       }
+      const seqX = seq1;
+      const seqY = seq2;
       function getXAfterSnake(x, y) {
-        while (x < seq1.length && y < seq2.length && seq1.getElement(x) === seq2.getElement(y)) {
+        while (x < seqX.length && y < seqY.length && seqX.getElement(x) === seqY.getElement(y)) {
           x++;
           y++;
         }
@@ -27547,27 +25178,35 @@ ${n}`;
       loop:
         while (true) {
           d++;
-          for (k = -d; k <= d; k += 2) {
-            if (!timeout.isValid()) {
-              return DiffAlgorithmResult.trivialTimedOut(seq1, seq2);
-            }
-            const maxXofDLineTop = k === d ? -1 : V.get(k + 1);
-            const maxXofDLineLeft = k === -d ? -1 : V.get(k - 1) + 1;
-            const x = Math.min(Math.max(maxXofDLineTop, maxXofDLineLeft), seq1.length);
+          if (!timeout.isValid()) {
+            return DiffAlgorithmResult.trivialTimedOut(seqX, seqY);
+          }
+          const lowerBound = -Math.min(d, seqY.length + d % 2);
+          const upperBound = Math.min(d, seqX.length + d % 2);
+          for (k = lowerBound; k <= upperBound; k += 2) {
+            let step = 0;
+            const maxXofDLineTop = k === upperBound ? -1 : V.get(k + 1);
+            const maxXofDLineLeft = k === lowerBound ? -1 : V.get(k - 1) + 1;
+            step++;
+            const x = Math.min(Math.max(maxXofDLineTop, maxXofDLineLeft), seqX.length);
             const y = x - k;
+            step++;
+            if (x > seqX.length || y > seqY.length) {
+              continue;
+            }
             const newMaxX = getXAfterSnake(x, y);
             V.set(k, newMaxX);
             const lastPath = x === maxXofDLineTop ? paths.get(k + 1) : paths.get(k - 1);
             paths.set(k, newMaxX !== x ? new SnakePath(lastPath, x, y, newMaxX - x) : lastPath);
-            if (V.get(k) === seq1.length && V.get(k) - k === seq2.length) {
+            if (V.get(k) === seqX.length && V.get(k) - k === seqY.length) {
               break loop;
             }
           }
         }
       let path = paths.get(k);
       const result = [];
-      let lastAligningPosS1 = seq1.length;
-      let lastAligningPosS2 = seq2.length;
+      let lastAligningPosS1 = seqX.length;
+      let lastAligningPosS2 = seqY.length;
       while (true) {
         const endX = path ? path.x + path.length : 0;
         const endY = path ? path.y + path.length : 0;
@@ -27648,248 +25287,21 @@ ${n}`;
     }
   };
 
-  // node_modules/monaco-editor/esm/vs/editor/common/diff/standardLinesDiffComputer.js
-  var StandardLinesDiffComputer = class {
-    constructor() {
-      this.dynamicProgrammingDiffing = new DynamicProgrammingDiffing();
-      this.myersDiffingAlgorithm = new MyersDiffAlgorithm();
-    }
-    computeDiff(originalLines, modifiedLines, options) {
-      const timeout = options.maxComputationTimeMs === 0 ? InfiniteTimeout.instance : new DateTimeout(options.maxComputationTimeMs);
-      const considerWhitespaceChanges = !options.ignoreTrimWhitespace;
-      const perfectHashes = /* @__PURE__ */ new Map();
-      function getOrCreateHash(text3) {
-        let hash = perfectHashes.get(text3);
-        if (hash === void 0) {
-          hash = perfectHashes.size;
-          perfectHashes.set(text3, hash);
-        }
-        return hash;
-      }
-      const srcDocLines = originalLines.map((l) => getOrCreateHash(l.trim()));
-      const tgtDocLines = modifiedLines.map((l) => getOrCreateHash(l.trim()));
-      const sequence1 = new LineSequence2(srcDocLines, originalLines);
-      const sequence2 = new LineSequence2(tgtDocLines, modifiedLines);
-      const lineAlignmentResult = (() => {
-        if (sequence1.length + sequence2.length < 1500) {
-          return this.dynamicProgrammingDiffing.compute(sequence1, sequence2, timeout, (offset1, offset2) => originalLines[offset1] === modifiedLines[offset2] ? modifiedLines[offset2].length === 0 ? 0.1 : 1 + Math.log(1 + modifiedLines[offset2].length) : 0.99);
-        }
-        return this.myersDiffingAlgorithm.compute(sequence1, sequence2);
-      })();
-      let lineAlignments = lineAlignmentResult.diffs;
-      let hitTimeout = lineAlignmentResult.hitTimeout;
-      lineAlignments = optimizeSequenceDiffs(sequence1, sequence2, lineAlignments);
-      const alignments = [];
-      const scanForWhitespaceChanges = (equalLinesCount) => {
-        if (!considerWhitespaceChanges) {
-          return;
-        }
-        for (let i = 0; i < equalLinesCount; i++) {
-          const seq1Offset = seq1LastStart + i;
-          const seq2Offset = seq2LastStart + i;
-          if (originalLines[seq1Offset] !== modifiedLines[seq2Offset]) {
-            const characterDiffs = this.refineDiff(originalLines, modifiedLines, new SequenceDiff(new OffsetRange(seq1Offset, seq1Offset + 1), new OffsetRange(seq2Offset, seq2Offset + 1)), timeout, considerWhitespaceChanges);
-            for (const a of characterDiffs.mappings) {
-              alignments.push(a);
-            }
-            if (characterDiffs.hitTimeout) {
-              hitTimeout = true;
-            }
-          }
-        }
-      };
-      let seq1LastStart = 0;
-      let seq2LastStart = 0;
-      for (const diff of lineAlignments) {
-        assertFn(() => diff.seq1Range.start - seq1LastStart === diff.seq2Range.start - seq2LastStart);
-        const equalLinesCount = diff.seq1Range.start - seq1LastStart;
-        scanForWhitespaceChanges(equalLinesCount);
-        seq1LastStart = diff.seq1Range.endExclusive;
-        seq2LastStart = diff.seq2Range.endExclusive;
-        const characterDiffs = this.refineDiff(originalLines, modifiedLines, diff, timeout, considerWhitespaceChanges);
-        if (characterDiffs.hitTimeout) {
-          hitTimeout = true;
-        }
-        for (const a of characterDiffs.mappings) {
-          alignments.push(a);
-        }
-      }
-      scanForWhitespaceChanges(originalLines.length - seq1LastStart);
-      const changes = lineRangeMappingFromRangeMappings(alignments, originalLines, modifiedLines);
-      return new LinesDiff(changes, hitTimeout);
-    }
-    refineDiff(originalLines, modifiedLines, diff, timeout, considerWhitespaceChanges) {
-      const sourceSlice = new Slice(originalLines, diff.seq1Range, considerWhitespaceChanges);
-      const targetSlice = new Slice(modifiedLines, diff.seq2Range, considerWhitespaceChanges);
-      const diffResult = sourceSlice.length + targetSlice.length < 500 ? this.dynamicProgrammingDiffing.compute(sourceSlice, targetSlice, timeout) : this.myersDiffingAlgorithm.compute(sourceSlice, targetSlice, timeout);
-      let diffs = diffResult.diffs;
-      diffs = optimizeSequenceDiffs(sourceSlice, targetSlice, diffs);
-      diffs = coverFullWords(sourceSlice, targetSlice, diffs);
-      diffs = smoothenSequenceDiffs(sourceSlice, targetSlice, diffs);
-      const result = diffs.map((d) => new RangeMapping(sourceSlice.translateRange(d.seq1Range), targetSlice.translateRange(d.seq2Range)));
-      return {
-        mappings: result,
-        hitTimeout: diffResult.hitTimeout
-      };
-    }
-  };
-  function coverFullWords(sequence1, sequence2, sequenceDiffs) {
-    const additional = [];
-    let lastModifiedWord = void 0;
-    function maybePushWordToAdditional() {
-      if (!lastModifiedWord) {
-        return;
-      }
-      const originalLength1 = lastModifiedWord.s1Range.length - lastModifiedWord.deleted;
-      const originalLength2 = lastModifiedWord.s2Range.length - lastModifiedWord.added;
-      if (originalLength1 !== originalLength2) {
-      }
-      if (Math.max(lastModifiedWord.deleted, lastModifiedWord.added) + (lastModifiedWord.count - 1) > originalLength1) {
-        additional.push(new SequenceDiff(lastModifiedWord.s1Range, lastModifiedWord.s2Range));
-      }
-      lastModifiedWord = void 0;
-    }
-    for (const s of sequenceDiffs) {
-      let processWord = function(s1Range, s2Range) {
-        var _a3, _b, _c, _d;
-        if (!lastModifiedWord || !lastModifiedWord.s1Range.containsRange(s1Range) || !lastModifiedWord.s2Range.containsRange(s2Range)) {
-          if (lastModifiedWord && !(lastModifiedWord.s1Range.endExclusive < s1Range.start && lastModifiedWord.s2Range.endExclusive < s2Range.start)) {
-            const s1Added = OffsetRange.tryCreate(lastModifiedWord.s1Range.endExclusive, s1Range.start);
-            const s2Added = OffsetRange.tryCreate(lastModifiedWord.s2Range.endExclusive, s2Range.start);
-            lastModifiedWord.deleted += (_a3 = s1Added === null || s1Added === void 0 ? void 0 : s1Added.length) !== null && _a3 !== void 0 ? _a3 : 0;
-            lastModifiedWord.added += (_b = s2Added === null || s2Added === void 0 ? void 0 : s2Added.length) !== null && _b !== void 0 ? _b : 0;
-            lastModifiedWord.s1Range = lastModifiedWord.s1Range.join(s1Range);
-            lastModifiedWord.s2Range = lastModifiedWord.s2Range.join(s2Range);
-          } else {
-            maybePushWordToAdditional();
-            lastModifiedWord = { added: 0, deleted: 0, count: 0, s1Range, s2Range };
-          }
-        }
-        const changedS1 = s1Range.intersect(s.seq1Range);
-        const changedS2 = s2Range.intersect(s.seq2Range);
-        lastModifiedWord.count++;
-        lastModifiedWord.deleted += (_c = changedS1 === null || changedS1 === void 0 ? void 0 : changedS1.length) !== null && _c !== void 0 ? _c : 0;
-        lastModifiedWord.added += (_d = changedS2 === null || changedS2 === void 0 ? void 0 : changedS2.length) !== null && _d !== void 0 ? _d : 0;
-      };
-      const w1Before = sequence1.findWordContaining(s.seq1Range.start - 1);
-      const w2Before = sequence2.findWordContaining(s.seq2Range.start - 1);
-      const w1After = sequence1.findWordContaining(s.seq1Range.endExclusive);
-      const w2After = sequence2.findWordContaining(s.seq2Range.endExclusive);
-      if (w1Before && w1After && w2Before && w2After && w1Before.equals(w1After) && w2Before.equals(w2After)) {
-        processWord(w1Before, w2Before);
-      } else {
-        if (w1Before && w2Before) {
-          processWord(w1Before, w2Before);
-        }
-        if (w1After && w2After) {
-          processWord(w1After, w2After);
-        }
-      }
-    }
-    maybePushWordToAdditional();
-    const merged = mergeSequenceDiffs(sequenceDiffs, additional);
-    return merged;
-  }
-  function mergeSequenceDiffs(sequenceDiffs1, sequenceDiffs2) {
-    const result = [];
-    while (sequenceDiffs1.length > 0 || sequenceDiffs2.length > 0) {
-      const sd1 = sequenceDiffs1[0];
-      const sd2 = sequenceDiffs2[0];
-      let next;
-      if (sd1 && (!sd2 || sd1.seq1Range.start < sd2.seq1Range.start)) {
-        next = sequenceDiffs1.shift();
-      } else {
-        next = sequenceDiffs2.shift();
-      }
-      if (result.length > 0 && result[result.length - 1].seq1Range.endExclusive >= next.seq1Range.start) {
-        result[result.length - 1] = result[result.length - 1].join(next);
-      } else {
-        result.push(next);
-      }
-    }
-    return result;
-  }
-  function lineRangeMappingFromRangeMappings(alignments, originalLines, modifiedLines) {
-    const changes = [];
-    for (const g of group(alignments.map((a) => getLineRangeMapping(a, originalLines, modifiedLines)), (a1, a2) => a1.originalRange.overlapOrTouch(a2.originalRange) || a1.modifiedRange.overlapOrTouch(a2.modifiedRange))) {
-      const first = g[0];
-      const last = g[g.length - 1];
-      changes.push(new LineRangeMapping(first.originalRange.join(last.originalRange), first.modifiedRange.join(last.modifiedRange), g.map((a) => a.innerChanges[0])));
-    }
-    assertFn(() => {
-      return checkAdjacentItems(changes, (m1, m2) => m2.originalRange.startLineNumber - m1.originalRange.endLineNumberExclusive === m2.modifiedRange.startLineNumber - m1.modifiedRange.endLineNumberExclusive && // There has to be an unchanged line in between (otherwise both diffs should have been joined)
-      m1.originalRange.endLineNumberExclusive < m2.originalRange.startLineNumber && m1.modifiedRange.endLineNumberExclusive < m2.modifiedRange.startLineNumber);
-    });
-    return changes;
-  }
-  function getLineRangeMapping(rangeMapping, originalLines, modifiedLines) {
-    let lineStartDelta = 0;
-    let lineEndDelta = 0;
-    if (rangeMapping.modifiedRange.startColumn - 1 >= modifiedLines[rangeMapping.modifiedRange.startLineNumber - 1].length && rangeMapping.originalRange.startColumn - 1 >= originalLines[rangeMapping.originalRange.startLineNumber - 1].length) {
-      lineStartDelta = 1;
-    }
-    if (rangeMapping.modifiedRange.endColumn === 1 && rangeMapping.originalRange.endColumn === 1 && rangeMapping.originalRange.startLineNumber + lineStartDelta <= rangeMapping.originalRange.endLineNumber && rangeMapping.modifiedRange.startLineNumber + lineStartDelta <= rangeMapping.modifiedRange.endLineNumber) {
-      lineEndDelta = -1;
-    }
-    const originalLineRange = new LineRange(rangeMapping.originalRange.startLineNumber + lineStartDelta, rangeMapping.originalRange.endLineNumber + 1 + lineEndDelta);
-    const modifiedLineRange = new LineRange(rangeMapping.modifiedRange.startLineNumber + lineStartDelta, rangeMapping.modifiedRange.endLineNumber + 1 + lineEndDelta);
-    return new LineRangeMapping(originalLineRange, modifiedLineRange, [rangeMapping]);
-  }
-  function* group(items, shouldBeGrouped) {
-    let currentGroup;
-    let last;
-    for (const item of items) {
-      if (last !== void 0 && shouldBeGrouped(last, item)) {
-        currentGroup.push(item);
-      } else {
-        if (currentGroup) {
-          yield currentGroup;
-        }
-        currentGroup = [item];
-      }
-      last = item;
-    }
-    if (currentGroup) {
-      yield currentGroup;
-    }
-  }
-  var LineSequence2 = class {
-    constructor(trimmedHash, lines) {
-      this.trimmedHash = trimmedHash;
-      this.lines = lines;
-    }
-    getElement(offset) {
-      return this.trimmedHash[offset];
-    }
-    get length() {
-      return this.trimmedHash.length;
-    }
-    getBoundaryScore(length) {
-      const indentationBefore = length === 0 ? 0 : getIndentation(this.lines[length - 1]);
-      const indentationAfter = length === this.lines.length ? 0 : getIndentation(this.lines[length]);
-      return 1e3 - (indentationBefore + indentationAfter);
-    }
-  };
-  function getIndentation(str) {
-    let i = 0;
-    while (i < str.length && (str.charCodeAt(i) === 32 || str.charCodeAt(i) === 9)) {
-      i++;
-    }
-    return i;
-  }
-  var Slice = class {
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/linesSliceCharSequence.js
+  var LinesSliceCharSequence = class {
     constructor(lines, lineRange, considerWhitespaceChanges) {
       this.lines = lines;
       this.considerWhitespaceChanges = considerWhitespaceChanges;
       this.elements = [];
-      this.firstCharOffsetByLineMinusOne = [];
-      this.offsetByLine = [];
+      this.firstCharOffsetByLine = [];
+      this.additionalOffsetByLine = [];
       let trimFirstLineFully = false;
       if (lineRange.start > 0 && lineRange.endExclusive >= lines.length) {
         lineRange = new OffsetRange(lineRange.start - 1, lineRange.endExclusive);
         trimFirstLineFully = true;
       }
       this.lineRange = lineRange;
+      this.firstCharOffsetByLine[0] = 0;
       for (let i = this.lineRange.start; i < this.lineRange.endExclusive; i++) {
         let line = lines[i];
         let offset = 0;
@@ -27902,22 +25314,25 @@ ${n}`;
           offset = line.length - trimmedStartLine.length;
           line = trimmedStartLine.trimEnd();
         }
-        this.offsetByLine.push(offset);
+        this.additionalOffsetByLine.push(offset);
         for (let i2 = 0; i2 < line.length; i2++) {
           this.elements.push(line.charCodeAt(i2));
         }
         if (i < lines.length - 1) {
           this.elements.push("\n".charCodeAt(0));
-          this.firstCharOffsetByLineMinusOne[i - this.lineRange.start] = this.elements.length;
+          this.firstCharOffsetByLine[i - this.lineRange.start + 1] = this.elements.length;
         }
       }
-      this.offsetByLine.push(0);
+      this.additionalOffsetByLine.push(0);
     }
     toString() {
       return `Slice: "${this.text}"`;
     }
     get text() {
-      return [...this.elements].map((e) => String.fromCharCode(e)).join("");
+      return this.getText(new OffsetRange(0, this.length));
+    }
+    getText(range) {
+      return this.elements.slice(range.start, range.endExclusive).map((e) => String.fromCharCode(e)).join("");
     }
     getElement(offset) {
       return this.elements[offset];
@@ -27934,7 +25349,7 @@ ${n}`;
       let score2 = 0;
       if (prevCategory !== nextCategory) {
         score2 += 10;
-        if (nextCategory === 1) {
+        if (prevCategory === 0 && nextCategory === 1) {
           score2 += 1;
         }
       }
@@ -27946,18 +25361,8 @@ ${n}`;
       if (this.lineRange.isEmpty) {
         return new Position(this.lineRange.start + 1, 1);
       }
-      let i = 0;
-      let j = this.firstCharOffsetByLineMinusOne.length;
-      while (i < j) {
-        const k = Math.floor((i + j) / 2);
-        if (this.firstCharOffsetByLineMinusOne[k] > offset) {
-          j = k;
-        } else {
-          i = k + 1;
-        }
-      }
-      const offsetOfPrevLineBreak = i === 0 ? 0 : this.firstCharOffsetByLineMinusOne[i - 1];
-      return new Position(this.lineRange.start + i + 1, offset - offsetOfPrevLineBreak + 1 + this.offsetByLine[i]);
+      const i = findLastIdxMonotonous(this.firstCharOffsetByLine, (value) => value <= offset);
+      return new Position(this.lineRange.start + i + 1, offset - this.firstCharOffsetByLine[i] + this.additionalOffsetByLine[i] + 1);
     }
     translateRange(range) {
       return Range.fromPositions(this.translateOffset(range.start), this.translateOffset(range.endExclusive));
@@ -27980,6 +25385,18 @@ ${n}`;
       while (end < this.elements.length && isWordChar(this.elements[end])) {
         end++;
       }
+      return new OffsetRange(start, end);
+    }
+    countLinesIn(range) {
+      return this.translateOffset(range.endExclusive).lineNumber - this.translateOffset(range.start).lineNumber;
+    }
+    isStronglyEqual(offset1, offset2) {
+      return this.elements[offset1] === this.elements[offset2];
+    }
+    extendToFullLines(range) {
+      var _a4, _b2;
+      const start = (_a4 = findLastMonotonous(this.firstCharOffsetByLine, (x) => x <= range.start)) !== null && _a4 !== void 0 ? _a4 : 0;
+      const end = (_b2 = findFirstMonotonous(this.firstCharOffsetByLine, (x) => range.endExclusive <= x)) !== null && _b2 !== void 0 ? _b2 : this.elements.length;
       return new OffsetRange(start, end);
     }
   };
@@ -28042,15 +25459,1351 @@ ${n}`;
       return 4;
     }
   }
-  function isSpace(charCode) {
-    return charCode === 32 || charCode === 9;
+
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/computeMovedLines.js
+  function computeMovedLines(changes, originalLines, modifiedLines, hashedOriginalLines, hashedModifiedLines, timeout) {
+    let { moves, excludedChanges } = computeMovesFromSimpleDeletionsToSimpleInsertions(changes, originalLines, modifiedLines, timeout);
+    if (!timeout.isValid()) {
+      return [];
+    }
+    const filteredChanges = changes.filter((c) => !excludedChanges.has(c));
+    const unchangedMoves = computeUnchangedMoves(filteredChanges, hashedOriginalLines, hashedModifiedLines, originalLines, modifiedLines, timeout);
+    pushMany(moves, unchangedMoves);
+    moves = joinCloseConsecutiveMoves(moves);
+    moves = moves.filter((current) => {
+      const originalText = current.original.toOffsetRange().slice(originalLines).map((l) => l.trim()).join("\n");
+      return originalText.length >= 10;
+    });
+    moves = removeMovesInSameDiff(changes, moves);
+    return moves;
+  }
+  function computeMovesFromSimpleDeletionsToSimpleInsertions(changes, originalLines, modifiedLines, timeout) {
+    const moves = [];
+    const deletions = changes.filter((c) => c.modified.isEmpty && c.original.length >= 3).map((d) => new LineRangeFragment(d.original, originalLines, d));
+    const insertions = new Set(changes.filter((c) => c.original.isEmpty && c.modified.length >= 3).map((d) => new LineRangeFragment(d.modified, modifiedLines, d)));
+    const excludedChanges = /* @__PURE__ */ new Set();
+    for (const deletion of deletions) {
+      let highestSimilarity = -1;
+      let best;
+      for (const insertion of insertions) {
+        const similarity = deletion.computeSimilarity(insertion);
+        if (similarity > highestSimilarity) {
+          highestSimilarity = similarity;
+          best = insertion;
+        }
+      }
+      if (highestSimilarity > 0.9 && best) {
+        insertions.delete(best);
+        moves.push(new LineRangeMapping(deletion.range, best.range));
+        excludedChanges.add(deletion.source);
+        excludedChanges.add(best.source);
+      }
+      if (!timeout.isValid()) {
+        return { moves, excludedChanges };
+      }
+    }
+    return { moves, excludedChanges };
+  }
+  function computeUnchangedMoves(changes, hashedOriginalLines, hashedModifiedLines, originalLines, modifiedLines, timeout) {
+    const moves = [];
+    const original3LineHashes = new SetMap();
+    for (const change of changes) {
+      for (let i = change.original.startLineNumber; i < change.original.endLineNumberExclusive - 2; i++) {
+        const key = `${hashedOriginalLines[i - 1]}:${hashedOriginalLines[i + 1 - 1]}:${hashedOriginalLines[i + 2 - 1]}`;
+        original3LineHashes.add(key, { range: new LineRange(i, i + 3) });
+      }
+    }
+    const possibleMappings = [];
+    changes.sort(compareBy((c) => c.modified.startLineNumber, numberComparator));
+    for (const change of changes) {
+      let lastMappings = [];
+      for (let i = change.modified.startLineNumber; i < change.modified.endLineNumberExclusive - 2; i++) {
+        const key = `${hashedModifiedLines[i - 1]}:${hashedModifiedLines[i + 1 - 1]}:${hashedModifiedLines[i + 2 - 1]}`;
+        const currentModifiedRange = new LineRange(i, i + 3);
+        const nextMappings = [];
+        original3LineHashes.forEach(key, ({ range }) => {
+          for (const lastMapping of lastMappings) {
+            if (lastMapping.originalLineRange.endLineNumberExclusive + 1 === range.endLineNumberExclusive && lastMapping.modifiedLineRange.endLineNumberExclusive + 1 === currentModifiedRange.endLineNumberExclusive) {
+              lastMapping.originalLineRange = new LineRange(lastMapping.originalLineRange.startLineNumber, range.endLineNumberExclusive);
+              lastMapping.modifiedLineRange = new LineRange(lastMapping.modifiedLineRange.startLineNumber, currentModifiedRange.endLineNumberExclusive);
+              nextMappings.push(lastMapping);
+              return;
+            }
+          }
+          const mapping = {
+            modifiedLineRange: currentModifiedRange,
+            originalLineRange: range
+          };
+          possibleMappings.push(mapping);
+          nextMappings.push(mapping);
+        });
+        lastMappings = nextMappings;
+      }
+      if (!timeout.isValid()) {
+        return [];
+      }
+    }
+    possibleMappings.sort(reverseOrder(compareBy((m) => m.modifiedLineRange.length, numberComparator)));
+    const modifiedSet = new LineRangeSet();
+    const originalSet = new LineRangeSet();
+    for (const mapping of possibleMappings) {
+      const diffOrigToMod = mapping.modifiedLineRange.startLineNumber - mapping.originalLineRange.startLineNumber;
+      const modifiedSections = modifiedSet.subtractFrom(mapping.modifiedLineRange);
+      const originalTranslatedSections = originalSet.subtractFrom(mapping.originalLineRange).getWithDelta(diffOrigToMod);
+      const modifiedIntersectedSections = modifiedSections.getIntersection(originalTranslatedSections);
+      for (const s of modifiedIntersectedSections.ranges) {
+        if (s.length < 3) {
+          continue;
+        }
+        const modifiedLineRange = s;
+        const originalLineRange = s.delta(-diffOrigToMod);
+        moves.push(new LineRangeMapping(originalLineRange, modifiedLineRange));
+        modifiedSet.addRange(modifiedLineRange);
+        originalSet.addRange(originalLineRange);
+      }
+    }
+    moves.sort(compareBy((m) => m.original.startLineNumber, numberComparator));
+    const monotonousChanges = new MonotonousArray(changes);
+    for (let i = 0; i < moves.length; i++) {
+      const move = moves[i];
+      const firstTouchingChangeOrig = monotonousChanges.findLastMonotonous((c) => c.original.startLineNumber <= move.original.startLineNumber);
+      const firstTouchingChangeMod = findLastMonotonous(changes, (c) => c.modified.startLineNumber <= move.modified.startLineNumber);
+      const linesAbove = Math.max(move.original.startLineNumber - firstTouchingChangeOrig.original.startLineNumber, move.modified.startLineNumber - firstTouchingChangeMod.modified.startLineNumber);
+      const lastTouchingChangeOrig = monotonousChanges.findLastMonotonous((c) => c.original.startLineNumber < move.original.endLineNumberExclusive);
+      const lastTouchingChangeMod = findLastMonotonous(changes, (c) => c.modified.startLineNumber < move.modified.endLineNumberExclusive);
+      const linesBelow = Math.max(lastTouchingChangeOrig.original.endLineNumberExclusive - move.original.endLineNumberExclusive, lastTouchingChangeMod.modified.endLineNumberExclusive - move.modified.endLineNumberExclusive);
+      let extendToTop;
+      for (extendToTop = 0; extendToTop < linesAbove; extendToTop++) {
+        const origLine = move.original.startLineNumber - extendToTop - 1;
+        const modLine = move.modified.startLineNumber - extendToTop - 1;
+        if (origLine > originalLines.length || modLine > modifiedLines.length) {
+          break;
+        }
+        if (modifiedSet.contains(modLine) || originalSet.contains(origLine)) {
+          break;
+        }
+        if (!areLinesSimilar(originalLines[origLine - 1], modifiedLines[modLine - 1], timeout)) {
+          break;
+        }
+      }
+      if (extendToTop > 0) {
+        originalSet.addRange(new LineRange(move.original.startLineNumber - extendToTop, move.original.startLineNumber));
+        modifiedSet.addRange(new LineRange(move.modified.startLineNumber - extendToTop, move.modified.startLineNumber));
+      }
+      let extendToBottom;
+      for (extendToBottom = 0; extendToBottom < linesBelow; extendToBottom++) {
+        const origLine = move.original.endLineNumberExclusive + extendToBottom;
+        const modLine = move.modified.endLineNumberExclusive + extendToBottom;
+        if (origLine > originalLines.length || modLine > modifiedLines.length) {
+          break;
+        }
+        if (modifiedSet.contains(modLine) || originalSet.contains(origLine)) {
+          break;
+        }
+        if (!areLinesSimilar(originalLines[origLine - 1], modifiedLines[modLine - 1], timeout)) {
+          break;
+        }
+      }
+      if (extendToBottom > 0) {
+        originalSet.addRange(new LineRange(move.original.endLineNumberExclusive, move.original.endLineNumberExclusive + extendToBottom));
+        modifiedSet.addRange(new LineRange(move.modified.endLineNumberExclusive, move.modified.endLineNumberExclusive + extendToBottom));
+      }
+      if (extendToTop > 0 || extendToBottom > 0) {
+        moves[i] = new LineRangeMapping(new LineRange(move.original.startLineNumber - extendToTop, move.original.endLineNumberExclusive + extendToBottom), new LineRange(move.modified.startLineNumber - extendToTop, move.modified.endLineNumberExclusive + extendToBottom));
+      }
+    }
+    return moves;
+  }
+  function areLinesSimilar(line1, line2, timeout) {
+    if (line1.trim() === line2.trim()) {
+      return true;
+    }
+    if (line1.length > 300 && line2.length > 300) {
+      return false;
+    }
+    const myersDiffingAlgorithm = new MyersDiffAlgorithm();
+    const result = myersDiffingAlgorithm.compute(new LinesSliceCharSequence([line1], new OffsetRange(0, 1), false), new LinesSliceCharSequence([line2], new OffsetRange(0, 1), false), timeout);
+    let commonNonSpaceCharCount = 0;
+    const inverted = SequenceDiff.invert(result.diffs, line1.length);
+    for (const seq of inverted) {
+      seq.seq1Range.forEach((idx) => {
+        if (!isSpace(line1.charCodeAt(idx))) {
+          commonNonSpaceCharCount++;
+        }
+      });
+    }
+    function countNonWsChars(str) {
+      let count = 0;
+      for (let i = 0; i < line1.length; i++) {
+        if (!isSpace(str.charCodeAt(i))) {
+          count++;
+        }
+      }
+      return count;
+    }
+    const longerLineLength = countNonWsChars(line1.length > line2.length ? line1 : line2);
+    const r = commonNonSpaceCharCount / longerLineLength > 0.6 && longerLineLength > 10;
+    return r;
+  }
+  function joinCloseConsecutiveMoves(moves) {
+    if (moves.length === 0) {
+      return moves;
+    }
+    moves.sort(compareBy((m) => m.original.startLineNumber, numberComparator));
+    const result = [moves[0]];
+    for (let i = 1; i < moves.length; i++) {
+      const last = result[result.length - 1];
+      const current = moves[i];
+      const originalDist = current.original.startLineNumber - last.original.endLineNumberExclusive;
+      const modifiedDist = current.modified.startLineNumber - last.modified.endLineNumberExclusive;
+      const currentMoveAfterLast = originalDist >= 0 && modifiedDist >= 0;
+      if (currentMoveAfterLast && originalDist + modifiedDist <= 2) {
+        result[result.length - 1] = last.join(current);
+        continue;
+      }
+      result.push(current);
+    }
+    return result;
+  }
+  function removeMovesInSameDiff(changes, moves) {
+    const changesMonotonous = new MonotonousArray(changes);
+    moves = moves.filter((m) => {
+      const diffBeforeEndOfMoveOriginal = changesMonotonous.findLastMonotonous((c) => c.original.endLineNumberExclusive < m.original.endLineNumberExclusive) || new LineRangeMapping(new LineRange(1, 1), new LineRange(1, 1));
+      const diffBeforeEndOfMoveModified = findLastMonotonous(changes, (c) => c.modified.endLineNumberExclusive < m.modified.endLineNumberExclusive);
+      const differentDiffs = diffBeforeEndOfMoveOriginal !== diffBeforeEndOfMoveModified;
+      return differentDiffs;
+    });
+    return moves;
+  }
+
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/heuristicSequenceOptimizations.js
+  function optimizeSequenceDiffs(sequence1, sequence2, sequenceDiffs) {
+    let result = sequenceDiffs;
+    result = joinSequenceDiffsByShifting(sequence1, sequence2, result);
+    result = shiftSequenceDiffs(sequence1, sequence2, result);
+    return result;
+  }
+  function joinSequenceDiffsByShifting(sequence1, sequence2, sequenceDiffs) {
+    if (sequenceDiffs.length === 0) {
+      return sequenceDiffs;
+    }
+    const result = [];
+    result.push(sequenceDiffs[0]);
+    for (let i = 1; i < sequenceDiffs.length; i++) {
+      const prevResult = result[result.length - 1];
+      let cur = sequenceDiffs[i];
+      if (cur.seq1Range.isEmpty || cur.seq2Range.isEmpty) {
+        const length = cur.seq1Range.start - prevResult.seq1Range.endExclusive;
+        let d;
+        for (d = 1; d <= length; d++) {
+          if (sequence1.getElement(cur.seq1Range.start - d) !== sequence1.getElement(cur.seq1Range.endExclusive - d) || sequence2.getElement(cur.seq2Range.start - d) !== sequence2.getElement(cur.seq2Range.endExclusive - d)) {
+            break;
+          }
+        }
+        d--;
+        if (d === length) {
+          result[result.length - 1] = new SequenceDiff(new OffsetRange(prevResult.seq1Range.start, cur.seq1Range.endExclusive - length), new OffsetRange(prevResult.seq2Range.start, cur.seq2Range.endExclusive - length));
+          continue;
+        }
+        cur = cur.delta(-d);
+      }
+      result.push(cur);
+    }
+    const result2 = [];
+    for (let i = 0; i < result.length - 1; i++) {
+      const nextResult = result[i + 1];
+      let cur = result[i];
+      if (cur.seq1Range.isEmpty || cur.seq2Range.isEmpty) {
+        const length = nextResult.seq1Range.start - cur.seq1Range.endExclusive;
+        let d;
+        for (d = 0; d < length; d++) {
+          if (!sequence1.isStronglyEqual(cur.seq1Range.start + d, cur.seq1Range.endExclusive + d) || !sequence2.isStronglyEqual(cur.seq2Range.start + d, cur.seq2Range.endExclusive + d)) {
+            break;
+          }
+        }
+        if (d === length) {
+          result[i + 1] = new SequenceDiff(new OffsetRange(cur.seq1Range.start + length, nextResult.seq1Range.endExclusive), new OffsetRange(cur.seq2Range.start + length, nextResult.seq2Range.endExclusive));
+          continue;
+        }
+        if (d > 0) {
+          cur = cur.delta(d);
+        }
+      }
+      result2.push(cur);
+    }
+    if (result.length > 0) {
+      result2.push(result[result.length - 1]);
+    }
+    return result2;
+  }
+  function shiftSequenceDiffs(sequence1, sequence2, sequenceDiffs) {
+    if (!sequence1.getBoundaryScore || !sequence2.getBoundaryScore) {
+      return sequenceDiffs;
+    }
+    for (let i = 0; i < sequenceDiffs.length; i++) {
+      const prevDiff = i > 0 ? sequenceDiffs[i - 1] : void 0;
+      const diff = sequenceDiffs[i];
+      const nextDiff = i + 1 < sequenceDiffs.length ? sequenceDiffs[i + 1] : void 0;
+      const seq1ValidRange = new OffsetRange(prevDiff ? prevDiff.seq1Range.start + 1 : 0, nextDiff ? nextDiff.seq1Range.endExclusive - 1 : sequence1.length);
+      const seq2ValidRange = new OffsetRange(prevDiff ? prevDiff.seq2Range.start + 1 : 0, nextDiff ? nextDiff.seq2Range.endExclusive - 1 : sequence2.length);
+      if (diff.seq1Range.isEmpty) {
+        sequenceDiffs[i] = shiftDiffToBetterPosition(diff, sequence1, sequence2, seq1ValidRange, seq2ValidRange);
+      } else if (diff.seq2Range.isEmpty) {
+        sequenceDiffs[i] = shiftDiffToBetterPosition(diff.swap(), sequence2, sequence1, seq2ValidRange, seq1ValidRange).swap();
+      }
+    }
+    return sequenceDiffs;
+  }
+  function shiftDiffToBetterPosition(diff, sequence1, sequence2, seq1ValidRange, seq2ValidRange) {
+    const maxShiftLimit = 100;
+    let deltaBefore = 1;
+    while (diff.seq1Range.start - deltaBefore >= seq1ValidRange.start && diff.seq2Range.start - deltaBefore >= seq2ValidRange.start && sequence2.isStronglyEqual(diff.seq2Range.start - deltaBefore, diff.seq2Range.endExclusive - deltaBefore) && deltaBefore < maxShiftLimit) {
+      deltaBefore++;
+    }
+    deltaBefore--;
+    let deltaAfter = 0;
+    while (diff.seq1Range.start + deltaAfter < seq1ValidRange.endExclusive && diff.seq2Range.endExclusive + deltaAfter < seq2ValidRange.endExclusive && sequence2.isStronglyEqual(diff.seq2Range.start + deltaAfter, diff.seq2Range.endExclusive + deltaAfter) && deltaAfter < maxShiftLimit) {
+      deltaAfter++;
+    }
+    if (deltaBefore === 0 && deltaAfter === 0) {
+      return diff;
+    }
+    let bestDelta = 0;
+    let bestScore = -1;
+    for (let delta = -deltaBefore; delta <= deltaAfter; delta++) {
+      const seq2OffsetStart = diff.seq2Range.start + delta;
+      const seq2OffsetEndExclusive = diff.seq2Range.endExclusive + delta;
+      const seq1Offset = diff.seq1Range.start + delta;
+      const score2 = sequence1.getBoundaryScore(seq1Offset) + sequence2.getBoundaryScore(seq2OffsetStart) + sequence2.getBoundaryScore(seq2OffsetEndExclusive);
+      if (score2 > bestScore) {
+        bestScore = score2;
+        bestDelta = delta;
+      }
+    }
+    return diff.delta(bestDelta);
+  }
+  function removeShortMatches(sequence1, sequence2, sequenceDiffs) {
+    const result = [];
+    for (const s of sequenceDiffs) {
+      const last = result[result.length - 1];
+      if (!last) {
+        result.push(s);
+        continue;
+      }
+      if (s.seq1Range.start - last.seq1Range.endExclusive <= 2 || s.seq2Range.start - last.seq2Range.endExclusive <= 2) {
+        result[result.length - 1] = new SequenceDiff(last.seq1Range.join(s.seq1Range), last.seq2Range.join(s.seq2Range));
+      } else {
+        result.push(s);
+      }
+    }
+    return result;
+  }
+  function extendDiffsToEntireWordIfAppropriate(sequence1, sequence2, sequenceDiffs) {
+    const additional = [];
+    let lastModifiedWord = void 0;
+    function maybePushWordToAdditional() {
+      if (!lastModifiedWord) {
+        return;
+      }
+      const originalLength1 = lastModifiedWord.s1Range.length - lastModifiedWord.deleted;
+      const originalLength2 = lastModifiedWord.s2Range.length - lastModifiedWord.added;
+      if (originalLength1 !== originalLength2) {
+      }
+      if (Math.max(lastModifiedWord.deleted, lastModifiedWord.added) + (lastModifiedWord.count - 1) > originalLength1) {
+        additional.push(new SequenceDiff(lastModifiedWord.s1Range, lastModifiedWord.s2Range));
+      }
+      lastModifiedWord = void 0;
+    }
+    for (const s of sequenceDiffs) {
+      let processWord = function(s1Range, s2Range) {
+        var _a4, _b2, _c2, _d;
+        if (!lastModifiedWord || !lastModifiedWord.s1Range.containsRange(s1Range) || !lastModifiedWord.s2Range.containsRange(s2Range)) {
+          if (lastModifiedWord && !(lastModifiedWord.s1Range.endExclusive < s1Range.start && lastModifiedWord.s2Range.endExclusive < s2Range.start)) {
+            const s1Added = OffsetRange.tryCreate(lastModifiedWord.s1Range.endExclusive, s1Range.start);
+            const s2Added = OffsetRange.tryCreate(lastModifiedWord.s2Range.endExclusive, s2Range.start);
+            lastModifiedWord.deleted += (_a4 = s1Added === null || s1Added === void 0 ? void 0 : s1Added.length) !== null && _a4 !== void 0 ? _a4 : 0;
+            lastModifiedWord.added += (_b2 = s2Added === null || s2Added === void 0 ? void 0 : s2Added.length) !== null && _b2 !== void 0 ? _b2 : 0;
+            lastModifiedWord.s1Range = lastModifiedWord.s1Range.join(s1Range);
+            lastModifiedWord.s2Range = lastModifiedWord.s2Range.join(s2Range);
+          } else {
+            maybePushWordToAdditional();
+            lastModifiedWord = { added: 0, deleted: 0, count: 0, s1Range, s2Range };
+          }
+        }
+        const changedS1 = s1Range.intersect(s.seq1Range);
+        const changedS2 = s2Range.intersect(s.seq2Range);
+        lastModifiedWord.count++;
+        lastModifiedWord.deleted += (_c2 = changedS1 === null || changedS1 === void 0 ? void 0 : changedS1.length) !== null && _c2 !== void 0 ? _c2 : 0;
+        lastModifiedWord.added += (_d = changedS2 === null || changedS2 === void 0 ? void 0 : changedS2.length) !== null && _d !== void 0 ? _d : 0;
+      };
+      const w1Before = sequence1.findWordContaining(s.seq1Range.start - 1);
+      const w2Before = sequence2.findWordContaining(s.seq2Range.start - 1);
+      const w1After = sequence1.findWordContaining(s.seq1Range.endExclusive);
+      const w2After = sequence2.findWordContaining(s.seq2Range.endExclusive);
+      if (w1Before && w1After && w2Before && w2After && w1Before.equals(w1After) && w2Before.equals(w2After)) {
+        processWord(w1Before, w2Before);
+      } else {
+        if (w1Before && w2Before) {
+          processWord(w1Before, w2Before);
+        }
+        if (w1After && w2After) {
+          processWord(w1After, w2After);
+        }
+      }
+    }
+    maybePushWordToAdditional();
+    const merged = mergeSequenceDiffs(sequenceDiffs, additional);
+    return merged;
+  }
+  function mergeSequenceDiffs(sequenceDiffs1, sequenceDiffs2) {
+    const result = [];
+    while (sequenceDiffs1.length > 0 || sequenceDiffs2.length > 0) {
+      const sd1 = sequenceDiffs1[0];
+      const sd2 = sequenceDiffs2[0];
+      let next;
+      if (sd1 && (!sd2 || sd1.seq1Range.start < sd2.seq1Range.start)) {
+        next = sequenceDiffs1.shift();
+      } else {
+        next = sequenceDiffs2.shift();
+      }
+      if (result.length > 0 && result[result.length - 1].seq1Range.endExclusive >= next.seq1Range.start) {
+        result[result.length - 1] = result[result.length - 1].join(next);
+      } else {
+        result.push(next);
+      }
+    }
+    return result;
+  }
+  function removeVeryShortMatchingLinesBetweenDiffs(sequence1, _sequence2, sequenceDiffs) {
+    let diffs = sequenceDiffs;
+    if (diffs.length === 0) {
+      return diffs;
+    }
+    let counter = 0;
+    let shouldRepeat;
+    do {
+      shouldRepeat = false;
+      const result = [
+        diffs[0]
+      ];
+      for (let i = 1; i < diffs.length; i++) {
+        let shouldJoinDiffs = function(before, after) {
+          const unchangedRange = new OffsetRange(lastResult.seq1Range.endExclusive, cur.seq1Range.start);
+          const unchangedText = sequence1.getText(unchangedRange);
+          const unchangedTextWithoutWs = unchangedText.replace(/\s/g, "");
+          if (unchangedTextWithoutWs.length <= 4 && (before.seq1Range.length + before.seq2Range.length > 5 || after.seq1Range.length + after.seq2Range.length > 5)) {
+            return true;
+          }
+          return false;
+        };
+        const cur = diffs[i];
+        const lastResult = result[result.length - 1];
+        const shouldJoin = shouldJoinDiffs(lastResult, cur);
+        if (shouldJoin) {
+          shouldRepeat = true;
+          result[result.length - 1] = result[result.length - 1].join(cur);
+        } else {
+          result.push(cur);
+        }
+      }
+      diffs = result;
+    } while (counter++ < 10 && shouldRepeat);
+    return diffs;
+  }
+  function removeVeryShortMatchingTextBetweenLongDiffs(sequence1, sequence2, sequenceDiffs) {
+    let diffs = sequenceDiffs;
+    if (diffs.length === 0) {
+      return diffs;
+    }
+    let counter = 0;
+    let shouldRepeat;
+    do {
+      shouldRepeat = false;
+      const result = [
+        diffs[0]
+      ];
+      for (let i = 1; i < diffs.length; i++) {
+        let shouldJoinDiffs = function(before, after) {
+          const unchangedRange = new OffsetRange(lastResult.seq1Range.endExclusive, cur.seq1Range.start);
+          const unchangedLineCount = sequence1.countLinesIn(unchangedRange);
+          if (unchangedLineCount > 5 || unchangedRange.length > 500) {
+            return false;
+          }
+          const unchangedText = sequence1.getText(unchangedRange).trim();
+          if (unchangedText.length > 20 || unchangedText.split(/\r\n|\r|\n/).length > 1) {
+            return false;
+          }
+          const beforeLineCount1 = sequence1.countLinesIn(before.seq1Range);
+          const beforeSeq1Length = before.seq1Range.length;
+          const beforeLineCount2 = sequence2.countLinesIn(before.seq2Range);
+          const beforeSeq2Length = before.seq2Range.length;
+          const afterLineCount1 = sequence1.countLinesIn(after.seq1Range);
+          const afterSeq1Length = after.seq1Range.length;
+          const afterLineCount2 = sequence2.countLinesIn(after.seq2Range);
+          const afterSeq2Length = after.seq2Range.length;
+          const max = 2 * 40 + 50;
+          function cap(v) {
+            return Math.min(v, max);
+          }
+          if (Math.pow(Math.pow(cap(beforeLineCount1 * 40 + beforeSeq1Length), 1.5) + Math.pow(cap(beforeLineCount2 * 40 + beforeSeq2Length), 1.5), 1.5) + Math.pow(Math.pow(cap(afterLineCount1 * 40 + afterSeq1Length), 1.5) + Math.pow(cap(afterLineCount2 * 40 + afterSeq2Length), 1.5), 1.5) > Math.pow(Math.pow(max, 1.5), 1.5) * 1.3) {
+            return true;
+          }
+          return false;
+        };
+        const cur = diffs[i];
+        const lastResult = result[result.length - 1];
+        const shouldJoin = shouldJoinDiffs(lastResult, cur);
+        if (shouldJoin) {
+          shouldRepeat = true;
+          result[result.length - 1] = result[result.length - 1].join(cur);
+        } else {
+          result.push(cur);
+        }
+      }
+      diffs = result;
+    } while (counter++ < 10 && shouldRepeat);
+    const newDiffs = [];
+    forEachWithNeighbors(diffs, (prev, cur, next) => {
+      let newDiff = cur;
+      function shouldMarkAsChanged(text3) {
+        return text3.length > 0 && text3.trim().length <= 3 && cur.seq1Range.length + cur.seq2Range.length > 100;
+      }
+      const fullRange1 = sequence1.extendToFullLines(cur.seq1Range);
+      const prefix = sequence1.getText(new OffsetRange(fullRange1.start, cur.seq1Range.start));
+      if (shouldMarkAsChanged(prefix)) {
+        newDiff = newDiff.deltaStart(-prefix.length);
+      }
+      const suffix = sequence1.getText(new OffsetRange(cur.seq1Range.endExclusive, fullRange1.endExclusive));
+      if (shouldMarkAsChanged(suffix)) {
+        newDiff = newDiff.deltaEnd(suffix.length);
+      }
+      const availableSpace = SequenceDiff.fromOffsetPairs(prev ? prev.getEndExclusives() : OffsetPair.zero, next ? next.getStarts() : OffsetPair.max);
+      const result = newDiff.intersect(availableSpace);
+      newDiffs.push(result);
+    });
+    return newDiffs;
+  }
+
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/lineSequence.js
+  var LineSequence2 = class {
+    constructor(trimmedHash, lines) {
+      this.trimmedHash = trimmedHash;
+      this.lines = lines;
+    }
+    getElement(offset) {
+      return this.trimmedHash[offset];
+    }
+    get length() {
+      return this.trimmedHash.length;
+    }
+    getBoundaryScore(length) {
+      const indentationBefore = length === 0 ? 0 : getIndentation(this.lines[length - 1]);
+      const indentationAfter = length === this.lines.length ? 0 : getIndentation(this.lines[length]);
+      return 1e3 - (indentationBefore + indentationAfter);
+    }
+    getText(range) {
+      return this.lines.slice(range.start, range.endExclusive).join("\n");
+    }
+    isStronglyEqual(offset1, offset2) {
+      return this.lines[offset1] === this.lines[offset2];
+    }
+  };
+  function getIndentation(str) {
+    let i = 0;
+    while (i < str.length && (str.charCodeAt(i) === 32 || str.charCodeAt(i) === 9)) {
+      i++;
+    }
+    return i;
+  }
+
+  // node_modules/monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer.js
+  var DefaultLinesDiffComputer = class {
+    constructor() {
+      this.dynamicProgrammingDiffing = new DynamicProgrammingDiffing();
+      this.myersDiffingAlgorithm = new MyersDiffAlgorithm();
+    }
+    computeDiff(originalLines, modifiedLines, options) {
+      if (originalLines.length <= 1 && equals(originalLines, modifiedLines, (a, b) => a === b)) {
+        return new LinesDiff([], [], false);
+      }
+      if (originalLines.length === 1 && originalLines[0].length === 0 || modifiedLines.length === 1 && modifiedLines[0].length === 0) {
+        return new LinesDiff([
+          new DetailedLineRangeMapping(new LineRange(1, originalLines.length + 1), new LineRange(1, modifiedLines.length + 1), [
+            new RangeMapping(new Range(1, 1, originalLines.length, originalLines[0].length + 1), new Range(1, 1, modifiedLines.length, modifiedLines[0].length + 1))
+          ])
+        ], [], false);
+      }
+      const timeout = options.maxComputationTimeMs === 0 ? InfiniteTimeout.instance : new DateTimeout(options.maxComputationTimeMs);
+      const considerWhitespaceChanges = !options.ignoreTrimWhitespace;
+      const perfectHashes = /* @__PURE__ */ new Map();
+      function getOrCreateHash(text3) {
+        let hash = perfectHashes.get(text3);
+        if (hash === void 0) {
+          hash = perfectHashes.size;
+          perfectHashes.set(text3, hash);
+        }
+        return hash;
+      }
+      const originalLinesHashes = originalLines.map((l) => getOrCreateHash(l.trim()));
+      const modifiedLinesHashes = modifiedLines.map((l) => getOrCreateHash(l.trim()));
+      const sequence1 = new LineSequence2(originalLinesHashes, originalLines);
+      const sequence2 = new LineSequence2(modifiedLinesHashes, modifiedLines);
+      const lineAlignmentResult = (() => {
+        if (sequence1.length + sequence2.length < 1700) {
+          return this.dynamicProgrammingDiffing.compute(sequence1, sequence2, timeout, (offset1, offset2) => originalLines[offset1] === modifiedLines[offset2] ? modifiedLines[offset2].length === 0 ? 0.1 : 1 + Math.log(1 + modifiedLines[offset2].length) : 0.99);
+        }
+        return this.myersDiffingAlgorithm.compute(sequence1, sequence2);
+      })();
+      let lineAlignments = lineAlignmentResult.diffs;
+      let hitTimeout = lineAlignmentResult.hitTimeout;
+      lineAlignments = optimizeSequenceDiffs(sequence1, sequence2, lineAlignments);
+      lineAlignments = removeVeryShortMatchingLinesBetweenDiffs(sequence1, sequence2, lineAlignments);
+      const alignments = [];
+      const scanForWhitespaceChanges = (equalLinesCount) => {
+        if (!considerWhitespaceChanges) {
+          return;
+        }
+        for (let i = 0; i < equalLinesCount; i++) {
+          const seq1Offset = seq1LastStart + i;
+          const seq2Offset = seq2LastStart + i;
+          if (originalLines[seq1Offset] !== modifiedLines[seq2Offset]) {
+            const characterDiffs = this.refineDiff(originalLines, modifiedLines, new SequenceDiff(new OffsetRange(seq1Offset, seq1Offset + 1), new OffsetRange(seq2Offset, seq2Offset + 1)), timeout, considerWhitespaceChanges);
+            for (const a of characterDiffs.mappings) {
+              alignments.push(a);
+            }
+            if (characterDiffs.hitTimeout) {
+              hitTimeout = true;
+            }
+          }
+        }
+      };
+      let seq1LastStart = 0;
+      let seq2LastStart = 0;
+      for (const diff of lineAlignments) {
+        assertFn(() => diff.seq1Range.start - seq1LastStart === diff.seq2Range.start - seq2LastStart);
+        const equalLinesCount = diff.seq1Range.start - seq1LastStart;
+        scanForWhitespaceChanges(equalLinesCount);
+        seq1LastStart = diff.seq1Range.endExclusive;
+        seq2LastStart = diff.seq2Range.endExclusive;
+        const characterDiffs = this.refineDiff(originalLines, modifiedLines, diff, timeout, considerWhitespaceChanges);
+        if (characterDiffs.hitTimeout) {
+          hitTimeout = true;
+        }
+        for (const a of characterDiffs.mappings) {
+          alignments.push(a);
+        }
+      }
+      scanForWhitespaceChanges(originalLines.length - seq1LastStart);
+      const changes = lineRangeMappingFromRangeMappings(alignments, originalLines, modifiedLines);
+      let moves = [];
+      if (options.computeMoves) {
+        moves = this.computeMoves(changes, originalLines, modifiedLines, originalLinesHashes, modifiedLinesHashes, timeout, considerWhitespaceChanges);
+      }
+      assertFn(() => {
+        function validatePosition(pos, lines) {
+          if (pos.lineNumber < 1 || pos.lineNumber > lines.length) {
+            return false;
+          }
+          const line = lines[pos.lineNumber - 1];
+          if (pos.column < 1 || pos.column > line.length + 1) {
+            return false;
+          }
+          return true;
+        }
+        function validateRange(range, lines) {
+          if (range.startLineNumber < 1 || range.startLineNumber > lines.length + 1) {
+            return false;
+          }
+          if (range.endLineNumberExclusive < 1 || range.endLineNumberExclusive > lines.length + 1) {
+            return false;
+          }
+          return true;
+        }
+        for (const c of changes) {
+          if (!c.innerChanges) {
+            return false;
+          }
+          for (const ic of c.innerChanges) {
+            const valid = validatePosition(ic.modifiedRange.getStartPosition(), modifiedLines) && validatePosition(ic.modifiedRange.getEndPosition(), modifiedLines) && validatePosition(ic.originalRange.getStartPosition(), originalLines) && validatePosition(ic.originalRange.getEndPosition(), originalLines);
+            if (!valid) {
+              return false;
+            }
+          }
+          if (!validateRange(c.modified, modifiedLines) || !validateRange(c.original, originalLines)) {
+            return false;
+          }
+        }
+        return true;
+      });
+      return new LinesDiff(changes, moves, hitTimeout);
+    }
+    computeMoves(changes, originalLines, modifiedLines, hashedOriginalLines, hashedModifiedLines, timeout, considerWhitespaceChanges) {
+      const moves = computeMovedLines(changes, originalLines, modifiedLines, hashedOriginalLines, hashedModifiedLines, timeout);
+      const movesWithDiffs = moves.map((m) => {
+        const moveChanges = this.refineDiff(originalLines, modifiedLines, new SequenceDiff(m.original.toOffsetRange(), m.modified.toOffsetRange()), timeout, considerWhitespaceChanges);
+        const mappings = lineRangeMappingFromRangeMappings(moveChanges.mappings, originalLines, modifiedLines, true);
+        return new MovedText(m, mappings);
+      });
+      return movesWithDiffs;
+    }
+    refineDiff(originalLines, modifiedLines, diff, timeout, considerWhitespaceChanges) {
+      const slice1 = new LinesSliceCharSequence(originalLines, diff.seq1Range, considerWhitespaceChanges);
+      const slice2 = new LinesSliceCharSequence(modifiedLines, diff.seq2Range, considerWhitespaceChanges);
+      const diffResult = slice1.length + slice2.length < 500 ? this.dynamicProgrammingDiffing.compute(slice1, slice2, timeout) : this.myersDiffingAlgorithm.compute(slice1, slice2, timeout);
+      let diffs = diffResult.diffs;
+      diffs = optimizeSequenceDiffs(slice1, slice2, diffs);
+      diffs = extendDiffsToEntireWordIfAppropriate(slice1, slice2, diffs);
+      diffs = removeShortMatches(slice1, slice2, diffs);
+      diffs = removeVeryShortMatchingTextBetweenLongDiffs(slice1, slice2, diffs);
+      const result = diffs.map((d) => new RangeMapping(slice1.translateRange(d.seq1Range), slice2.translateRange(d.seq2Range)));
+      return {
+        mappings: result,
+        hitTimeout: diffResult.hitTimeout
+      };
+    }
+  };
+  function lineRangeMappingFromRangeMappings(alignments, originalLines, modifiedLines, dontAssertStartLine = false) {
+    const changes = [];
+    for (const g of groupAdjacentBy(alignments.map((a) => getLineRangeMapping(a, originalLines, modifiedLines)), (a1, a2) => a1.original.overlapOrTouch(a2.original) || a1.modified.overlapOrTouch(a2.modified))) {
+      const first = g[0];
+      const last = g[g.length - 1];
+      changes.push(new DetailedLineRangeMapping(first.original.join(last.original), first.modified.join(last.modified), g.map((a) => a.innerChanges[0])));
+    }
+    assertFn(() => {
+      if (!dontAssertStartLine) {
+        if (changes.length > 0 && changes[0].original.startLineNumber !== changes[0].modified.startLineNumber) {
+          return false;
+        }
+      }
+      return checkAdjacentItems(changes, (m1, m2) => m2.original.startLineNumber - m1.original.endLineNumberExclusive === m2.modified.startLineNumber - m1.modified.endLineNumberExclusive && // There has to be an unchanged line in between (otherwise both diffs should have been joined)
+      m1.original.endLineNumberExclusive < m2.original.startLineNumber && m1.modified.endLineNumberExclusive < m2.modified.startLineNumber);
+    });
+    return changes;
+  }
+  function getLineRangeMapping(rangeMapping, originalLines, modifiedLines) {
+    let lineStartDelta = 0;
+    let lineEndDelta = 0;
+    if (rangeMapping.modifiedRange.endColumn === 1 && rangeMapping.originalRange.endColumn === 1 && rangeMapping.originalRange.startLineNumber + lineStartDelta <= rangeMapping.originalRange.endLineNumber && rangeMapping.modifiedRange.startLineNumber + lineStartDelta <= rangeMapping.modifiedRange.endLineNumber) {
+      lineEndDelta = -1;
+    }
+    if (rangeMapping.modifiedRange.startColumn - 1 >= modifiedLines[rangeMapping.modifiedRange.startLineNumber - 1].length && rangeMapping.originalRange.startColumn - 1 >= originalLines[rangeMapping.originalRange.startLineNumber - 1].length && rangeMapping.originalRange.startLineNumber <= rangeMapping.originalRange.endLineNumber + lineEndDelta && rangeMapping.modifiedRange.startLineNumber <= rangeMapping.modifiedRange.endLineNumber + lineEndDelta) {
+      lineStartDelta = 1;
+    }
+    const originalLineRange = new LineRange(rangeMapping.originalRange.startLineNumber + lineStartDelta, rangeMapping.originalRange.endLineNumber + 1 + lineEndDelta);
+    const modifiedLineRange = new LineRange(rangeMapping.modifiedRange.startLineNumber + lineStartDelta, rangeMapping.modifiedRange.endLineNumber + 1 + lineEndDelta);
+    return new DetailedLineRangeMapping(originalLineRange, modifiedLineRange, [rangeMapping]);
   }
 
   // node_modules/monaco-editor/esm/vs/editor/common/diff/linesDiffComputers.js
   var linesDiffComputers = {
-    smart: new SmartLinesDiffComputer(),
-    experimental: new StandardLinesDiffComputer()
+    getLegacy: () => new LegacyLinesDiffComputer(),
+    getDefault: () => new DefaultLinesDiffComputer()
   };
+
+  // node_modules/monaco-editor/esm/vs/base/common/color.js
+  function roundFloat(number, decimalPoints) {
+    const decimal = Math.pow(10, decimalPoints);
+    return Math.round(number * decimal) / decimal;
+  }
+  var RGBA = class {
+    constructor(r, g, b, a = 1) {
+      this._rgbaBrand = void 0;
+      this.r = Math.min(255, Math.max(0, r)) | 0;
+      this.g = Math.min(255, Math.max(0, g)) | 0;
+      this.b = Math.min(255, Math.max(0, b)) | 0;
+      this.a = roundFloat(Math.max(Math.min(1, a), 0), 3);
+    }
+    static equals(a, b) {
+      return a.r === b.r && a.g === b.g && a.b === b.b && a.a === b.a;
+    }
+  };
+  var HSLA = class _HSLA {
+    constructor(h, s, l, a) {
+      this._hslaBrand = void 0;
+      this.h = Math.max(Math.min(360, h), 0) | 0;
+      this.s = roundFloat(Math.max(Math.min(1, s), 0), 3);
+      this.l = roundFloat(Math.max(Math.min(1, l), 0), 3);
+      this.a = roundFloat(Math.max(Math.min(1, a), 0), 3);
+    }
+    static equals(a, b) {
+      return a.h === b.h && a.s === b.s && a.l === b.l && a.a === b.a;
+    }
+    /**
+     * Converts an RGB color value to HSL. Conversion formula
+     * adapted from http://en.wikipedia.org/wiki/HSL_color_space.
+     * Assumes r, g, and b are contained in the set [0, 255] and
+     * returns h in the set [0, 360], s, and l in the set [0, 1].
+     */
+    static fromRGBA(rgba) {
+      const r = rgba.r / 255;
+      const g = rgba.g / 255;
+      const b = rgba.b / 255;
+      const a = rgba.a;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      let h = 0;
+      let s = 0;
+      const l = (min + max) / 2;
+      const chroma = max - min;
+      if (chroma > 0) {
+        s = Math.min(l <= 0.5 ? chroma / (2 * l) : chroma / (2 - 2 * l), 1);
+        switch (max) {
+          case r:
+            h = (g - b) / chroma + (g < b ? 6 : 0);
+            break;
+          case g:
+            h = (b - r) / chroma + 2;
+            break;
+          case b:
+            h = (r - g) / chroma + 4;
+            break;
+        }
+        h *= 60;
+        h = Math.round(h);
+      }
+      return new _HSLA(h, s, l, a);
+    }
+    static _hue2rgb(p2, q, t2) {
+      if (t2 < 0) {
+        t2 += 1;
+      }
+      if (t2 > 1) {
+        t2 -= 1;
+      }
+      if (t2 < 1 / 6) {
+        return p2 + (q - p2) * 6 * t2;
+      }
+      if (t2 < 1 / 2) {
+        return q;
+      }
+      if (t2 < 2 / 3) {
+        return p2 + (q - p2) * (2 / 3 - t2) * 6;
+      }
+      return p2;
+    }
+    /**
+     * Converts an HSL color value to RGB. Conversion formula
+     * adapted from http://en.wikipedia.org/wiki/HSL_color_space.
+     * Assumes h in the set [0, 360] s, and l are contained in the set [0, 1] and
+     * returns r, g, and b in the set [0, 255].
+     */
+    static toRGBA(hsla) {
+      const h = hsla.h / 360;
+      const { s, l, a } = hsla;
+      let r, g, b;
+      if (s === 0) {
+        r = g = b = l;
+      } else {
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p2 = 2 * l - q;
+        r = _HSLA._hue2rgb(p2, q, h + 1 / 3);
+        g = _HSLA._hue2rgb(p2, q, h);
+        b = _HSLA._hue2rgb(p2, q, h - 1 / 3);
+      }
+      return new RGBA(Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), a);
+    }
+  };
+  var HSVA = class _HSVA {
+    constructor(h, s, v, a) {
+      this._hsvaBrand = void 0;
+      this.h = Math.max(Math.min(360, h), 0) | 0;
+      this.s = roundFloat(Math.max(Math.min(1, s), 0), 3);
+      this.v = roundFloat(Math.max(Math.min(1, v), 0), 3);
+      this.a = roundFloat(Math.max(Math.min(1, a), 0), 3);
+    }
+    static equals(a, b) {
+      return a.h === b.h && a.s === b.s && a.v === b.v && a.a === b.a;
+    }
+    // from http://www.rapidtables.com/convert/color/rgb-to-hsv.htm
+    static fromRGBA(rgba) {
+      const r = rgba.r / 255;
+      const g = rgba.g / 255;
+      const b = rgba.b / 255;
+      const cmax = Math.max(r, g, b);
+      const cmin = Math.min(r, g, b);
+      const delta = cmax - cmin;
+      const s = cmax === 0 ? 0 : delta / cmax;
+      let m;
+      if (delta === 0) {
+        m = 0;
+      } else if (cmax === r) {
+        m = ((g - b) / delta % 6 + 6) % 6;
+      } else if (cmax === g) {
+        m = (b - r) / delta + 2;
+      } else {
+        m = (r - g) / delta + 4;
+      }
+      return new _HSVA(Math.round(m * 60), s, cmax, rgba.a);
+    }
+    // from http://www.rapidtables.com/convert/color/hsv-to-rgb.htm
+    static toRGBA(hsva) {
+      const { h, s, v, a } = hsva;
+      const c = v * s;
+      const x = c * (1 - Math.abs(h / 60 % 2 - 1));
+      const m = v - c;
+      let [r, g, b] = [0, 0, 0];
+      if (h < 60) {
+        r = c;
+        g = x;
+      } else if (h < 120) {
+        r = x;
+        g = c;
+      } else if (h < 180) {
+        g = c;
+        b = x;
+      } else if (h < 240) {
+        g = x;
+        b = c;
+      } else if (h < 300) {
+        r = x;
+        b = c;
+      } else if (h <= 360) {
+        r = c;
+        b = x;
+      }
+      r = Math.round((r + m) * 255);
+      g = Math.round((g + m) * 255);
+      b = Math.round((b + m) * 255);
+      return new RGBA(r, g, b, a);
+    }
+  };
+  var Color = class _Color {
+    static fromHex(hex) {
+      return _Color.Format.CSS.parseHex(hex) || _Color.red;
+    }
+    static equals(a, b) {
+      if (!a && !b) {
+        return true;
+      }
+      if (!a || !b) {
+        return false;
+      }
+      return a.equals(b);
+    }
+    get hsla() {
+      if (this._hsla) {
+        return this._hsla;
+      } else {
+        return HSLA.fromRGBA(this.rgba);
+      }
+    }
+    get hsva() {
+      if (this._hsva) {
+        return this._hsva;
+      }
+      return HSVA.fromRGBA(this.rgba);
+    }
+    constructor(arg) {
+      if (!arg) {
+        throw new Error("Color needs a value");
+      } else if (arg instanceof RGBA) {
+        this.rgba = arg;
+      } else if (arg instanceof HSLA) {
+        this._hsla = arg;
+        this.rgba = HSLA.toRGBA(arg);
+      } else if (arg instanceof HSVA) {
+        this._hsva = arg;
+        this.rgba = HSVA.toRGBA(arg);
+      } else {
+        throw new Error("Invalid color ctor argument");
+      }
+    }
+    equals(other) {
+      return !!other && RGBA.equals(this.rgba, other.rgba) && HSLA.equals(this.hsla, other.hsla) && HSVA.equals(this.hsva, other.hsva);
+    }
+    /**
+     * http://www.w3.org/TR/WCAG20/#relativeluminancedef
+     * Returns the number in the set [0, 1]. O => Darkest Black. 1 => Lightest white.
+     */
+    getRelativeLuminance() {
+      const R = _Color._relativeLuminanceForComponent(this.rgba.r);
+      const G = _Color._relativeLuminanceForComponent(this.rgba.g);
+      const B = _Color._relativeLuminanceForComponent(this.rgba.b);
+      const luminance = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+      return roundFloat(luminance, 4);
+    }
+    static _relativeLuminanceForComponent(color) {
+      const c = color / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    /**
+     * http://www.w3.org/TR/WCAG20/#contrast-ratiodef
+     * Returns the contrast ration number in the set [1, 21].
+     */
+    getContrastRatio(another) {
+      const lum1 = this.getRelativeLuminance();
+      const lum2 = another.getRelativeLuminance();
+      return lum1 > lum2 ? (lum1 + 0.05) / (lum2 + 0.05) : (lum2 + 0.05) / (lum1 + 0.05);
+    }
+    /**
+     *	http://24ways.org/2010/calculating-color-contrast
+     *  Return 'true' if darker color otherwise 'false'
+     */
+    isDarker() {
+      const yiq = (this.rgba.r * 299 + this.rgba.g * 587 + this.rgba.b * 114) / 1e3;
+      return yiq < 128;
+    }
+    /**
+     *	http://24ways.org/2010/calculating-color-contrast
+     *  Return 'true' if lighter color otherwise 'false'
+     */
+    isLighter() {
+      const yiq = (this.rgba.r * 299 + this.rgba.g * 587 + this.rgba.b * 114) / 1e3;
+      return yiq >= 128;
+    }
+    isLighterThan(another) {
+      const lum1 = this.getRelativeLuminance();
+      const lum2 = another.getRelativeLuminance();
+      return lum1 > lum2;
+    }
+    isDarkerThan(another) {
+      const lum1 = this.getRelativeLuminance();
+      const lum2 = another.getRelativeLuminance();
+      return lum1 < lum2;
+    }
+    lighten(factor) {
+      return new _Color(new HSLA(this.hsla.h, this.hsla.s, this.hsla.l + this.hsla.l * factor, this.hsla.a));
+    }
+    darken(factor) {
+      return new _Color(new HSLA(this.hsla.h, this.hsla.s, this.hsla.l - this.hsla.l * factor, this.hsla.a));
+    }
+    transparent(factor) {
+      const { r, g, b, a } = this.rgba;
+      return new _Color(new RGBA(r, g, b, a * factor));
+    }
+    isTransparent() {
+      return this.rgba.a === 0;
+    }
+    isOpaque() {
+      return this.rgba.a === 1;
+    }
+    opposite() {
+      return new _Color(new RGBA(255 - this.rgba.r, 255 - this.rgba.g, 255 - this.rgba.b, this.rgba.a));
+    }
+    blend(c) {
+      const rgba = c.rgba;
+      const thisA = this.rgba.a;
+      const colorA = rgba.a;
+      const a = thisA + colorA * (1 - thisA);
+      if (a < 1e-6) {
+        return _Color.transparent;
+      }
+      const r = this.rgba.r * thisA / a + rgba.r * colorA * (1 - thisA) / a;
+      const g = this.rgba.g * thisA / a + rgba.g * colorA * (1 - thisA) / a;
+      const b = this.rgba.b * thisA / a + rgba.b * colorA * (1 - thisA) / a;
+      return new _Color(new RGBA(r, g, b, a));
+    }
+    makeOpaque(opaqueBackground) {
+      if (this.isOpaque() || opaqueBackground.rgba.a !== 1) {
+        return this;
+      }
+      const { r, g, b, a } = this.rgba;
+      return new _Color(new RGBA(opaqueBackground.rgba.r - a * (opaqueBackground.rgba.r - r), opaqueBackground.rgba.g - a * (opaqueBackground.rgba.g - g), opaqueBackground.rgba.b - a * (opaqueBackground.rgba.b - b), 1));
+    }
+    flatten(...backgrounds) {
+      const background = backgrounds.reduceRight((accumulator, color) => {
+        return _Color._flatten(color, accumulator);
+      });
+      return _Color._flatten(this, background);
+    }
+    static _flatten(foreground, background) {
+      const backgroundAlpha = 1 - foreground.rgba.a;
+      return new _Color(new RGBA(backgroundAlpha * background.rgba.r + foreground.rgba.a * foreground.rgba.r, backgroundAlpha * background.rgba.g + foreground.rgba.a * foreground.rgba.g, backgroundAlpha * background.rgba.b + foreground.rgba.a * foreground.rgba.b));
+    }
+    toString() {
+      if (!this._toString) {
+        this._toString = _Color.Format.CSS.format(this);
+      }
+      return this._toString;
+    }
+    static getLighterColor(of, relative2, factor) {
+      if (of.isLighterThan(relative2)) {
+        return of;
+      }
+      factor = factor ? factor : 0.5;
+      const lum1 = of.getRelativeLuminance();
+      const lum2 = relative2.getRelativeLuminance();
+      factor = factor * (lum2 - lum1) / lum2;
+      return of.lighten(factor);
+    }
+    static getDarkerColor(of, relative2, factor) {
+      if (of.isDarkerThan(relative2)) {
+        return of;
+      }
+      factor = factor ? factor : 0.5;
+      const lum1 = of.getRelativeLuminance();
+      const lum2 = relative2.getRelativeLuminance();
+      factor = factor * (lum1 - lum2) / lum1;
+      return of.darken(factor);
+    }
+  };
+  Color.white = new Color(new RGBA(255, 255, 255, 1));
+  Color.black = new Color(new RGBA(0, 0, 0, 1));
+  Color.red = new Color(new RGBA(255, 0, 0, 1));
+  Color.blue = new Color(new RGBA(0, 0, 255, 1));
+  Color.green = new Color(new RGBA(0, 255, 0, 1));
+  Color.cyan = new Color(new RGBA(0, 255, 255, 1));
+  Color.lightgrey = new Color(new RGBA(211, 211, 211, 1));
+  Color.transparent = new Color(new RGBA(0, 0, 0, 0));
+  (function(Color3) {
+    let Format;
+    (function(Format2) {
+      let CSS;
+      (function(CSS2) {
+        function formatRGB(color) {
+          if (color.rgba.a === 1) {
+            return `rgb(${color.rgba.r}, ${color.rgba.g}, ${color.rgba.b})`;
+          }
+          return Color3.Format.CSS.formatRGBA(color);
+        }
+        CSS2.formatRGB = formatRGB;
+        function formatRGBA(color) {
+          return `rgba(${color.rgba.r}, ${color.rgba.g}, ${color.rgba.b}, ${+color.rgba.a.toFixed(2)})`;
+        }
+        CSS2.formatRGBA = formatRGBA;
+        function formatHSL(color) {
+          if (color.hsla.a === 1) {
+            return `hsl(${color.hsla.h}, ${(color.hsla.s * 100).toFixed(2)}%, ${(color.hsla.l * 100).toFixed(2)}%)`;
+          }
+          return Color3.Format.CSS.formatHSLA(color);
+        }
+        CSS2.formatHSL = formatHSL;
+        function formatHSLA(color) {
+          return `hsla(${color.hsla.h}, ${(color.hsla.s * 100).toFixed(2)}%, ${(color.hsla.l * 100).toFixed(2)}%, ${color.hsla.a.toFixed(2)})`;
+        }
+        CSS2.formatHSLA = formatHSLA;
+        function _toTwoDigitHex(n) {
+          const r = n.toString(16);
+          return r.length !== 2 ? "0" + r : r;
+        }
+        function formatHex(color) {
+          return `#${_toTwoDigitHex(color.rgba.r)}${_toTwoDigitHex(color.rgba.g)}${_toTwoDigitHex(color.rgba.b)}`;
+        }
+        CSS2.formatHex = formatHex;
+        function formatHexA(color, compact = false) {
+          if (compact && color.rgba.a === 1) {
+            return Color3.Format.CSS.formatHex(color);
+          }
+          return `#${_toTwoDigitHex(color.rgba.r)}${_toTwoDigitHex(color.rgba.g)}${_toTwoDigitHex(color.rgba.b)}${_toTwoDigitHex(Math.round(color.rgba.a * 255))}`;
+        }
+        CSS2.formatHexA = formatHexA;
+        function format2(color) {
+          if (color.isOpaque()) {
+            return Color3.Format.CSS.formatHex(color);
+          }
+          return Color3.Format.CSS.formatRGBA(color);
+        }
+        CSS2.format = format2;
+        function parseHex(hex) {
+          const length = hex.length;
+          if (length === 0) {
+            return null;
+          }
+          if (hex.charCodeAt(0) !== 35) {
+            return null;
+          }
+          if (length === 7) {
+            const r = 16 * _parseHexDigit(hex.charCodeAt(1)) + _parseHexDigit(hex.charCodeAt(2));
+            const g = 16 * _parseHexDigit(hex.charCodeAt(3)) + _parseHexDigit(hex.charCodeAt(4));
+            const b = 16 * _parseHexDigit(hex.charCodeAt(5)) + _parseHexDigit(hex.charCodeAt(6));
+            return new Color3(new RGBA(r, g, b, 1));
+          }
+          if (length === 9) {
+            const r = 16 * _parseHexDigit(hex.charCodeAt(1)) + _parseHexDigit(hex.charCodeAt(2));
+            const g = 16 * _parseHexDigit(hex.charCodeAt(3)) + _parseHexDigit(hex.charCodeAt(4));
+            const b = 16 * _parseHexDigit(hex.charCodeAt(5)) + _parseHexDigit(hex.charCodeAt(6));
+            const a = 16 * _parseHexDigit(hex.charCodeAt(7)) + _parseHexDigit(hex.charCodeAt(8));
+            return new Color3(new RGBA(r, g, b, a / 255));
+          }
+          if (length === 4) {
+            const r = _parseHexDigit(hex.charCodeAt(1));
+            const g = _parseHexDigit(hex.charCodeAt(2));
+            const b = _parseHexDigit(hex.charCodeAt(3));
+            return new Color3(new RGBA(16 * r + r, 16 * g + g, 16 * b + b));
+          }
+          if (length === 5) {
+            const r = _parseHexDigit(hex.charCodeAt(1));
+            const g = _parseHexDigit(hex.charCodeAt(2));
+            const b = _parseHexDigit(hex.charCodeAt(3));
+            const a = _parseHexDigit(hex.charCodeAt(4));
+            return new Color3(new RGBA(16 * r + r, 16 * g + g, 16 * b + b, (16 * a + a) / 255));
+          }
+          return null;
+        }
+        CSS2.parseHex = parseHex;
+        function _parseHexDigit(charCode) {
+          switch (charCode) {
+            case 48:
+              return 0;
+            case 49:
+              return 1;
+            case 50:
+              return 2;
+            case 51:
+              return 3;
+            case 52:
+              return 4;
+            case 53:
+              return 5;
+            case 54:
+              return 6;
+            case 55:
+              return 7;
+            case 56:
+              return 8;
+            case 57:
+              return 9;
+            case 97:
+              return 10;
+            case 65:
+              return 10;
+            case 98:
+              return 11;
+            case 66:
+              return 11;
+            case 99:
+              return 12;
+            case 67:
+              return 12;
+            case 100:
+              return 13;
+            case 68:
+              return 13;
+            case 101:
+              return 14;
+            case 69:
+              return 14;
+            case 102:
+              return 15;
+            case 70:
+              return 15;
+          }
+          return 0;
+        }
+      })(CSS = Format2.CSS || (Format2.CSS = {}));
+    })(Format = Color3.Format || (Color3.Format = {}));
+  })(Color || (Color = {}));
+
+  // node_modules/monaco-editor/esm/vs/editor/common/languages/defaultDocumentColorsComputer.js
+  function _parseCaptureGroups(captureGroups) {
+    const values = [];
+    for (const captureGroup of captureGroups) {
+      const parsedNumber = Number(captureGroup);
+      if (parsedNumber || parsedNumber === 0 && captureGroup.replace(/\s/g, "") !== "") {
+        values.push(parsedNumber);
+      }
+    }
+    return values;
+  }
+  function _toIColor(r, g, b, a) {
+    return {
+      red: r / 255,
+      blue: b / 255,
+      green: g / 255,
+      alpha: a
+    };
+  }
+  function _findRange(model, match) {
+    const index = match.index;
+    const length = match[0].length;
+    if (!index) {
+      return;
+    }
+    const startPosition = model.positionAt(index);
+    const range = {
+      startLineNumber: startPosition.lineNumber,
+      startColumn: startPosition.column,
+      endLineNumber: startPosition.lineNumber,
+      endColumn: startPosition.column + length
+    };
+    return range;
+  }
+  function _findHexColorInformation(range, hexValue) {
+    if (!range) {
+      return;
+    }
+    const parsedHexColor = Color.Format.CSS.parseHex(hexValue);
+    if (!parsedHexColor) {
+      return;
+    }
+    return {
+      range,
+      color: _toIColor(parsedHexColor.rgba.r, parsedHexColor.rgba.g, parsedHexColor.rgba.b, parsedHexColor.rgba.a)
+    };
+  }
+  function _findRGBColorInformation(range, matches, isAlpha) {
+    if (!range || matches.length !== 1) {
+      return;
+    }
+    const match = matches[0];
+    const captureGroups = match.values();
+    const parsedRegex = _parseCaptureGroups(captureGroups);
+    return {
+      range,
+      color: _toIColor(parsedRegex[0], parsedRegex[1], parsedRegex[2], isAlpha ? parsedRegex[3] : 1)
+    };
+  }
+  function _findHSLColorInformation(range, matches, isAlpha) {
+    if (!range || matches.length !== 1) {
+      return;
+    }
+    const match = matches[0];
+    const captureGroups = match.values();
+    const parsedRegex = _parseCaptureGroups(captureGroups);
+    const colorEquivalent = new Color(new HSLA(parsedRegex[0], parsedRegex[1] / 100, parsedRegex[2] / 100, isAlpha ? parsedRegex[3] : 1));
+    return {
+      range,
+      color: _toIColor(colorEquivalent.rgba.r, colorEquivalent.rgba.g, colorEquivalent.rgba.b, colorEquivalent.rgba.a)
+    };
+  }
+  function _findMatches(model, regex) {
+    if (typeof model === "string") {
+      return [...model.matchAll(regex)];
+    } else {
+      return model.findMatches(regex);
+    }
+  }
+  function computeColors(model) {
+    const result = [];
+    const initialValidationRegex = /\b(rgb|rgba|hsl|hsla)(\([0-9\s,.\%]*\))|(#)([A-Fa-f0-9]{3})\b|(#)([A-Fa-f0-9]{4})\b|(#)([A-Fa-f0-9]{6})\b|(#)([A-Fa-f0-9]{8})\b/gm;
+    const initialValidationMatches = _findMatches(model, initialValidationRegex);
+    if (initialValidationMatches.length > 0) {
+      for (const initialMatch of initialValidationMatches) {
+        const initialCaptureGroups = initialMatch.filter((captureGroup) => captureGroup !== void 0);
+        const colorScheme = initialCaptureGroups[1];
+        const colorParameters = initialCaptureGroups[2];
+        if (!colorParameters) {
+          continue;
+        }
+        let colorInformation;
+        if (colorScheme === "rgb") {
+          const regexParameters = /^\(\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])\s*,\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])\s*,\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])\s*\)$/gm;
+          colorInformation = _findRGBColorInformation(_findRange(model, initialMatch), _findMatches(colorParameters, regexParameters), false);
+        } else if (colorScheme === "rgba") {
+          const regexParameters = /^\(\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])\s*,\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])\s*,\s*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])\s*,\s*(0[.][0-9]+|[.][0-9]+|[01][.]|[01])\s*\)$/gm;
+          colorInformation = _findRGBColorInformation(_findRange(model, initialMatch), _findMatches(colorParameters, regexParameters), true);
+        } else if (colorScheme === "hsl") {
+          const regexParameters = /^\(\s*(36[0]|3[0-5][0-9]|[12][0-9][0-9]|[1-9]?[0-9])\s*,\s*(100|\d{1,2}[.]\d*|\d{1,2})%\s*,\s*(100|\d{1,2}[.]\d*|\d{1,2})%\s*\)$/gm;
+          colorInformation = _findHSLColorInformation(_findRange(model, initialMatch), _findMatches(colorParameters, regexParameters), false);
+        } else if (colorScheme === "hsla") {
+          const regexParameters = /^\(\s*(36[0]|3[0-5][0-9]|[12][0-9][0-9]|[1-9]?[0-9])\s*,\s*(100|\d{1,2}[.]\d*|\d{1,2})%\s*,\s*(100|\d{1,2}[.]\d*|\d{1,2})%\s*,\s*(0[.][0-9]+|[.][0-9]+|[01][.]|[01])\s*\)$/gm;
+          colorInformation = _findHSLColorInformation(_findRange(model, initialMatch), _findMatches(colorParameters, regexParameters), true);
+        } else if (colorScheme === "#") {
+          colorInformation = _findHexColorInformation(_findRange(model, initialMatch), colorScheme + colorParameters);
+        }
+        if (colorInformation) {
+          result.push(colorInformation);
+        }
+      }
+    }
+    return result;
+  }
+  function computeDefaultDocumentColors(model) {
+    if (!model || typeof model.getValue !== "function" || typeof model.positionAt !== "function") {
+      return [];
+    }
+    return computeColors(model);
+  }
 
   // node_modules/monaco-editor/esm/vs/editor/common/services/editorSimpleWorker.js
   var __awaiter2 = function(thisArg, _arguments, P, generator) {
@@ -28089,6 +26842,21 @@ ${n}`;
     }
     getValue() {
       return this.getText();
+    }
+    findMatches(regex) {
+      const matches = [];
+      for (let i = 0; i < this._lines.length; i++) {
+        const line = this._lines[i];
+        const offsetToAdd = this.offsetAt(new Position(i + 1, 1));
+        const iteratorOverMatches = line.matchAll(regex);
+        for (const match of iteratorOverMatches) {
+          if (match.index || match.index === 0) {
+            match.index = match.index + offsetToAdd;
+          }
+          matches.push(match);
+        }
+      }
+      return matches;
     }
     getLinesContent() {
       return this._lines.slice(0);
@@ -28305,17 +27073,15 @@ ${n}`;
       });
     }
     static computeDiff(originalTextModel, modifiedTextModel, options, algorithm) {
-      const diffAlgorithm = algorithm === "experimental" ? linesDiffComputers.experimental : linesDiffComputers.smart;
+      const diffAlgorithm = algorithm === "advanced" ? linesDiffComputers.getDefault() : linesDiffComputers.getLegacy();
       const originalLines = originalTextModel.getLinesContent();
       const modifiedLines = modifiedTextModel.getLinesContent();
       const result = diffAlgorithm.computeDiff(originalLines, modifiedLines, options);
       const identical = result.changes.length > 0 ? false : this._modelsAreIdentical(originalTextModel, modifiedTextModel);
-      return {
-        identical,
-        quitEarly: result.hitTimeout,
-        changes: result.changes.map((m) => {
-          var _a3;
-          return [m.originalRange.startLineNumber, m.originalRange.endLineNumberExclusive, m.modifiedRange.startLineNumber, m.modifiedRange.endLineNumberExclusive, (_a3 = m.innerChanges) === null || _a3 === void 0 ? void 0 : _a3.map((m2) => [
+      function getLineChanges(changes) {
+        return changes.map((m) => {
+          var _a4;
+          return [m.original.startLineNumber, m.original.endLineNumberExclusive, m.modified.startLineNumber, m.modified.endLineNumberExclusive, (_a4 = m.innerChanges) === null || _a4 === void 0 ? void 0 : _a4.map((m2) => [
             m2.originalRange.startLineNumber,
             m2.originalRange.startColumn,
             m2.originalRange.endLineNumber,
@@ -28325,7 +27091,19 @@ ${n}`;
             m2.modifiedRange.endLineNumber,
             m2.modifiedRange.endColumn
           ])];
-        })
+        });
+      }
+      return {
+        identical,
+        quitEarly: result.hitTimeout,
+        changes: getLineChanges(result.changes),
+        moves: result.moves.map((m) => [
+          m.lineRangeMapping.original.startLineNumber,
+          m.lineRangeMapping.original.endLineNumberExclusive,
+          m.lineRangeMapping.modified.startLineNumber,
+          m.lineRangeMapping.modified.endLineNumberExclusive,
+          getLineChanges(m.changes)
+        ])
       };
     }
     static _modelsAreIdentical(original, modified) {
@@ -28378,6 +27156,17 @@ ${n}`;
           const bRng = b.range ? 0 : 1;
           return aRng - bRng;
         });
+        let writeIndex = 0;
+        for (let readIndex = 1; readIndex < edits.length; readIndex++) {
+          if (Range.getEndPosition(edits[writeIndex].range).equals(Range.getStartPosition(edits[readIndex].range))) {
+            edits[writeIndex].range = Range.fromPositions(Range.getStartPosition(edits[writeIndex].range), Range.getEndPosition(edits[readIndex].range));
+            edits[writeIndex].text += edits[readIndex].text;
+          } else {
+            writeIndex++;
+            edits[writeIndex] = edits[readIndex];
+          }
+        }
+        edits.length = writeIndex + 1;
         for (let { range, text: text3, eol } of edits) {
           if (typeof eol === "number") {
             lastEol = eol;
@@ -28415,77 +27204,75 @@ ${n}`;
       });
     }
     computeHumanReadableDiff(modelUrl, edits, options) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(modelUrl);
-        if (!model) {
-          return edits;
+      const model = this._getModel(modelUrl);
+      if (!model) {
+        return edits;
+      }
+      const result = [];
+      let lastEol = void 0;
+      edits = edits.slice(0).sort((a, b) => {
+        if (a.range && b.range) {
+          return Range.compareRangesUsingStarts(a.range, b.range);
         }
-        const result = [];
-        let lastEol = void 0;
-        edits = edits.slice(0).sort((a, b) => {
-          if (a.range && b.range) {
-            return Range.compareRangesUsingStarts(a.range, b.range);
-          }
-          const aRng = a.range ? 0 : 1;
-          const bRng = b.range ? 0 : 1;
-          return aRng - bRng;
-        });
-        for (let { range, text: text3, eol } of edits) {
-          let addPositions = function(pos1, pos2) {
-            return new Position(pos1.lineNumber + pos2.lineNumber - 1, pos2.lineNumber === 1 ? pos1.column + pos2.column - 1 : pos2.column);
-          }, getText = function(lines, range2) {
-            const result2 = [];
-            for (let i = range2.startLineNumber; i <= range2.endLineNumber; i++) {
-              const line = lines[i - 1];
-              if (i === range2.startLineNumber && i === range2.endLineNumber) {
-                result2.push(line.substring(range2.startColumn - 1, range2.endColumn - 1));
-              } else if (i === range2.startLineNumber) {
-                result2.push(line.substring(range2.startColumn - 1));
-              } else if (i === range2.endLineNumber) {
-                result2.push(line.substring(0, range2.endColumn - 1));
-              } else {
-                result2.push(line);
-              }
-            }
-            return result2;
-          };
-          if (typeof eol === "number") {
-            lastEol = eol;
-          }
-          if (Range.isEmpty(range) && !text3) {
-            continue;
-          }
-          const original = model.getValueInRange(range);
-          text3 = text3.replace(/\r\n|\n|\r/g, model.eol);
-          if (original === text3) {
-            continue;
-          }
-          if (Math.max(text3.length, original.length) > _EditorSimpleWorker._diffLimit) {
-            result.push({ range, text: text3 });
-            continue;
-          }
-          const originalLines = original.split(/\r\n|\n|\r/);
-          const modifiedLines = text3.split(/\r\n|\n|\r/);
-          const diff = linesDiffComputers.experimental.computeDiff(originalLines, modifiedLines, options);
-          const start = Range.lift(range).getStartPosition();
-          for (const c of diff.changes) {
-            if (c.innerChanges) {
-              for (const x of c.innerChanges) {
-                result.push({
-                  range: Range.fromPositions(addPositions(start, x.originalRange.getStartPosition()), addPositions(start, x.originalRange.getEndPosition())),
-                  text: getText(modifiedLines, x.modifiedRange).join(model.eol)
-                });
-              }
-            } else {
-              throw new BugIndicatingError("The experimental diff algorithm always produces inner changes");
-            }
-          }
-        }
-        if (typeof lastEol === "number") {
-          result.push({ eol: lastEol, text: "", range: { startLineNumber: 0, startColumn: 0, endLineNumber: 0, endColumn: 0 } });
-        }
-        return result;
+        const aRng = a.range ? 0 : 1;
+        const bRng = b.range ? 0 : 1;
+        return aRng - bRng;
       });
+      for (let { range, text: text3, eol } of edits) {
+        let addPositions = function(pos1, pos2) {
+          return new Position(pos1.lineNumber + pos2.lineNumber - 1, pos2.lineNumber === 1 ? pos1.column + pos2.column - 1 : pos2.column);
+        }, getText = function(lines, range2) {
+          const result2 = [];
+          for (let i = range2.startLineNumber; i <= range2.endLineNumber; i++) {
+            const line = lines[i - 1];
+            if (i === range2.startLineNumber && i === range2.endLineNumber) {
+              result2.push(line.substring(range2.startColumn - 1, range2.endColumn - 1));
+            } else if (i === range2.startLineNumber) {
+              result2.push(line.substring(range2.startColumn - 1));
+            } else if (i === range2.endLineNumber) {
+              result2.push(line.substring(0, range2.endColumn - 1));
+            } else {
+              result2.push(line);
+            }
+          }
+          return result2;
+        };
+        if (typeof eol === "number") {
+          lastEol = eol;
+        }
+        if (Range.isEmpty(range) && !text3) {
+          continue;
+        }
+        const original = model.getValueInRange(range);
+        text3 = text3.replace(/\r\n|\n|\r/g, model.eol);
+        if (original === text3) {
+          continue;
+        }
+        if (Math.max(text3.length, original.length) > _EditorSimpleWorker._diffLimit) {
+          result.push({ range, text: text3 });
+          continue;
+        }
+        const originalLines = original.split(/\r\n|\n|\r/);
+        const modifiedLines = text3.split(/\r\n|\n|\r/);
+        const diff = linesDiffComputers.getDefault().computeDiff(originalLines, modifiedLines, options);
+        const start = Range.lift(range).getStartPosition();
+        for (const c of diff.changes) {
+          if (c.innerChanges) {
+            for (const x of c.innerChanges) {
+              result.push({
+                range: Range.fromPositions(addPositions(start, x.originalRange.getStartPosition()), addPositions(start, x.originalRange.getEndPosition())),
+                text: getText(modifiedLines, x.modifiedRange).join(model.eol)
+              });
+            }
+          } else {
+            throw new BugIndicatingError("The experimental diff algorithm always produces inner changes");
+          }
+        }
+      }
+      if (typeof lastEol === "number") {
+        result.push({ eol: lastEol, text: "", range: { startLineNumber: 0, startColumn: 0, endLineNumber: 0, endColumn: 0 } });
+      }
+      return result;
     }
     // ---- END minimal edits ---------------------------------------------------------------
     computeLinks(modelUrl) {
@@ -28497,9 +27284,19 @@ ${n}`;
         return computeLinks(model);
       });
     }
+    // --- BEGIN default document colors -----------------------------------------------------------
+    computeDefaultDocumentColors(modelUrl) {
+      return __awaiter2(this, void 0, void 0, function* () {
+        const model = this._getModel(modelUrl);
+        if (!model) {
+          return null;
+        }
+        return computeDefaultDocumentColors(model);
+      });
+    }
     textualSuggest(modelUrls, leadingWord, wordDef, wordDefFlags) {
       return __awaiter2(this, void 0, void 0, function* () {
-        const sw = new StopWatch(true);
+        const sw = new StopWatch();
         const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
         const seen = /* @__PURE__ */ new Set();
         outer:
@@ -36168,15 +34965,15 @@ spurious results.`);
   }
 
   // node_modules/graphql/jsutils/groupBy.mjs
-  function groupBy(list2, keyFn) {
+  function groupBy2(list2, keyFn) {
     const result = /* @__PURE__ */ new Map();
     for (const item of list2) {
       const key = keyFn(item);
-      const group2 = result.get(key);
-      if (group2 === void 0) {
+      const group = result.get(key);
+      if (group === void 0) {
         result.set(key, [item]);
       } else {
-        group2.push(item);
+        group.push(item);
       }
     }
     return result;
@@ -36208,7 +35005,7 @@ spurious results.`);
       return false;
     }
     function checkArgUniqueness(parentName, argumentNodes) {
-      const seenArgs = groupBy(argumentNodes, (arg) => arg.name.value);
+      const seenArgs = groupBy2(argumentNodes, (arg) => arg.name.value);
       for (const [argName, argNodes] of seenArgs) {
         if (argNodes.length > 1) {
           context.reportError(
@@ -36234,7 +35031,7 @@ spurious results.`);
     function checkArgUniqueness(parentNode) {
       var _parentNode$arguments;
       const argumentNodes = (_parentNode$arguments = parentNode.arguments) !== null && _parentNode$arguments !== void 0 ? _parentNode$arguments : [];
-      const seenArgs = groupBy(argumentNodes, (arg) => arg.name.value);
+      const seenArgs = groupBy2(argumentNodes, (arg) => arg.name.value);
       for (const [argName, argNodes] of seenArgs) {
         if (argNodes.length > 1) {
           context.reportError(
@@ -36619,7 +35416,7 @@ spurious results.`);
       OperationDefinition(operationNode) {
         var _operationNode$variab;
         const variableDefinitions = (_operationNode$variab = operationNode.variableDefinitions) !== null && _operationNode$variab !== void 0 ? _operationNode$variab : [];
-        const seenVariableDefinitions = groupBy(
+        const seenVariableDefinitions = groupBy2(
           variableDefinitions,
           (node) => node.variable.name.value
         );
@@ -37919,7 +36716,6 @@ spurious results.`);
   }
 
   // node_modules/graphql-language-service/esm/interface/autocompleteUtils.js
-  var import_introspection8 = __toESM(require_introspection());
   function getDefinitionState(tokenState) {
     let definitionState;
     forEachState(tokenState, (state) => {
@@ -37936,14 +36732,14 @@ spurious results.`);
     return definitionState;
   }
   function getFieldDef2(schema, type2, fieldName) {
-    if (fieldName === import_introspection8.SchemaMetaFieldDef.name && schema.getQueryType() === type2) {
-      return import_introspection8.SchemaMetaFieldDef;
+    if (fieldName === SchemaMetaFieldDef.name && schema.getQueryType() === type2) {
+      return SchemaMetaFieldDef;
     }
-    if (fieldName === import_introspection8.TypeMetaFieldDef.name && schema.getQueryType() === type2) {
-      return import_introspection8.TypeMetaFieldDef;
+    if (fieldName === TypeMetaFieldDef.name && schema.getQueryType() === type2) {
+      return TypeMetaFieldDef;
     }
-    if (fieldName === import_introspection8.TypeNameMetaFieldDef.name && isCompositeType(type2)) {
-      return import_introspection8.TypeNameMetaFieldDef;
+    if (fieldName === TypeNameMetaFieldDef.name && isCompositeType(type2)) {
+      return TypeNameMetaFieldDef;
     }
     if ("getFields" in type2) {
       return type2.getFields()[fieldName];
@@ -38068,7 +36864,7 @@ spurious results.`);
     }
     Position4.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.objectLiteral(candidate) && Is.uinteger(candidate.line) && Is.uinteger(candidate.character);
     }
     Position4.is = is;
@@ -38081,12 +36877,12 @@ spurious results.`);
       } else if (Position2.is(one) && Position2.is(two)) {
         return { start: one, end: two };
       } else {
-        throw new Error("Range#create called with invalid arguments[".concat(one, ", ").concat(two, ", ").concat(three, ", ").concat(four, "]"));
+        throw new Error(`Range#create called with invalid arguments[${one}, ${two}, ${three}, ${four}]`);
       }
     }
     Range4.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.objectLiteral(candidate) && Position2.is(candidate.start) && Position2.is(candidate.end);
     }
     Range4.is = is;
@@ -38098,7 +36894,7 @@ spurious results.`);
     }
     Location3.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.objectLiteral(candidate) && Range2.is(candidate.range) && (Is.string(candidate.uri) || Is.undefined(candidate.uri));
     }
     Location3.is = is;
@@ -38110,13 +36906,13 @@ spurious results.`);
     }
     LocationLink2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.objectLiteral(candidate) && Range2.is(candidate.targetRange) && Is.string(candidate.targetUri) && Range2.is(candidate.targetSelectionRange) && (Range2.is(candidate.originSelectionRange) || Is.undefined(candidate.originSelectionRange));
     }
     LocationLink2.is = is;
   })(LocationLink || (LocationLink = {}));
-  var Color;
-  (function(Color2) {
+  var Color2;
+  (function(Color3) {
     function create(red, green, blue, alpha) {
       return {
         red,
@@ -38125,13 +36921,13 @@ spurious results.`);
         alpha
       };
     }
-    Color2.create = create;
+    Color3.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Is.numberRange(candidate.red, 0, 1) && Is.numberRange(candidate.green, 0, 1) && Is.numberRange(candidate.blue, 0, 1) && Is.numberRange(candidate.alpha, 0, 1);
     }
-    Color2.is = is;
-  })(Color || (Color = {}));
+    Color3.is = is;
+  })(Color2 || (Color2 = {}));
   var ColorInformation;
   (function(ColorInformation2) {
     function create(range, color) {
@@ -38142,8 +36938,8 @@ spurious results.`);
     }
     ColorInformation2.create = create;
     function is(value) {
-      var candidate = value;
-      return Is.objectLiteral(candidate) && Range2.is(candidate.range) && Color.is(candidate.color);
+      const candidate = value;
+      return Is.objectLiteral(candidate) && Range2.is(candidate.range) && Color2.is(candidate.color);
     }
     ColorInformation2.is = is;
   })(ColorInformation || (ColorInformation = {}));
@@ -38158,7 +36954,7 @@ spurious results.`);
     }
     ColorPresentation2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Is.string(candidate.label) && (Is.undefined(candidate.textEdit) || TextEdit.is(candidate)) && (Is.undefined(candidate.additionalTextEdits) || Is.typedArray(candidate.additionalTextEdits, TextEdit.is));
     }
     ColorPresentation2.is = is;
@@ -38172,7 +36968,7 @@ spurious results.`);
   var FoldingRange;
   (function(FoldingRange2) {
     function create(startLine, endLine, startCharacter, endCharacter, kind, collapsedText) {
-      var result = {
+      const result = {
         startLine,
         endLine
       };
@@ -38192,7 +36988,7 @@ spurious results.`);
     }
     FoldingRange2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Is.uinteger(candidate.startLine) && Is.uinteger(candidate.startLine) && (Is.undefined(candidate.startCharacter) || Is.uinteger(candidate.startCharacter)) && (Is.undefined(candidate.endCharacter) || Is.uinteger(candidate.endCharacter)) && (Is.undefined(candidate.kind) || Is.string(candidate.kind));
     }
     FoldingRange2.is = is;
@@ -38207,7 +37003,7 @@ spurious results.`);
     }
     DiagnosticRelatedInformation2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Location2.is(candidate.location) && Is.string(candidate.message);
     }
     DiagnosticRelatedInformation2.is = is;
@@ -38227,7 +37023,7 @@ spurious results.`);
   var CodeDescription;
   (function(CodeDescription2) {
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Is.string(candidate.href);
     }
     CodeDescription2.is = is;
@@ -38235,7 +37031,7 @@ spurious results.`);
   var Diagnostic;
   (function(Diagnostic2) {
     function create(range, message, severity, code, source, relatedInformation) {
-      var result = { range, message };
+      let result = { range, message };
       if (Is.defined(severity)) {
         result.severity = severity;
       }
@@ -38252,20 +37048,16 @@ spurious results.`);
     }
     Diagnostic2.create = create;
     function is(value) {
-      var _a3;
-      var candidate = value;
-      return Is.defined(candidate) && Range2.is(candidate.range) && Is.string(candidate.message) && (Is.number(candidate.severity) || Is.undefined(candidate.severity)) && (Is.integer(candidate.code) || Is.string(candidate.code) || Is.undefined(candidate.code)) && (Is.undefined(candidate.codeDescription) || Is.string((_a3 = candidate.codeDescription) === null || _a3 === void 0 ? void 0 : _a3.href)) && (Is.string(candidate.source) || Is.undefined(candidate.source)) && (Is.undefined(candidate.relatedInformation) || Is.typedArray(candidate.relatedInformation, DiagnosticRelatedInformation.is));
+      var _a4;
+      let candidate = value;
+      return Is.defined(candidate) && Range2.is(candidate.range) && Is.string(candidate.message) && (Is.number(candidate.severity) || Is.undefined(candidate.severity)) && (Is.integer(candidate.code) || Is.string(candidate.code) || Is.undefined(candidate.code)) && (Is.undefined(candidate.codeDescription) || Is.string((_a4 = candidate.codeDescription) === null || _a4 === void 0 ? void 0 : _a4.href)) && (Is.string(candidate.source) || Is.undefined(candidate.source)) && (Is.undefined(candidate.relatedInformation) || Is.typedArray(candidate.relatedInformation, DiagnosticRelatedInformation.is));
     }
     Diagnostic2.is = is;
   })(Diagnostic || (Diagnostic = {}));
   var Command2;
   (function(Command3) {
-    function create(title, command) {
-      var args = [];
-      for (var _i = 2; _i < arguments.length; _i++) {
-        args[_i - 2] = arguments[_i];
-      }
-      var result = { title, command };
+    function create(title, command, ...args) {
+      let result = { title, command };
       if (Is.defined(args) && args.length > 0) {
         result.arguments = args;
       }
@@ -38273,7 +37065,7 @@ spurious results.`);
     }
     Command3.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.string(candidate.title) && Is.string(candidate.command);
     }
     Command3.is = is;
@@ -38293,7 +37085,7 @@ spurious results.`);
     }
     TextEdit2.del = del;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Is.string(candidate.newText) && Range2.is(candidate.range);
     }
     TextEdit2.is = is;
@@ -38301,7 +37093,7 @@ spurious results.`);
   var ChangeAnnotation;
   (function(ChangeAnnotation2) {
     function create(label, needsConfirmation, description) {
-      var result = { label };
+      const result = { label };
       if (needsConfirmation !== void 0) {
         result.needsConfirmation = needsConfirmation;
       }
@@ -38312,7 +37104,7 @@ spurious results.`);
     }
     ChangeAnnotation2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Is.string(candidate.label) && (Is.boolean(candidate.needsConfirmation) || candidate.needsConfirmation === void 0) && (Is.string(candidate.description) || candidate.description === void 0);
     }
     ChangeAnnotation2.is = is;
@@ -38320,7 +37112,7 @@ spurious results.`);
   var ChangeAnnotationIdentifier;
   (function(ChangeAnnotationIdentifier2) {
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.string(candidate);
     }
     ChangeAnnotationIdentifier2.is = is;
@@ -38340,7 +37132,7 @@ spurious results.`);
     }
     AnnotatedTextEdit2.del = del;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return TextEdit.is(candidate) && (ChangeAnnotation.is(candidate.annotationId) || ChangeAnnotationIdentifier.is(candidate.annotationId));
     }
     AnnotatedTextEdit2.is = is;
@@ -38352,7 +37144,7 @@ spurious results.`);
     }
     TextDocumentEdit2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && OptionalVersionedTextDocumentIdentifier.is(candidate.textDocument) && Array.isArray(candidate.edits);
     }
     TextDocumentEdit2.is = is;
@@ -38360,7 +37152,7 @@ spurious results.`);
   var CreateFile;
   (function(CreateFile2) {
     function create(uri, options, annotation) {
-      var result = {
+      let result = {
         kind: "create",
         uri
       };
@@ -38374,7 +37166,7 @@ spurious results.`);
     }
     CreateFile2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return candidate && candidate.kind === "create" && Is.string(candidate.uri) && (candidate.options === void 0 || (candidate.options.overwrite === void 0 || Is.boolean(candidate.options.overwrite)) && (candidate.options.ignoreIfExists === void 0 || Is.boolean(candidate.options.ignoreIfExists))) && (candidate.annotationId === void 0 || ChangeAnnotationIdentifier.is(candidate.annotationId));
     }
     CreateFile2.is = is;
@@ -38382,7 +37174,7 @@ spurious results.`);
   var RenameFile;
   (function(RenameFile2) {
     function create(oldUri, newUri, options, annotation) {
-      var result = {
+      let result = {
         kind: "rename",
         oldUri,
         newUri
@@ -38397,7 +37189,7 @@ spurious results.`);
     }
     RenameFile2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return candidate && candidate.kind === "rename" && Is.string(candidate.oldUri) && Is.string(candidate.newUri) && (candidate.options === void 0 || (candidate.options.overwrite === void 0 || Is.boolean(candidate.options.overwrite)) && (candidate.options.ignoreIfExists === void 0 || Is.boolean(candidate.options.ignoreIfExists))) && (candidate.annotationId === void 0 || ChangeAnnotationIdentifier.is(candidate.annotationId));
     }
     RenameFile2.is = is;
@@ -38405,7 +37197,7 @@ spurious results.`);
   var DeleteFile;
   (function(DeleteFile2) {
     function create(uri, options, annotation) {
-      var result = {
+      let result = {
         kind: "delete",
         uri
       };
@@ -38419,7 +37211,7 @@ spurious results.`);
     }
     DeleteFile2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return candidate && candidate.kind === "delete" && Is.string(candidate.uri) && (candidate.options === void 0 || (candidate.options.recursive === void 0 || Is.boolean(candidate.options.recursive)) && (candidate.options.ignoreIfNotExists === void 0 || Is.boolean(candidate.options.ignoreIfNotExists))) && (candidate.annotationId === void 0 || ChangeAnnotationIdentifier.is(candidate.annotationId));
     }
     DeleteFile2.is = is;
@@ -38427,8 +37219,8 @@ spurious results.`);
   var WorkspaceEdit;
   (function(WorkspaceEdit2) {
     function is(value) {
-      var candidate = value;
-      return candidate && (candidate.changes !== void 0 || candidate.documentChanges !== void 0) && (candidate.documentChanges === void 0 || candidate.documentChanges.every(function(change) {
+      let candidate = value;
+      return candidate && (candidate.changes !== void 0 || candidate.documentChanges !== void 0) && (candidate.documentChanges === void 0 || candidate.documentChanges.every((change) => {
         if (Is.string(change.kind)) {
           return CreateFile.is(change) || RenameFile.is(change) || DeleteFile.is(change);
         } else {
@@ -38438,294 +37230,6 @@ spurious results.`);
     }
     WorkspaceEdit2.is = is;
   })(WorkspaceEdit || (WorkspaceEdit = {}));
-  var TextEditChangeImpl = (
-    /** @class */
-    function() {
-      function TextEditChangeImpl2(edits, changeAnnotations) {
-        this.edits = edits;
-        this.changeAnnotations = changeAnnotations;
-      }
-      TextEditChangeImpl2.prototype.insert = function(position, newText, annotation) {
-        var edit;
-        var id;
-        if (annotation === void 0) {
-          edit = TextEdit.insert(position, newText);
-        } else if (ChangeAnnotationIdentifier.is(annotation)) {
-          id = annotation;
-          edit = AnnotatedTextEdit.insert(position, newText, annotation);
-        } else {
-          this.assertChangeAnnotations(this.changeAnnotations);
-          id = this.changeAnnotations.manage(annotation);
-          edit = AnnotatedTextEdit.insert(position, newText, id);
-        }
-        this.edits.push(edit);
-        if (id !== void 0) {
-          return id;
-        }
-      };
-      TextEditChangeImpl2.prototype.replace = function(range, newText, annotation) {
-        var edit;
-        var id;
-        if (annotation === void 0) {
-          edit = TextEdit.replace(range, newText);
-        } else if (ChangeAnnotationIdentifier.is(annotation)) {
-          id = annotation;
-          edit = AnnotatedTextEdit.replace(range, newText, annotation);
-        } else {
-          this.assertChangeAnnotations(this.changeAnnotations);
-          id = this.changeAnnotations.manage(annotation);
-          edit = AnnotatedTextEdit.replace(range, newText, id);
-        }
-        this.edits.push(edit);
-        if (id !== void 0) {
-          return id;
-        }
-      };
-      TextEditChangeImpl2.prototype.delete = function(range, annotation) {
-        var edit;
-        var id;
-        if (annotation === void 0) {
-          edit = TextEdit.del(range);
-        } else if (ChangeAnnotationIdentifier.is(annotation)) {
-          id = annotation;
-          edit = AnnotatedTextEdit.del(range, annotation);
-        } else {
-          this.assertChangeAnnotations(this.changeAnnotations);
-          id = this.changeAnnotations.manage(annotation);
-          edit = AnnotatedTextEdit.del(range, id);
-        }
-        this.edits.push(edit);
-        if (id !== void 0) {
-          return id;
-        }
-      };
-      TextEditChangeImpl2.prototype.add = function(edit) {
-        this.edits.push(edit);
-      };
-      TextEditChangeImpl2.prototype.all = function() {
-        return this.edits;
-      };
-      TextEditChangeImpl2.prototype.clear = function() {
-        this.edits.splice(0, this.edits.length);
-      };
-      TextEditChangeImpl2.prototype.assertChangeAnnotations = function(value) {
-        if (value === void 0) {
-          throw new Error("Text edit change is not configured to manage change annotations.");
-        }
-      };
-      return TextEditChangeImpl2;
-    }()
-  );
-  var ChangeAnnotations = (
-    /** @class */
-    function() {
-      function ChangeAnnotations2(annotations2) {
-        this._annotations = annotations2 === void 0 ? /* @__PURE__ */ Object.create(null) : annotations2;
-        this._counter = 0;
-        this._size = 0;
-      }
-      ChangeAnnotations2.prototype.all = function() {
-        return this._annotations;
-      };
-      Object.defineProperty(ChangeAnnotations2.prototype, "size", {
-        get: function() {
-          return this._size;
-        },
-        enumerable: false,
-        configurable: true
-      });
-      ChangeAnnotations2.prototype.manage = function(idOrAnnotation, annotation) {
-        var id;
-        if (ChangeAnnotationIdentifier.is(idOrAnnotation)) {
-          id = idOrAnnotation;
-        } else {
-          id = this.nextId();
-          annotation = idOrAnnotation;
-        }
-        if (this._annotations[id] !== void 0) {
-          throw new Error("Id ".concat(id, " is already in use."));
-        }
-        if (annotation === void 0) {
-          throw new Error("No annotation provided for id ".concat(id));
-        }
-        this._annotations[id] = annotation;
-        this._size++;
-        return id;
-      };
-      ChangeAnnotations2.prototype.nextId = function() {
-        this._counter++;
-        return this._counter.toString();
-      };
-      return ChangeAnnotations2;
-    }()
-  );
-  var WorkspaceChange = (
-    /** @class */
-    function() {
-      function WorkspaceChange2(workspaceEdit) {
-        var _this = this;
-        this._textEditChanges = /* @__PURE__ */ Object.create(null);
-        if (workspaceEdit !== void 0) {
-          this._workspaceEdit = workspaceEdit;
-          if (workspaceEdit.documentChanges) {
-            this._changeAnnotations = new ChangeAnnotations(workspaceEdit.changeAnnotations);
-            workspaceEdit.changeAnnotations = this._changeAnnotations.all();
-            workspaceEdit.documentChanges.forEach(function(change) {
-              if (TextDocumentEdit.is(change)) {
-                var textEditChange = new TextEditChangeImpl(change.edits, _this._changeAnnotations);
-                _this._textEditChanges[change.textDocument.uri] = textEditChange;
-              }
-            });
-          } else if (workspaceEdit.changes) {
-            Object.keys(workspaceEdit.changes).forEach(function(key) {
-              var textEditChange = new TextEditChangeImpl(workspaceEdit.changes[key]);
-              _this._textEditChanges[key] = textEditChange;
-            });
-          }
-        } else {
-          this._workspaceEdit = {};
-        }
-      }
-      Object.defineProperty(WorkspaceChange2.prototype, "edit", {
-        /**
-         * Returns the underlying {@link WorkspaceEdit} literal
-         * use to be returned from a workspace edit operation like rename.
-         */
-        get: function() {
-          this.initDocumentChanges();
-          if (this._changeAnnotations !== void 0) {
-            if (this._changeAnnotations.size === 0) {
-              this._workspaceEdit.changeAnnotations = void 0;
-            } else {
-              this._workspaceEdit.changeAnnotations = this._changeAnnotations.all();
-            }
-          }
-          return this._workspaceEdit;
-        },
-        enumerable: false,
-        configurable: true
-      });
-      WorkspaceChange2.prototype.getTextEditChange = function(key) {
-        if (OptionalVersionedTextDocumentIdentifier.is(key)) {
-          this.initDocumentChanges();
-          if (this._workspaceEdit.documentChanges === void 0) {
-            throw new Error("Workspace edit is not configured for document changes.");
-          }
-          var textDocument = { uri: key.uri, version: key.version };
-          var result = this._textEditChanges[textDocument.uri];
-          if (!result) {
-            var edits = [];
-            var textDocumentEdit = {
-              textDocument,
-              edits
-            };
-            this._workspaceEdit.documentChanges.push(textDocumentEdit);
-            result = new TextEditChangeImpl(edits, this._changeAnnotations);
-            this._textEditChanges[textDocument.uri] = result;
-          }
-          return result;
-        } else {
-          this.initChanges();
-          if (this._workspaceEdit.changes === void 0) {
-            throw new Error("Workspace edit is not configured for normal text edit changes.");
-          }
-          var result = this._textEditChanges[key];
-          if (!result) {
-            var edits = [];
-            this._workspaceEdit.changes[key] = edits;
-            result = new TextEditChangeImpl(edits);
-            this._textEditChanges[key] = result;
-          }
-          return result;
-        }
-      };
-      WorkspaceChange2.prototype.initDocumentChanges = function() {
-        if (this._workspaceEdit.documentChanges === void 0 && this._workspaceEdit.changes === void 0) {
-          this._changeAnnotations = new ChangeAnnotations();
-          this._workspaceEdit.documentChanges = [];
-          this._workspaceEdit.changeAnnotations = this._changeAnnotations.all();
-        }
-      };
-      WorkspaceChange2.prototype.initChanges = function() {
-        if (this._workspaceEdit.documentChanges === void 0 && this._workspaceEdit.changes === void 0) {
-          this._workspaceEdit.changes = /* @__PURE__ */ Object.create(null);
-        }
-      };
-      WorkspaceChange2.prototype.createFile = function(uri, optionsOrAnnotation, options) {
-        this.initDocumentChanges();
-        if (this._workspaceEdit.documentChanges === void 0) {
-          throw new Error("Workspace edit is not configured for document changes.");
-        }
-        var annotation;
-        if (ChangeAnnotation.is(optionsOrAnnotation) || ChangeAnnotationIdentifier.is(optionsOrAnnotation)) {
-          annotation = optionsOrAnnotation;
-        } else {
-          options = optionsOrAnnotation;
-        }
-        var operation;
-        var id;
-        if (annotation === void 0) {
-          operation = CreateFile.create(uri, options);
-        } else {
-          id = ChangeAnnotationIdentifier.is(annotation) ? annotation : this._changeAnnotations.manage(annotation);
-          operation = CreateFile.create(uri, options, id);
-        }
-        this._workspaceEdit.documentChanges.push(operation);
-        if (id !== void 0) {
-          return id;
-        }
-      };
-      WorkspaceChange2.prototype.renameFile = function(oldUri, newUri, optionsOrAnnotation, options) {
-        this.initDocumentChanges();
-        if (this._workspaceEdit.documentChanges === void 0) {
-          throw new Error("Workspace edit is not configured for document changes.");
-        }
-        var annotation;
-        if (ChangeAnnotation.is(optionsOrAnnotation) || ChangeAnnotationIdentifier.is(optionsOrAnnotation)) {
-          annotation = optionsOrAnnotation;
-        } else {
-          options = optionsOrAnnotation;
-        }
-        var operation;
-        var id;
-        if (annotation === void 0) {
-          operation = RenameFile.create(oldUri, newUri, options);
-        } else {
-          id = ChangeAnnotationIdentifier.is(annotation) ? annotation : this._changeAnnotations.manage(annotation);
-          operation = RenameFile.create(oldUri, newUri, options, id);
-        }
-        this._workspaceEdit.documentChanges.push(operation);
-        if (id !== void 0) {
-          return id;
-        }
-      };
-      WorkspaceChange2.prototype.deleteFile = function(uri, optionsOrAnnotation, options) {
-        this.initDocumentChanges();
-        if (this._workspaceEdit.documentChanges === void 0) {
-          throw new Error("Workspace edit is not configured for document changes.");
-        }
-        var annotation;
-        if (ChangeAnnotation.is(optionsOrAnnotation) || ChangeAnnotationIdentifier.is(optionsOrAnnotation)) {
-          annotation = optionsOrAnnotation;
-        } else {
-          options = optionsOrAnnotation;
-        }
-        var operation;
-        var id;
-        if (annotation === void 0) {
-          operation = DeleteFile.create(uri, options);
-        } else {
-          id = ChangeAnnotationIdentifier.is(annotation) ? annotation : this._changeAnnotations.manage(annotation);
-          operation = DeleteFile.create(uri, options, id);
-        }
-        this._workspaceEdit.documentChanges.push(operation);
-        if (id !== void 0) {
-          return id;
-        }
-      };
-      return WorkspaceChange2;
-    }()
-  );
   var TextDocumentIdentifier;
   (function(TextDocumentIdentifier2) {
     function create(uri) {
@@ -38733,7 +37237,7 @@ spurious results.`);
     }
     TextDocumentIdentifier2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.string(candidate.uri);
     }
     TextDocumentIdentifier2.is = is;
@@ -38745,7 +37249,7 @@ spurious results.`);
     }
     VersionedTextDocumentIdentifier2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.string(candidate.uri) && Is.integer(candidate.version);
     }
     VersionedTextDocumentIdentifier2.is = is;
@@ -38757,7 +37261,7 @@ spurious results.`);
     }
     OptionalVersionedTextDocumentIdentifier2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.string(candidate.uri) && (candidate.version === null || Is.integer(candidate.version));
     }
     OptionalVersionedTextDocumentIdentifier2.is = is;
@@ -38769,7 +37273,7 @@ spurious results.`);
     }
     TextDocumentItem2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.string(candidate.uri) && Is.string(candidate.languageId) && Is.integer(candidate.version) && Is.string(candidate.text);
     }
     TextDocumentItem2.is = is;
@@ -38779,7 +37283,7 @@ spurious results.`);
     MarkupKind2.PlainText = "plaintext";
     MarkupKind2.Markdown = "markdown";
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return candidate === MarkupKind2.PlainText || candidate === MarkupKind2.Markdown;
     }
     MarkupKind2.is = is;
@@ -38787,7 +37291,7 @@ spurious results.`);
   var MarkupContent;
   (function(MarkupContent2) {
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(value) && MarkupKind.is(candidate.kind) && Is.string(candidate.value);
     }
     MarkupContent2.is = is;
@@ -38836,7 +37340,7 @@ spurious results.`);
     }
     InsertReplaceEdit2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return candidate && Is.string(candidate.newText) && Range2.is(candidate.insert) && Range2.is(candidate.replace);
     }
     InsertReplaceEdit2.is = is;
@@ -38849,7 +37353,7 @@ spurious results.`);
   var CompletionItemLabelDetails;
   (function(CompletionItemLabelDetails2) {
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return candidate && (Is.string(candidate.detail) || candidate.detail === void 0) && (Is.string(candidate.description) || candidate.description === void 0);
     }
     CompletionItemLabelDetails2.is = is;
@@ -38875,7 +37379,7 @@ spurious results.`);
     }
     MarkedString2.fromPlainText = fromPlainText;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.string(candidate) || Is.objectLiteral(candidate) && Is.string(candidate.language) && Is.string(candidate.value);
     }
     MarkedString2.is = is;
@@ -38883,7 +37387,7 @@ spurious results.`);
   var Hover;
   (function(Hover2) {
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return !!candidate && Is.objectLiteral(candidate) && (MarkupContent.is(candidate.contents) || MarkedString.is(candidate.contents) || Is.typedArray(candidate.contents, MarkedString.is)) && (value.range === void 0 || Range2.is(value.range));
     }
     Hover2.is = is;
@@ -38897,12 +37401,8 @@ spurious results.`);
   })(ParameterInformation || (ParameterInformation = {}));
   var SignatureInformation;
   (function(SignatureInformation2) {
-    function create(label, documentation) {
-      var parameters = [];
-      for (var _i = 2; _i < arguments.length; _i++) {
-        parameters[_i - 2] = arguments[_i];
-      }
-      var result = { label };
+    function create(label, documentation, ...parameters) {
+      let result = { label };
       if (Is.defined(documentation)) {
         result.documentation = documentation;
       }
@@ -38924,7 +37424,7 @@ spurious results.`);
   var DocumentHighlight;
   (function(DocumentHighlight2) {
     function create(range, kind) {
-      var result = { range };
+      let result = { range };
       if (Is.number(kind)) {
         result.kind = kind;
       }
@@ -38968,7 +37468,7 @@ spurious results.`);
   var SymbolInformation;
   (function(SymbolInformation2) {
     function create(name2, kind, range, uri, containerName) {
-      var result = {
+      let result = {
         name: name2,
         kind,
         location: { uri, range }
@@ -38990,7 +37490,7 @@ spurious results.`);
   var DocumentSymbol;
   (function(DocumentSymbol2) {
     function create(name2, detail, kind, range, selectionRange, children) {
-      var result = {
+      let result = {
         name: name2,
         detail,
         kind,
@@ -39004,7 +37504,7 @@ spurious results.`);
     }
     DocumentSymbol2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return candidate && Is.string(candidate.name) && Is.number(candidate.kind) && Range2.is(candidate.range) && Range2.is(candidate.selectionRange) && (candidate.detail === void 0 || Is.string(candidate.detail)) && (candidate.deprecated === void 0 || Is.boolean(candidate.deprecated)) && (candidate.children === void 0 || Array.isArray(candidate.children)) && (candidate.tags === void 0 || Array.isArray(candidate.tags));
     }
     DocumentSymbol2.is = is;
@@ -39029,7 +37529,7 @@ spurious results.`);
   var CodeActionContext;
   (function(CodeActionContext2) {
     function create(diagnostics, only, triggerKind) {
-      var result = { diagnostics };
+      let result = { diagnostics };
       if (only !== void 0 && only !== null) {
         result.only = only;
       }
@@ -39040,7 +37540,7 @@ spurious results.`);
     }
     CodeActionContext2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.typedArray(candidate.diagnostics, Diagnostic.is) && (candidate.only === void 0 || Is.typedArray(candidate.only, Is.string)) && (candidate.triggerKind === void 0 || candidate.triggerKind === CodeActionTriggerKind.Invoked || candidate.triggerKind === CodeActionTriggerKind.Automatic);
     }
     CodeActionContext2.is = is;
@@ -39048,8 +37548,8 @@ spurious results.`);
   var CodeAction;
   (function(CodeAction2) {
     function create(title, kindOrCommandOrEdit, kind) {
-      var result = { title };
-      var checkKind = true;
+      let result = { title };
+      let checkKind = true;
       if (typeof kindOrCommandOrEdit === "string") {
         checkKind = false;
         result.kind = kindOrCommandOrEdit;
@@ -39065,7 +37565,7 @@ spurious results.`);
     }
     CodeAction2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return candidate && Is.string(candidate.title) && (candidate.diagnostics === void 0 || Is.typedArray(candidate.diagnostics, Diagnostic.is)) && (candidate.kind === void 0 || Is.string(candidate.kind)) && (candidate.edit !== void 0 || candidate.command !== void 0) && (candidate.command === void 0 || Command2.is(candidate.command)) && (candidate.isPreferred === void 0 || Is.boolean(candidate.isPreferred)) && (candidate.edit === void 0 || WorkspaceEdit.is(candidate.edit));
     }
     CodeAction2.is = is;
@@ -39073,7 +37573,7 @@ spurious results.`);
   var CodeLens;
   (function(CodeLens2) {
     function create(range, data) {
-      var result = { range };
+      let result = { range };
       if (Is.defined(data)) {
         result.data = data;
       }
@@ -39081,7 +37581,7 @@ spurious results.`);
     }
     CodeLens2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Range2.is(candidate.range) && (Is.undefined(candidate.command) || Command2.is(candidate.command));
     }
     CodeLens2.is = is;
@@ -39093,7 +37593,7 @@ spurious results.`);
     }
     FormattingOptions2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.uinteger(candidate.tabSize) && Is.boolean(candidate.insertSpaces);
     }
     FormattingOptions2.is = is;
@@ -39105,7 +37605,7 @@ spurious results.`);
     }
     DocumentLink2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Range2.is(candidate.range) && (Is.undefined(candidate.target) || Is.string(candidate.target));
     }
     DocumentLink2.is = is;
@@ -39117,7 +37617,7 @@ spurious results.`);
     }
     SelectionRange2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.objectLiteral(candidate) && Range2.is(candidate.range) && (candidate.parent === void 0 || SelectionRange2.is(candidate.parent));
     }
     SelectionRange2.is = is;
@@ -39164,7 +37664,7 @@ spurious results.`);
   var SemanticTokens;
   (function(SemanticTokens2) {
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && (candidate.resultId === void 0 || typeof candidate.resultId === "string") && Array.isArray(candidate.data) && (candidate.data.length === 0 || typeof candidate.data[0] === "number");
     }
     SemanticTokens2.is = is;
@@ -39176,7 +37676,7 @@ spurious results.`);
     }
     InlineValueText2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return candidate !== void 0 && candidate !== null && Range2.is(candidate.range) && Is.string(candidate.text);
     }
     InlineValueText2.is = is;
@@ -39188,7 +37688,7 @@ spurious results.`);
     }
     InlineValueVariableLookup2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return candidate !== void 0 && candidate !== null && Range2.is(candidate.range) && Is.boolean(candidate.caseSensitiveLookup) && (Is.string(candidate.variableName) || candidate.variableName === void 0);
     }
     InlineValueVariableLookup2.is = is;
@@ -39200,7 +37700,7 @@ spurious results.`);
     }
     InlineValueEvaluatableExpression2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return candidate !== void 0 && candidate !== null && Range2.is(candidate.range) && (Is.string(candidate.expression) || candidate.expression === void 0);
     }
     InlineValueEvaluatableExpression2.is = is;
@@ -39212,7 +37712,7 @@ spurious results.`);
     }
     InlineValueContext2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.defined(candidate) && Range2.is(value.stoppedLocation);
     }
     InlineValueContext2.is = is;
@@ -39233,7 +37733,7 @@ spurious results.`);
     }
     InlayHintLabelPart2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && (candidate.tooltip === void 0 || Is.string(candidate.tooltip) || MarkupContent.is(candidate.tooltip)) && (candidate.location === void 0 || Location2.is(candidate.location)) && (candidate.command === void 0 || Command2.is(candidate.command));
     }
     InlayHintLabelPart2.is = is;
@@ -39241,7 +37741,7 @@ spurious results.`);
   var InlayHint;
   (function(InlayHint2) {
     function create(position, label, kind) {
-      var result = { position, label };
+      const result = { position, label };
       if (kind !== void 0) {
         result.kind = kind;
       }
@@ -39249,15 +37749,55 @@ spurious results.`);
     }
     InlayHint2.create = create;
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && Position2.is(candidate.position) && (Is.string(candidate.label) || Is.typedArray(candidate.label, InlayHintLabelPart.is)) && (candidate.kind === void 0 || InlayHintKind3.is(candidate.kind)) && candidate.textEdits === void 0 || Is.typedArray(candidate.textEdits, TextEdit.is) && (candidate.tooltip === void 0 || Is.string(candidate.tooltip) || MarkupContent.is(candidate.tooltip)) && (candidate.paddingLeft === void 0 || Is.boolean(candidate.paddingLeft)) && (candidate.paddingRight === void 0 || Is.boolean(candidate.paddingRight));
     }
     InlayHint2.is = is;
   })(InlayHint || (InlayHint = {}));
+  var StringValue;
+  (function(StringValue2) {
+    function createSnippet(value) {
+      return { kind: "snippet", value };
+    }
+    StringValue2.createSnippet = createSnippet;
+  })(StringValue || (StringValue = {}));
+  var InlineCompletionItem;
+  (function(InlineCompletionItem2) {
+    function create(insertText, filterText, range, command) {
+      return { insertText, filterText, range, command };
+    }
+    InlineCompletionItem2.create = create;
+  })(InlineCompletionItem || (InlineCompletionItem = {}));
+  var InlineCompletionList;
+  (function(InlineCompletionList2) {
+    function create(items) {
+      return { items };
+    }
+    InlineCompletionList2.create = create;
+  })(InlineCompletionList || (InlineCompletionList = {}));
+  var InlineCompletionTriggerKind3;
+  (function(InlineCompletionTriggerKind4) {
+    InlineCompletionTriggerKind4.Invoked = 0;
+    InlineCompletionTriggerKind4.Automatic = 1;
+  })(InlineCompletionTriggerKind3 || (InlineCompletionTriggerKind3 = {}));
+  var SelectedCompletionInfo;
+  (function(SelectedCompletionInfo2) {
+    function create(range, text3) {
+      return { range, text: text3 };
+    }
+    SelectedCompletionInfo2.create = create;
+  })(SelectedCompletionInfo || (SelectedCompletionInfo = {}));
+  var InlineCompletionContext;
+  (function(InlineCompletionContext2) {
+    function create(triggerKind, selectedCompletionInfo) {
+      return { triggerKind, selectedCompletionInfo };
+    }
+    InlineCompletionContext2.create = create;
+  })(InlineCompletionContext || (InlineCompletionContext = {}));
   var WorkspaceFolder;
   (function(WorkspaceFolder2) {
     function is(value) {
-      var candidate = value;
+      const candidate = value;
       return Is.objectLiteral(candidate) && URI2.is(candidate.uri) && Is.string(candidate.name);
     }
     WorkspaceFolder2.is = is;
@@ -39269,24 +37809,24 @@ spurious results.`);
     }
     TextDocument2.create = create;
     function is(value) {
-      var candidate = value;
+      let candidate = value;
       return Is.defined(candidate) && Is.string(candidate.uri) && (Is.undefined(candidate.languageId) || Is.string(candidate.languageId)) && Is.uinteger(candidate.lineCount) && Is.func(candidate.getText) && Is.func(candidate.positionAt) && Is.func(candidate.offsetAt) ? true : false;
     }
     TextDocument2.is = is;
     function applyEdits(document2, edits) {
-      var text3 = document2.getText();
-      var sortedEdits = mergeSort(edits, function(a, b) {
-        var diff = a.range.start.line - b.range.start.line;
+      let text3 = document2.getText();
+      let sortedEdits = mergeSort(edits, (a, b) => {
+        let diff = a.range.start.line - b.range.start.line;
         if (diff === 0) {
           return a.range.start.character - b.range.start.character;
         }
         return diff;
       });
-      var lastModifiedOffset = text3.length;
-      for (var i = sortedEdits.length - 1; i >= 0; i--) {
-        var e = sortedEdits[i];
-        var startOffset = document2.offsetAt(e.range.start);
-        var endOffset = document2.offsetAt(e.range.end);
+      let lastModifiedOffset = text3.length;
+      for (let i = sortedEdits.length - 1; i >= 0; i--) {
+        let e = sortedEdits[i];
+        let startOffset = document2.offsetAt(e.range.start);
+        let endOffset = document2.offsetAt(e.range.end);
         if (endOffset <= lastModifiedOffset) {
           text3 = text3.substring(0, startOffset) + e.newText + text3.substring(endOffset, text3.length);
         } else {
@@ -39301,16 +37841,16 @@ spurious results.`);
       if (data.length <= 1) {
         return data;
       }
-      var p2 = data.length / 2 | 0;
-      var left = data.slice(0, p2);
-      var right = data.slice(p2);
+      const p2 = data.length / 2 | 0;
+      const left = data.slice(0, p2);
+      const right = data.slice(p2);
       mergeSort(left, compare);
       mergeSort(right, compare);
-      var leftIdx = 0;
-      var rightIdx = 0;
-      var i = 0;
+      let leftIdx = 0;
+      let rightIdx = 0;
+      let i = 0;
       while (leftIdx < left.length && rightIdx < right.length) {
-        var ret = compare(left[leftIdx], right[rightIdx]);
+        let ret = compare(left[leftIdx], right[rightIdx]);
         if (ret <= 0) {
           data[i++] = left[leftIdx++];
         } else {
@@ -39326,115 +37866,95 @@ spurious results.`);
       return data;
     }
   })(TextDocument || (TextDocument = {}));
-  var FullTextDocument = (
-    /** @class */
-    function() {
-      function FullTextDocument2(uri, languageId, version, content) {
-        this._uri = uri;
-        this._languageId = languageId;
-        this._version = version;
-        this._content = content;
-        this._lineOffsets = void 0;
+  var FullTextDocument = class {
+    constructor(uri, languageId, version, content) {
+      this._uri = uri;
+      this._languageId = languageId;
+      this._version = version;
+      this._content = content;
+      this._lineOffsets = void 0;
+    }
+    get uri() {
+      return this._uri;
+    }
+    get languageId() {
+      return this._languageId;
+    }
+    get version() {
+      return this._version;
+    }
+    getText(range) {
+      if (range) {
+        let start = this.offsetAt(range.start);
+        let end = this.offsetAt(range.end);
+        return this._content.substring(start, end);
       }
-      Object.defineProperty(FullTextDocument2.prototype, "uri", {
-        get: function() {
-          return this._uri;
-        },
-        enumerable: false,
-        configurable: true
-      });
-      Object.defineProperty(FullTextDocument2.prototype, "languageId", {
-        get: function() {
-          return this._languageId;
-        },
-        enumerable: false,
-        configurable: true
-      });
-      Object.defineProperty(FullTextDocument2.prototype, "version", {
-        get: function() {
-          return this._version;
-        },
-        enumerable: false,
-        configurable: true
-      });
-      FullTextDocument2.prototype.getText = function(range) {
-        if (range) {
-          var start = this.offsetAt(range.start);
-          var end = this.offsetAt(range.end);
-          return this._content.substring(start, end);
-        }
-        return this._content;
-      };
-      FullTextDocument2.prototype.update = function(event, version) {
-        this._content = event.text;
-        this._version = version;
-        this._lineOffsets = void 0;
-      };
-      FullTextDocument2.prototype.getLineOffsets = function() {
-        if (this._lineOffsets === void 0) {
-          var lineOffsets = [];
-          var text3 = this._content;
-          var isLineStart = true;
-          for (var i = 0; i < text3.length; i++) {
-            if (isLineStart) {
-              lineOffsets.push(i);
-              isLineStart = false;
-            }
-            var ch = text3.charAt(i);
-            isLineStart = ch === "\r" || ch === "\n";
-            if (ch === "\r" && i + 1 < text3.length && text3.charAt(i + 1) === "\n") {
-              i++;
-            }
+      return this._content;
+    }
+    update(event, version) {
+      this._content = event.text;
+      this._version = version;
+      this._lineOffsets = void 0;
+    }
+    getLineOffsets() {
+      if (this._lineOffsets === void 0) {
+        let lineOffsets = [];
+        let text3 = this._content;
+        let isLineStart = true;
+        for (let i = 0; i < text3.length; i++) {
+          if (isLineStart) {
+            lineOffsets.push(i);
+            isLineStart = false;
           }
-          if (isLineStart && text3.length > 0) {
-            lineOffsets.push(text3.length);
-          }
-          this._lineOffsets = lineOffsets;
-        }
-        return this._lineOffsets;
-      };
-      FullTextDocument2.prototype.positionAt = function(offset) {
-        offset = Math.max(Math.min(offset, this._content.length), 0);
-        var lineOffsets = this.getLineOffsets();
-        var low = 0, high = lineOffsets.length;
-        if (high === 0) {
-          return Position2.create(0, offset);
-        }
-        while (low < high) {
-          var mid = Math.floor((low + high) / 2);
-          if (lineOffsets[mid] > offset) {
-            high = mid;
-          } else {
-            low = mid + 1;
+          let ch = text3.charAt(i);
+          isLineStart = ch === "\r" || ch === "\n";
+          if (ch === "\r" && i + 1 < text3.length && text3.charAt(i + 1) === "\n") {
+            i++;
           }
         }
-        var line = low - 1;
-        return Position2.create(line, offset - lineOffsets[line]);
-      };
-      FullTextDocument2.prototype.offsetAt = function(position) {
-        var lineOffsets = this.getLineOffsets();
-        if (position.line >= lineOffsets.length) {
-          return this._content.length;
-        } else if (position.line < 0) {
-          return 0;
+        if (isLineStart && text3.length > 0) {
+          lineOffsets.push(text3.length);
         }
-        var lineOffset = lineOffsets[position.line];
-        var nextLineOffset = position.line + 1 < lineOffsets.length ? lineOffsets[position.line + 1] : this._content.length;
-        return Math.max(Math.min(lineOffset + position.character, nextLineOffset), lineOffset);
-      };
-      Object.defineProperty(FullTextDocument2.prototype, "lineCount", {
-        get: function() {
-          return this.getLineOffsets().length;
-        },
-        enumerable: false,
-        configurable: true
-      });
-      return FullTextDocument2;
-    }()
-  );
+        this._lineOffsets = lineOffsets;
+      }
+      return this._lineOffsets;
+    }
+    positionAt(offset) {
+      offset = Math.max(Math.min(offset, this._content.length), 0);
+      let lineOffsets = this.getLineOffsets();
+      let low = 0, high = lineOffsets.length;
+      if (high === 0) {
+        return Position2.create(0, offset);
+      }
+      while (low < high) {
+        let mid = Math.floor((low + high) / 2);
+        if (lineOffsets[mid] > offset) {
+          high = mid;
+        } else {
+          low = mid + 1;
+        }
+      }
+      let line = low - 1;
+      return Position2.create(line, offset - lineOffsets[line]);
+    }
+    offsetAt(position) {
+      let lineOffsets = this.getLineOffsets();
+      if (position.line >= lineOffsets.length) {
+        return this._content.length;
+      } else if (position.line < 0) {
+        return 0;
+      }
+      let lineOffset = lineOffsets[position.line];
+      let nextLineOffset = position.line + 1 < lineOffsets.length ? lineOffsets[position.line + 1] : this._content.length;
+      return Math.max(Math.min(lineOffset + position.character, nextLineOffset), lineOffset);
+    }
+    get lineCount() {
+      return this.getLineOffsets().length;
+    }
+  };
   var Is;
   (function(Is2) {
-    var toString = Object.prototype.toString;
+    const toString = Object.prototype.toString;
     function defined(value) {
       return typeof value !== "undefined";
     }
@@ -39514,6 +38034,8 @@ spurious results.`);
   // node_modules/graphql-language-service/esm/parser/CharacterStream.js
   var CharacterStream = class {
     constructor(sourceText) {
+      this._start = 0;
+      this._pos = 0;
       this.getStartOfToken = () => this._start;
       this.getCurrentPosition = () => this._pos;
       this.eol = () => this._sourceText.length === this._pos;
@@ -39600,8 +38122,6 @@ spurious results.`);
         return indent2;
       };
       this.current = () => this._sourceText.slice(this._start, this._pos);
-      this._start = 0;
-      this._pos = 0;
       this._sourceText = sourceText;
     }
     _testNextCharacter(pattern) {
@@ -39927,8 +38447,8 @@ spurious results.`);
       style,
       match: (token) => token.kind === "Name",
       update(state, token) {
-        var _a3;
-        if ((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.prevState) {
+        var _a4;
+        if ((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.prevState) {
           state.name = token.value;
           state.prevState.prevState.type = token.value;
         }
@@ -39964,7 +38484,7 @@ spurious results.`);
     };
   }
   function getToken(stream, state, options) {
-    var _a3;
+    var _a4;
     if (state.inBlockstring) {
       if (stream.match(/.*"""/)) {
         state.inBlockstring = false;
@@ -40026,7 +38546,7 @@ spurious results.`);
           pushRule(parseRules, state, expected);
           continue;
         }
-        if ((_a3 = expected.match) === null || _a3 === void 0 ? void 0 : _a3.call(expected, token)) {
+        if ((_a4 = expected.match) === null || _a4 === void 0 ? void 0 : _a4.call(expected, token)) {
           if (expected.update) {
             expected.update(state, token);
           }
@@ -40080,7 +38600,7 @@ spurious results.`);
     state.prevState = state.prevState.prevState;
   }
   function advanceRule(state, successful) {
-    var _a3;
+    var _a4;
     if (isList(state) && state.rule) {
       const step = state.rule[state.step];
       if (step.separator) {
@@ -40100,7 +38620,7 @@ spurious results.`);
       popRule(state);
       if (state.rule) {
         if (isList(state)) {
-          if ((_a3 = state.rule) === null || _a3 === void 0 ? void 0 : _a3[state.step].separator) {
+          if ((_a4 = state.rule) === null || _a4 === void 0 ? void 0 : _a4[state.step].separator) {
             state.needsSeparator = !state.needsSeparator;
           }
         } else {
@@ -40179,7 +38699,7 @@ spurious results.`);
             externalFragments.push(def);
           }
         });
-      } catch (_a3) {
+      } catch (_a4) {
         return [];
       }
     }
@@ -40219,14 +38739,14 @@ spurious results.`);
             return false;
           }
         });
-      } catch (_a3) {
+      } catch (_a4) {
         return hasTypeSystemDef;
       }
     }
     return hasTypeSystemDef;
   };
   function getAutocompleteSuggestions(schema, queryText, cursor, contextToken, fragmentDefs, options) {
-    var _a3;
+    var _a4;
     const opts = Object.assign(Object.assign({}, options), { schema });
     const token = contextToken || getTokenAtPosition(queryText, cursor, 1);
     const state = token.state.kind === "Invalid" ? token.state.prevState : token.state;
@@ -40245,7 +38765,7 @@ spurious results.`);
     if (kind === RuleKinds.EXTEND_DEF) {
       return getSuggestionsForExtensionDefinitions(token);
     }
-    if (((_a3 = prevState === null || prevState === void 0 ? void 0 : prevState.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) === RuleKinds.EXTENSION_DEFINITION && state.name) {
+    if (((_a4 = prevState === null || prevState === void 0 ? void 0 : prevState.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) === RuleKinds.EXTENSION_DEFINITION && state.name) {
       return hintList(token, []);
     }
     if ((prevState === null || prevState === void 0 ? void 0 : prevState.kind) === Kind.SCALAR_TYPE_EXTENSION) {
@@ -40294,13 +38814,13 @@ spurious results.`);
       const { argDefs } = typeInfo;
       if (argDefs) {
         return hintList(token, argDefs.map((argDef) => {
-          var _a4;
+          var _a5;
           return {
             label: argDef.name,
             insertText: argDef.name + ": ",
             command: SuggestionCommand,
             detail: String(argDef.type),
-            documentation: (_a4 = argDef.description) !== null && _a4 !== void 0 ? _a4 : void 0,
+            documentation: (_a5 = argDef.description) !== null && _a5 !== void 0 ? _a5 : void 0,
             kind: CompletionItemKind3.Variable,
             type: argDef.type
           };
@@ -40311,11 +38831,11 @@ spurious results.`);
       const objectFields = objectValues(typeInfo.objectFieldDefs);
       const completionKind = kind === RuleKinds.OBJECT_VALUE ? CompletionItemKind3.Value : CompletionItemKind3.Field;
       return hintList(token, objectFields.map((field) => {
-        var _a4;
+        var _a5;
         return {
           label: field.name,
           detail: String(field.type),
-          documentation: (_a4 = field.description) !== null && _a4 !== void 0 ? _a4 : void 0,
+          documentation: (_a5 = field.description) !== null && _a5 !== void 0 ? _a5 : void 0,
           kind: completionKind,
           type: field.type
         };
@@ -40408,7 +38928,7 @@ spurious results.`);
     ]);
   }
   function getSuggestionsForFieldNames(token, typeInfo, options) {
-    var _a3;
+    var _a4;
     if (typeInfo.parentType) {
       const { parentType } = typeInfo;
       let fields = [];
@@ -40418,16 +38938,16 @@ spurious results.`);
       if (isCompositeType(parentType)) {
         fields.push(TypeNameMetaFieldDef);
       }
-      if (parentType === ((_a3 = options === null || options === void 0 ? void 0 : options.schema) === null || _a3 === void 0 ? void 0 : _a3.getQueryType())) {
+      if (parentType === ((_a4 = options === null || options === void 0 ? void 0 : options.schema) === null || _a4 === void 0 ? void 0 : _a4.getQueryType())) {
         fields.push(SchemaMetaFieldDef, TypeMetaFieldDef);
       }
       return hintList(token, fields.map((field, index) => {
-        var _a4;
+        var _a5;
         const suggestion = {
           sortText: String(index) + field.name,
           label: field.name,
           detail: String(field.type),
-          documentation: (_a4 = field.description) !== null && _a4 !== void 0 ? _a4 : void 0,
+          documentation: (_a5 = field.description) !== null && _a5 !== void 0 ? _a5 : void 0,
           deprecated: Boolean(field.deprecationReason),
           isDeprecated: Boolean(field.deprecationReason),
           deprecationReason: field.deprecationReason,
@@ -40453,11 +38973,11 @@ spurious results.`);
     if (namedInputType instanceof GraphQLEnumType) {
       const values = namedInputType.getValues();
       return hintList(token, values.map((value) => {
-        var _a3;
+        var _a4;
         return {
           label: value.name,
           detail: String(namedInputType),
-          documentation: (_a3 = value.description) !== null && _a3 !== void 0 ? _a3 : void 0,
+          documentation: (_a4 = value.description) !== null && _a4 !== void 0 ? _a4 : void 0,
           deprecated: Boolean(value.deprecationReason),
           isDeprecated: Boolean(value.deprecationReason),
           deprecationReason: value.deprecationReason,
@@ -40495,19 +39015,19 @@ spurious results.`);
     const schemaInterfaceNames = schemaInterfaces.map(({ name: name2 }) => name2);
     const inlineInterfaces = /* @__PURE__ */ new Set();
     runOnlineParser(documentText, (_, state) => {
-      var _a3, _b, _c, _d, _e;
+      var _a4, _b2, _c2, _d, _e;
       if (state.name) {
         if (state.kind === RuleKinds.INTERFACE_DEF && !schemaInterfaceNames.includes(state.name)) {
           inlineInterfaces.add(state.name);
         }
-        if (state.kind === RuleKinds.NAMED_TYPE && ((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) === RuleKinds.IMPLEMENTS) {
+        if (state.kind === RuleKinds.NAMED_TYPE && ((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) === RuleKinds.IMPLEMENTS) {
           if (typeInfo.interfaceDef) {
-            const existingType = (_b = typeInfo.interfaceDef) === null || _b === void 0 ? void 0 : _b.getInterfaces().find(({ name: name2 }) => name2 === state.name);
+            const existingType = (_b2 = typeInfo.interfaceDef) === null || _b2 === void 0 ? void 0 : _b2.getInterfaces().find(({ name: name2 }) => name2 === state.name);
             if (existingType) {
               return;
             }
             const type2 = schema.getType(state.name);
-            const interfaceConfig = (_c = typeInfo.interfaceDef) === null || _c === void 0 ? void 0 : _c.toConfig();
+            const interfaceConfig = (_c2 = typeInfo.interfaceDef) === null || _c2 === void 0 ? void 0 : _c2.toConfig();
             typeInfo.interfaceDef = new GraphQLInterfaceType(Object.assign(Object.assign({}, interfaceConfig), { interfaces: [
               ...interfaceConfig.interfaces,
               type2 || new GraphQLInterfaceType({ name: state.name, fields: {} })
@@ -40592,11 +39112,11 @@ spurious results.`);
     })));
   }
   var getParentDefinition = (state, kind) => {
-    var _a3, _b, _c, _d, _e, _f, _g, _h, _j, _k;
-    if (((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) === kind) {
+    var _a4, _b2, _c2, _d, _e, _f, _g, _h, _j, _k;
+    if (((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) === kind) {
       return state.prevState;
     }
-    if (((_c = (_b = state.prevState) === null || _b === void 0 ? void 0 : _b.prevState) === null || _c === void 0 ? void 0 : _c.kind) === kind) {
+    if (((_c2 = (_b2 = state.prevState) === null || _b2 === void 0 ? void 0 : _b2.prevState) === null || _c2 === void 0 ? void 0 : _c2.kind) === kind) {
       return state.prevState.prevState;
     }
     if (((_f = (_e = (_d = state.prevState) === null || _d === void 0 ? void 0 : _d.prevState) === null || _e === void 0 ? void 0 : _e.prevState) === null || _f === void 0 ? void 0 : _f.kind) === kind) {
@@ -40670,8 +39190,8 @@ spurious results.`);
     })));
   }
   function getSuggestionsForDirective(token, state, schema, _kind) {
-    var _a3;
-    if ((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) {
+    var _a4;
+    if ((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) {
       const directives = schema.getDirectives().filter((directive) => canUseDirective(state.prevState, directive));
       return hintList(token, directives.map((directive) => ({
         label: directive.name,
@@ -40686,12 +39206,13 @@ spurious results.`);
     let stateAtCursor = null;
     let stringAtCursor = null;
     const token = runOnlineParser(queryText, (stream, state, style, index) => {
-      if (index === cursor.line && stream.getCurrentPosition() + offset >= cursor.character + 1) {
-        styleAtCursor = style;
-        stateAtCursor = Object.assign({}, state);
-        stringAtCursor = stream.current();
-        return "BREAK";
+      if (index !== cursor.line || stream.getCurrentPosition() + offset < cursor.character + 1) {
+        return;
       }
+      styleAtCursor = style;
+      stateAtCursor = Object.assign({}, state);
+      stringAtCursor = stream.current();
+      return "BREAK";
     });
     return {
       start: token.start,
@@ -40793,7 +39314,7 @@ spurious results.`);
     let type2;
     let interfaceDef;
     forEachState(tokenState, (state) => {
-      var _a3;
+      var _a4;
       switch (state.kind) {
         case RuleKinds.QUERY:
         case "ShortQuery":
@@ -40857,7 +39378,7 @@ spurious results.`);
                 argDefs = directiveDef && directiveDef.args;
                 break;
               case RuleKinds.ALIASED_FIELD: {
-                const name2 = (_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.name;
+                const name2 = (_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.name;
                 if (!name2) {
                   argDefs = null;
                   break;
@@ -40969,6 +39490,26 @@ spurious results.`);
       text(into, t2.name);
     }
   }
+  function renderDefinitionDescription(t2, useMarkdown, description) {
+    const into = [];
+    const type2 = "type" in t2 ? t2.type : t2;
+    if ("type" in t2 && t2.description) {
+      text(into, t2.description);
+      text(into, "\n\n");
+    }
+    text(into, renderTypeToString(type2, useMarkdown));
+    if (description) {
+      text(into, "\n");
+      text(into, description);
+    } else if (!isScalarType(type2) && "description" in type2 && type2.description) {
+      text(into, "\n");
+      text(into, type2.description);
+    } else if ("ofType" in type2 && !isScalarType(type2.ofType) && "description" in type2.ofType && type2.ofType.description) {
+      text(into, "\n");
+      text(into, type2.ofType.description);
+    }
+    return into.join("");
+  }
   function renderTypeToString(t2, useMarkdown) {
     const into = [];
     if (useMarkdown) {
@@ -40980,13 +39521,13 @@ spurious results.`);
     }
     return into.join("");
   }
-  var scalarTypesMap = {
-    Int: "integer",
-    String: "string",
-    Float: "number",
-    ID: "string",
-    Boolean: "boolean",
-    DateTime: "string"
+  var defaultScalarTypesMap = {
+    Int: { type: "integer" },
+    String: { type: "string" },
+    Float: { type: "number" },
+    ID: { type: "string" },
+    Boolean: { type: "boolean" },
+    DateTime: { type: "string" }
   };
   var Marker = class {
     constructor() {
@@ -41000,75 +39541,77 @@ spurious results.`);
       return true;
     }
   };
-  function getJSONSchemaFromGraphQLType(type2, options) {
-    let required = false;
+  function getJSONSchemaFromGraphQLType(fieldOrType, options) {
+    var _a4, _b2;
     let definition = /* @__PURE__ */ Object.create(null);
     const definitions = /* @__PURE__ */ Object.create(null);
-    if ("defaultValue" in type2 && type2.defaultValue !== void 0) {
-      definition.default = type2.defaultValue;
-    }
-    if (isEnumType(type2)) {
-      definition.type = "string";
-      definition.enum = type2.getValues().map((val) => val.name);
-    }
-    if (isScalarType(type2) && scalarTypesMap[type2.name]) {
-      definition.type = scalarTypesMap[type2.name];
-    }
-    if (isListType(type2)) {
-      definition.type = "array";
-      const { definition: def, definitions: defs } = getJSONSchemaFromGraphQLType(type2.ofType, options);
-      if (def.$ref) {
-        definition.items = { $ref: def.$ref };
+    const isField = "type" in fieldOrType;
+    const type2 = isField ? fieldOrType.type : fieldOrType;
+    const baseType = isNonNullType(type2) ? type2.ofType : type2;
+    const required = isNonNullType(type2);
+    if (isScalarType(baseType)) {
+      if ((_a4 = options === null || options === void 0 ? void 0 : options.scalarSchemas) === null || _a4 === void 0 ? void 0 : _a4[baseType.name]) {
+        definition = JSON.parse(JSON.stringify(options.scalarSchemas[baseType.name]));
       } else {
-        definition.items = def;
+        definition.type = ["string", "number", "boolean", "integer"];
       }
+      if (!required) {
+        if (Array.isArray(definition.type)) {
+          definition.type.push("null");
+        } else if (definition.type) {
+          definition.type = [definition.type, "null"];
+        } else if (definition.enum) {
+          definition.enum.push(null);
+        } else if (definition.oneOf) {
+          definition.oneOf.push({ type: "null" });
+        } else {
+          definition = {
+            oneOf: [definition, { type: "null" }]
+          };
+        }
+      }
+    } else if (isEnumType(baseType)) {
+      definition.enum = baseType.getValues().map((val) => val.name);
+      if (!required) {
+        definition.enum.push(null);
+      }
+    } else if (isListType(baseType)) {
+      if (required) {
+        definition.type = "array";
+      } else {
+        definition.type = ["array", "null"];
+      }
+      const { definition: def, definitions: defs } = getJSONSchemaFromGraphQLType(baseType.ofType, options);
+      definition.items = def;
       if (defs) {
         for (const defName of Object.keys(defs)) {
           definitions[defName] = defs[defName];
         }
       }
-    }
-    if (isNonNullType(type2)) {
-      required = true;
-      const { definition: def, definitions: defs } = getJSONSchemaFromGraphQLType(type2.ofType, options);
-      definition = def;
-      if (defs) {
-        for (const defName of Object.keys(defs)) {
-          definitions[defName] = defs[defName];
-        }
+    } else if (isInputObjectType(baseType)) {
+      if (required) {
+        definition.$ref = `#/definitions/${baseType.name}`;
+      } else {
+        definition.oneOf = [
+          { $ref: `#/definitions/${baseType.name}` },
+          { type: "null" }
+        ];
       }
-    }
-    if (isInputObjectType(type2)) {
-      definition.$ref = `#/definitions/${type2.name}`;
-      if (options === null || options === void 0 ? void 0 : options.definitionMarker.mark(type2.name)) {
-        const fields = type2.getFields();
+      if ((_b2 = options === null || options === void 0 ? void 0 : options.definitionMarker) === null || _b2 === void 0 ? void 0 : _b2.mark(baseType.name)) {
+        const fields = baseType.getFields();
         const fieldDef = {
           type: "object",
           properties: {},
           required: []
         };
-        if (type2.description) {
-          fieldDef.description = type2.description + "\n" + renderTypeToString(type2);
-          if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
-            fieldDef.markdownDescription = type2.description + "\n" + renderTypeToString(type2, true);
-          }
-        } else {
-          fieldDef.description = renderTypeToString(type2);
-          if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
-            fieldDef.markdownDescription = renderTypeToString(type2, true);
-          }
+        fieldDef.description = renderDefinitionDescription(baseType);
+        if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
+          fieldDef.markdownDescription = renderDefinitionDescription(baseType, true);
         }
         for (const fieldName of Object.keys(fields)) {
           const field = fields[fieldName];
-          const { required: fieldRequired, definition: typeDefinition, definitions: typeDefinitions } = getJSONSchemaFromGraphQLType(field.type, options);
-          const { definition: fieldDefinition } = getJSONSchemaFromGraphQLType(field, options);
-          fieldDef.properties[fieldName] = Object.assign(Object.assign({}, typeDefinition), fieldDefinition);
-          const renderedField = renderTypeToString(field.type);
-          fieldDef.properties[fieldName].description = field.description ? field.description + "\n" + renderedField : renderedField;
-          if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
-            const renderedFieldMarkdown = renderTypeToString(field.type, true);
-            fieldDef.properties[fieldName].markdownDescription = field.description ? field.description + "\n" + renderedFieldMarkdown : renderedFieldMarkdown;
-          }
+          const { required: fieldRequired, definition: fieldDefinition, definitions: typeDefinitions } = getJSONSchemaFromGraphQLType(field, options);
+          fieldDef.properties[fieldName] = fieldDefinition;
           if (fieldRequired) {
             fieldDef.required.push(fieldName);
           }
@@ -41078,37 +39621,34 @@ spurious results.`);
             }
           }
         }
-        definitions[type2.name] = fieldDef;
+        definitions[baseType.name] = fieldDef;
       }
     }
-    if ("description" in type2 && !isScalarType(type2) && type2.description && !definition.description) {
-      definition.description = type2.description + "\n" + renderTypeToString(type2);
-      if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
-        definition.markdownDescription = type2.description + "\n" + renderTypeToString(type2, true);
-      }
-    } else {
-      definition.description = renderTypeToString(type2);
-      if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
-        definition.markdownDescription = renderTypeToString(type2, true);
-      }
+    if ("defaultValue" in fieldOrType && fieldOrType.defaultValue !== void 0) {
+      definition.default = fieldOrType.defaultValue;
+    }
+    const { description } = definition;
+    definition.description = renderDefinitionDescription(fieldOrType, false, description);
+    if (options === null || options === void 0 ? void 0 : options.useMarkdownDescription) {
+      definition.markdownDescription = renderDefinitionDescription(fieldOrType, true, description);
     }
     return { required, definition, definitions };
   }
   function getVariablesJSONSchema(variableToType, options) {
-    var _a3;
+    var _a4;
     const jsonSchema = {
-      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $schema: "http://json-schema.org/draft-04/schema",
       type: "object",
       properties: {},
       required: []
     };
-    const runtimeOptions = Object.assign(Object.assign({}, options), { definitionMarker: new Marker() });
+    const runtimeOptions = Object.assign(Object.assign({}, options), { definitionMarker: new Marker(), scalarSchemas: Object.assign(Object.assign({}, defaultScalarTypesMap), options === null || options === void 0 ? void 0 : options.scalarSchemas) });
     if (variableToType) {
       for (const [variableName, type2] of Object.entries(variableToType)) {
         const { definition, required, definitions } = getJSONSchemaFromGraphQLType(type2, runtimeOptions);
         jsonSchema.properties[variableName] = definition;
         if (required) {
-          (_a3 = jsonSchema.required) === null || _a3 === void 0 ? void 0 : _a3.push(variableName);
+          (_a4 = jsonSchema.required) === null || _a4 === void 0 ? void 0 : _a4.push(variableName);
         }
         if (definitions) {
           jsonSchema.definitions = Object.assign(Object.assign({}, jsonSchema === null || jsonSchema === void 0 ? void 0 : jsonSchema.definitions), definitions);
@@ -41252,7 +39792,7 @@ spurious results.`);
     }
   };
   function getDiagnostics(query, schema = null, customRules, isRelayCompatMode, externalFragments) {
-    var _a3, _b;
+    var _a4, _b2;
     let ast = null;
     let fragments = "";
     if (externalFragments) {
@@ -41265,7 +39805,7 @@ ${fragments}` : query;
       ast = parse2(enhancedQuery);
     } catch (error) {
       if (error instanceof GraphQLError) {
-        const range = getRange((_b = (_a3 = error.locations) === null || _a3 === void 0 ? void 0 : _a3[0]) !== null && _b !== void 0 ? _b : { line: 0, column: 0 }, enhancedQuery);
+        const range = getRange((_b2 = (_a4 = error.locations) === null || _a4 === void 0 ? void 0 : _a4[0]) !== null && _b2 !== void 0 ? _b2 : { line: 0, column: 0 }, enhancedQuery);
         return [
           {
             severity: DIAGNOSTIC_SEVERITY.Error,
@@ -41661,7 +40201,10 @@ ${this._externalFragmentDefinitionsString}`);
           const documentAST = this.parse(documentText);
           const operationFacts = getOperationASTFacts(documentAST, schema.schema);
           if (operationFacts?.variableToType) {
-            return getVariablesJSONSchema(operationFacts.variableToType, options);
+            return getVariablesJSONSchema(operationFacts.variableToType, {
+              ...options,
+              scalarSchemas: schema.customScalarSchemas
+            });
           }
         } catch {
         }

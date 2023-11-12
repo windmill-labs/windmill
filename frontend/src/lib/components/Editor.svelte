@@ -7,15 +7,14 @@
 
 	import * as vscode from 'vscode'
 
-	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
 		editor as meditor,
+		languages,
 		KeyCode,
 		KeyMod,
 		Uri as mUri,
-		languages,
 		type IRange
-	} from 'monaco-editor/esm/vs/editor/editor.api'
+	} from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
@@ -26,7 +25,10 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 
-	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
+	// import nord from '$lib/assets/nord.json'
+
+	import { MonacoLanguageClient } from 'monaco-languageclient'
+
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
@@ -48,6 +50,9 @@
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
 	import { sleep } from '$lib/utils'
 	import { editorCodeCompletion } from './copilot/completion'
+	import { initializeVscode } from './vscode'
+	import EditorTheme from './EditorTheme.svelte'
+	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -85,12 +90,6 @@
 	export let useWebsockets: boolean = true
 	export let listenEmptyChanges = false
 
-	languages.typescript.typescriptDefaults.setModeConfiguration({
-		completionItems: false,
-		definitions: false,
-		hovers: false
-	})
-
 	const rHash = randomHash()
 	$: filePath = computePath(path)
 
@@ -114,6 +113,7 @@
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+
 	let dbSchema: DBSchema | undefined = undefined
 
 	let destroyed = false
@@ -277,7 +277,6 @@
 						endLineNumber: position.lineNumber,
 						endColumn: position.column
 					})
-
 					const word = model.getWordUntilPosition(position)
 					const range = {
 						startLineNumber: position.lineNumber,
@@ -285,17 +284,13 @@
 						startColumn: word.startColumn,
 						endColumn: word.endColumn
 					}
-
 					let suggestions: languages.CompletionItem[] = []
-
 					const noneMatch = textUntilPosition.match(/(?:add|create table)\s/i)
-
 					if (noneMatch) {
 						return {
 							suggestions
 						}
 					}
-
 					for (const schemaKey in schema) {
 						suggestions.push({
 							label: schemaKey,
@@ -305,7 +300,6 @@
 							range: range,
 							sortText: 'z'
 						})
-
 						for (const tableKey in schema[schemaKey]) {
 							suggestions.push({
 								label: tableKey,
@@ -315,11 +309,9 @@
 								range: range,
 								sortText: 'y'
 							})
-
 							const noColsMatch = textUntilPosition.match(
 								/(?:from|insert into|update|table)\s(?![\s\S]*(\b(where|order by|group by|values|set|column)\b|\())/i
 							)
-
 							if (!noColsMatch) {
 								for (const columnKey in schema[schemaKey][tableKey]) {
 									suggestions.push({
@@ -332,7 +324,6 @@
 									})
 								}
 							}
-
 							if (textUntilPosition.match(new RegExp(`${tableKey}.$`, 'i'))) {
 								suggestions = suggestions.filter((x) =>
 									x.detail?.includes(`(${schemaKey}.${tableKey})`)
@@ -342,7 +333,6 @@
 								}
 							}
 						}
-
 						if (textUntilPosition.match(new RegExp(`${schemaKey}.$`, 'i'))) {
 							suggestions = suggestions.filter((x) => x.detail === `table (${schemaKey})`)
 							return {
@@ -365,29 +355,22 @@
 		if (copilotCompletor) {
 			copilotCompletor.dispose()
 		}
-		copilotCompletor = languages.registerInlineCompletionsProvider(
+		copilotCompletor = vscode.languages.registerInlineCompletionItemProvider(
 			{ pattern: '**' },
 			{
-				freeInlineCompletions(completions) {},
-				async provideInlineCompletions(model, position, context, token) {
+				async provideInlineCompletionItems(model, position, context, token) {
 					abortController?.abort()
-					const textUntilPosition = model.getValueInRange({
-						startLineNumber: 1,
-						startColumn: 1,
-						endLineNumber: position.lineNumber,
-						endColumn: position.column
-					})
-
-					let items: languages.InlineCompletions<languages.InlineCompletion>['items'] = []
+					const textUntilPosition = model.getText(
+						new vscode.Range(1, 1, position.line, position.character)
+					)
+					let items: vscode.InlineCompletionItem[] = []
 
 					const lastChar = textUntilPosition[textUntilPosition.length - 1]
 					if (textUntilPosition.trim().length > 5 && lastChar.match(/[\(\{\s:=]/)) {
-						const textAfterPosition = model.getValueInRange({
-							startLineNumber: position.lineNumber,
-							startColumn: position.column,
-							endLineNumber: model.getLineCount() + 1,
-							endColumn: 1
-						})
+						const textAfterPosition = model.getText(
+							new vscode.Range(position.line, position.character, model.lineCount + 1, 1)
+						)
+
 						const thisTs = Date.now()
 						copilotTs = thisTs
 						await sleep(500)
@@ -404,13 +387,12 @@
 								items = [
 									{
 										insertText,
-										range: {
-											startLineNumber: position.lineNumber,
-											startColumn: position.column,
-											endLineNumber: position.lineNumber,
-											endColumn: position.column
-										},
-										completeBracketPairs: false
+										range: new vscode.Range(
+											position.line,
+											position.character,
+											position.line,
+											position.character
+										)
 									}
 								]
 							}
@@ -428,6 +410,7 @@
 
 	$: $copilotInfo.exists_openai_resource_path &&
 		$copilotInfo.code_completion_enabled &&
+		initialized &&
 		addCopilotSuggestions()
 
 	const outputChannel = {
@@ -448,22 +431,6 @@
 	export async function reloadWebsocket() {
 		console.log('reloadWebsocket')
 		await closeWebsockets()
-		try {
-			await initServices({
-				enableThemeService: false,
-				enableModelEditorService: true,
-				enableNotificationService: false,
-				modelEditorServiceConfig: {
-					useDefaultFunction: true
-				},
-				debugLogging: false
-			})
-		} catch (e) {
-			console.log('initServices failed', e.message)
-			if (e.message != 'Lifecycle cannot go backwards') {
-				return
-			}
-		}
 
 		function createLanguageClient(
 			transports: MessageTransports,
@@ -885,16 +852,34 @@
 	}
 
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
-	let model: meditor.ITextModel
+	let model: meditor.ITextModel | undefined = undefined
 
 	let monacoBinding: MonacoBinding | undefined = undefined
 	// @ts-ignore
-	$: if (yContent && awareness && model && editor) {
+	$: if (yContent && awareness && modelRef && editor) {
 		monacoBinding && monacoBinding.destroy()
-		monacoBinding = new MonacoBinding(yContent, model, new Set([editor]), awareness)
+		monacoBinding = new MonacoBinding(
+			yContent,
+			model!,
+			new Set([editor as meditor.IStandaloneCodeEditor]),
+			awareness
+		)
 	}
 
+	let initialized = false
 	async function loadMonaco() {
+		try {
+			console.error("Loading Monaco's language client")
+			await initializeVscode()
+		} catch (e) {
+			console.log('error initializing services', e)
+		}
+
+		// console.log('bef ready')
+		// console.log('af ready')
+
+		initialized = true
+
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {
@@ -908,10 +893,17 @@
 		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
 
 		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+			model,
 			overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
+		})
+
+		languages.typescript.typescriptDefaults.setModeConfiguration({
+			completionItems: false,
+			definitions: false,
+			hovers: false
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
@@ -979,7 +971,6 @@
 			label,
 			keybindings,
 			contextMenuGroupId: 'navigation',
-
 			run: function (editor: meditor.IStandaloneCodeEditor) {
 				callback(editor)
 			}
@@ -1002,6 +993,7 @@
 	})
 </script>
 
+<EditorTheme />
 <div bind:this={divEl} class="{$$props.class} editor" />
 
 <style global lang="postcss">

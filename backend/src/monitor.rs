@@ -24,9 +24,10 @@ use windmill_common::{
         BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        RETENTION_PERIOD_SECS_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
+    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
     users::truncate_token,
     worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
@@ -90,6 +91,10 @@ pub async fn initial_load(
 
     if let Err(e) = load_metrics_debug_enabled(db).await {
         tracing::error!("Error loading expose debug metrics: {e}");
+    }
+
+    if server_mode {
+        load_require_preexisting_user(db).await;
     }
 
     if worker_mode {
@@ -163,14 +168,32 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
     Ok(())
 }
 pub async fn load_keep_job_dir(db: &DB) {
-    let metrics_enabled = sqlx::query_scalar!(
+    let value = sqlx::query_scalar!(
         "SELECT value FROM global_settings WHERE name = $1",
         KEEP_JOB_DIR_SETTING
     )
     .fetch_optional(db)
     .await;
-    match metrics_enabled {
+    match value {
         Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
+        Err(e) => {
+            tracing::error!("Error loading keep job dir metrics: {e}");
+        }
+        _ => (),
+    };
+}
+
+pub async fn load_require_preexisting_user(db: &DB) {
+    let value = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match value {
+        Ok(Some(serde_json::Value::Bool(t))) => {
+            REQUIRE_PREEXISTING_USER_FOR_OAUTH.store(t, Ordering::Relaxed)
+        }
         Err(e) => {
             tracing::error!("Error loading keep job dir metrics: {e}");
         }

@@ -190,6 +190,7 @@
 				size="sm"
 				btnClasses="w-full max-w-lg"
 				loading={true}
+				clickableWhileLoading
 			>
 				Cancel
 			</Button>

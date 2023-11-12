@@ -9,29 +9,16 @@
 		updateOptions
 	} from '$lib/editorUtils'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import 'monaco-editor/esm/vs/editor/edcore.main'
-	import {
-		editor as meditor,
-		Uri as mUri,
-		languages,
-		Range,
-		KeyMod,
-		KeyCode
-	} from 'monaco-editor/esm/vs/editor/editor.api'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
 	import { buildWorkerDefinition } from './build_workers'
+	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noLib: true
-	})
-
-	languages.register({ id: 'template' })
+	import { initializeVscode } from './vscode'
+	import EditorTheme from './EditorTheme.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -362,13 +349,6 @@
 		}
 	}
 
-	// Register a tokens provider for the language
-	languages.registerTokensProviderFactory('template', {
-		create: () => language as languages.IMonarchLanguage
-	})
-
-	languages.setLanguageConfiguration('template', conf)
-
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 	let model: meditor.ITextModel
@@ -429,13 +409,32 @@
 	let width = 0
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 
+	let initialized = false
 	async function loadMonaco() {
+		await initializeVscode()
+		initialized = true
+		languages.typescript.javascriptDefaults.setCompilerOptions({
+			target: languages.typescript.ScriptTarget.Latest,
+			allowNonTsExtensions: true,
+			noLib: true
+		})
+
+		languages.register({ id: 'template' })
+
+		// Register a tokens provider for the language
+		languages.registerTokensProviderFactory('template', {
+			create: () => language as languages.IMonarchLanguage
+		})
+
+		languages.setLanguageConfiguration('template', conf)
+
 		model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
 		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+			model,
 			overflowWidgetsDomNode: widgets,
 			lineNumbers: 'off',
 			fontSize,
@@ -574,7 +573,7 @@
 		}
 	})
 
-	$: mounted && extraLib && loadExtraLib()
+	$: mounted && extraLib && initialized && loadExtraLib()
 
 	function loadExtraLib() {
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
@@ -600,6 +599,8 @@
 		} catch (err) {}
 	})
 </script>
+
+<EditorTheme />
 
 <div
 	bind:this={divEl}

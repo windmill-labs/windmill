@@ -193,7 +193,7 @@
 						{/if}
 					{/if}
 					{#if category == 'SSO/OAuth'}
-						<div>
+						<div class="mb-6">
 							<h4 class="pb-4">SSO</h4>
 							{#if !$enterpriseLicense}
 								<Alert type="warning" title="Limited to 10 SSO users">
@@ -347,122 +347,119 @@
 								</Button>
 							</div>
 						</div>
-					{:else}
-						<div>
-							<div class="flex-col flex gap-2 pb-4">
-								{#each settings[category] as setting}
-									{#if !setting.cloudonly || isCloudHosted()}
-										{#if setting.ee_only != undefined && !$enterpriseLicense}
-											<div
-												class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap"
-											>
-												<AlertTriangle size={16} />
-												EE only <Tooltip>{setting.ee_only}</Tooltip>
-											</div>
+					{/if}
+					<div>
+						<div class="flex-col flex gap-2 pb-4">
+							{#each settings[category] as setting}
+								{#if !setting.cloudonly || isCloudHosted()}
+									{#if setting.ee_only != undefined && !$enterpriseLicense}
+										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
+											<AlertTriangle size={16} />
+											EE only <Tooltip>{setting.ee_only}</Tooltip>
+										</div>
+									{/if}
+									<label class="block pb-2">
+										<span class="text-primary font-semibold text-sm">{setting.label}</span>
+										{#if setting.description}
+											<span class="text-secondary text-xs">{setting.description}</span>
 										{/if}
-										<label class="block pb-2">
-											<span class="text-primary font-semibold text-sm">{setting.label}</span>
-											{#if setting.description}
-												<span class="text-secondary text-xs">{setting.description}</span>
-											{/if}
-											{#if setting.tooltip}
-												<Tooltip>{setting.tooltip}</Tooltip>
-											{/if}
-											{#if values}
-												{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
-												{#if setting.fieldType == 'text'}
-													<input
-														disabled={setting.ee_only != undefined && !$enterpriseLicense}
-														type="text"
-														placeholder={setting.placeholder}
-														class={hasError
-															? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30 !bg-red-100'
-															: ''}
-														bind:value={values[setting.key]}
-													/>
-												{:else if setting.fieldType == 'textarea'}
+										{#if setting.tooltip}
+											<Tooltip>{setting.tooltip}</Tooltip>
+										{/if}
+										{#if values}
+											{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
+											{#if setting.fieldType == 'text'}
+												<input
+													disabled={setting.ee_only != undefined && !$enterpriseLicense}
+													type="text"
+													placeholder={setting.placeholder}
+													class={hasError
+														? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30 !bg-red-100'
+														: ''}
+													bind:value={values[setting.key]}
+												/>
+											{:else if setting.fieldType == 'textarea'}
+												<textarea
+													rows="2"
+													placeholder={setting.placeholder}
+													bind:value={values[setting.key]}
+												/>
+											{:else if setting.fieldType == 'license_key'}
+												<div class="flex justify-between gap-2">
 													<textarea
 														rows="2"
 														placeholder={setting.placeholder}
+														on:keydown={() => {
+															licenseKeyChanged = true
+														}}
 														bind:value={values[setting.key]}
 													/>
-												{:else if setting.fieldType == 'license_key'}
-													<div class="flex justify-between gap-2">
-														<textarea
-															rows="2"
-															placeholder={setting.placeholder}
-															on:keydown={() => {
-																licenseKeyChanged = true
-															}}
-															bind:value={values[setting.key]}
-														/>
-														<Button
-															variant={values[setting.key] ? 'contained' : 'border'}
-															size="xs"
-															on:click={async () => {
-																await SettingService.testLicenseKey({
-																	requestBody: { license_key: values[setting.key] }
-																})
-																sendUserToast('Valid key')
-															}}>Test Key</Button
-														>
-													</div>
-													{#if values[setting.key]?.length > 0}
-														{#if parseDate(values[setting.key])}
-															<span class="text-tertiary text-2xs"
-																>License key expires on {parseDate(values[setting.key])}</span
-															>
-														{/if}
-													{/if}
-													{#if licenseKeyChanged}
-														<div class="text-yellow-600"
-															>Refresh page after setting license key and saving to unlock all
-															features</div
+													<Button
+														variant={values[setting.key] ? 'contained' : 'border'}
+														size="xs"
+														on:click={async () => {
+															await SettingService.testLicenseKey({
+																requestBody: { license_key: values[setting.key] }
+															})
+															sendUserToast('Valid key')
+														}}>Test Key</Button
+													>
+												</div>
+												{#if values[setting.key]?.length > 0}
+													{#if parseDate(values[setting.key])}
+														<span class="text-tertiary text-2xs"
+															>License key expires on {parseDate(values[setting.key])}</span
 														>
 													{/if}
-												{:else if setting.fieldType == 'email'}
-													<input
-														type="email"
-														placeholder={setting.placeholder}
-														bind:value={values[setting.key]}
-													/>
-												{:else if setting.fieldType == 'number'}
-													<input
-														type="number"
-														placeholder={setting.placeholder}
-														bind:value={values[setting.key]}
-													/>
-												{:else if setting.fieldType == 'password'}
-													<input
-														type="password"
-														placeholder={setting.placeholder}
-														bind:value={values[setting.key]}
-													/>
-												{:else if setting.fieldType == 'boolean'}
-													<div>
-														<Toggle bind:checked={values[setting.key]} />
-													</div>
-												{:else if setting.fieldType == 'seconds'}
-													<div>
-														<SecondsInput bind:seconds={values[setting.key]} />
-													</div>
 												{/if}
-
-												{#if hasError}
-													<span class="text-red-500 text-xs">
-														Base url must start with http:// or https:// and must not end with a
-														trailing slash.
-													</span>
+												{#if licenseKeyChanged}
+													<div class="text-yellow-600"
+														>Refresh page after setting license key and saving to unlock all
+														features</div
+													>
 												{/if}
-											{:else}
-												<input disabled placeholder="Loading..." />
+											{:else if setting.fieldType == 'email'}
+												<input
+													type="email"
+													placeholder={setting.placeholder}
+													bind:value={values[setting.key]}
+												/>
+											{:else if setting.fieldType == 'number'}
+												<input
+													type="number"
+													placeholder={setting.placeholder}
+													bind:value={values[setting.key]}
+												/>
+											{:else if setting.fieldType == 'password'}
+												<input
+													type="password"
+													placeholder={setting.placeholder}
+													bind:value={values[setting.key]}
+												/>
+											{:else if setting.fieldType == 'boolean'}
+												<div>
+													<Toggle bind:checked={values[setting.key]} />
+												</div>
+											{:else if setting.fieldType == 'seconds'}
+												<div>
+													<SecondsInput bind:seconds={values[setting.key]} />
+												</div>
 											{/if}
-										</label>
-									{/if}
-								{/each}
-							</div>
+
+											{#if hasError}
+												<span class="text-red-500 text-xs">
+													Base url must start with http:// or https:// and must not end with a
+													trailing slash.
+												</span>
+											{/if}
+										{:else}
+											<input disabled placeholder="Loading..." />
+										{/if}
+									</label>
+								{/if}
+							{/each}
 						</div>
-					{/if}
+					</div>
 					{#if category == 'SMTP'}
 						<div class="flex gap-4"
 							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
