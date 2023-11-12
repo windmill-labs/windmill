@@ -8,8 +8,8 @@ export async function initializeVscode() {
 		isInitialized = true
 		// init vscode-api
 		await initServices({
-			debugLogging: true,
-			logLevel: LogLevel.Debug
+			debugLogging: false,
+			logLevel: LogLevel.Info
 		})
 		meditor.defineTheme('nord', {
 			base: 'vs-dark',
