@@ -24,7 +24,6 @@
 	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
-	import '@codingame/monaco-vscode-python-default-extension'
 
 	// import nord from '$lib/assets/nord.json'
 
