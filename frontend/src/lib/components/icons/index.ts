@@ -66,6 +66,7 @@ import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
+import AuthentikIcon from './AuthentikIcon.svelte';
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -138,7 +139,8 @@ export const APP_TO_ICON_COMPONENT = {
 	graphql: GraphqlIcon,
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
-	okta: OktaIcon
+	okta: OktaIcon,
+	authentik: AuthentikIcon
 } as const
 
 export {
@@ -204,5 +206,6 @@ export {
 	NocoDbIcon,
 	AzureIcon,
 	MicrosoftIcon,
-	OktaIcon
+	OktaIcon,
+	AuthentikIcon
 }
