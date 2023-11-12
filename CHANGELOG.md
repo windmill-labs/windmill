@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.206.0](https://github.com/windmill-labs/windmill/compare/v1.205.0...v1.206.0) (2023-11-12)
+
+
+### Features
+
+* Add Authentik SSO support ([#2614](https://github.com/windmill-labs/windmill/issues/2614)) ([ce38a43](https://github.com/windmill-labs/windmill/commit/ce38a4322e13b35660f16d4a3ca66224487dd27b))
+* add dedicated worker support for deno ([528f6fa](https://github.com/windmill-labs/windmill/commit/528f6fa9107d3b93c36fd5418ca95b7f2b701445))
+* add support for requiring users to pre-exist ([eb5067a](https://github.com/windmill-labs/windmill/commit/eb5067aee5fd0c64614c967ef4b2af2398e8807c))
+
+
+### Bug Fixes
+
+* add windmill loading screen ([8151b01](https://github.com/windmill-labs/windmill/commit/8151b01013383a83ce8aca8c2f918ead159b4273))
+* fix selected component switch tab + copyComponent keep layout ([6a819cc](https://github.com/windmill-labs/windmill/commit/6a819cc51211cba7009d985caddb9ae6f0ec8f48))
+* handle console logs in dedicated workers ([fa3efd3](https://github.com/windmill-labs/windmill/commit/fa3efd3f608a754f0c271da557a244ff6b359cfd))
+* keep dark theme on login redirect ([7bbe3cf](https://github.com/windmill-labs/windmill/commit/7bbe3cf288ec480e56cc33a5d3248c00567e137f))
+* update monaco ([#2616](https://github.com/windmill-labs/windmill/issues/2616)) ([f809172](https://github.com/windmill-labs/windmill/commit/f809172e3da88594d7e5a3ed8a12116e804ca6ae))
+
 ## [1.205.0](https://github.com/windmill-labs/windmill/compare/v1.204.1...v1.205.0) (2023-11-11)
 
 
