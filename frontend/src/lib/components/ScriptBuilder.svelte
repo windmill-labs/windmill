@@ -44,7 +44,6 @@
 		X
 	} from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
-	import type Editor from './Editor.svelte'
 	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -58,6 +57,7 @@
 	import Label from './Label.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
+	import type Editor from './Editor.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''

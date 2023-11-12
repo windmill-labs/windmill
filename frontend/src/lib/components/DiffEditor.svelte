@@ -2,14 +2,18 @@
 	import { BROWSER } from 'esm-env'
 	import { onMount } from 'svelte'
 
-	import 'monaco-editor/esm/vs/editor/edcore.main'
-	import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+	import { editor as meditor } from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import { initializeVscode } from './vscode'
+	import EditorTheme from './EditorTheme.svelte'
+	import { buildWorkerDefinition } from './build_workers'
+
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -25,7 +29,9 @@
 	let diffDivEl: HTMLDivElement | null = null
 	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
 
-	function loadDiffEditor() {
+	async function loadDiffEditor() {
+		await initializeVscode()
+
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
@@ -38,7 +44,6 @@
 			scrollBeyondLastLine: false,
 			lineDecorationsWidth: 15,
 			lineNumbersMinChars: 2,
-			autoDetectHighContrast: true,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
 		if (
@@ -106,5 +111,7 @@
 		}
 	})
 </script>
+
+<EditorTheme />
 
 <div bind:this={diffDivEl} class="{$$props.class} editor" bind:clientWidth={editorWidth} />
