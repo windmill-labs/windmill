@@ -1,11 +1,6 @@
-import getKeybindingsServiceOverride from '@codingame/monaco-vscode-keybindings-service-override'
-
 import { initServices } from 'monaco-languageclient'
-import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 import { LogLevel } from 'vscode/services'
-import { Uri } from 'monaco-editor'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
-
 export let isInitialized = false
 
 export async function initializeVscode() {
@@ -13,10 +8,6 @@ export async function initializeVscode() {
 		isInitialized = true
 		// init vscode-api
 		await initServices({
-			userServices: {
-				...getConfigurationServiceOverride(Uri.file('/workspace')),
-				...getKeybindingsServiceOverride()
-			},
 			debugLogging: true,
 			logLevel: LogLevel.Debug
 		})

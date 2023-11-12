@@ -94,10 +94,7 @@
 	"type": "module",
 	"dependencies": {
 		"@aws-crypto/sha256-js": "^4.0.0",
-		"@codingame/monaco-vscode-configuration-service-override": "~1.83.5",
 		"@codingame/monaco-vscode-editor-service-override": "~1.83.5",
-		"@codingame/monaco-vscode-keybindings-service-override": "~1.83.5",
-		"@codingame/monaco-vscode-python-default-extension": "~1.83.5",
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
