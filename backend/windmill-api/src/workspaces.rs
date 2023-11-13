@@ -128,6 +128,7 @@ pub struct WorkspaceSettings {
     pub auto_invite_operator: Option<bool>,
     pub customer_id: Option<String>,
     pub plan: Option<String>,
+    pub subscription_id: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
     pub openai_resource_path: Option<String>,
@@ -268,26 +269,48 @@ async fn list_pending_invites(
     Ok(Json(rows))
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(FromRow)]
 pub struct PremiumWorkspaceInfo {
     pub premium: bool,
     pub usage: Option<i32>,
+    pub subscription_id: Option<String>,
+}
+#[derive(Serialize)]
+pub struct PremiumInfo {
+    pub premium: bool,
+    pub usage: Option<i32>,
+    pub seats: Option<i32>,
 }
 async fn premium_info(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<PremiumWorkspaceInfo> {
+) -> JsonResult<PremiumInfo> {
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
+        "SELECT premium, usage.usage, workspace_settings.subscription_id FROM workspace LEFT JOIN workspace_settings ON workspace_settings.workspace_id = $1 LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
+       
     )
     .bind(w_id)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(row))
+    let mut result = PremiumInfo {
+        premium: row.premium,
+        usage: row.usage,
+        seats: None,
+    };
+    if let Some(subscription_id) = row.subscription_id.clone() {
+        let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+        let subscription_id = stripe::SubscriptionId::from_str(&subscription_id).unwrap();
+        let subscription = stripe::Subscription::retrieve(&client, &subscription_id, &vec![]).await.map_err(to_anyhow)?;
+        result.seats = subscription.items.data.iter().filter_map(|item|{
+            item.price.clone().map(|p| p.metadata.get("plan").filter(|plan| plan == &"team").map(|_| item.quantity.map(|x| x as i32))).flatten().flatten()
+        }).collect::<Vec<_>>().get(0).copied();
+    }
+    
+    Ok(Json(result))
 }
 
 #[cfg(feature = "enterprise")]
@@ -301,6 +324,7 @@ async fn stripe_checkout(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Query(plan): Query<PlanQuery>,
+    Extension(db): Extension<DB>,
 ) -> Result<Redirect> {
     // #[cfg(feature = "enterprise")]
     {
@@ -318,18 +342,40 @@ async fn stripe_checkout(
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: Some(1),
                         price: Some("price_1NCNOgGU3NdFi9eLuG4fZuEP".to_string()),
-                        ..Default::default()
-                    },
-                    stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1NCNCpGU3NdFi9eLbiE6Ca42".to_string()),
+                        adjustable_quantity: Some(stripe::CreateCheckoutSessionLineItemsAdjustableQuantity {
+                            enabled: true,
+                            minimum: Some(1),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     },
                 ]),
                 _ => Err(Error::BadRequest("invalid plan".to_string()))?,
             };
-            params.customer_email = Some(&authed.email);
-            params.client_reference_id = Some(&w_id);
+            let w_id_ = w_id.clone();
+            params.client_reference_id = Some(&w_id_);
+            let customer_id = sqlx::query_scalar!(
+                "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1",
+                w_id
+            )
+            .fetch_one(&db)
+            .await?;
+
+            match customer_id {
+                Some(customer_id) => {
+                    params.customer = Some(CustomerId::from_str(&customer_id).map_err(to_anyhow)?)
+                }
+                _ => params.customer_email = Some(&authed.email),
+            }
+            
+            params.subscription_data = Some(stripe::CreateCheckoutSessionSubscriptionData {
+                metadata: {
+                    let mut map = std::collections::HashMap::new();
+                    map.insert("workspace_id".to_string(), w_id);
+                    map
+                },
+                ..Default::default()
+            });
             stripe::CheckoutSession::create(&client, params)
                 .await
                 .unwrap()

@@ -13,7 +13,7 @@
 
 	let users: User[] | undefined = undefined
 
-	let premium_info: { premium: boolean; usage?: number } | undefined = undefined
+	let premium_info: { premium: boolean; usage?: number; seats?: number } | undefined = undefined
 	const plans = {
 		Free: [
 			'Users use their individual global free-tier quotas when doing executions in this workspace',
@@ -72,14 +72,17 @@
 		<div class="flex flex-col gap-0.5">
 			{#if plan}
 				<div class="text-base inline font-bold leading-8 mb-2">
-					Current plan: {capitalize(plan ?? 'free')} plan
+					Current plan: {capitalize(plan)} plan ({premium_info?.seats || 1} seat{(premium_info?.seats ||
+						1) > 1
+						? 's'
+						: ''})
 				</div>
 			{:else}
 				<div class="inline text-lg font-bold">Current plan: Free plan</div>
 			{/if}
 
 			{#if plan}
-				{@const team_factor = plan == 'team' ? 10 : 40}
+				<!-- {@const team_factor = plan == 'team' ? 10 : 40} -->
 				{@const user_nb = users?.filter((x) => !x.operator)?.length ?? 0}
 				{@const operator_nb = users?.filter((x) => x.operator)?.length ?? 0}
 				{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
@@ -91,13 +94,13 @@
 							<tr>
 								<Cell first>
 									Authors
-									<Tooltip light>
+									<Tooltip>
 										Actual pricing is calculated on the MAXIMUM number of users in a given billing
 										period, see the customer portal for more info.
 									</Tooltip>
 								</Cell>
 								<Cell last numeric>
-									<div class="text-base font-bold">
+									<div class="text-base">
 										{user_nb}
 									</div>
 								</Cell>
@@ -111,13 +114,13 @@
 									</Tooltip>
 								</Cell>
 								<Cell last numeric>
-									<div class="text-base font-bold">
+									<div class="text-base">
 										{operator_nb}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first>Seats from authors + operators</Cell>
+								<Cell first><div class="font-semibold">Seats from authors + operators</div></Cell>
 								<Cell last numeric>
 									<div class="text-base font-bold">
 										ceil({user_nb} + {operator_nb}/2) = {seats_from_users}
@@ -127,13 +130,13 @@
 							<tr>
 								<Cell first>Computations executed this month</Cell>
 								<Cell last numeric>
-									<div class="text-base font-bold">
+									<div class="text-base">
 										{premium_info?.usage ?? 0}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first>Seats from computations</Cell>
+								<Cell first><div class="font-semibold">Seats from computations</div></Cell>
 								<Cell last numeric>
 									<div class="text-base font-bold">
 										ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}
@@ -141,18 +144,31 @@
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first>Total seats</Cell>
+								<Cell first
+									><div class="font-semibold"
+										>Counted seats<Tooltip light
+											>Highest between seats from authors + operators and seats from computations
+										</Tooltip></div
+									></Cell
+								>
 								<Cell last numeric>
 									<div class="text-base font-bold">
-										max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
+										max({seats_from_comps}, {seats_from_users}) = {Math.max(
 											seats_from_comps,
 											seats_from_users
-										) * team_factor}/mo
+										)}
 									</div>
 								</Cell>
 							</tr>
 						</tbody>
 					</DataTable>
+
+					{#if Math.max(seats_from_comps, seats_from_users) > (premium_info?.seats || 1)}
+						<p class="text-red-500 mt-2 text-right text-base"
+							>You have exceeded your allowed number of seats, please upgrade your plan in the
+							customer portal or we will disable your workspace.
+						</p>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -201,6 +217,10 @@
 				{/if}
 			{:else if !plan}
 				<Badge class="mx-auto text-lg font-semibold">Workspace is on the free plan</Badge>
+			{:else if planTitle === 'Free'}
+				<div class="mx-auto font-semibold text-center"
+					>Cancel your plan in the customer portal to downgrade to the free plan
+				</div>
 			{:else}
 				<div class="mt-4 w-full">
 					<Button href="/api/w/{$workspaceStore}/workspaces/checkout" color="dark"

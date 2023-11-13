@@ -1162,6 +1162,8 @@ paths:
                     type: string
                   customer_id:
                     type: string
+                  subscription_id:
+                    type: string
                   webhook:
                     type: string
                   deploy_to:
@@ -1219,6 +1221,8 @@ paths:
                   premium:
                     type: boolean
                   usage:
+                    type: number
+                  seats:
                     type: number
                 required:
                   - premium

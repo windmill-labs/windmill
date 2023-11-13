@@ -175,6 +175,7 @@ rsa = "0.7.2"
 async-stripe = { version = "0.14", features = [
     "runtime-tokio-hyper",
     "checkout",
+    "billing",
 ] }
 async_zip = { version = "0.0.11", features = ["full"] }
 once_cell = "1.17.1"
