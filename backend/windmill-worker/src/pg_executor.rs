@@ -76,6 +76,7 @@ pub async fn do_postgresql(
         dbname = database.dbname,
         sslmode = sslmode
     );
+    let database_string_clone = database_string.clone();
 
     RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
     LAST_QUERY.store(
@@ -219,6 +220,17 @@ pub async fn do_postgresql(
                         tracing::info!("Closing cache connection due to inactivity");
                         break;
                     }
+                    let mtex = CONNECTION_CACHE.lock().await;
+                    if mtex.is_none() {
+                        // connection is not in the mutex anymore
+                        break;
+                    } else if let Some(mtex) = mtex.as_ref() {
+                        if mtex.0.as_str() != &database_string_clone {
+                            // connection is not the latest one
+                            break;
+                        }
+                    }
+
                     tracing::debug!("Keeping cached connection alive due to activity")
                 }
                 let mut mtex = CONNECTION_CACHE.lock().await;
