@@ -209,7 +209,7 @@ pub async fn do_postgresql(
 
             tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    tokio::time::sleep(Duration::from_secs(5)).await;
                     let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
                     let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
 
