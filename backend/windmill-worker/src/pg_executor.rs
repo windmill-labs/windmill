@@ -208,10 +208,13 @@ pub async fn do_postgresql(
 
             tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    tokio::time::sleep(Duration::from_secs(15)).await;
                     let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
                     let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
-                    if last_query + 30 < now && !RUNNING.load(std::sync::atomic::Ordering::Relaxed)
+
+                    //we cache connection for 5 minutes at most
+                    if last_query + 60 * 5 < now
+                        && !RUNNING.load(std::sync::atomic::Ordering::Relaxed)
                     {
                         tracing::info!("Closing cache connection due to inactivity");
                         break;
