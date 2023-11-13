@@ -69,7 +69,7 @@
 			return 'json'
 		}
 
-		if (result) {
+		if (result !== undefined) {
 			try {
 				let keys = Object.keys(result)
 
@@ -153,8 +153,9 @@
 				>
 				<slot name="copilot-fix" />
 			</div>
-		{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="top-0 mb-2 w-full min-w-[400px] text-sm relative"
+		{/if}
+		{#if typeof result == 'object' && Object.keys(result).length > 0}
+			<div class="top-0 mb-2 w-full min-w-[400px] text-sm relative"
 				>{#if !disableExpand}
 					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2 z-10">
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
