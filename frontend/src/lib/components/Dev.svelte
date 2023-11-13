@@ -70,6 +70,7 @@
 		initializeMode()
 
 	let testJobLoader: TestJobLoader
+	let socket: WebSocket | undefined = undefined
 
 	// Test args input
 	let args: Record<string, any> = {}
@@ -100,6 +101,7 @@
 
 	let lockChanges = false
 	let timeout: NodeJS.Timeout | undefined = undefined
+
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
 		if (event.data.type == 'runTest') {
@@ -151,7 +153,6 @@
 		}
 	})
 
-	let socket: WebSocket | undefined = undefined
 	function connectWs() {
 		const port = searchParams?.get('port') || '3001'
 		try {
