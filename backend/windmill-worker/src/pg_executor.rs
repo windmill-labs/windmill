@@ -1,3 +1,7 @@
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::Context;
 use chrono::Utc;
 use futures::TryStreamExt;
@@ -8,6 +12,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::{
     types::{to_sql_checked, ToSql},
@@ -19,13 +24,14 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::common::build_args_values;
 use crate::AuthedClientBackgroundTask;
 use bytes::BytesMut;
+use lazy_static::lazy_static;
 use urlencoding::encode;
 
 #[derive(Deserialize)]
@@ -37,6 +43,13 @@ struct PgDatabase {
     sslmode: Option<String>,
     dbname: String,
     root_certificate_pem: Option<String>,
+}
+
+lazy_static! {
+    pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
+        Arc::new(Mutex::new(None));
+    pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
+    pub static ref RUNNING: AtomicBool = AtomicBool::new(false);
 }
 
 pub async fn do_postgresql(
@@ -63,7 +76,27 @@ pub async fn do_postgresql(
         dbname = database.dbname,
         sslmode = sslmode
     );
-    let (client, handle) = if sslmode == "require" {
+
+    RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
+    LAST_QUERY.store(
+        chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    let mtex;
+    if !*CLOUD_HOSTED {
+        mtex = Some(CONNECTION_CACHE.lock().await);
+    } else {
+        mtex = None;
+    }
+
+    let has_cached_con = mtex
+        .as_ref()
+        .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
+    let new_client = if has_cached_con {
+        tracing::info!("Using cached connection");
+        None
+    } else if sslmode == "require" {
+        tracing::info!("Creating new connection");
         let mut connector = TlsConnector::builder();
         if let Some(root_certificate_pem) = database.root_certificate_pem {
             if !root_certificate_pem.is_empty() {
@@ -90,20 +123,25 @@ pub async fn do_postgresql(
 
         let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                let mut mtex = CONNECTION_CACHE.lock().await;
+                *mtex = None;
+                tracing::error!("connection error: {}", e);
             }
         });
-        (client, handle)
+        Some((client, handle))
     } else {
+        tracing::info!("Creating new connection");
         let (client, connection) = tokio_postgres::connect(&database_string, NoTls)
             .await
             .map_err(to_anyhow)?;
         let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                let mut mtex = CONNECTION_CACHE.lock().await;
+                *mtex = None;
+                tracing::error!("connection error: {}", e);
             }
         });
-        (client, handle)
+        Some((client, handle))
     };
 
     let mut statement_values: Vec<serde_json::Value> = vec![];
@@ -133,6 +171,13 @@ pub async fn do_postgresql(
             convert_val(value, arg_t)
         })
         .collect::<windmill_common::error::Result<Vec<_>>>()?;
+
+    let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
+        (client, Some(handle))
+    } else {
+        let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
+        (client, None)
+    };
     // Now we can execute a simple statement that just returns its parameter.
     let rows = client
         .query_raw(query, query_params)
@@ -146,8 +191,41 @@ pub async fn do_postgresql(
         .into_iter()
         .map(postgres_row_to_json_value)
         .collect::<Result<Vec<_>, _>>()?);
+    RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
 
-    handle.abort();
+    if let Some(handle) = handle {
+        if let Some(mut mtex) = mtex {
+            let abort_handler = handle.abort_handle();
+
+            if let Some(new_client) = new_client {
+                *mtex = Some((database_string, new_client.0));
+            }
+            drop(mtex);
+            LAST_QUERY.store(
+                chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
+                    let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
+                    if last_query + 30 < now && !RUNNING.load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        tracing::info!("Closing cache connection due to inactivity");
+                        break;
+                    }
+                    tracing::debug!("Keeping cached connection alive due to activity")
+                }
+                let mut mtex = CONNECTION_CACHE.lock().await;
+                *mtex = None;
+                abort_handler.abort();
+            });
+        } else {
+            handle.abort();
+        }
+    }
     // And then check that we got back the same string we sent over.
     return Ok(to_raw_value(&result));
 }
