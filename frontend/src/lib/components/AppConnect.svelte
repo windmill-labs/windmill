@@ -201,8 +201,8 @@
 					linkedSecret: undefined
 				}
 			])
-		const filteredNativeLanguages = filteredConnectsManual?.filter(([key, _]) =>
-			nativeLanguagesCategory.includes(key)
+		const filteredNativeLanguages = filteredConnectsManual?.filter(
+			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
 
 		filteredConnectsManual = [
