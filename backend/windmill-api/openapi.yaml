@@ -1162,8 +1162,6 @@ paths:
                     type: string
                   customer_id:
                     type: string
-                  subscription_id:
-                    type: string
                   webhook:
                     type: string
                   deploy_to:
