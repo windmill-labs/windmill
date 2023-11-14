@@ -210,7 +210,9 @@
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
-						ws_error_handler_muted: flow.ws_error_handler_muted
+						ws_error_handler_muted: flow.ws_error_handler_muted,
+						tag: flow.tag,
+						dedicated_worker: flow.dedicated_worker
 					}
 				})
 				if (enabled) {
@@ -228,6 +230,7 @@
 						value: flow.value,
 						schema: flow.schema,
 						tag: flow.tag,
+						dedicated_worker: flow.dedicated_worker,
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})

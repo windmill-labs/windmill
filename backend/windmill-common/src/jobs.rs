@@ -283,15 +283,20 @@ pub enum JobPayload {
         hash: ScriptHash,
         dependencies: String,
         language: ScriptLang,
+        dedicated_worker: Option<bool>,
     },
     FlowDependencies {
         path: String,
+        dedicated_worker: Option<bool>,
     },
     AppDependencies {
         path: String,
         version: i64,
     },
-    Flow(String),
+    Flow {
+        path: String,
+        dedicated_worker: Option<bool>,
+    },
     RestartedFlow {
         completed_job_id: Uuid,
         step_id: String,
@@ -401,10 +406,18 @@ pub async fn get_payload_tag_from_prefixed_path(
     let (payload, tag) = if path.starts_with("script/") {
         script_path_to_payload(path.strip_prefix("script/").unwrap(), &db, w_id).await?
     } else if path.starts_with("flow/") {
-        (
-            JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string()),
-            None,
+        let path = path.strip_prefix("flow/").unwrap().to_string();
+        let r = sqlx::query!(
+            "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
+            &path,
+            &w_id,
         )
+        .fetch_optional(db)
+        .await?;
+        let (tag, dedicated_worker) = r
+            .map(|x| (x.tag, x.dedicated_worker))
+            .unwrap_or_else(|| (None, None));
+        (JobPayload::Flow { path, dedicated_worker }, tag)
     } else {
         return Err(Error::BadRequest(format!(
             "path must start with script/ or flow/ (got {})",

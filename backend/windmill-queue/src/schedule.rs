@@ -72,15 +72,20 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     }
 
     let (payload, tag) = if schedule.is_flow {
-        let tag = sqlx::query_scalar!(
-            "SELECT tag from flow WHERE path = $1 and workspace_id = $2",
+        let r = sqlx::query!(
+            "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
             &schedule.script_path,
             &schedule.workspace_id,
         )
         .fetch_optional(&mut tx)
-        .await?
-        .flatten();
-        (JobPayload::Flow(schedule.script_path), tag)
+        .await?;
+        let (tag, dedicated_worker) = r
+            .map(|x| (x.tag, x.dedicated_worker))
+            .unwrap_or_else(|| (None, None));
+        (
+            JobPayload::Flow { path: schedule.script_path, dedicated_worker },
+            tag,
+        )
     } else {
         let (
             hash,

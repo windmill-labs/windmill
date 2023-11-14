@@ -69,7 +69,9 @@ export function evalValue(
 	return v
 }
 
-export function cleanInputs(flow: OpenFlow | any): OpenFlow & {tag?: string, ws_error_handler_muted?: boolean}{
+export function cleanInputs(
+	flow: OpenFlow | any
+): OpenFlow & { tag?: string; ws_error_handler_muted?: boolean; dedicated_worker?: boolean } {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
@@ -110,7 +112,12 @@ export function jobsToResults(jobs: Job[]) {
 	})
 }
 
-export async function runFlowPreview(args: Record<string, any>, flow: OpenFlow & { tag?: string }, path: string, restartedFrom: RestartedFrom | undefined) {
+export async function runFlowPreview(
+	args: Record<string, any>,
+	flow: OpenFlow & { tag?: string },
+	path: string,
+	restartedFrom: RestartedFrom | undefined
+) {
 	const newFlow = flow
 	return await JobService.runFlowPreview({
 		workspace: get(workspaceStore) ?? '',
@@ -119,7 +126,7 @@ export async function runFlowPreview(args: Record<string, any>, flow: OpenFlow &
 			value: newFlow.value,
 			path: path,
 			tag: newFlow.tag,
-			restarted_from: restartedFrom,
+			restarted_from: restartedFrom
 		}
 	})
 }

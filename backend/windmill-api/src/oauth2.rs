@@ -858,7 +858,10 @@ async fn slack_command(
     if let Some(settings) = settings {
         if let Some(path) = &settings.slack_command_script {
             let (payload, tag) = if let Some(path) = path.strip_prefix("flow/") {
-                (JobPayload::Flow(path.to_string()), None)
+                (
+                    JobPayload::Flow { path: path.to_string(), dedicated_worker: None },
+                    None,
+                )
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
                 let (
