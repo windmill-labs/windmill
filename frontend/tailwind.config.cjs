@@ -663,7 +663,7 @@ const config = {
 				'pre code.hljs': {
 					padding: '0px !important',
 					fontFamily: theme('fontFamily.mono'),
-					fontSize: theme('fontSize.sm') + ' !important',
+					fontSize: theme('fontSize.xs') + ' !important',
 					lineHeight: theme('lineHeight.4') + ' !important'
 				},
 				'.h1-textarea': {

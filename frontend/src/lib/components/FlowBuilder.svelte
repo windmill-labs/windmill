@@ -423,7 +423,7 @@
 		onClick: () => void
 	}> = []
 
-	if (savedFlow?.draft_only === false) {
+	if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 		dropdownItems.push({
 			label: 'Exit & see details',
 			onClick: () => dispatch('details', $pathStore)
