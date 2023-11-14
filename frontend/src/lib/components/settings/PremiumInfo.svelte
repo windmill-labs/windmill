@@ -166,7 +166,7 @@
 					{#if Math.max(seats_from_comps, seats_from_users) > (premium_info?.seats || 1)}
 						<p class="text-red-500 mt-2 text-right text-base"
 							>You have exceeded your allowed number of seats, please upgrade your plan in the
-							customer portal or we will disable your workspace.
+							customer portal.
 						</p>
 					{/if}
 				</div>
