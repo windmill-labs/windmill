@@ -373,7 +373,7 @@
 
 						const thisTs = Date.now()
 						copilotTs = thisTs
-						await sleep(500)
+						await sleep(200)
 						if (copilotTs === thisTs) {
 							abortController?.abort()
 							abortController = new AbortController()
