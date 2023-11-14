@@ -57,6 +57,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
+use chrono::{TimeZone, Datelike};
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
@@ -128,7 +129,6 @@ pub struct WorkspaceSettings {
     pub auto_invite_operator: Option<bool>,
     pub customer_id: Option<String>,
     pub plan: Option<String>,
-    pub subscription_id: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
     pub openai_resource_path: Option<String>,
@@ -273,7 +273,8 @@ async fn list_pending_invites(
 pub struct PremiumWorkspaceInfo {
     pub premium: bool,
     pub usage: Option<i32>,
-    pub subscription_id: Option<String>,
+    pub customer_id: Option<String>,
+    pub plan: Option<String>,
 }
 #[derive(Serialize)]
 pub struct PremiumInfo {
@@ -289,10 +290,10 @@ async fn premium_info(
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage, workspace_settings.subscription_id FROM workspace LEFT JOIN workspace_settings ON workspace_settings.workspace_id = $1 LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
+        "SELECT premium, usage.usage, workspace_settings.customer_id, workspace_settings.plan FROM workspace LEFT JOIN workspace_settings ON workspace_settings.workspace_id = $1 LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
        
     )
-    .bind(w_id)
+    .bind(w_id.clone())
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -301,12 +302,17 @@ async fn premium_info(
         usage: row.usage,
         seats: None,
     };
-    if let Some(subscription_id) = row.subscription_id.clone() {
+    if row.premium && row.plan == Some("team".to_string()) {
+        let customer_id = row.customer_id.ok_or(Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-        let subscription_id = stripe::SubscriptionId::from_str(&subscription_id).unwrap();
-        let subscription = stripe::Subscription::retrieve(&client, &subscription_id, &vec![]).await.map_err(to_anyhow)?;
+        let customer_id = stripe::CustomerId::from_str(&customer_id).map_err(to_anyhow)?;
+        let subscriptions = stripe::Subscription::list(
+            &client,
+            &stripe::ListSubscriptions { customer: Some(customer_id.clone()), limit: Some(1), ..Default::default() },
+        ).await.map_err(to_anyhow)?;
+        let subscription = subscriptions.data.get(0).ok_or_else(|| Error::InternalErr(format!("no subscription for customer {}", customer_id)))?;
         result.seats = subscription.items.data.iter().filter_map(|item|{
-            item.price.clone().map(|p| p.metadata.get("plan").filter(|plan| plan == &"team").map(|_| item.quantity.map(|x| x as i32))).flatten().flatten()
+            item.price.clone().map(|p| p.metadata.map(|m| m.get("plan").filter(|plan| plan == &"team").map(|_| item.quantity.map(|x| x as i32)))).flatten().flatten().flatten()
         }).collect::<Vec<_>>().get(0).copied();
     }
     
@@ -335,8 +341,9 @@ async fn stripe_checkout(
         let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url);
         let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url);
         let checkout_session = {
-            let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
+            let mut params = stripe::CreateCheckoutSession::new(&success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
+            params.cancel_url = Some(&failure_rd);
             params.line_items = match plan.plan.as_str() {
                 "team" => Some(vec![
                     stripe::CreateCheckoutSessionLineItems {
@@ -372,10 +379,21 @@ async fn stripe_checkout(
                 metadata: {
                     let mut map = std::collections::HashMap::new();
                     map.insert("workspace_id".to_string(), w_id);
-                    map
+                    Some(map)
                 },
+                billing_cycle_anchor: Some({
+                    // first of the next month (and possibly next year) at noon UTC
+                    let now = Utc::now();
+                    let date = if now.month() == 12 {
+                        Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 12, 0, 0).single().unwrap()
+                    } else {
+                        Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 12, 0, 0).single().unwrap()
+                    };
+                    date.timestamp()
+                }),
                 ..Default::default()
             });
+
             stripe::CheckoutSession::create(&client, params)
                 .await
                 .unwrap()

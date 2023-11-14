@@ -381,11 +381,12 @@ dependencies = [
 
 [[package]]
 name = "async-stripe"
-version = "0.14.1"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71b85eb331f5c2b6ae4ff00aabd20a8a21de88b9890c58579616bf760570b207"
+checksum = "e1b39347f478f57a40cbaf82cbaebb4a350acc757cda30fc7ff88707a11d1d81"
 dependencies = [
  "chrono",
+ "futures-util",
  "hex",
  "hmac",
  "http-types",
@@ -393,7 +394,8 @@ dependencies = [
  "hyper-tls",
  "serde",
  "serde_json",
- "serde_qs 0.9.2",
+ "serde_path_to_error",
+ "serde_qs 0.10.1",
  "sha2 0.10.8",
  "smart-default",
  "smol_str",
@@ -5669,9 +5671,9 @@ dependencies = [
 
 [[package]]
 name = "serde_qs"
-version = "0.9.2"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6af4cee6cd4b23b45e6709150d1e9af5c748131de7e3316a7c2b3008051ed725"
+checksum = "8cac3f1e2ca2fe333923a1ae72caca910b98ed0630bb35ef6f8c8517d6e81afa"
 dependencies = [
  "percent-encoding",
  "serde",
