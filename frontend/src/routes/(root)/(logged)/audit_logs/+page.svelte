@@ -22,6 +22,7 @@
 	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || 100
 	let operation: string = $page.url.searchParams.get('operation') ?? 'all'
 	let resource: string | undefined = $page.url.searchParams.get('resource') ?? undefined
+
 	let actionKind: ActionKind | 'all' =
 		($page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
 
@@ -40,7 +41,7 @@
 					You can only see your own audit logs unless you are an admin.
 				</Tooltip>
 			</div>
-			<div class="hidden xl:block">
+			<div class="hidden 2xl:block">
 				<AuditLogsFilters
 					bind:logs
 					bind:username
@@ -53,7 +54,7 @@
 					bind:perPage
 				/>
 			</div>
-			<div class="xl:hidden">
+			<div class="2xl:hidden">
 				<AuditLogMobileFilters>
 					<svelte:fragment slot="filters">
 						<AuditLogsFilters
@@ -87,6 +88,8 @@
 					bind:perPage
 					bind:actionKind
 					bind:operation
+					bind:usernameFilter={username}
+					bind:resourceFilter={resource}
 					on:select={(e) => {
 						selectedId = e.detail
 					}}
@@ -105,6 +108,8 @@
 			bind:perPage
 			bind:actionKind
 			bind:operation
+			bind:usernameFilter={username}
+			bind:resourceFilter={resource}
 			on:select={(e) => {
 				selectedId = e.detail
 

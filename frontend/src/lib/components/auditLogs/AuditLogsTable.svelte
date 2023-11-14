@@ -7,6 +7,8 @@
 	import type { AuditLog } from '$lib/gen'
 	import { displayDate } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
+	import Button from '../common/button/Button.svelte'
+	import { ListFilter } from 'lucide-svelte'
 
 	export let logs: AuditLog[] = []
 	export let pageIndex: number | undefined = 1
@@ -14,6 +16,8 @@
 	export let actionKind: string | undefined = undefined
 	export let operation: string | undefined = undefined
 	export let selectedId: number | undefined = undefined
+	export let usernameFilter: string | undefined = undefined
+	export let resourceFilter: string | undefined = undefined
 
 	function groupLogsByDay(logs: AuditLog[]): Record<string, AuditLog[]> {
 		const groupedLogs = {}
@@ -103,8 +107,19 @@
 							{displayDate(timestamp)}
 						</Cell>
 						<Cell>
-							<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
-								{username}
+							<div class="flex flex-row gap-2 items-center">
+								<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
+									{username}
+								</div>
+								<Button
+									color="light"
+									size="xs2"
+									iconOnly
+									startIcon={{ icon: ListFilter }}
+									on:click={() => {
+										usernameFilter = username
+									}}
+								/>
 							</div>
 						</Cell>
 						<Cell>
@@ -125,8 +140,19 @@
 							</div>
 						</Cell>
 						<Cell last>
-							<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-48">
-								{resource}
+							<div class="flex flex-row gap-2 items-center">
+								<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-48">
+									{resource}
+								</div>
+								<Button
+									color="light"
+									size="xs2"
+									iconOnly
+									startIcon={{ icon: ListFilter }}
+									on:click={() => {
+										resourceFilter = resource
+									}}
+								/>
 							</div>
 						</Cell>
 					</Row>

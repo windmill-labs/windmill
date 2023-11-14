@@ -4,13 +4,20 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
-	import { AuditLog, AuditService, UserService } from '$lib/gen'
+	import {
+		AuditLog,
+		AuditService,
+		ResourceService,
+		UserService,
+		type ListableResource
+	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 
 	let usernames: string[]
+	let resources: ListableResource[]
 	let loading: boolean = false
 
 	export let logs: AuditLog[] = []
@@ -20,7 +27,7 @@
 	export let after: string | undefined = undefined
 	export let perPage: number | undefined = 100
 	export let operation: string = 'all'
-	export let resource: string | undefined = undefined
+	export let resource: string | undefined = 'all'
 	export let actionKind: ActionKind | 'all' = 'all'
 
 	async function loadLogs(
@@ -47,6 +54,10 @@
 			actionKind = undefined
 		}
 
+		if (resource == 'all' || resource == '') {
+			resource = undefined
+		}
+
 		logs = await AuditService.listAuditLogs({
 			workspace: $workspaceStore!,
 			page,
@@ -69,9 +80,16 @@
 				: [$userStore?.username ?? '']
 	}
 
+	async function loadResources() {
+		resources = await ResourceService.listResource({
+			workspace: $workspaceStore!
+		})
+	}
+
 	$: {
 		if ($workspaceStore && refresh) {
 			loadUsers()
+			loadResources()
 			loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind)
 		}
 	}
@@ -159,6 +177,7 @@
 		perPage = Number(urlSearchParams.get('perPage')) || 100
 		operation = urlSearchParams.get('operation') ?? 'all'
 		resource = urlSearchParams.get('resource') ?? undefined
+
 		actionKind = (urlSearchParams.get('actionKind') as ActionKind) ?? 'all'
 	}
 
@@ -256,7 +275,7 @@
 	let refresh = 1
 </script>
 
-<div class="flex flex-col items-center gap-6 xl:gap-1 xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">After</span>
 		<input type="text" value={after ?? 'After'} disabled />
@@ -299,6 +318,18 @@
 			{/if}
 		</select>
 	</div>
+	<div class="flex gap-1 relative w-full">
+		<span class="text-xs absolute -top-4">Resource</span>
+		<select bind:value={resource}>
+			{#if resources}
+				<option selected value="all">all</option>
+
+				{#each resources as r}
+					<option value={r.path}>{r.path}</option>
+				{/each}
+			{/if}
+		</select>
+	</div>
 
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Operation</span>
@@ -334,6 +365,7 @@
 				actionKind = 'all'
 				pageIndex = 1
 				perPage = 100
+				resource = 'all'
 			}}
 			size="xs"
 		>
