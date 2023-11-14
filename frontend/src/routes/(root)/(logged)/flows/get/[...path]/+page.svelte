@@ -400,8 +400,7 @@
 
 		<svelte:fragment slot="flow_step">
 			{#if stepDetail}
-			<FlowGraphViewerStep  {flow}  noSide={false} noGraph={true} {stepDetail} />
-
+				<FlowGraphViewerStep {flow} {stepDetail} />
 			{/if}
 		</svelte:fragment>
 	</DetailPageLayout>
