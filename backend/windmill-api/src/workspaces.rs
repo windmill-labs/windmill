@@ -116,6 +116,7 @@ struct Workspace {
     owner: String,
     deleted: bool,
     premium: bool,
+    is_overquota: bool,
 }
 
 #[derive(FromRow, Serialize, Debug)]
