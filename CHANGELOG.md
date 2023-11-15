@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.207.0](https://github.com/windmill-labs/windmill/compare/v1.206.0...v1.207.0) (2023-11-15)
+
+
+### Features
+
+* cache postgres connection ([#2621](https://github.com/windmill-labs/windmill/issues/2621)) ([ff8b9b0](https://github.com/windmill-labs/windmill/commit/ff8b9b03848bf44303bb3dc7d04572823fef28f8))
+
+
+### Bug Fixes
+
+* ai gen minor fixes ([#2626](https://github.com/windmill-labs/windmill/issues/2626)) ([eafde10](https://github.com/windmill-labs/windmill/commit/eafde1099532caacd23af19fd1405f71e6f7f723))
+* copy component only if empty selection ([9fd8a31](https://github.com/windmill-labs/windmill/commit/9fd8a31e1c3b515022e7967d5195c9b38a1e4cc3))
+* false not undefined in result ([#2620](https://github.com/windmill-labs/windmill/issues/2620)) ([f185eba](https://github.com/windmill-labs/windmill/commit/f185eba49cc84fc0bcfcfd00716999c11212db44))
+* fix delete schedule clear jobs ([244b85e](https://github.com/windmill-labs/windmill/commit/244b85e859e74e8e509c48c22dc9f543f11dd1f2))
+* fix diff editor error ([cbeefa8](https://github.com/windmill-labs/windmill/commit/cbeefa807a25e06dc8052e5c0984fe9c883da460))
+* **frontend:** Fix Step viewer ([#2627](https://github.com/windmill-labs/windmill/issues/2627)) ([1daccdb](https://github.com/windmill-labs/windmill/commit/1daccdbdb104f4d6e619ed0bdf28ef9ecc15bebb))
+
 ## [1.206.0](https://github.com/windmill-labs/windmill/compare/v1.205.0...v1.206.0) (2023-11-12)
 
 
