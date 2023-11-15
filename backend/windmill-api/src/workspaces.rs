@@ -52,7 +52,7 @@ use windmill_queue::QueueTransaction;
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Map};
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
