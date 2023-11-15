@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.208.0](https://github.com/windmill-labs/windmill/compare/v1.207.0...v1.208.0) (2023-11-15)
+
+
+### Features
+
+* Add Python SDK capabilities to generate Polars and DuckDB connection settings to S3 ([#2625](https://github.com/windmill-labs/windmill/issues/2625)) ([9009365](https://github.com/windmill-labs/windmill/commit/90093656b49f78d550012ff2e8627fc43b8e26ea))
+* add yaml for import/export/diff ([#2631](https://github.com/windmill-labs/windmill/issues/2631)) ([34abe01](https://github.com/windmill-labs/windmill/commit/34abe01c2f0d9d7055ed17cb2dd34acf9d5e2e88))
+* sync team plans ([#2619](https://github.com/windmill-labs/windmill/issues/2619)) ([f38498b](https://github.com/windmill-labs/windmill/commit/f38498b725cb475d8b4c04641d3fa9870ed23adc))
+
+
+### Bug Fixes
+
+* Resource secret heuristic is wrong ([#2632](https://github.com/windmill-labs/windmill/issues/2632)) ([0d6c1ec](https://github.com/windmill-labs/windmill/commit/0d6c1ec064d83d3394791cef776bcd33ef3f570f))
+* stripe ops ee only ([#2634](https://github.com/windmill-labs/windmill/issues/2634)) ([e3cb2e6](https://github.com/windmill-labs/windmill/commit/e3cb2e66ba41b156e2833ce54b1b153eba20785e))
+
 ## [1.207.0](https://github.com/windmill-labs/windmill/compare/v1.206.0...v1.207.0) (2023-11-15)
 
 
