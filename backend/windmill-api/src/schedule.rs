@@ -26,7 +26,6 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    jobs::JobKind,
     schedule::Schedule,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
@@ -217,17 +216,7 @@ async fn edit_schedule(
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
 
-    let is_flow = sqlx::query_scalar!(
-        "SELECT is_flow FROM schedule WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_optional(&mut tx)
-    .await?;
-
-    let is_flow = not_found_if_none(is_flow, "Schedule", &path)?;
-
-    clear_schedule(tx.transaction_mut(), path, is_flow, &w_id).await?;
+    clear_schedule(tx.transaction_mut(), path, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10, ws_error_handler_muted = $11 
@@ -442,7 +431,7 @@ pub async fn set_enabled(
 
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
-    clear_schedule(tx.transaction_mut(), path, schedule.is_flow, &w_id).await?;
+    clear_schedule(tx.transaction_mut(), path, &w_id).await?;
 
     audit_log(
         &mut tx,
@@ -473,6 +462,8 @@ async fn delete_schedule(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+
+    clear_schedule(&mut tx, path, &w_id).await?;
 
     sqlx::query!(
         "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2",
@@ -635,18 +626,11 @@ pub struct EditSchedule {
 pub async fn clear_schedule<'c>(
     db: &mut Transaction<'c, Postgres>,
     path: &str,
-    is_flow: bool,
     w_id: &str,
 ) -> Result<()> {
-    let job_kind = if is_flow {
-        JobKind::Flow
-    } else {
-        JobKind::Script
-    };
     sqlx::query!(
-        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2 AND workspace_id = $3",
+        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2",
         path,
-        job_kind as JobKind,
         w_id
     )
     .execute(&mut **db)
