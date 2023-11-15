@@ -261,6 +261,8 @@
 			path
 		})
 	}
+
+	let collapseAll = false
 </script>
 
 <SearchItems
@@ -375,6 +377,21 @@
 			<div class="flex w-full flex-row-reverse gap-2">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+				{#if treeView}
+					<Button
+						wrapperClasses="mb-0.5"
+						size="xs"
+						variant="contained"
+						color="light"
+						on:click={() => (collapseAll = !collapseAll)}
+					>
+						{#if collapseAll}
+							Expand
+						{:else}
+							Collapse
+						{/if}</Button
+					>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -393,6 +410,7 @@
 				{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
 					{#if item}
 						<TreeView
+							{collapseAll}
 							{item}
 							on:scriptChanged={loadScripts}
 							on:flowChanged={loadFlows}

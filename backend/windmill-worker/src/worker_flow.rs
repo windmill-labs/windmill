@@ -398,6 +398,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                     FlowStatusModule::InProgress { flow_jobs, branch_chosen, .. } => {
                         (flow_jobs.clone(), branch_chosen.clone())
                     }
+                    FlowStatusModule::Success { flow_jobs, branch_chosen, .. } => {
+                        (flow_jobs.clone(), branch_chosen.clone())
+                    }
+                    FlowStatusModule::Failure { flow_jobs, branch_chosen, .. } => {
+                        (flow_jobs.clone(), branch_chosen.clone())
+                    }
                     _ => (None, None),
                 };
                 if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
@@ -1652,7 +1658,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                 "#,
                     )
                     .bind(status.step)
-                    .bind(json!(FlowStatusModule::Success { id: status_module.id(), job: Uuid::nil(), flow_jobs: None, branch_chosen: None, approvers: vec![] }))
+                    .bind(json!(FlowStatusModule::Success { id: status_module.id(), job: Uuid::nil(), flow_jobs: Some(vec![]), branch_chosen: None, approvers: vec![] }))
                     .bind(flow_job.id)
                     .execute(db)
                     .await?;

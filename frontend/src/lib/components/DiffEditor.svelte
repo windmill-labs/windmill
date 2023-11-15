@@ -11,7 +11,7 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from './build_workers'
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
 

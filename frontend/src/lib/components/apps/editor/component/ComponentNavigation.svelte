@@ -131,7 +131,7 @@
 	}
 
 	async function handleCopy(event: KeyboardEvent) {
-		if (!$selectedComponent || $jobsDrawerOpen) {
+		if (!$selectedComponent || $jobsDrawerOpen || window.getSelection()?.toString() != '') {
 			return
 		}
 		tempGridItems = undefined

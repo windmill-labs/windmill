@@ -40,6 +40,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -160,7 +161,7 @@
 				buttonProps: {
 					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
 					variant: 'contained',
-					size: 'sm',
+					size: 'xs',
 					color: 'dark',
 					disabled: !can_write,
 					startIcon: Pen
@@ -399,7 +400,7 @@
 
 		<svelte:fragment slot="flow_step">
 			{#if stepDetail}
-				<FlowGraphViewer download {flow} overflowAuto noSide={false} noGraph={true} {stepDetail} />
+				<FlowGraphViewerStep {flow} {stepDetail} />
 			{/if}
 		</svelte:fragment>
 	</DetailPageLayout>

@@ -11,7 +11,7 @@
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, GitFork, Globe2 } from 'lucide-svelte'
+	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -48,24 +48,32 @@
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	async function viewCode(obj: HubItem) {
-		const { content, language } = await getScriptByPath(obj.path)
-		codeViewerContent = content
-		codeViewerLanguage = language
-		codeViewerObj = obj
+		codeViewerContent = ''
+		codeViewerObj = undefined
+		getScriptByPath(obj.path).then(({ content, language }) => {
+			codeViewerContent = content
+			codeViewerLanguage = language
+			codeViewerObj = obj
+		})
+
 		codeViewer.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
-		const hub = await FlowService.getHubFlowById({ id: obj.flow_id })
-		delete hub['comments']
-		flowViewerFlow = hub
+		flowViewerFlow = undefined
+		FlowService.getHubFlowById({ id: obj.flow_id }).then((hub) => {
+			delete hub['comments']
+			flowViewerFlow = hub
+		})
 		flowViewer.openDrawer?.()
 	}
 
 	async function viewApp(obj: { app_id: number }): Promise<void> {
-		const hub = await AppService.getHubAppById({ id: obj.app_id })
-		delete hub['comments']
-		appViewerApp = hub
+		appViewerApp = undefined
+		AppService.getHubAppById({ id: obj.app_id }).then((hub) => {
+			delete hub['comments']
+			appViewerApp = hub
+		})
 		appViewer.openDrawer?.()
 	}
 </script>
@@ -80,6 +88,7 @@
 				color="light"
 				size="xs"
 				target="_blank"
+				disabled={codeViewerObj == undefined}
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -91,12 +100,18 @@
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
+				disabled={codeViewerObj == undefined}
 			>
 				Fork
 			</Button>
 		</svelte:fragment>
-
-		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
+		{#if codeViewerObj != undefined && codeViewerLanguage != undefined}
+			<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
+		{:else}
+			<div class="p-2">
+				<Loader2 class="animate-spin" />
+			</div>
+		{/if}
 	</DrawerContent>
 </Drawer>
 
@@ -109,6 +124,7 @@
 				color="light"
 				size="xs"
 				target="_blank"
+				disabled={flowViewerFlow == undefined}
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -121,6 +137,7 @@
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
+				disabled={flowViewerFlow == undefined}
 			>
 				Fork
 			</Button>
@@ -128,6 +145,10 @@
 
 		{#if flowViewerFlow?.flow}
 			<FlowViewer flow={flowViewerFlow.flow} />
+		{:else}
+			<div class="p-2">
+				<Loader2 class="animate-spin" />
+			</div>
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -141,6 +162,7 @@
 				color="light"
 				size="xs"
 				target="_blank"
+				disabled={appViewerApp == undefined}
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -152,6 +174,7 @@
 				href="/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
+				disabled={appViewerApp == undefined}
 				size="xs"
 			>
 				Fork
@@ -246,24 +269,34 @@
 					{#if subtab == 'script'}
 						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
 							<Button
+								startIcon={{ icon: ExternalLink }}
 								target="_blank"
 								href="https://hub.windmill.dev"
 								variant="border"
 								color="light"
 							>
-								Go to Hub
+								Hub
 							</Button>
 						</PickHubScript>
 					{:else if subtab == 'flow'}
 						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
-							<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-								>Go to Hub
+							<Button
+								startIcon={{ icon: ExternalLink }}
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light"
+								>Hub
 							</Button>
 						</PickHubFlow>
 					{:else if subtab == 'app'}
 						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
-							<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-								>Go to Hub</Button
+							<Button
+								startIcon={{ icon: ExternalLink }}
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Hub</Button
 							>
 						</PickHubApp>
 					{/if}

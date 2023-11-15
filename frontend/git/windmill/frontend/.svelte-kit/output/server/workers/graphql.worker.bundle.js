@@ -11341,12 +11341,12 @@ ${u.content}`;
             r.exports = { proseWrap: t2.proseWrap, singleQuote: t2.singleQuote };
           } }), mg = te({ "src/language-markdown/parsers.js"() {
             ne();
-          } }), _a4 = te({ "node_modules/linguist-languages/data/Markdown.json"(e, r) {
+          } }), _a3 = te({ "node_modules/linguist-languages/data/Markdown.json"(e, r) {
             r.exports = { name: "Markdown", type: "prose", color: "#083fa1", aliases: ["pandoc"], aceMode: "markdown", codemirrorMode: "gfm", codemirrorMimeType: "text/x-gfm", wrap: true, extensions: [".md", ".livemd", ".markdown", ".mdown", ".mdwn", ".mdx", ".mkd", ".mkdn", ".mkdown", ".ronn", ".scd", ".workbook"], filenames: ["contents.lr"], tmScope: "source.gfm", languageId: 222 };
           } }), dg = te({ "src/language-markdown/index.js"(e, r) {
             "use strict";
             ne();
-            var t2 = _t(), s = fg(), a = Dg(), n = mg(), u = [t2(_a4(), (l) => ({ since: "1.8.0", parsers: ["markdown"], vscodeLanguageIds: ["markdown"], filenames: [...l.filenames, "README"], extensions: l.extensions.filter((p2) => p2 !== ".mdx") })), t2(_a4(), () => ({ name: "MDX", since: "1.15.0", parsers: ["mdx"], vscodeLanguageIds: ["mdx"], filenames: [], extensions: [".mdx"] }))], i = { mdast: s };
+            var t2 = _t(), s = fg(), a = Dg(), n = mg(), u = [t2(_a3(), (l) => ({ since: "1.8.0", parsers: ["markdown"], vscodeLanguageIds: ["markdown"], filenames: [...l.filenames, "README"], extensions: l.extensions.filter((p2) => p2 !== ".mdx") })), t2(_a3(), () => ({ name: "MDX", since: "1.15.0", parsers: ["mdx"], vscodeLanguageIds: ["mdx"], filenames: [], extensions: [".mdx"] }))], i = { mdast: s };
             r.exports = { languages: u, options: a, printers: i, parsers: n };
           } }), gg = te({ "src/language-html/clean.js"(e, r) {
             "use strict";
@@ -14809,16 +14809,16 @@ ${n}`;
       this[_a] = "ResourceMap";
       if (arg instanceof _ResourceMap) {
         this.map = new Map(arg.map);
-        this.toKey = toKey !== null && toKey !== void 0 ? toKey : _ResourceMap.defaultToKey;
+        this.toKey = toKey ?? _ResourceMap.defaultToKey;
       } else if (isEntries(arg)) {
         this.map = /* @__PURE__ */ new Map();
-        this.toKey = toKey !== null && toKey !== void 0 ? toKey : _ResourceMap.defaultToKey;
+        this.toKey = toKey ?? _ResourceMap.defaultToKey;
         for (const [resource, value] of arg) {
           this.set(resource, value);
         }
       } else {
         this.map = /* @__PURE__ */ new Map();
-        this.toKey = arg !== null && arg !== void 0 ? arg : _ResourceMap.defaultToKey;
+        this.toKey = arg ?? _ResourceMap.defaultToKey;
       }
     }
     set(resource, value) {
@@ -14826,8 +14826,7 @@ ${n}`;
       return this;
     }
     get(resource) {
-      var _d;
-      return (_d = this.map.get(this.toKey(resource))) === null || _d === void 0 ? void 0 : _d.value;
+      return this.map.get(this.toKey(resource))?.value;
     }
     has(resource) {
       return this.map.has(this.toKey(resource));
@@ -14936,12 +14935,10 @@ ${n}`;
       return this._size;
     }
     get first() {
-      var _d;
-      return (_d = this._head) === null || _d === void 0 ? void 0 : _d.value;
+      return this._head?.value;
     }
     get last() {
-      var _d;
-      return (_d = this._tail) === null || _d === void 0 ? void 0 : _d.value;
+      return this._tail?.value;
     }
     has(key) {
       return this._map.has(key);
@@ -15535,7 +15532,7 @@ ${stackTraceFormattedLines.join("\n")}
         if (child && child !== Disposable.None) {
           try {
             child[__is_disposable_tracked__] = true;
-          } catch (_a4) {
+          } catch {
           }
         }
       }
@@ -15543,7 +15540,7 @@ ${stackTraceFormattedLines.join("\n")}
         if (disposable && disposable !== Disposable.None) {
           try {
             disposable[__is_disposable_tracked__] = true;
-          } catch (_a4) {
+          } catch {
           }
         }
       }
@@ -15552,14 +15549,14 @@ ${stackTraceFormattedLines.join("\n")}
     }());
   }
   function trackDisposable(x) {
-    disposableTracker === null || disposableTracker === void 0 ? void 0 : disposableTracker.trackDisposable(x);
+    disposableTracker?.trackDisposable(x);
     return x;
   }
   function markAsDisposed(disposable) {
-    disposableTracker === null || disposableTracker === void 0 ? void 0 : disposableTracker.markAsDisposed(disposable);
+    disposableTracker?.markAsDisposed(disposable);
   }
   function setParentOfDisposable(child, parent) {
-    disposableTracker === null || disposableTracker === void 0 ? void 0 : disposableTracker.setParent(child, parent);
+    disposableTracker?.setParent(child, parent);
   }
   function setParentOfDisposables(children, parent) {
     if (!disposableTracker) {
@@ -15753,12 +15750,11 @@ ${stackTraceFormattedLines.join("\n")}
       return this._store.get(key);
     }
     set(key, value, skipDisposeOnOverwrite = false) {
-      var _a4;
       if (this._isDisposed) {
         console.warn(new Error("Trying to add a disposable to a DisposableMap that has already been disposed of. The added object will be leaked!").stack);
       }
       if (!skipDisposeOnOverwrite) {
-        (_a4 = this._store.get(key)) === null || _a4 === void 0 ? void 0 : _a4.dispose();
+        this._store.get(key)?.dispose();
       }
       this._store.set(key, value);
     }
@@ -15766,8 +15762,7 @@ ${stackTraceFormattedLines.join("\n")}
      * Delete the value stored for `key` from this map and also dispose of it.
      */
     deleteAndDispose(key) {
-      var _a4;
-      (_a4 = this._store.get(key)) === null || _a4 === void 0 ? void 0 : _a4.dispose();
+      this._store.get(key)?.dispose();
       this._store.delete(key);
     }
     [Symbol.iterator]() {
@@ -15925,7 +15920,7 @@ ${stackTraceFormattedLines.join("\n")}
             console.warn("snapshotted emitter LIKELY used public and SHOULD HAVE BEEN created with DisposableStore. snapshotted here");
             stack.print();
           }
-          origListenerDidAdd === null || origListenerDidAdd === void 0 ? void 0 : origListenerDidAdd();
+          origListenerDidAdd?.();
         };
       }
     }
@@ -15995,14 +15990,14 @@ ${stackTraceFormattedLines.join("\n")}
           listener = event(emitter.fire, emitter);
         },
         onDidRemoveLastListener() {
-          listener === null || listener === void 0 ? void 0 : listener.dispose();
+          listener?.dispose();
         }
       };
       if (!disposable) {
         _addLeakageTraceLogic(options);
       }
       const emitter = new Emitter(options);
-      disposable === null || disposable === void 0 ? void 0 : disposable.add(emitter);
+      disposable?.add(emitter);
       return emitter.event;
     }
     function addAndReturnDisposable(d, store) {
@@ -16051,7 +16046,7 @@ ${stackTraceFormattedLines.join("\n")}
         },
         onWillRemoveListener() {
           if (flushOnListenerRemove && numDebouncedCalls > 0) {
-            doFire === null || doFire === void 0 ? void 0 : doFire();
+            doFire?.();
           }
         },
         onDidRemoveLastListener() {
@@ -16063,7 +16058,7 @@ ${stackTraceFormattedLines.join("\n")}
         _addLeakageTraceLogic(options);
       }
       const emitter = new Emitter(options);
-      disposable === null || disposable === void 0 ? void 0 : disposable.add(emitter);
+      disposable?.add(emitter);
       return emitter.event;
     }
     Event2.debounce = debounce;
@@ -16108,7 +16103,7 @@ ${stackTraceFormattedLines.join("\n")}
         disposable.add(listener);
       }
       const flush = () => {
-        buffer2 === null || buffer2 === void 0 ? void 0 : buffer2.forEach((e) => emitter.fire(e));
+        buffer2?.forEach((e) => emitter.fire(e));
         buffer2 = null;
       };
       const emitter = new Emitter({
@@ -16244,7 +16239,7 @@ ${stackTraceFormattedLines.join("\n")}
     function runAndSubscribeWithStore(event, handler) {
       let store = null;
       function run(e) {
-        store === null || store === void 0 ? void 0 : store.dispose();
+        store?.dispose();
         store = new DisposableStore();
         handler(e, store);
       }
@@ -16252,7 +16247,7 @@ ${stackTraceFormattedLines.join("\n")}
       const disposable = event((e) => run(e));
       return toDisposable(() => {
         disposable.dispose();
-        store === null || store === void 0 ? void 0 : store.dispose();
+        store?.dispose();
       });
     }
     Event2.runAndSubscribeWithStore = runAndSubscribeWithStore;
@@ -16369,8 +16364,7 @@ ${stackTraceFormattedLines.join("\n")}
       this._warnCountdown = 0;
     }
     dispose() {
-      var _a4;
-      (_a4 = this._stacks) === null || _a4 === void 0 ? void 0 : _a4.clear();
+      this._stacks?.clear();
     }
     check(stack, listenerCount) {
       const threshold = this.threshold;
@@ -16404,8 +16398,7 @@ ${stackTraceFormattedLines.join("\n")}
   };
   var Stacktrace = class _Stacktrace {
     static create() {
-      var _a4;
-      return new _Stacktrace((_a4 = new Error().stack) !== null && _a4 !== void 0 ? _a4 : "");
+      return new _Stacktrace(new Error().stack ?? "");
     }
     constructor(value) {
       this.value = value;
@@ -16436,35 +16429,30 @@ ${stackTraceFormattedLines.join("\n")}
   };
   var Emitter = class {
     constructor(options) {
-      var _a4, _b2, _c2, _d, _e;
       this._size = 0;
       this._options = options;
-      this._leakageMon = _globalLeakWarningThreshold > 0 || ((_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.leakWarningThreshold) ? new LeakageMonitor((_c2 = (_b2 = this._options) === null || _b2 === void 0 ? void 0 : _b2.leakWarningThreshold) !== null && _c2 !== void 0 ? _c2 : _globalLeakWarningThreshold) : void 0;
-      this._perfMon = ((_d = this._options) === null || _d === void 0 ? void 0 : _d._profName) ? new EventProfiling(this._options._profName) : void 0;
-      this._deliveryQueue = (_e = this._options) === null || _e === void 0 ? void 0 : _e.deliveryQueue;
+      this._leakageMon = _globalLeakWarningThreshold > 0 || this._options?.leakWarningThreshold ? new LeakageMonitor(this._options?.leakWarningThreshold ?? _globalLeakWarningThreshold) : void 0;
+      this._perfMon = this._options?._profName ? new EventProfiling(this._options._profName) : void 0;
+      this._deliveryQueue = this._options?.deliveryQueue;
     }
     dispose() {
-      var _a4, _b2, _c2, _d;
       if (!this._disposed) {
         this._disposed = true;
-        if (((_a4 = this._deliveryQueue) === null || _a4 === void 0 ? void 0 : _a4.current) === this) {
+        if (this._deliveryQueue?.current === this) {
           this._deliveryQueue.reset();
         }
         if (this._listeners) {
           if (_enableDisposeWithListenerWarning) {
             const listeners = this._listeners;
             queueMicrotask(() => {
-              forEachListener(listeners, (l) => {
-                var _a5;
-                return (_a5 = l.stack) === null || _a5 === void 0 ? void 0 : _a5.print();
-              });
+              forEachListener(listeners, (l) => l.stack?.print());
             });
           }
           this._listeners = void 0;
           this._size = 0;
         }
-        (_c2 = (_b2 = this._options) === null || _b2 === void 0 ? void 0 : _b2.onDidRemoveLastListener) === null || _c2 === void 0 ? void 0 : _c2.call(_b2);
-        (_d = this._leakageMon) === null || _d === void 0 ? void 0 : _d.dispose();
+        this._options?.onDidRemoveLastListener?.();
+        this._leakageMon?.dispose();
       }
     }
     /**
@@ -16472,9 +16460,7 @@ ${stackTraceFormattedLines.join("\n")}
      * to events from this Emitter
      */
     get event() {
-      var _a4;
-      (_a4 = this._event) !== null && _a4 !== void 0 ? _a4 : this._event = (callback, thisArgs, disposables) => {
-        var _a5, _b2, _c2, _d, _e;
+      this._event ?? (this._event = (callback, thisArgs, disposables) => {
         if (this._leakageMon && this._size > this._leakageMon.threshold * 3) {
           console.warn(`[${this._leakageMon.name}] REFUSES to accept new listeners because it exceeded its threshold by far`);
           return Disposable.None;
@@ -16493,21 +16479,21 @@ ${stackTraceFormattedLines.join("\n")}
           removeMonitor = this._leakageMon.check(contained.stack, this._size + 1);
         }
         if (_enableDisposeWithListenerWarning) {
-          contained.stack = stack !== null && stack !== void 0 ? stack : Stacktrace.create();
+          contained.stack = stack ?? Stacktrace.create();
         }
         if (!this._listeners) {
-          (_b2 = (_a5 = this._options) === null || _a5 === void 0 ? void 0 : _a5.onWillAddFirstListener) === null || _b2 === void 0 ? void 0 : _b2.call(_a5, this);
+          this._options?.onWillAddFirstListener?.(this);
           this._listeners = contained;
-          (_d = (_c2 = this._options) === null || _c2 === void 0 ? void 0 : _c2.onDidAddFirstListener) === null || _d === void 0 ? void 0 : _d.call(_c2, this);
+          this._options?.onDidAddFirstListener?.(this);
         } else if (this._listeners instanceof UniqueContainer) {
-          (_e = this._deliveryQueue) !== null && _e !== void 0 ? _e : this._deliveryQueue = new EventDeliveryQueuePrivate();
+          this._deliveryQueue ?? (this._deliveryQueue = new EventDeliveryQueuePrivate());
           this._listeners = [this._listeners, contained];
         } else {
           this._listeners.push(contained);
         }
         this._size++;
         const result = toDisposable(() => {
-          removeMonitor === null || removeMonitor === void 0 ? void 0 : removeMonitor();
+          removeMonitor?.();
           this._removeListener(contained);
         });
         if (disposables instanceof DisposableStore) {
@@ -16516,18 +16502,17 @@ ${stackTraceFormattedLines.join("\n")}
           disposables.push(result);
         }
         return result;
-      };
+      });
       return this._event;
     }
     _removeListener(listener) {
-      var _a4, _b2, _c2, _d;
-      (_b2 = (_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.onWillRemoveListener) === null || _b2 === void 0 ? void 0 : _b2.call(_a4, this);
+      this._options?.onWillRemoveListener?.(this);
       if (!this._listeners) {
         return;
       }
       if (this._size === 1) {
         this._listeners = void 0;
-        (_d = (_c2 = this._options) === null || _c2 === void 0 ? void 0 : _c2.onDidRemoveLastListener) === null || _d === void 0 ? void 0 : _d.call(_c2, this);
+        this._options?.onDidRemoveLastListener?.(this);
         this._size = 0;
         return;
       }
@@ -16558,11 +16543,10 @@ ${stackTraceFormattedLines.join("\n")}
       }
     }
     _deliver(listener, value) {
-      var _a4;
       if (!listener) {
         return;
       }
-      const errorHandler2 = ((_a4 = this._options) === null || _a4 === void 0 ? void 0 : _a4.onListenerError) || onUnexpectedError;
+      const errorHandler2 = this._options?.onListenerError || onUnexpectedError;
       if (!errorHandler2) {
         listener.value(value);
         return;
@@ -16586,12 +16570,11 @@ ${stackTraceFormattedLines.join("\n")}
      * subscribers
      */
     fire(event) {
-      var _a4, _b2, _c2, _d;
-      if ((_a4 = this._deliveryQueue) === null || _a4 === void 0 ? void 0 : _a4.current) {
+      if (this._deliveryQueue?.current) {
         this._deliverQueue(this._deliveryQueue);
-        (_b2 = this._perfMon) === null || _b2 === void 0 ? void 0 : _b2.stop();
+        this._perfMon?.stop();
       }
-      (_c2 = this._perfMon) === null || _c2 === void 0 ? void 0 : _c2.start(this._size);
+      this._perfMon?.start(this._size);
       if (!this._listeners) {
       } else if (this._listeners instanceof UniqueContainer) {
         this._deliver(this._listeners, event);
@@ -16600,7 +16583,7 @@ ${stackTraceFormattedLines.join("\n")}
         dq.enqueue(this, event, this._listeners.length);
         this._deliverQueue(dq);
       }
-      (_d = this._perfMon) === null || _d === void 0 ? void 0 : _d.stop();
+      this._perfMon?.stop();
     }
     hasListeners() {
       return this._size > 0;
@@ -16688,9 +16671,8 @@ ${stackTraceFormattedLines.join("\n")}
   var locale = void 0;
   var translations = {};
   function localizeWithPath(path, data, defaultMessage, ...args) {
-    var _a4, _b2;
     const key = typeof data === "object" ? data.key : data;
-    const message = (_b2 = ((_a4 = translations[path]) !== null && _a4 !== void 0 ? _a4 : {})[key]) !== null && _b2 !== void 0 ? _b2 : defaultMessage;
+    const message = (translations[path] ?? {})[key] ?? defaultMessage;
     return _format(message, args);
   }
   function getConfiguredDefaultLocale(_) {
@@ -16698,7 +16680,6 @@ ${stackTraceFormattedLines.join("\n")}
   }
 
   // node_modules/monaco-editor/esm/vs/base/common/platform.js
-  var _a2;
   var LANGUAGE_DEFAULT = "en";
   var _isWindows = false;
   var _isMacintosh = false;
@@ -16722,15 +16703,15 @@ ${stackTraceFormattedLines.join("\n")}
   } else if (typeof process !== "undefined") {
     nodeProcess = process;
   }
-  var isElectronProcess = typeof ((_a2 = nodeProcess === null || nodeProcess === void 0 ? void 0 : nodeProcess.versions) === null || _a2 === void 0 ? void 0 : _a2.electron) === "string";
-  var isElectronRenderer = isElectronProcess && (nodeProcess === null || nodeProcess === void 0 ? void 0 : nodeProcess.type) === "renderer";
+  var isElectronProcess = typeof nodeProcess?.versions?.electron === "string";
+  var isElectronRenderer = isElectronProcess && nodeProcess?.type === "renderer";
   if (typeof navigator === "object" && !isElectronRenderer) {
     _userAgent = navigator.userAgent;
     _isWindows = _userAgent.indexOf("Windows") >= 0;
     _isMacintosh = _userAgent.indexOf("Macintosh") >= 0;
     _isIOS = (_userAgent.indexOf("Macintosh") >= 0 || _userAgent.indexOf("iPad") >= 0 || _userAgent.indexOf("iPhone") >= 0) && !!navigator.maxTouchPoints && navigator.maxTouchPoints > 0;
     _isLinux = _userAgent.indexOf("Linux") >= 0;
-    _isMobile = (_userAgent === null || _userAgent === void 0 ? void 0 : _userAgent.indexOf("Mobi")) >= 0;
+    _isMobile = _userAgent?.indexOf("Mobi") >= 0;
     _isWeb = true;
     const configuredLocale = getConfiguredDefaultLocale(
       // This call _must_ be done in the file that calls `nls.getConfiguredDefaultLocale`
@@ -16919,11 +16900,10 @@ ${stackTraceFormattedLines.join("\n")}
       }
     }
     dispose(cancel = false) {
-      var _a4;
       if (cancel) {
         this.cancel();
       }
-      (_a4 = this._parentListener) === null || _a4 === void 0 ? void 0 : _a4.dispose();
+      this._parentListener?.dispose();
       if (!this._token) {
         this._token = CancellationToken.None;
       } else if (this._token instanceof MutableToken) {
@@ -16991,7 +16971,7 @@ ${stackTraceFormattedLines.join("\n")}
   };
 
   // node_modules/monaco-editor/esm/vs/base/common/strings.js
-  var _a3;
+  var _a2;
   function escapeRegExpCharacters(value) {
     return value.replace(/[\\\{\}\*\+\?\|\^\$\.\[\]\(\)]/g, "\\$&");
   }
@@ -17090,10 +17070,10 @@ ${stackTraceFormattedLines.join("\n")}
   }
   var AmbiguousCharacters = class {
     static getInstance(locales) {
-      return _a3.cache.get(Array.from(locales));
+      return _a2.cache.get(Array.from(locales));
     }
     static getLocales() {
-      return _a3._locales.value;
+      return _a2._locales.value;
     }
     constructor(confusableDictionary) {
       this.confusableDictionary = confusableDictionary;
@@ -17112,7 +17092,7 @@ ${stackTraceFormattedLines.join("\n")}
       return new Set(this.confusableDictionary.keys());
     }
   };
-  _a3 = AmbiguousCharacters;
+  _a2 = AmbiguousCharacters;
   AmbiguousCharacters.ambiguousCharacterData = new Lazy(() => {
     return JSON.parse('{"_common":[8232,32,8233,32,5760,32,8192,32,8193,32,8194,32,8195,32,8196,32,8197,32,8198,32,8200,32,8201,32,8202,32,8287,32,8199,32,8239,32,2042,95,65101,95,65102,95,65103,95,8208,45,8209,45,8210,45,65112,45,1748,45,8259,45,727,45,8722,45,10134,45,11450,45,1549,44,1643,44,8218,44,184,44,42233,44,894,59,2307,58,2691,58,1417,58,1795,58,1796,58,5868,58,65072,58,6147,58,6153,58,8282,58,1475,58,760,58,42889,58,8758,58,720,58,42237,58,451,33,11601,33,660,63,577,63,2429,63,5038,63,42731,63,119149,46,8228,46,1793,46,1794,46,42510,46,68176,46,1632,46,1776,46,42232,46,1373,96,65287,96,8219,96,8242,96,1370,96,1523,96,8175,96,65344,96,900,96,8189,96,8125,96,8127,96,8190,96,697,96,884,96,712,96,714,96,715,96,756,96,699,96,701,96,700,96,702,96,42892,96,1497,96,2036,96,2037,96,5194,96,5836,96,94033,96,94034,96,65339,91,10088,40,10098,40,12308,40,64830,40,65341,93,10089,41,10099,41,12309,41,64831,41,10100,123,119060,123,10101,125,65342,94,8270,42,1645,42,8727,42,66335,42,5941,47,8257,47,8725,47,8260,47,9585,47,10187,47,10744,47,119354,47,12755,47,12339,47,11462,47,20031,47,12035,47,65340,92,65128,92,8726,92,10189,92,10741,92,10745,92,119311,92,119355,92,12756,92,20022,92,12034,92,42872,38,708,94,710,94,5869,43,10133,43,66203,43,8249,60,10094,60,706,60,119350,60,5176,60,5810,60,5120,61,11840,61,12448,61,42239,61,8250,62,10095,62,707,62,119351,62,5171,62,94015,62,8275,126,732,126,8128,126,8764,126,65372,124,65293,45,120784,50,120794,50,120804,50,120814,50,120824,50,130034,50,42842,50,423,50,1000,50,42564,50,5311,50,42735,50,119302,51,120785,51,120795,51,120805,51,120815,51,120825,51,130035,51,42923,51,540,51,439,51,42858,51,11468,51,1248,51,94011,51,71882,51,120786,52,120796,52,120806,52,120816,52,120826,52,130036,52,5070,52,71855,52,120787,53,120797,53,120807,53,120817,53,120827,53,130037,53,444,53,71867,53,120788,54,120798,54,120808,54,120818,54,120828,54,130038,54,11474,54,5102,54,71893,54,119314,55,120789,55,120799,55,120809,55,120819,55,120829,55,130039,55,66770,55,71878,55,2819,56,2538,56,2666,56,125131,56,120790,56,120800,56,120810,56,120820,56,120830,56,130040,56,547,56,546,56,66330,56,2663,57,2920,57,2541,57,3437,57,120791,57,120801,57,120811,57,120821,57,120831,57,130041,57,42862,57,11466,57,71884,57,71852,57,71894,57,9082,97,65345,97,119834,97,119886,97,119938,97,119990,97,120042,97,120094,97,120146,97,120198,97,120250,97,120302,97,120354,97,120406,97,120458,97,593,97,945,97,120514,97,120572,97,120630,97,120688,97,120746,97,65313,65,119808,65,119860,65,119912,65,119964,65,120016,65,120068,65,120120,65,120172,65,120224,65,120276,65,120328,65,120380,65,120432,65,913,65,120488,65,120546,65,120604,65,120662,65,120720,65,5034,65,5573,65,42222,65,94016,65,66208,65,119835,98,119887,98,119939,98,119991,98,120043,98,120095,98,120147,98,120199,98,120251,98,120303,98,120355,98,120407,98,120459,98,388,98,5071,98,5234,98,5551,98,65314,66,8492,66,119809,66,119861,66,119913,66,120017,66,120069,66,120121,66,120173,66,120225,66,120277,66,120329,66,120381,66,120433,66,42932,66,914,66,120489,66,120547,66,120605,66,120663,66,120721,66,5108,66,5623,66,42192,66,66178,66,66209,66,66305,66,65347,99,8573,99,119836,99,119888,99,119940,99,119992,99,120044,99,120096,99,120148,99,120200,99,120252,99,120304,99,120356,99,120408,99,120460,99,7428,99,1010,99,11429,99,43951,99,66621,99,128844,67,71922,67,71913,67,65315,67,8557,67,8450,67,8493,67,119810,67,119862,67,119914,67,119966,67,120018,67,120174,67,120226,67,120278,67,120330,67,120382,67,120434,67,1017,67,11428,67,5087,67,42202,67,66210,67,66306,67,66581,67,66844,67,8574,100,8518,100,119837,100,119889,100,119941,100,119993,100,120045,100,120097,100,120149,100,120201,100,120253,100,120305,100,120357,100,120409,100,120461,100,1281,100,5095,100,5231,100,42194,100,8558,68,8517,68,119811,68,119863,68,119915,68,119967,68,120019,68,120071,68,120123,68,120175,68,120227,68,120279,68,120331,68,120383,68,120435,68,5024,68,5598,68,5610,68,42195,68,8494,101,65349,101,8495,101,8519,101,119838,101,119890,101,119942,101,120046,101,120098,101,120150,101,120202,101,120254,101,120306,101,120358,101,120410,101,120462,101,43826,101,1213,101,8959,69,65317,69,8496,69,119812,69,119864,69,119916,69,120020,69,120072,69,120124,69,120176,69,120228,69,120280,69,120332,69,120384,69,120436,69,917,69,120492,69,120550,69,120608,69,120666,69,120724,69,11577,69,5036,69,42224,69,71846,69,71854,69,66182,69,119839,102,119891,102,119943,102,119995,102,120047,102,120099,102,120151,102,120203,102,120255,102,120307,102,120359,102,120411,102,120463,102,43829,102,42905,102,383,102,7837,102,1412,102,119315,70,8497,70,119813,70,119865,70,119917,70,120021,70,120073,70,120125,70,120177,70,120229,70,120281,70,120333,70,120385,70,120437,70,42904,70,988,70,120778,70,5556,70,42205,70,71874,70,71842,70,66183,70,66213,70,66853,70,65351,103,8458,103,119840,103,119892,103,119944,103,120048,103,120100,103,120152,103,120204,103,120256,103,120308,103,120360,103,120412,103,120464,103,609,103,7555,103,397,103,1409,103,119814,71,119866,71,119918,71,119970,71,120022,71,120074,71,120126,71,120178,71,120230,71,120282,71,120334,71,120386,71,120438,71,1292,71,5056,71,5107,71,42198,71,65352,104,8462,104,119841,104,119945,104,119997,104,120049,104,120101,104,120153,104,120205,104,120257,104,120309,104,120361,104,120413,104,120465,104,1211,104,1392,104,5058,104,65320,72,8459,72,8460,72,8461,72,119815,72,119867,72,119919,72,120023,72,120179,72,120231,72,120283,72,120335,72,120387,72,120439,72,919,72,120494,72,120552,72,120610,72,120668,72,120726,72,11406,72,5051,72,5500,72,42215,72,66255,72,731,105,9075,105,65353,105,8560,105,8505,105,8520,105,119842,105,119894,105,119946,105,119998,105,120050,105,120102,105,120154,105,120206,105,120258,105,120310,105,120362,105,120414,105,120466,105,120484,105,618,105,617,105,953,105,8126,105,890,105,120522,105,120580,105,120638,105,120696,105,120754,105,1110,105,42567,105,1231,105,43893,105,5029,105,71875,105,65354,106,8521,106,119843,106,119895,106,119947,106,119999,106,120051,106,120103,106,120155,106,120207,106,120259,106,120311,106,120363,106,120415,106,120467,106,1011,106,1112,106,65322,74,119817,74,119869,74,119921,74,119973,74,120025,74,120077,74,120129,74,120181,74,120233,74,120285,74,120337,74,120389,74,120441,74,42930,74,895,74,1032,74,5035,74,5261,74,42201,74,119844,107,119896,107,119948,107,120000,107,120052,107,120104,107,120156,107,120208,107,120260,107,120312,107,120364,107,120416,107,120468,107,8490,75,65323,75,119818,75,119870,75,119922,75,119974,75,120026,75,120078,75,120130,75,120182,75,120234,75,120286,75,120338,75,120390,75,120442,75,922,75,120497,75,120555,75,120613,75,120671,75,120729,75,11412,75,5094,75,5845,75,42199,75,66840,75,1472,108,8739,73,9213,73,65512,73,1633,108,1777,73,66336,108,125127,108,120783,73,120793,73,120803,73,120813,73,120823,73,130033,73,65321,73,8544,73,8464,73,8465,73,119816,73,119868,73,119920,73,120024,73,120128,73,120180,73,120232,73,120284,73,120336,73,120388,73,120440,73,65356,108,8572,73,8467,108,119845,108,119897,108,119949,108,120001,108,120053,108,120105,73,120157,73,120209,73,120261,73,120313,73,120365,73,120417,73,120469,73,448,73,120496,73,120554,73,120612,73,120670,73,120728,73,11410,73,1030,73,1216,73,1493,108,1503,108,1575,108,126464,108,126592,108,65166,108,65165,108,1994,108,11599,73,5825,73,42226,73,93992,73,66186,124,66313,124,119338,76,8556,76,8466,76,119819,76,119871,76,119923,76,120027,76,120079,76,120131,76,120183,76,120235,76,120287,76,120339,76,120391,76,120443,76,11472,76,5086,76,5290,76,42209,76,93974,76,71843,76,71858,76,66587,76,66854,76,65325,77,8559,77,8499,77,119820,77,119872,77,119924,77,120028,77,120080,77,120132,77,120184,77,120236,77,120288,77,120340,77,120392,77,120444,77,924,77,120499,77,120557,77,120615,77,120673,77,120731,77,1018,77,11416,77,5047,77,5616,77,5846,77,42207,77,66224,77,66321,77,119847,110,119899,110,119951,110,120003,110,120055,110,120107,110,120159,110,120211,110,120263,110,120315,110,120367,110,120419,110,120471,110,1400,110,1404,110,65326,78,8469,78,119821,78,119873,78,119925,78,119977,78,120029,78,120081,78,120185,78,120237,78,120289,78,120341,78,120393,78,120445,78,925,78,120500,78,120558,78,120616,78,120674,78,120732,78,11418,78,42208,78,66835,78,3074,111,3202,111,3330,111,3458,111,2406,111,2662,111,2790,111,3046,111,3174,111,3302,111,3430,111,3664,111,3792,111,4160,111,1637,111,1781,111,65359,111,8500,111,119848,111,119900,111,119952,111,120056,111,120108,111,120160,111,120212,111,120264,111,120316,111,120368,111,120420,111,120472,111,7439,111,7441,111,43837,111,959,111,120528,111,120586,111,120644,111,120702,111,120760,111,963,111,120532,111,120590,111,120648,111,120706,111,120764,111,11423,111,4351,111,1413,111,1505,111,1607,111,126500,111,126564,111,126596,111,65259,111,65260,111,65258,111,65257,111,1726,111,64428,111,64429,111,64427,111,64426,111,1729,111,64424,111,64425,111,64423,111,64422,111,1749,111,3360,111,4125,111,66794,111,71880,111,71895,111,66604,111,1984,79,2534,79,2918,79,12295,79,70864,79,71904,79,120782,79,120792,79,120802,79,120812,79,120822,79,130032,79,65327,79,119822,79,119874,79,119926,79,119978,79,120030,79,120082,79,120134,79,120186,79,120238,79,120290,79,120342,79,120394,79,120446,79,927,79,120502,79,120560,79,120618,79,120676,79,120734,79,11422,79,1365,79,11604,79,4816,79,2848,79,66754,79,42227,79,71861,79,66194,79,66219,79,66564,79,66838,79,9076,112,65360,112,119849,112,119901,112,119953,112,120005,112,120057,112,120109,112,120161,112,120213,112,120265,112,120317,112,120369,112,120421,112,120473,112,961,112,120530,112,120544,112,120588,112,120602,112,120646,112,120660,112,120704,112,120718,112,120762,112,120776,112,11427,112,65328,80,8473,80,119823,80,119875,80,119927,80,119979,80,120031,80,120083,80,120187,80,120239,80,120291,80,120343,80,120395,80,120447,80,929,80,120504,80,120562,80,120620,80,120678,80,120736,80,11426,80,5090,80,5229,80,42193,80,66197,80,119850,113,119902,113,119954,113,120006,113,120058,113,120110,113,120162,113,120214,113,120266,113,120318,113,120370,113,120422,113,120474,113,1307,113,1379,113,1382,113,8474,81,119824,81,119876,81,119928,81,119980,81,120032,81,120084,81,120188,81,120240,81,120292,81,120344,81,120396,81,120448,81,11605,81,119851,114,119903,114,119955,114,120007,114,120059,114,120111,114,120163,114,120215,114,120267,114,120319,114,120371,114,120423,114,120475,114,43847,114,43848,114,7462,114,11397,114,43905,114,119318,82,8475,82,8476,82,8477,82,119825,82,119877,82,119929,82,120033,82,120189,82,120241,82,120293,82,120345,82,120397,82,120449,82,422,82,5025,82,5074,82,66740,82,5511,82,42211,82,94005,82,65363,115,119852,115,119904,115,119956,115,120008,115,120060,115,120112,115,120164,115,120216,115,120268,115,120320,115,120372,115,120424,115,120476,115,42801,115,445,115,1109,115,43946,115,71873,115,66632,115,65331,83,119826,83,119878,83,119930,83,119982,83,120034,83,120086,83,120138,83,120190,83,120242,83,120294,83,120346,83,120398,83,120450,83,1029,83,1359,83,5077,83,5082,83,42210,83,94010,83,66198,83,66592,83,119853,116,119905,116,119957,116,120009,116,120061,116,120113,116,120165,116,120217,116,120269,116,120321,116,120373,116,120425,116,120477,116,8868,84,10201,84,128872,84,65332,84,119827,84,119879,84,119931,84,119983,84,120035,84,120087,84,120139,84,120191,84,120243,84,120295,84,120347,84,120399,84,120451,84,932,84,120507,84,120565,84,120623,84,120681,84,120739,84,11430,84,5026,84,42196,84,93962,84,71868,84,66199,84,66225,84,66325,84,119854,117,119906,117,119958,117,120010,117,120062,117,120114,117,120166,117,120218,117,120270,117,120322,117,120374,117,120426,117,120478,117,42911,117,7452,117,43854,117,43858,117,651,117,965,117,120534,117,120592,117,120650,117,120708,117,120766,117,1405,117,66806,117,71896,117,8746,85,8899,85,119828,85,119880,85,119932,85,119984,85,120036,85,120088,85,120140,85,120192,85,120244,85,120296,85,120348,85,120400,85,120452,85,1357,85,4608,85,66766,85,5196,85,42228,85,94018,85,71864,85,8744,118,8897,118,65366,118,8564,118,119855,118,119907,118,119959,118,120011,118,120063,118,120115,118,120167,118,120219,118,120271,118,120323,118,120375,118,120427,118,120479,118,7456,118,957,118,120526,118,120584,118,120642,118,120700,118,120758,118,1141,118,1496,118,71430,118,43945,118,71872,118,119309,86,1639,86,1783,86,8548,86,119829,86,119881,86,119933,86,119985,86,120037,86,120089,86,120141,86,120193,86,120245,86,120297,86,120349,86,120401,86,120453,86,1140,86,11576,86,5081,86,5167,86,42719,86,42214,86,93960,86,71840,86,66845,86,623,119,119856,119,119908,119,119960,119,120012,119,120064,119,120116,119,120168,119,120220,119,120272,119,120324,119,120376,119,120428,119,120480,119,7457,119,1121,119,1309,119,1377,119,71434,119,71438,119,71439,119,43907,119,71919,87,71910,87,119830,87,119882,87,119934,87,119986,87,120038,87,120090,87,120142,87,120194,87,120246,87,120298,87,120350,87,120402,87,120454,87,1308,87,5043,87,5076,87,42218,87,5742,120,10539,120,10540,120,10799,120,65368,120,8569,120,119857,120,119909,120,119961,120,120013,120,120065,120,120117,120,120169,120,120221,120,120273,120,120325,120,120377,120,120429,120,120481,120,5441,120,5501,120,5741,88,9587,88,66338,88,71916,88,65336,88,8553,88,119831,88,119883,88,119935,88,119987,88,120039,88,120091,88,120143,88,120195,88,120247,88,120299,88,120351,88,120403,88,120455,88,42931,88,935,88,120510,88,120568,88,120626,88,120684,88,120742,88,11436,88,11613,88,5815,88,42219,88,66192,88,66228,88,66327,88,66855,88,611,121,7564,121,65369,121,119858,121,119910,121,119962,121,120014,121,120066,121,120118,121,120170,121,120222,121,120274,121,120326,121,120378,121,120430,121,120482,121,655,121,7935,121,43866,121,947,121,8509,121,120516,121,120574,121,120632,121,120690,121,120748,121,1199,121,4327,121,71900,121,65337,89,119832,89,119884,89,119936,89,119988,89,120040,89,120092,89,120144,89,120196,89,120248,89,120300,89,120352,89,120404,89,120456,89,933,89,978,89,120508,89,120566,89,120624,89,120682,89,120740,89,11432,89,1198,89,5033,89,5053,89,42220,89,94019,89,71844,89,66226,89,119859,122,119911,122,119963,122,120015,122,120067,122,120119,122,120171,122,120223,122,120275,122,120327,122,120379,122,120431,122,120483,122,7458,122,43923,122,71876,122,66293,90,71909,90,65338,90,8484,90,8488,90,119833,90,119885,90,119937,90,119989,90,120041,90,120197,90,120249,90,120301,90,120353,90,120405,90,120457,90,918,90,120493,90,120551,90,120609,90,120667,90,120725,90,5059,90,42204,90,71849,90,65282,34,65284,36,65285,37,65286,38,65290,42,65291,43,65294,46,65295,47,65296,48,65297,49,65298,50,65299,51,65300,52,65301,53,65302,54,65303,55,65304,56,65305,57,65308,60,65309,61,65310,62,65312,64,65316,68,65318,70,65319,71,65324,76,65329,81,65330,82,65333,85,65334,86,65335,87,65343,95,65346,98,65348,100,65350,102,65355,107,65357,109,65358,110,65361,113,65362,114,65364,116,65365,117,65367,119,65370,122,65371,123,65373,125,119846,109],"_default":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"cs":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"de":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"es":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"fr":[65374,126,65306,58,65281,33,8216,96,8245,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"it":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ja":[8211,45,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65292,44,65307,59],"ko":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pl":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pt-BR":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"qps-ploc":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ru":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,305,105,921,73,1009,112,215,120,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"tr":[160,32,8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"zh-hans":[65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65288,40,65289,41],"zh-hant":[8211,45,65374,126,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65307,59]}');
   });
@@ -17143,7 +17123,7 @@ ${stackTraceFormattedLines.join("\n")}
       }
       return result;
     }
-    const data = _a3.ambiguousCharacterData.value;
+    const data = _a2.ambiguousCharacterData.value;
     let filteredLocales = locales.filter((l) => !l.startsWith("_") && l in data);
     if (filteredLocales.length === 0) {
       filteredLocales = ["_default"];
@@ -17155,9 +17135,9 @@ ${stackTraceFormattedLines.join("\n")}
     }
     const commonMap = arrayToMap(data["_common"]);
     const map = mergeMaps(commonMap, languageSpecificMap);
-    return new _a3(map);
+    return new _a2(map);
   });
-  AmbiguousCharacters._locales = new Lazy(() => Object.keys(_a3.ambiguousCharacterData.value).filter((k) => !k.startsWith("_")));
+  AmbiguousCharacters._locales = new Lazy(() => Object.keys(_a2.ambiguousCharacterData.value).filter((k) => !k.startsWith("_")));
   var InvisibleCharacters = class _InvisibleCharacters {
     static getRawData() {
       return JSON.parse("[9,10,11,12,13,32,127,160,173,847,1564,4447,4448,6068,6069,6155,6156,6157,6158,7355,7356,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8203,8204,8205,8206,8207,8234,8235,8236,8237,8238,8239,8287,8288,8289,8290,8291,8292,8293,8294,8295,8296,8297,8298,8299,8300,8301,8302,8303,10240,12288,12644,65024,65025,65026,65027,65028,65029,65030,65031,65032,65033,65034,65035,65036,65037,65038,65039,65279,65440,65520,65521,65522,65523,65524,65525,65526,65527,65528,65532,78844,119155,119156,119157,119158,119159,119160,119161,119162,917504,917505,917506,917507,917508,917509,917510,917511,917512,917513,917514,917515,917516,917517,917518,917519,917520,917521,917522,917523,917524,917525,917526,917527,917528,917529,917530,917531,917532,917533,917534,917535,917536,917537,917538,917539,917540,917541,917542,917543,917544,917545,917546,917547,917548,917549,917550,917551,917552,917553,917554,917555,917556,917557,917558,917559,917560,917561,917562,917563,917564,917565,917566,917567,917568,917569,917570,917571,917572,917573,917574,917575,917576,917577,917578,917579,917580,917581,917582,917583,917584,917585,917586,917587,917588,917589,917590,917591,917592,917593,917594,917595,917596,917597,917598,917599,917600,917601,917602,917603,917604,917605,917606,917607,917608,917609,917610,917611,917612,917613,917614,917615,917616,917617,917618,917619,917620,917621,917622,917623,917624,917625,917626,917627,917628,917629,917630,917631,917760,917761,917762,917763,917764,917765,917766,917767,917768,917769,917770,917771,917772,917773,917774,917775,917776,917777,917778,917779,917780,917781,917782,917783,917784,917785,917786,917787,917788,917789,917790,917791,917792,917793,917794,917795,917796,917797,917798,917799,917800,917801,917802,917803,917804,917805,917806,917807,917808,917809,917810,917811,917812,917813,917814,917815,917816,917817,917818,917819,917820,917821,917822,917823,917824,917825,917826,917827,917828,917829,917830,917831,917832,917833,917834,917835,917836,917837,917838,917839,917840,917841,917842,917843,917844,917845,917846,917847,917848,917849,917850,917851,917852,917853,917854,917855,917856,917857,917858,917859,917860,917861,917862,917863,917864,917865,917866,917867,917868,917869,917870,917871,917872,917873,917874,917875,917876,917877,917878,917879,917880,917881,917882,917883,917884,917885,917886,917887,917888,917889,917890,917891,917892,917893,917894,917895,917896,917897,917898,917899,917900,917901,917902,917903,917904,917905,917906,917907,917908,917909,917910,917911,917912,917913,917914,917915,917916,917917,917918,917919,917920,917921,917922,917923,917924,917925,917926,917927,917928,917929,917930,917931,917932,917933,917934,917935,917936,917937,917938,917939,917940,917941,917942,917943,917944,917945,917946,917947,917948,917949,917950,917951,917952,917953,917954,917955,917956,917957,917958,917959,917960,917961,917962,917963,917964,917965,917966,917967,917968,917969,917970,917971,917972,917973,917974,917975,917976,917977,917978,917979,917980,917981,917982,917983,917984,917985,917986,917987,917988,917989,917990,917991,917992,917993,917994,917995,917996,917997,917998,917999]");
@@ -19785,15 +19765,14 @@ ${stackTraceFormattedLines.join("\n")}
       return this;
     }
     static revive(data) {
-      var _a4, _b2;
       if (!data) {
         return data;
       } else if (data instanceof _URI) {
         return data;
       } else {
         const result = new Uri(data);
-        result._formatted = (_a4 = data.external) !== null && _a4 !== void 0 ? _a4 : null;
-        result._fsPath = data._sep === _pathSepMarker ? (_b2 = data.fsPath) !== null && _b2 !== void 0 ? _b2 : null : null;
+        result._formatted = data.external ?? null;
+        result._fsPath = data._sep === _pathSepMarker ? data.fsPath ?? null : null;
         return result;
       }
     }
@@ -20063,7 +20042,7 @@ ${stackTraceFormattedLines.join("\n")}
   function decodeURIComponentGraceful(str) {
     try {
       return decodeURIComponent(str);
-    } catch (_a4) {
+    } catch {
       if (str.length > 3) {
         return str.substr(0, 3) + decodeURIComponentGraceful(str.substr(3));
       } else {
@@ -22440,33 +22419,6 @@ ${stackTraceFormattedLines.join("\n")}
   };
 
   // node_modules/monaco-editor/esm/vs/editor/common/tokenizationRegistry.js
-  var __awaiter = function(thisArg, _arguments, P, generator) {
-    function adopt(value) {
-      return value instanceof P ? value : new P(function(resolve2) {
-        resolve2(value);
-      });
-    }
-    return new (P || (P = Promise))(function(resolve2, reject) {
-      function fulfilled(value) {
-        try {
-          step(generator.next(value));
-        } catch (e) {
-          reject(e);
-        }
-      }
-      function rejected(value) {
-        try {
-          step(generator["throw"](value));
-        } catch (e) {
-          reject(e);
-        }
-      }
-      function step(result) {
-        result.done ? resolve2(result.value) : adopt(result.value).then(fulfilled, rejected);
-      }
-      step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-  };
   var TokenizationRegistry = class {
     constructor() {
       this._tokenizationSupports = /* @__PURE__ */ new Map();
@@ -22496,8 +22448,7 @@ ${stackTraceFormattedLines.join("\n")}
       return this._tokenizationSupports.get(languageId) || null;
     }
     registerFactory(languageId, factory) {
-      var _a4;
-      (_a4 = this._factories.get(languageId)) === null || _a4 === void 0 ? void 0 : _a4.dispose();
+      this._factories.get(languageId)?.dispose();
       const myData = new TokenizationSupportFactoryData(this, languageId, factory);
       this._factories.set(languageId, myData);
       return toDisposable(() => {
@@ -22509,19 +22460,17 @@ ${stackTraceFormattedLines.join("\n")}
         v.dispose();
       });
     }
-    getOrCreate(languageId) {
-      return __awaiter(this, void 0, void 0, function* () {
-        const tokenizationSupport = this.get(languageId);
-        if (tokenizationSupport) {
-          return tokenizationSupport;
-        }
-        const factory = this._factories.get(languageId);
-        if (!factory || factory.isResolved) {
-          return null;
-        }
-        yield factory.resolve();
-        return this.get(languageId);
-      });
+    async getOrCreate(languageId) {
+      const tokenizationSupport = this.get(languageId);
+      if (tokenizationSupport) {
+        return tokenizationSupport;
+      }
+      const factory = this._factories.get(languageId);
+      if (!factory || factory.isResolved) {
+        return null;
+      }
+      await factory.resolve();
+      return this.get(languageId);
     }
     isResolved(languageId) {
       const tokenizationSupport = this.get(languageId);
@@ -22571,22 +22520,18 @@ ${stackTraceFormattedLines.join("\n")}
       this._isDisposed = true;
       super.dispose();
     }
-    resolve() {
-      return __awaiter(this, void 0, void 0, function* () {
-        if (!this._resolvePromise) {
-          this._resolvePromise = this._create();
-        }
-        return this._resolvePromise;
-      });
+    async resolve() {
+      if (!this._resolvePromise) {
+        this._resolvePromise = this._create();
+      }
+      return this._resolvePromise;
     }
-    _create() {
-      return __awaiter(this, void 0, void 0, function* () {
-        const value = yield this._factory.tokenizationSupport;
-        this._isResolved = true;
-        if (value && !this._isDisposed) {
-          this._register(this._registry.register(this._languageId, value));
-        }
-      });
+    async _create() {
+      const value = await this._factory.tokenizationSupport;
+      this._isResolved = true;
+      if (value && !this._isDisposed) {
+        this._register(this._registry.register(this._languageId, value));
+      }
     }
   };
 
@@ -24467,8 +24412,7 @@ ${stackTraceFormattedLines.join("\n")}
       this.innerChanges = innerChanges;
     }
     flip() {
-      var _a4;
-      return new _DetailedLineRangeMapping(this.modified, this.original, (_a4 = this.innerChanges) === null || _a4 === void 0 ? void 0 : _a4.map((c) => c.flip()));
+      return new _DetailedLineRangeMapping(this.modified, this.original, this.innerChanges?.map((c) => c.flip()));
     }
   };
   var RangeMapping = class _RangeMapping {
@@ -24488,7 +24432,6 @@ ${stackTraceFormattedLines.join("\n")}
   var MINIMUM_MATCHING_CHARACTER_LENGTH = 3;
   var LegacyLinesDiffComputer = class {
     computeDiff(originalLines, modifiedLines, options) {
-      var _a4;
       const diffComputer = new DiffComputer(originalLines, modifiedLines, {
         maxComputationTime: options.maxComputationTimeMs,
         shouldIgnoreTrimWhitespace: options.ignoreTrimWhitespace,
@@ -24512,7 +24455,7 @@ ${stackTraceFormattedLines.join("\n")}
         } else {
           modifiedRange = new LineRange(c.modifiedStartLineNumber, c.modifiedEndLineNumber + 1);
         }
-        let change = new DetailedLineRangeMapping(originalRange, modifiedRange, (_a4 = c.charChanges) === null || _a4 === void 0 ? void 0 : _a4.map((c2) => new RangeMapping(new Range(c2.originalStartLineNumber, c2.originalStartColumn, c2.originalEndLineNumber, c2.originalEndColumn), new Range(c2.modifiedStartLineNumber, c2.modifiedStartColumn, c2.modifiedEndLineNumber, c2.modifiedEndColumn))));
+        let change = new DetailedLineRangeMapping(originalRange, modifiedRange, c.charChanges?.map((c2) => new RangeMapping(new Range(c2.originalStartLineNumber, c2.originalStartColumn, c2.originalEndLineNumber, c2.originalEndColumn), new Range(c2.modifiedStartLineNumber, c2.modifiedStartColumn, c2.modifiedEndLineNumber, c2.modifiedEndColumn))));
         if (lastChange) {
           if (lastChange.modified.endLineNumberExclusive === change.modified.startLineNumber || lastChange.original.endLineNumberExclusive === change.original.startLineNumber) {
             change = new DetailedLineRangeMapping(lastChange.original.join(change.original), lastChange.modified.join(change.modified), lastChange.innerChanges && change.innerChanges ? lastChange.innerChanges.concat(change.innerChanges) : void 0);
@@ -25067,11 +25010,10 @@ ${stackTraceFormattedLines.join("\n")}
       this.totalCount = counter;
     }
     computeSimilarity(other) {
-      var _a4, _b2;
       let sumDifferences = 0;
       const maxLength = Math.max(this.histogram.length, other.histogram.length);
       for (let i = 0; i < maxLength; i++) {
-        sumDifferences += Math.abs(((_a4 = this.histogram[i]) !== null && _a4 !== void 0 ? _a4 : 0) - ((_b2 = other.histogram[i]) !== null && _b2 !== void 0 ? _b2 : 0));
+        sumDifferences += Math.abs((this.histogram[i] ?? 0) - (other.histogram[i] ?? 0));
       }
       return 1 - sumDifferences / (this.totalCount + other.totalCount);
     }
@@ -25394,9 +25336,8 @@ ${stackTraceFormattedLines.join("\n")}
       return this.elements[offset1] === this.elements[offset2];
     }
     extendToFullLines(range) {
-      var _a4, _b2;
-      const start = (_a4 = findLastMonotonous(this.firstCharOffsetByLine, (x) => x <= range.start)) !== null && _a4 !== void 0 ? _a4 : 0;
-      const end = (_b2 = findFirstMonotonous(this.firstCharOffsetByLine, (x) => range.endExclusive <= x)) !== null && _b2 !== void 0 ? _b2 : this.elements.length;
+      const start = findLastMonotonous(this.firstCharOffsetByLine, (x) => x <= range.start) ?? 0;
+      const end = findFirstMonotonous(this.firstCharOffsetByLine, (x) => range.endExclusive <= x) ?? this.elements.length;
       return new OffsetRange(start, end);
     }
   };
@@ -25816,13 +25757,12 @@ ${stackTraceFormattedLines.join("\n")}
     }
     for (const s of sequenceDiffs) {
       let processWord = function(s1Range, s2Range) {
-        var _a4, _b2, _c2, _d;
         if (!lastModifiedWord || !lastModifiedWord.s1Range.containsRange(s1Range) || !lastModifiedWord.s2Range.containsRange(s2Range)) {
           if (lastModifiedWord && !(lastModifiedWord.s1Range.endExclusive < s1Range.start && lastModifiedWord.s2Range.endExclusive < s2Range.start)) {
             const s1Added = OffsetRange.tryCreate(lastModifiedWord.s1Range.endExclusive, s1Range.start);
             const s2Added = OffsetRange.tryCreate(lastModifiedWord.s2Range.endExclusive, s2Range.start);
-            lastModifiedWord.deleted += (_a4 = s1Added === null || s1Added === void 0 ? void 0 : s1Added.length) !== null && _a4 !== void 0 ? _a4 : 0;
-            lastModifiedWord.added += (_b2 = s2Added === null || s2Added === void 0 ? void 0 : s2Added.length) !== null && _b2 !== void 0 ? _b2 : 0;
+            lastModifiedWord.deleted += s1Added?.length ?? 0;
+            lastModifiedWord.added += s2Added?.length ?? 0;
             lastModifiedWord.s1Range = lastModifiedWord.s1Range.join(s1Range);
             lastModifiedWord.s2Range = lastModifiedWord.s2Range.join(s2Range);
           } else {
@@ -25833,8 +25773,8 @@ ${stackTraceFormattedLines.join("\n")}
         const changedS1 = s1Range.intersect(s.seq1Range);
         const changedS2 = s2Range.intersect(s.seq2Range);
         lastModifiedWord.count++;
-        lastModifiedWord.deleted += (_c2 = changedS1 === null || changedS1 === void 0 ? void 0 : changedS1.length) !== null && _c2 !== void 0 ? _c2 : 0;
-        lastModifiedWord.added += (_d = changedS2 === null || changedS2 === void 0 ? void 0 : changedS2.length) !== null && _d !== void 0 ? _d : 0;
+        lastModifiedWord.deleted += changedS1?.length ?? 0;
+        lastModifiedWord.added += changedS2?.length ?? 0;
       };
       const w1Before = sequence1.findWordContaining(s.seq1Range.start - 1);
       const w2Before = sequence2.findWordContaining(s.seq2Range.start - 1);
@@ -25945,7 +25885,7 @@ ${stackTraceFormattedLines.join("\n")}
           function cap(v) {
             return Math.min(v, max);
           }
-          if (Math.pow(Math.pow(cap(beforeLineCount1 * 40 + beforeSeq1Length), 1.5) + Math.pow(cap(beforeLineCount2 * 40 + beforeSeq2Length), 1.5), 1.5) + Math.pow(Math.pow(cap(afterLineCount1 * 40 + afterSeq1Length), 1.5) + Math.pow(cap(afterLineCount2 * 40 + afterSeq2Length), 1.5), 1.5) > Math.pow(Math.pow(max, 1.5), 1.5) * 1.3) {
+          if (Math.pow(Math.pow(cap(beforeLineCount1 * 40 + beforeSeq1Length), 1.5) + Math.pow(cap(beforeLineCount2 * 40 + beforeSeq2Length), 1.5), 1.5) + Math.pow(Math.pow(cap(afterLineCount1 * 40 + afterSeq1Length), 1.5) + Math.pow(cap(afterLineCount2 * 40 + afterSeq2Length), 1.5), 1.5) > (max ** 1.5) ** 1.5 * 1.3) {
             return true;
           }
           return false;
@@ -26806,33 +26746,6 @@ ${stackTraceFormattedLines.join("\n")}
   }
 
   // node_modules/monaco-editor/esm/vs/editor/common/services/editorSimpleWorker.js
-  var __awaiter2 = function(thisArg, _arguments, P, generator) {
-    function adopt(value) {
-      return value instanceof P ? value : new P(function(resolve2) {
-        resolve2(value);
-      });
-    }
-    return new (P || (P = Promise))(function(resolve2, reject) {
-      function fulfilled(value) {
-        try {
-          step(generator.next(value));
-        } catch (e) {
-          reject(e);
-        }
-      }
-      function rejected(value) {
-        try {
-          step(generator["throw"](value));
-        } catch (e) {
-          reject(e);
-        }
-      }
-      function step(result) {
-        result.done ? resolve2(result.value) : adopt(result.value).then(fulfilled, rejected);
-      }
-      step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-  };
   var MirrorModel = class extends MirrorTextModel {
     get uri() {
       return this._uri;
@@ -27052,25 +26965,21 @@ ${stackTraceFormattedLines.join("\n")}
       }
       delete this._models[strURL];
     }
-    computeUnicodeHighlights(url, options, range) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(url);
-        if (!model) {
-          return { ranges: [], hasMore: false, ambiguousCharacterCount: 0, invisibleCharacterCount: 0, nonBasicAsciiCharacterCount: 0 };
-        }
-        return UnicodeTextModelHighlighter.computeUnicodeHighlights(model, options, range);
-      });
+    async computeUnicodeHighlights(url, options, range) {
+      const model = this._getModel(url);
+      if (!model) {
+        return { ranges: [], hasMore: false, ambiguousCharacterCount: 0, invisibleCharacterCount: 0, nonBasicAsciiCharacterCount: 0 };
+      }
+      return UnicodeTextModelHighlighter.computeUnicodeHighlights(model, options, range);
     }
     // ---- BEGIN diff --------------------------------------------------------------------------
-    computeDiff(originalUrl, modifiedUrl, options, algorithm) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const original = this._getModel(originalUrl);
-        const modified = this._getModel(modifiedUrl);
-        if (!original || !modified) {
-          return null;
-        }
-        return _EditorSimpleWorker.computeDiff(original, modified, options, algorithm);
-      });
+    async computeDiff(originalUrl, modifiedUrl, options, algorithm) {
+      const original = this._getModel(originalUrl);
+      const modified = this._getModel(modifiedUrl);
+      if (!original || !modified) {
+        return null;
+      }
+      return _EditorSimpleWorker.computeDiff(original, modified, options, algorithm);
     }
     static computeDiff(originalTextModel, modifiedTextModel, options, algorithm) {
       const diffAlgorithm = algorithm === "advanced" ? linesDiffComputers.getDefault() : linesDiffComputers.getLegacy();
@@ -27079,19 +26988,16 @@ ${stackTraceFormattedLines.join("\n")}
       const result = diffAlgorithm.computeDiff(originalLines, modifiedLines, options);
       const identical = result.changes.length > 0 ? false : this._modelsAreIdentical(originalTextModel, modifiedTextModel);
       function getLineChanges(changes) {
-        return changes.map((m) => {
-          var _a4;
-          return [m.original.startLineNumber, m.original.endLineNumberExclusive, m.modified.startLineNumber, m.modified.endLineNumberExclusive, (_a4 = m.innerChanges) === null || _a4 === void 0 ? void 0 : _a4.map((m2) => [
-            m2.originalRange.startLineNumber,
-            m2.originalRange.startColumn,
-            m2.originalRange.endLineNumber,
-            m2.originalRange.endColumn,
-            m2.modifiedRange.startLineNumber,
-            m2.modifiedRange.startColumn,
-            m2.modifiedRange.endLineNumber,
-            m2.modifiedRange.endColumn
-          ])];
-        });
+        return changes.map((m) => [m.original.startLineNumber, m.original.endLineNumberExclusive, m.modified.startLineNumber, m.modified.endLineNumberExclusive, m.innerChanges?.map((m2) => [
+          m2.originalRange.startLineNumber,
+          m2.originalRange.startColumn,
+          m2.originalRange.endLineNumber,
+          m2.originalRange.endColumn,
+          m2.modifiedRange.startLineNumber,
+          m2.modifiedRange.startColumn,
+          m2.modifiedRange.endLineNumber,
+          m2.modifiedRange.endColumn
+        ])]);
       }
       return {
         identical,
@@ -27121,87 +27027,83 @@ ${stackTraceFormattedLines.join("\n")}
       }
       return true;
     }
-    computeDirtyDiff(originalUrl, modifiedUrl, ignoreTrimWhitespace) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const original = this._getModel(originalUrl);
-        const modified = this._getModel(modifiedUrl);
-        if (!original || !modified) {
-          return null;
-        }
-        const originalLines = original.getLinesContent();
-        const modifiedLines = modified.getLinesContent();
-        const diffComputer = new DiffComputer(originalLines, modifiedLines, {
-          shouldComputeCharChanges: false,
-          shouldPostProcessCharChanges: false,
-          shouldIgnoreTrimWhitespace: ignoreTrimWhitespace,
-          shouldMakePrettyDiff: true,
-          maxComputationTime: 1e3
-        });
-        return diffComputer.computeDiff().changes;
+    async computeDirtyDiff(originalUrl, modifiedUrl, ignoreTrimWhitespace) {
+      const original = this._getModel(originalUrl);
+      const modified = this._getModel(modifiedUrl);
+      if (!original || !modified) {
+        return null;
+      }
+      const originalLines = original.getLinesContent();
+      const modifiedLines = modified.getLinesContent();
+      const diffComputer = new DiffComputer(originalLines, modifiedLines, {
+        shouldComputeCharChanges: false,
+        shouldPostProcessCharChanges: false,
+        shouldIgnoreTrimWhitespace: ignoreTrimWhitespace,
+        shouldMakePrettyDiff: true,
+        maxComputationTime: 1e3
       });
+      return diffComputer.computeDiff().changes;
     }
-    computeMoreMinimalEdits(modelUrl, edits, pretty) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(modelUrl);
-        if (!model) {
-          return edits;
+    async computeMoreMinimalEdits(modelUrl, edits, pretty) {
+      const model = this._getModel(modelUrl);
+      if (!model) {
+        return edits;
+      }
+      const result = [];
+      let lastEol = void 0;
+      edits = edits.slice(0).sort((a, b) => {
+        if (a.range && b.range) {
+          return Range.compareRangesUsingStarts(a.range, b.range);
         }
-        const result = [];
-        let lastEol = void 0;
-        edits = edits.slice(0).sort((a, b) => {
-          if (a.range && b.range) {
-            return Range.compareRangesUsingStarts(a.range, b.range);
-          }
-          const aRng = a.range ? 0 : 1;
-          const bRng = b.range ? 0 : 1;
-          return aRng - bRng;
-        });
-        let writeIndex = 0;
-        for (let readIndex = 1; readIndex < edits.length; readIndex++) {
-          if (Range.getEndPosition(edits[writeIndex].range).equals(Range.getStartPosition(edits[readIndex].range))) {
-            edits[writeIndex].range = Range.fromPositions(Range.getStartPosition(edits[writeIndex].range), Range.getEndPosition(edits[readIndex].range));
-            edits[writeIndex].text += edits[readIndex].text;
-          } else {
-            writeIndex++;
-            edits[writeIndex] = edits[readIndex];
-          }
-        }
-        edits.length = writeIndex + 1;
-        for (let { range, text: text3, eol } of edits) {
-          if (typeof eol === "number") {
-            lastEol = eol;
-          }
-          if (Range.isEmpty(range) && !text3) {
-            continue;
-          }
-          const original = model.getValueInRange(range);
-          text3 = text3.replace(/\r\n|\n|\r/g, model.eol);
-          if (original === text3) {
-            continue;
-          }
-          if (Math.max(text3.length, original.length) > _EditorSimpleWorker._diffLimit) {
-            result.push({ range, text: text3 });
-            continue;
-          }
-          const changes = stringDiff(original, text3, pretty);
-          const editOffset = model.offsetAt(Range.lift(range).getStartPosition());
-          for (const change of changes) {
-            const start = model.positionAt(editOffset + change.originalStart);
-            const end = model.positionAt(editOffset + change.originalStart + change.originalLength);
-            const newEdit = {
-              text: text3.substr(change.modifiedStart, change.modifiedLength),
-              range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }
-            };
-            if (model.getValueInRange(newEdit.range) !== newEdit.text) {
-              result.push(newEdit);
-            }
-          }
-        }
-        if (typeof lastEol === "number") {
-          result.push({ eol: lastEol, text: "", range: { startLineNumber: 0, startColumn: 0, endLineNumber: 0, endColumn: 0 } });
-        }
-        return result;
+        const aRng = a.range ? 0 : 1;
+        const bRng = b.range ? 0 : 1;
+        return aRng - bRng;
       });
+      let writeIndex = 0;
+      for (let readIndex = 1; readIndex < edits.length; readIndex++) {
+        if (Range.getEndPosition(edits[writeIndex].range).equals(Range.getStartPosition(edits[readIndex].range))) {
+          edits[writeIndex].range = Range.fromPositions(Range.getStartPosition(edits[writeIndex].range), Range.getEndPosition(edits[readIndex].range));
+          edits[writeIndex].text += edits[readIndex].text;
+        } else {
+          writeIndex++;
+          edits[writeIndex] = edits[readIndex];
+        }
+      }
+      edits.length = writeIndex + 1;
+      for (let { range, text: text3, eol } of edits) {
+        if (typeof eol === "number") {
+          lastEol = eol;
+        }
+        if (Range.isEmpty(range) && !text3) {
+          continue;
+        }
+        const original = model.getValueInRange(range);
+        text3 = text3.replace(/\r\n|\n|\r/g, model.eol);
+        if (original === text3) {
+          continue;
+        }
+        if (Math.max(text3.length, original.length) > _EditorSimpleWorker._diffLimit) {
+          result.push({ range, text: text3 });
+          continue;
+        }
+        const changes = stringDiff(original, text3, pretty);
+        const editOffset = model.offsetAt(Range.lift(range).getStartPosition());
+        for (const change of changes) {
+          const start = model.positionAt(editOffset + change.originalStart);
+          const end = model.positionAt(editOffset + change.originalStart + change.originalLength);
+          const newEdit = {
+            text: text3.substr(change.modifiedStart, change.modifiedLength),
+            range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }
+          };
+          if (model.getValueInRange(newEdit.range) !== newEdit.text) {
+            result.push(newEdit);
+          }
+        }
+      }
+      if (typeof lastEol === "number") {
+        result.push({ eol: lastEol, text: "", range: { startLineNumber: 0, startColumn: 0, endLineNumber: 0, endColumn: 0 } });
+      }
+      return result;
     }
     computeHumanReadableDiff(modelUrl, edits, options) {
       const model = this._getModel(modelUrl);
@@ -27275,106 +27177,96 @@ ${stackTraceFormattedLines.join("\n")}
       return result;
     }
     // ---- END minimal edits ---------------------------------------------------------------
-    computeLinks(modelUrl) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(modelUrl);
-        if (!model) {
-          return null;
-        }
-        return computeLinks(model);
-      });
+    async computeLinks(modelUrl) {
+      const model = this._getModel(modelUrl);
+      if (!model) {
+        return null;
+      }
+      return computeLinks(model);
     }
     // --- BEGIN default document colors -----------------------------------------------------------
-    computeDefaultDocumentColors(modelUrl) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(modelUrl);
-        if (!model) {
-          return null;
-        }
-        return computeDefaultDocumentColors(model);
-      });
+    async computeDefaultDocumentColors(modelUrl) {
+      const model = this._getModel(modelUrl);
+      if (!model) {
+        return null;
+      }
+      return computeDefaultDocumentColors(model);
     }
-    textualSuggest(modelUrls, leadingWord, wordDef, wordDefFlags) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const sw = new StopWatch();
-        const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
-        const seen = /* @__PURE__ */ new Set();
-        outer:
-          for (const url of modelUrls) {
-            const model = this._getModel(url);
-            if (!model) {
+    async textualSuggest(modelUrls, leadingWord, wordDef, wordDefFlags) {
+      const sw = new StopWatch();
+      const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
+      const seen = /* @__PURE__ */ new Set();
+      outer:
+        for (const url of modelUrls) {
+          const model = this._getModel(url);
+          if (!model) {
+            continue;
+          }
+          for (const word2 of model.words(wordDefRegExp)) {
+            if (word2 === leadingWord || !isNaN(Number(word2))) {
               continue;
             }
-            for (const word2 of model.words(wordDefRegExp)) {
-              if (word2 === leadingWord || !isNaN(Number(word2))) {
-                continue;
-              }
-              seen.add(word2);
-              if (seen.size > _EditorSimpleWorker._suggestionsLimit) {
-                break outer;
-              }
+            seen.add(word2);
+            if (seen.size > _EditorSimpleWorker._suggestionsLimit) {
+              break outer;
             }
           }
-        return { words: Array.from(seen), duration: sw.elapsed() };
-      });
+        }
+      return { words: Array.from(seen), duration: sw.elapsed() };
     }
     // ---- END suggest --------------------------------------------------------------------------
     //#region -- word ranges --
-    computeWordRanges(modelUrl, range, wordDef, wordDefFlags) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(modelUrl);
-        if (!model) {
-          return /* @__PURE__ */ Object.create(null);
-        }
-        const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
-        const result = /* @__PURE__ */ Object.create(null);
-        for (let line = range.startLineNumber; line < range.endLineNumber; line++) {
-          const words = model.getLineWords(line, wordDefRegExp);
-          for (const word2 of words) {
-            if (!isNaN(Number(word2.word))) {
-              continue;
-            }
-            let array = result[word2.word];
-            if (!array) {
-              array = [];
-              result[word2.word] = array;
-            }
-            array.push({
-              startLineNumber: line,
-              startColumn: word2.startColumn,
-              endLineNumber: line,
-              endColumn: word2.endColumn
-            });
+    async computeWordRanges(modelUrl, range, wordDef, wordDefFlags) {
+      const model = this._getModel(modelUrl);
+      if (!model) {
+        return /* @__PURE__ */ Object.create(null);
+      }
+      const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
+      const result = /* @__PURE__ */ Object.create(null);
+      for (let line = range.startLineNumber; line < range.endLineNumber; line++) {
+        const words = model.getLineWords(line, wordDefRegExp);
+        for (const word2 of words) {
+          if (!isNaN(Number(word2.word))) {
+            continue;
           }
+          let array = result[word2.word];
+          if (!array) {
+            array = [];
+            result[word2.word] = array;
+          }
+          array.push({
+            startLineNumber: line,
+            startColumn: word2.startColumn,
+            endLineNumber: line,
+            endColumn: word2.endColumn
+          });
         }
-        return result;
-      });
+      }
+      return result;
     }
     //#endregion
-    navigateValueSet(modelUrl, range, up, wordDef, wordDefFlags) {
-      return __awaiter2(this, void 0, void 0, function* () {
-        const model = this._getModel(modelUrl);
-        if (!model) {
-          return null;
-        }
-        const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
-        if (range.startColumn === range.endColumn) {
-          range = {
-            startLineNumber: range.startLineNumber,
-            startColumn: range.startColumn,
-            endLineNumber: range.endLineNumber,
-            endColumn: range.endColumn + 1
-          };
-        }
-        const selectionText = model.getValueInRange(range);
-        const wordRange = model.getWordAtPosition({ lineNumber: range.startLineNumber, column: range.startColumn }, wordDefRegExp);
-        if (!wordRange) {
-          return null;
-        }
-        const word2 = model.getValueInRange(wordRange);
-        const result = BasicInplaceReplace.INSTANCE.navigateValueSet(range, selectionText, wordRange, word2, up);
-        return result;
-      });
+    async navigateValueSet(modelUrl, range, up, wordDef, wordDefFlags) {
+      const model = this._getModel(modelUrl);
+      if (!model) {
+        return null;
+      }
+      const wordDefRegExp = new RegExp(wordDef, wordDefFlags);
+      if (range.startColumn === range.endColumn) {
+        range = {
+          startLineNumber: range.startLineNumber,
+          startColumn: range.startColumn,
+          endLineNumber: range.endLineNumber,
+          endColumn: range.endColumn + 1
+        };
+      }
+      const selectionText = model.getValueInRange(range);
+      const wordRange = model.getWordAtPosition({ lineNumber: range.startLineNumber, column: range.startColumn }, wordDefRegExp);
+      if (!wordRange) {
+        return null;
+      }
+      const word2 = model.getValueInRange(wordRange);
+      const result = BasicInplaceReplace.INSTANCE.navigateValueSet(range, selectionText, wordRange, word2, up);
+      return result;
     }
     // ---- BEGIN foreign module support --------------------------------------------------------------------------
     loadForeignModule(moduleId, createData, foreignHostMethods) {
@@ -37048,9 +36940,9 @@ spurious results.`);
     }
     Diagnostic2.create = create;
     function is(value) {
-      var _a4;
+      var _a3;
       let candidate = value;
-      return Is.defined(candidate) && Range2.is(candidate.range) && Is.string(candidate.message) && (Is.number(candidate.severity) || Is.undefined(candidate.severity)) && (Is.integer(candidate.code) || Is.string(candidate.code) || Is.undefined(candidate.code)) && (Is.undefined(candidate.codeDescription) || Is.string((_a4 = candidate.codeDescription) === null || _a4 === void 0 ? void 0 : _a4.href)) && (Is.string(candidate.source) || Is.undefined(candidate.source)) && (Is.undefined(candidate.relatedInformation) || Is.typedArray(candidate.relatedInformation, DiagnosticRelatedInformation.is));
+      return Is.defined(candidate) && Range2.is(candidate.range) && Is.string(candidate.message) && (Is.number(candidate.severity) || Is.undefined(candidate.severity)) && (Is.integer(candidate.code) || Is.string(candidate.code) || Is.undefined(candidate.code)) && (Is.undefined(candidate.codeDescription) || Is.string((_a3 = candidate.codeDescription) === null || _a3 === void 0 ? void 0 : _a3.href)) && (Is.string(candidate.source) || Is.undefined(candidate.source)) && (Is.undefined(candidate.relatedInformation) || Is.typedArray(candidate.relatedInformation, DiagnosticRelatedInformation.is));
     }
     Diagnostic2.is = is;
   })(Diagnostic || (Diagnostic = {}));
@@ -38447,8 +38339,8 @@ spurious results.`);
       style,
       match: (token) => token.kind === "Name",
       update(state, token) {
-        var _a4;
-        if ((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.prevState) {
+        var _a3;
+        if ((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.prevState) {
           state.name = token.value;
           state.prevState.prevState.type = token.value;
         }
@@ -38484,7 +38376,7 @@ spurious results.`);
     };
   }
   function getToken(stream, state, options) {
-    var _a4;
+    var _a3;
     if (state.inBlockstring) {
       if (stream.match(/.*"""/)) {
         state.inBlockstring = false;
@@ -38546,7 +38438,7 @@ spurious results.`);
           pushRule(parseRules, state, expected);
           continue;
         }
-        if ((_a4 = expected.match) === null || _a4 === void 0 ? void 0 : _a4.call(expected, token)) {
+        if ((_a3 = expected.match) === null || _a3 === void 0 ? void 0 : _a3.call(expected, token)) {
           if (expected.update) {
             expected.update(state, token);
           }
@@ -38600,7 +38492,7 @@ spurious results.`);
     state.prevState = state.prevState.prevState;
   }
   function advanceRule(state, successful) {
-    var _a4;
+    var _a3;
     if (isList(state) && state.rule) {
       const step = state.rule[state.step];
       if (step.separator) {
@@ -38620,7 +38512,7 @@ spurious results.`);
       popRule(state);
       if (state.rule) {
         if (isList(state)) {
-          if ((_a4 = state.rule) === null || _a4 === void 0 ? void 0 : _a4[state.step].separator) {
+          if ((_a3 = state.rule) === null || _a3 === void 0 ? void 0 : _a3[state.step].separator) {
             state.needsSeparator = !state.needsSeparator;
           }
         } else {
@@ -38699,7 +38591,7 @@ spurious results.`);
             externalFragments.push(def);
           }
         });
-      } catch (_a4) {
+      } catch (_a3) {
         return [];
       }
     }
@@ -38739,14 +38631,14 @@ spurious results.`);
             return false;
           }
         });
-      } catch (_a4) {
+      } catch (_a3) {
         return hasTypeSystemDef;
       }
     }
     return hasTypeSystemDef;
   };
   function getAutocompleteSuggestions(schema, queryText, cursor, contextToken, fragmentDefs, options) {
-    var _a4;
+    var _a3;
     const opts = Object.assign(Object.assign({}, options), { schema });
     const token = contextToken || getTokenAtPosition(queryText, cursor, 1);
     const state = token.state.kind === "Invalid" ? token.state.prevState : token.state;
@@ -38765,7 +38657,7 @@ spurious results.`);
     if (kind === RuleKinds.EXTEND_DEF) {
       return getSuggestionsForExtensionDefinitions(token);
     }
-    if (((_a4 = prevState === null || prevState === void 0 ? void 0 : prevState.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) === RuleKinds.EXTENSION_DEFINITION && state.name) {
+    if (((_a3 = prevState === null || prevState === void 0 ? void 0 : prevState.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) === RuleKinds.EXTENSION_DEFINITION && state.name) {
       return hintList(token, []);
     }
     if ((prevState === null || prevState === void 0 ? void 0 : prevState.kind) === Kind.SCALAR_TYPE_EXTENSION) {
@@ -38814,13 +38706,13 @@ spurious results.`);
       const { argDefs } = typeInfo;
       if (argDefs) {
         return hintList(token, argDefs.map((argDef) => {
-          var _a5;
+          var _a4;
           return {
             label: argDef.name,
             insertText: argDef.name + ": ",
             command: SuggestionCommand,
             detail: String(argDef.type),
-            documentation: (_a5 = argDef.description) !== null && _a5 !== void 0 ? _a5 : void 0,
+            documentation: (_a4 = argDef.description) !== null && _a4 !== void 0 ? _a4 : void 0,
             kind: CompletionItemKind3.Variable,
             type: argDef.type
           };
@@ -38831,11 +38723,11 @@ spurious results.`);
       const objectFields = objectValues(typeInfo.objectFieldDefs);
       const completionKind = kind === RuleKinds.OBJECT_VALUE ? CompletionItemKind3.Value : CompletionItemKind3.Field;
       return hintList(token, objectFields.map((field) => {
-        var _a5;
+        var _a4;
         return {
           label: field.name,
           detail: String(field.type),
-          documentation: (_a5 = field.description) !== null && _a5 !== void 0 ? _a5 : void 0,
+          documentation: (_a4 = field.description) !== null && _a4 !== void 0 ? _a4 : void 0,
           kind: completionKind,
           type: field.type
         };
@@ -38928,7 +38820,7 @@ spurious results.`);
     ]);
   }
   function getSuggestionsForFieldNames(token, typeInfo, options) {
-    var _a4;
+    var _a3;
     if (typeInfo.parentType) {
       const { parentType } = typeInfo;
       let fields = [];
@@ -38938,16 +38830,16 @@ spurious results.`);
       if (isCompositeType(parentType)) {
         fields.push(TypeNameMetaFieldDef);
       }
-      if (parentType === ((_a4 = options === null || options === void 0 ? void 0 : options.schema) === null || _a4 === void 0 ? void 0 : _a4.getQueryType())) {
+      if (parentType === ((_a3 = options === null || options === void 0 ? void 0 : options.schema) === null || _a3 === void 0 ? void 0 : _a3.getQueryType())) {
         fields.push(SchemaMetaFieldDef, TypeMetaFieldDef);
       }
       return hintList(token, fields.map((field, index) => {
-        var _a5;
+        var _a4;
         const suggestion = {
           sortText: String(index) + field.name,
           label: field.name,
           detail: String(field.type),
-          documentation: (_a5 = field.description) !== null && _a5 !== void 0 ? _a5 : void 0,
+          documentation: (_a4 = field.description) !== null && _a4 !== void 0 ? _a4 : void 0,
           deprecated: Boolean(field.deprecationReason),
           isDeprecated: Boolean(field.deprecationReason),
           deprecationReason: field.deprecationReason,
@@ -38973,11 +38865,11 @@ spurious results.`);
     if (namedInputType instanceof GraphQLEnumType) {
       const values = namedInputType.getValues();
       return hintList(token, values.map((value) => {
-        var _a4;
+        var _a3;
         return {
           label: value.name,
           detail: String(namedInputType),
-          documentation: (_a4 = value.description) !== null && _a4 !== void 0 ? _a4 : void 0,
+          documentation: (_a3 = value.description) !== null && _a3 !== void 0 ? _a3 : void 0,
           deprecated: Boolean(value.deprecationReason),
           isDeprecated: Boolean(value.deprecationReason),
           deprecationReason: value.deprecationReason,
@@ -39015,12 +38907,12 @@ spurious results.`);
     const schemaInterfaceNames = schemaInterfaces.map(({ name: name2 }) => name2);
     const inlineInterfaces = /* @__PURE__ */ new Set();
     runOnlineParser(documentText, (_, state) => {
-      var _a4, _b2, _c2, _d, _e;
+      var _a3, _b2, _c2, _d, _e;
       if (state.name) {
         if (state.kind === RuleKinds.INTERFACE_DEF && !schemaInterfaceNames.includes(state.name)) {
           inlineInterfaces.add(state.name);
         }
-        if (state.kind === RuleKinds.NAMED_TYPE && ((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) === RuleKinds.IMPLEMENTS) {
+        if (state.kind === RuleKinds.NAMED_TYPE && ((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) === RuleKinds.IMPLEMENTS) {
           if (typeInfo.interfaceDef) {
             const existingType = (_b2 = typeInfo.interfaceDef) === null || _b2 === void 0 ? void 0 : _b2.getInterfaces().find(({ name: name2 }) => name2 === state.name);
             if (existingType) {
@@ -39112,8 +39004,8 @@ spurious results.`);
     })));
   }
   var getParentDefinition = (state, kind) => {
-    var _a4, _b2, _c2, _d, _e, _f, _g, _h, _j, _k;
-    if (((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) === kind) {
+    var _a3, _b2, _c2, _d, _e, _f, _g, _h, _j, _k;
+    if (((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) === kind) {
       return state.prevState;
     }
     if (((_c2 = (_b2 = state.prevState) === null || _b2 === void 0 ? void 0 : _b2.prevState) === null || _c2 === void 0 ? void 0 : _c2.kind) === kind) {
@@ -39190,8 +39082,8 @@ spurious results.`);
     })));
   }
   function getSuggestionsForDirective(token, state, schema, _kind) {
-    var _a4;
-    if ((_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.kind) {
+    var _a3;
+    if ((_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.kind) {
       const directives = schema.getDirectives().filter((directive) => canUseDirective(state.prevState, directive));
       return hintList(token, directives.map((directive) => ({
         label: directive.name,
@@ -39314,7 +39206,7 @@ spurious results.`);
     let type2;
     let interfaceDef;
     forEachState(tokenState, (state) => {
-      var _a4;
+      var _a3;
       switch (state.kind) {
         case RuleKinds.QUERY:
         case "ShortQuery":
@@ -39378,7 +39270,7 @@ spurious results.`);
                 argDefs = directiveDef && directiveDef.args;
                 break;
               case RuleKinds.ALIASED_FIELD: {
-                const name2 = (_a4 = state.prevState) === null || _a4 === void 0 ? void 0 : _a4.name;
+                const name2 = (_a3 = state.prevState) === null || _a3 === void 0 ? void 0 : _a3.name;
                 if (!name2) {
                   argDefs = null;
                   break;
@@ -39542,7 +39434,7 @@ spurious results.`);
     }
   };
   function getJSONSchemaFromGraphQLType(fieldOrType, options) {
-    var _a4, _b2;
+    var _a3, _b2;
     let definition = /* @__PURE__ */ Object.create(null);
     const definitions = /* @__PURE__ */ Object.create(null);
     const isField = "type" in fieldOrType;
@@ -39550,7 +39442,7 @@ spurious results.`);
     const baseType = isNonNullType(type2) ? type2.ofType : type2;
     const required = isNonNullType(type2);
     if (isScalarType(baseType)) {
-      if ((_a4 = options === null || options === void 0 ? void 0 : options.scalarSchemas) === null || _a4 === void 0 ? void 0 : _a4[baseType.name]) {
+      if ((_a3 = options === null || options === void 0 ? void 0 : options.scalarSchemas) === null || _a3 === void 0 ? void 0 : _a3[baseType.name]) {
         definition = JSON.parse(JSON.stringify(options.scalarSchemas[baseType.name]));
       } else {
         definition.type = ["string", "number", "boolean", "integer"];
@@ -39635,7 +39527,7 @@ spurious results.`);
     return { required, definition, definitions };
   }
   function getVariablesJSONSchema(variableToType, options) {
-    var _a4;
+    var _a3;
     const jsonSchema = {
       $schema: "http://json-schema.org/draft-04/schema",
       type: "object",
@@ -39648,7 +39540,7 @@ spurious results.`);
         const { definition, required, definitions } = getJSONSchemaFromGraphQLType(type2, runtimeOptions);
         jsonSchema.properties[variableName] = definition;
         if (required) {
-          (_a4 = jsonSchema.required) === null || _a4 === void 0 ? void 0 : _a4.push(variableName);
+          (_a3 = jsonSchema.required) === null || _a3 === void 0 ? void 0 : _a3.push(variableName);
         }
         if (definitions) {
           jsonSchema.definitions = Object.assign(Object.assign({}, jsonSchema === null || jsonSchema === void 0 ? void 0 : jsonSchema.definitions), definitions);
@@ -39792,7 +39684,7 @@ spurious results.`);
     }
   };
   function getDiagnostics(query, schema = null, customRules, isRelayCompatMode, externalFragments) {
-    var _a4, _b2;
+    var _a3, _b2;
     let ast = null;
     let fragments = "";
     if (externalFragments) {
@@ -39805,7 +39697,7 @@ ${fragments}` : query;
       ast = parse2(enhancedQuery);
     } catch (error) {
       if (error instanceof GraphQLError) {
-        const range = getRange((_b2 = (_a4 = error.locations) === null || _a4 === void 0 ? void 0 : _a4[0]) !== null && _b2 !== void 0 ? _b2 : { line: 0, column: 0 }, enhancedQuery);
+        const range = getRange((_b2 = (_a3 = error.locations) === null || _a3 === void 0 ? void 0 : _a3[0]) !== null && _b2 !== void 0 ? _b2 : { line: 0, column: 0 }, enhancedQuery);
         return [
           {
             severity: DIAGNOSTIC_SEVERITY.Error,

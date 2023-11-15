@@ -64,6 +64,7 @@
 					placeholder="Search {itemName}s"
 					bind:value={filter}
 					class="search-item"
+					autofocus
 				/>
 			</div>
 			{#if loading}
