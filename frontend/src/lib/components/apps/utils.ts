@@ -15,7 +15,7 @@ import type {
 export const BG_PREFIX = 'bg_'
 
 export function migrateApp(app: App) {
-	(app?.hiddenInlineScripts ?? []).forEach((x) => {
+	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
 		if (x.type == undefined) {
 			//@ts-ignore
 			x.type = 'runnableByName'
@@ -359,7 +359,7 @@ export function transformBareBase64IfNecessary(source: string | undefined) {
 	if (!source) {
 		return source
 	}
-	if (source.startsWith('data:') || !source.includes(',')) {
+	if (source.startsWith('data:') || source.includes(',')) {
 		return source
 	} else {
 		return `data:application/octet-stream;base64,${source}`

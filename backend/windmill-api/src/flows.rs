@@ -524,7 +524,7 @@ async fn update_flow(
     }
 
     for schedule in schedulables.into_iter() {
-        clear_schedule(tx.transaction_mut(), &schedule.path, true, &w_id).await?;
+        clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
 
         if schedule.enabled {
             tx = push_scheduled_job(&db, tx, schedule).await?;

@@ -73,7 +73,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="flex gap-2 items-center">
+				<div class="flex gap-2">
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						<ArgInput
 							{resourceTypes}
@@ -96,7 +96,7 @@
 							extra={schema.properties[argName]}
 						/>
 					{/if}
-					<div>
+					<div class="pt-6 mt-0.5">
 						<Button
 							on:click={() => plugIt(argName)}
 							size="sm"

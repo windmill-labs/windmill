@@ -426,7 +426,7 @@
 		onClick: () => void
 	}> = []
 
-	if (savedFlow?.draft_only === false) {
+	if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 		dropdownItems.push({
 			label: 'Exit & see details',
 			onClick: () => dispatch('details', $pathStore)
@@ -662,6 +662,7 @@
 			$copilotDrawerStore?.closeDrawer()
 			select(module.id)
 			await tick()
+			await tick()
 			focusCopilot()
 
 			let isFirstInLoop = false
@@ -678,7 +679,6 @@
 			if (hubScript) {
 				module.editor?.setCode(hubScript.content)
 			} else if (module.source === 'custom') {
-				module.editor?.setCode('')
 				const deltaStore = writable<string>('')
 				const unsubscribe = deltaStore.subscribe(async (delta) => {
 					module.editor?.append(delta)

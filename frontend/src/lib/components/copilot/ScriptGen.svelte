@@ -145,6 +145,16 @@
 	}
 
 	$: updateSchema(lang, args, $dbSchemas)
+
+	let codeDiv: HTMLDivElement | undefined
+	let lastScrollHeight = 0
+	function updateScroll() {
+		if (codeDiv && lastScrollHeight !== codeDiv.scrollHeight) {
+			codeDiv.scrollTop = codeDiv.scrollHeight
+			lastScrollHeight = codeDiv.scrollHeight
+		}
+	}
+	$: $generatedCode && updateScroll()
 </script>
 
 {#if genLoading}
@@ -264,7 +274,7 @@
 		</svelte:fragment>
 		<div class="block text-primary">
 			{#if genLoading}
-				<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
+				<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll" bind:this={codeDiv}>
 					{#if $generatedCode.length > 0}
 						<div class="overflow-x-scroll">
 							<HighlightCode language={lang} code={$generatedCode} /></div

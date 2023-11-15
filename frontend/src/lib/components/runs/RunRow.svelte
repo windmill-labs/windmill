@@ -52,7 +52,6 @@
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
 		selectedId === job.id ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-		'transition-all',
 		'flex flex-row items-center h-full'
 	)}
 	style="width: {containerWidth}px"

@@ -20,8 +20,7 @@
 			loading={runLoading}
 			size="xs"
 			color="dark"
-			variant="border"
-			btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
+			btnClasses="!px-2 !py-1"
 			on:click={async () => {
 				runLoading = true
 				try {

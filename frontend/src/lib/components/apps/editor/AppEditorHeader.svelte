@@ -92,7 +92,7 @@
 		} catch {
 			//subtle not available, trying pure js
 			const hash = new Sha256()
-			hash.update(message)
+			hash.update(message ?? '')
 			const result = Array.from(await hash.digest())
 			const hex = result.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
 			return hex
