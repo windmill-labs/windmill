@@ -27,22 +27,14 @@
 	let loadingSchedulesWithJobStats = true
 
 	async function loadSchedules(): Promise<void> {
-		loading = true
-		try {
-			schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map(
-				(x) => {
-					return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-				}
-			)
-			loading = false
-			// after the schedule core data has been loaded, load all the job stats
-			// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
-			// simpler to always call it. Update if performance becomes an issue.
-			loadSchedulesWithJobStats()
-		} catch (e) {
-			loading = false
-			throw e
-		}
+		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
+		loading = false
+		// after the schedule core data has been loaded, load all the job stats
+		// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
+		// simpler to always call it. Update if performance becomes an issue.
+		loadSchedulesWithJobStats()
 	}
 
 	async function loadSchedulesWithJobStats(): Promise<void> {
