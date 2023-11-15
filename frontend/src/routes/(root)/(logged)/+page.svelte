@@ -48,8 +48,7 @@
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	async function viewCode(obj: HubItem) {
-		codeViewerContent = undefined
-		codeViewerLanguage = undefined
+		codeViewerContent = ''
 		codeViewerObj = undefined
 		getScriptByPath(obj.path).then(({ content, language }) => {
 			codeViewerContent = content
