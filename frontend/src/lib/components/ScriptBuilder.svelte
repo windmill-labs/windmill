@@ -17,7 +17,7 @@
 		emptySchema,
 		encodeState,
 		getModifierKey,
-		orderedJsonStringify
+		orderedYamlStringify
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -229,7 +229,7 @@
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
 			const current = cleanValueProperties(script)
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			if (!forceSave && orderedYamlStringify(draftOrDeployed) === orderedYamlStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
 						label: 'Save anyway',

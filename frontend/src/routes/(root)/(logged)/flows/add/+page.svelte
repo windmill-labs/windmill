@@ -56,7 +56,7 @@
 		if ($importFlowStore) {
 			flow = $importFlowStore
 			$importFlowStore = undefined
-			sendUserToast('Flow loaded from JSON')
+			sendUserToast('Flow loaded from YAML/JSON')
 		} else if (!templatePath && !hubId && state) {
 			sendUserToast('Flow restored from draft', false, [
 				{

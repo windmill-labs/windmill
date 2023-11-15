@@ -23,7 +23,7 @@
 		cleanValueProperties,
 		encodeState,
 		formatCron,
-		orderedJsonStringify,
+		orderedYamlStringify,
 		sleep
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -115,7 +115,7 @@
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
 			const current = cleanValueProperties($flowStore)
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+			if (!forceSave && orderedYamlStringify(draftOrDeployed) === orderedYamlStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
 						label: 'Save anyway',

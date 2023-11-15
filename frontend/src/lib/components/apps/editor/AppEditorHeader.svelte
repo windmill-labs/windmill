@@ -47,7 +47,7 @@
 		classNames,
 		cleanValueProperties,
 		copyToClipboard,
-		orderedJsonStringify,
+		orderedYamlStringify,
 		truncateRev
 	} from '../../../utils'
 	import type {
@@ -360,7 +360,7 @@
 			path: newPath || savedApp.draft?.path || savedApp.path,
 			policy
 		})
-		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+		if (!forceSave && orderedYamlStringify(draftOrDeployed) === orderedYamlStringify(current)) {
 			sendUserToast('No changes detected, ignoring', false, [
 				{
 					label: 'Save anyway',
@@ -484,7 +484,7 @@
 			}
 		},
 		{
-			displayName: 'JSON',
+			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
 				appExport.open($app)

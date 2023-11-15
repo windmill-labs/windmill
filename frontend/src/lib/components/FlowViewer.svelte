@@ -13,6 +13,8 @@
 		type SvelvetSettingsContext
 	} from './graph/svelvet/container/models'
 	import { Clipboard } from 'lucide-svelte'
+	import YAML from 'yaml'
+	import { yaml } from 'svelte-highlight/languages'
 
 	setContext<SvelvetSettingsContext>(SVELVET_CONTEXT_KEY, {
 		fullHeight: true
@@ -36,8 +38,10 @@
 
 	export let noGraph: boolean = false
 
-	export let tab: 'ui' | 'json' | 'schema' = noGraph ? 'schema' : 'ui'
+	export let tab: 'ui' | 'raw' | 'schema' = noGraph ? 'schema' : 'ui'
 	export let noSummary = false
+
+	let rawType: 'json' | 'yaml' = 'yaml'
 
 	let open: { [id: number]: boolean } = {}
 	if (initialOpen) {
@@ -53,7 +57,7 @@
 	{#if !noGraph}
 		<Tab value="ui">Graph</Tab>
 	{/if}
-	<Tab value="json">JSON</Tab>
+	<Tab value="raw">Raw</Tab>
 	<Tab value="schema">Input Schema</Tab>
 
 	<svelte:fragment slot="content">
@@ -91,24 +95,37 @@
 				<FlowGraphViewer download {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
-		<TabContent value="json">
-			<div class="relative pt-2">
-				<Button
-					on:click={() => copyToClipboard(JSON.stringify(flowFiltered, null, 4))}
-					color="light"
-					variant="border"
-					size="xs"
-					startIcon={{ icon: Clipboard }}
-					btnClasses="absolute top-2 right-2 w-min"
-				>
-					Copy content
-				</Button>
-				<Highlight
-					language={json}
-					code={JSON.stringify(flowFiltered, null, 4)}
-					class="overflow-auto"
-				/>
-			</div>
+		<TabContent value="raw"
+			><Tabs bind:selected={rawType} wrapperClass="mt-4">
+				<Tab value="yaml">YAML</Tab>
+				<Tab value="json">JSON</Tab>
+				<svelte:fragment slot="content">
+					<div class="relative pt-2">
+						<Button
+							on:click={() =>
+								copyToClipboard(
+									rawType === 'yaml'
+										? YAML.stringify(flowFiltered)
+										: JSON.stringify(flowFiltered, null, 4)
+								)}
+							color="light"
+							variant="border"
+							size="xs"
+							startIcon={{ icon: Clipboard }}
+							btnClasses="absolute top-2 right-2 w-min"
+						>
+							Copy content
+						</Button>
+						<Highlight
+							class="overflow-auto px-1"
+							language={rawType === 'yaml' ? yaml : json}
+							code={rawType === 'yaml'
+								? YAML.stringify(flowFiltered)
+								: JSON.stringify(flowFiltered, null, 4)}
+						/>
+					</div>
+				</svelte:fragment>
+			</Tabs>
 		</TabContent>
 		<TabContent value="schema">
 			<div class="my-4" />

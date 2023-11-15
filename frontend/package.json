@@ -39,6 +39,7 @@
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.33.1",
+		"monaco-editor-workers": "~0.44.0",
 		"ol": "^7.4.0",
 		"openapi-typescript-codegen": "^0.25.0",
 		"path-browserify": "^1.0.1",
@@ -68,8 +69,7 @@
 		"vite": "^4.5.0",
 		"vite-plugin-circular-dependency": "^0.2.1",
 		"vite-plugin-monaco-editor": "^1.1.0",
-		"yootils": "^0.3.1",
-		"monaco-editor-workers": "~0.44.0"
+		"yootils": "^0.3.1"
 	},
 	"overrides": {
 		"@rgossiaux/svelte-headlessui": {
@@ -136,6 +136,7 @@
 		"windmill-parser-wasm": "^1.202.1",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
+		"yaml": "^2.3.4",
 		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
@@ -390,5 +391,8 @@
 				"./package/gen/core/OpenAPI.d.ts"
 			]
 		}
+	},
+	"optionalDependencies": {
+		"fsevents": "^2.3.3"
 	}
 }
