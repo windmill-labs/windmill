@@ -39,12 +39,12 @@
 	$: updateCss(componentStyle, customCss, evalClassValue, evalClassValueGlobal)
 
 	// We need to clear the evalClassValue if the user has disabled the evalClass
-	$: if (customCss?.[key].evalClass === undefined && evalClassValue !== undefined) {
+	$: if (customCss?.[key]?.evalClass === undefined && evalClassValue !== undefined) {
 		evalClassValue = undefined
 	}
 
 	// We need to clear the evalClassValue if the user has disabled the evalClass
-	$: if (componentStyle?.[key].evalClass === undefined && evalClassValueGlobal !== undefined) {
+	$: if (componentStyle?.[key]?.evalClass === undefined && evalClassValueGlobal !== undefined) {
 		evalClassValueGlobal = undefined
 	}
 </script>
