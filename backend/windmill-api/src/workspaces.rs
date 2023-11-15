@@ -135,6 +135,7 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
+    pub datasets_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -248,6 +249,18 @@ pub struct EditErrorHandler {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum DatasetsStorage {
+    S3Storage(S3Storage),
+    // TODO: Add a filesystem type here in the future if needed
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct S3Storage {
+    pub s3_resource_path: String,
 }
 
 async fn list_pending_invites(
