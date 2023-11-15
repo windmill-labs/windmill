@@ -1111,7 +1111,7 @@ export const components = {
 					type: 'static',
 					fieldType: 'object',
 					value: {},
-					tooltip: 'ChartJs options object'
+					tooltip: 'ChartJs options object https://www.chartjs.org/docs/latest/general/options.html'
 				}
 			},
 			componentInput: {
@@ -1150,7 +1150,7 @@ export const components = {
 					type: 'static',
 					fieldType: 'object',
 					value: {},
-					tooltip: 'ChartJs options object'
+					tooltip: 'ChartJs options object https://www.chartjs.org/docs/latest/general/options.html'
 				}
 			},
 			componentInput: undefined
