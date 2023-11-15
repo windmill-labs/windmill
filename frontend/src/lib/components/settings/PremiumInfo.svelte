@@ -7,13 +7,25 @@
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
 	import { Badge, ExternalLink } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let plan: string | undefined
 	export let customer_id: string | undefined
 
 	let users: User[] | undefined = undefined
 
-	let premium_info: { premium: boolean; usage?: number; seats?: number } | undefined = undefined
+	let premiumInfo:
+		| {
+				premium: boolean
+				usage: number
+				seats: number
+				authorNb: number
+				operatorNb: number
+				seatsFromUsers: number
+				seatsFromComps: number
+				usedSeats: number
+		  }
+		| undefined = undefined
 	const plans = {
 		Free: [
 			'Users use their individual global free-tier quotas when doing executions in this workspace',
@@ -47,7 +59,22 @@
 	}
 
 	async function loadPremiumInfo() {
-		premium_info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
+		const info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
+		const authorNb = users?.filter((x) => !x.operator)?.length ?? 0
+		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
+		const seatsFromUsers = Math.ceil(authorNb + operatorNb / 2)
+		const seatsFromComps = Math.ceil((info.usage ?? 0) / 10000)
+		const usedSeats = Math.max(seatsFromUsers, seatsFromComps)
+		premiumInfo = {
+			...info,
+			usage: info.usage ?? 0,
+			seats: info.seats ?? 1,
+			authorNb,
+			operatorNb,
+			seatsFromUsers,
+			seatsFromComps,
+			usedSeats
+		}
 	}
 </script>
 
@@ -68,12 +95,11 @@
 {/if}
 
 <div class="text-xs my-4">
-	{#if premium_info?.premium}
+	{#if premiumInfo?.premium}
 		<div class="flex flex-col gap-0.5">
 			{#if plan}
 				<div class="text-base inline font-bold leading-8 mb-2">
-					Current plan: {capitalize(plan)} plan ({premium_info?.seats || 1} seat{(premium_info?.seats ||
-						1) > 1
+					Current plan: {capitalize(plan)} plan ({premiumInfo.seats} seat{premiumInfo.seats > 1
 						? 's'
 						: ''})
 				</div>
@@ -82,12 +108,6 @@
 			{/if}
 
 			{#if plan}
-				<!-- {@const team_factor = plan == 'team' ? 10 : 40} -->
-				{@const user_nb = users?.filter((x) => !x.operator)?.length ?? 0}
-				{@const operator_nb = users?.filter((x) => x.operator)?.length ?? 0}
-				{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
-				{@const seats_from_comps = Math.ceil((premium_info?.usage ?? 0) / 10000)}
-
 				<div class="w-full">
 					<DataTable>
 						<tbody class="divide-y">
@@ -101,7 +121,7 @@
 								</Cell>
 								<Cell last numeric>
 									<div class="text-base">
-										{user_nb}
+										{premiumInfo.authorNb}
 									</div>
 								</Cell>
 							</tr>
@@ -115,15 +135,17 @@
 								</Cell>
 								<Cell last numeric>
 									<div class="text-base">
-										{operator_nb}
+										{premiumInfo.operatorNb}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first><div class="font-semibold">Seats from authors + operators</div></Cell>
+								<Cell first
+									><div class="font-semibold">Minimum number of seats needed for users</div></Cell
+								>
 								<Cell last numeric>
 									<div class="text-base font-bold">
-										ceil({user_nb} + {operator_nb}/2) = {seats_from_users}
+										u = ceil({premiumInfo.authorNb} + {premiumInfo.operatorNb}/2) = {premiumInfo.seatsFromUsers}
 									</div>
 								</Cell>
 							</tr>
@@ -131,41 +153,55 @@
 								<Cell first>Computations executed this month</Cell>
 								<Cell last numeric>
 									<div class="text-base">
-										{premium_info?.usage ?? 0}
-									</div>
-								</Cell>
-							</tr>
-							<tr>
-								<Cell first><div class="font-semibold">Seats from computations</div></Cell>
-								<Cell last numeric>
-									<div class="text-base font-bold">
-										ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}
+										{premiumInfo.usage}
 									</div>
 								</Cell>
 							</tr>
 							<tr>
 								<Cell first
-									><div class="font-semibold"
-										>Counted seats<Tooltip light
-											>Highest between seats from authors + operators and seats from computations
-										</Tooltip></div
+									><div class="font-semibold">Minimum number of seats needed for computations</div
 									></Cell
 								>
 								<Cell last numeric>
 									<div class="text-base font-bold">
-										max({seats_from_comps}, {seats_from_users}) = {Math.max(
-											seats_from_comps,
-											seats_from_users
+										c = ceil({premiumInfo.usage} / 10 000) = {premiumInfo.seatsFromComps}
+									</div>
+								</Cell>
+							</tr>
+							<tr>
+								<Cell first
+									><div
+										class={twMerge(
+											'font-semibold',
+											premiumInfo.usedSeats > premiumInfo.seats ? 'text-red-500' : ''
 										)}
+										>Used seats <Tooltip
+											>Highest between seats from authors + operators and seats from computations
+										</Tooltip>{premiumInfo.usedSeats > premiumInfo.seats
+											? ' > Paid seats'
+											: ''}</div
+									></Cell
+								>
+								<Cell last numeric>
+									<div
+										class={twMerge(
+											'text-base font-bold',
+											premiumInfo.usedSeats > premiumInfo.seats ? 'text-red-500' : ''
+										)}
+									>
+										max(u, c) = max({premiumInfo.seatsFromUsers}, {premiumInfo.seatsFromComps}) = {premiumInfo.usedSeats}{premiumInfo.usedSeats >
+										premiumInfo.seats
+											? ` > ${premiumInfo.seats}`
+											: ''}
 									</div>
 								</Cell>
 							</tr>
 						</tbody>
 					</DataTable>
 
-					{#if Math.max(seats_from_comps, seats_from_users) > (premium_info?.seats || 1)}
+					{#if premiumInfo.usedSeats > premiumInfo.seats}
 						<p class="text-red-500 mt-2 text-right text-base"
-							>You have exceeded your allowed number of seats, please upgrade your plan in the
+							>You have exceeded your allowed number of seats, please update your plan in the
 							customer portal.
 						</p>
 					{/if}
@@ -197,7 +233,9 @@
 						<Button
 							size="lg"
 							color="dark"
-							href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+							href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team{premiumInfo?.usedSeats
+								? `&seats=${premiumInfo.usedSeats}`
+								: ''}"
 						>
 							Upgrade to the Team plan</Button
 						>
@@ -215,18 +253,14 @@
 				{:else}
 					<div class="mx-auto text-lg font-semibold">Workspace is on enterprise plan</div>
 				{/if}
-			{:else if !plan}
-				<Badge class="mx-auto text-lg font-semibold">Workspace is on the free plan</Badge>
 			{:else if planTitle === 'Free'}
-				<div class="mx-auto font-semibold text-center"
-					>Cancel your plan in the customer portal to downgrade to the free plan
-				</div>
-			{:else}
-				<div class="mt-4 w-full">
-					<Button href="/api/w/{$workspaceStore}/workspaces/checkout" color="dark"
-						>Upgrade to the {planTitle} plan
-					</Button>
-				</div>
+				{#if plan}
+					<div class="mx-auto font-semibold text-center">
+						Cancel your plan in the customer portal to downgrade to the free plan
+					</div>
+				{:else}
+					<Badge class="mx-auto text-lg font-semibold">Workspace is on the free plan</Badge>
+				{/if}
 			{/if}
 		</div>
 	{/each}

@@ -15,7 +15,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
-		premiumStore,
+		isPremiumStore,
 		starStore,
 		superadmin,
 		usageStore,
@@ -70,7 +70,7 @@
 			const user = await getUserExt(workspace)
 			userStore.set(user)
 			if (isCloudHosted() && user?.is_admin) {
-				premiumStore.set(await WorkspaceService.getPremiumInfo({ workspace }))
+				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
 			}
 		} else {
 			userStore.set(undefined)

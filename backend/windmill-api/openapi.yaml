@@ -1199,6 +1199,23 @@ paths:
                   deploy_to:
                     type: string
 
+  /w/{workspace}/workspaces/is_premium:
+    get:
+      summary: get if workspace is premium
+      operationId: getIsPremium
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/workspaces/premium_info:
     get:
       summary: get premium info
