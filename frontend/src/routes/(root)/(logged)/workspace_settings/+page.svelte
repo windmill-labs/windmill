@@ -299,9 +299,6 @@
 				<Tab size="xs" value="openai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
-				<Tab size="xs" value="windmill_lfs">
-					<div class="flex gap-2 items-center my-1">Large File Storage</div>
-				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
