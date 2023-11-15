@@ -11,7 +11,7 @@
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, GitFork, Globe2 } from 'lucide-svelte'
+	import { Building, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -48,24 +48,33 @@
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	async function viewCode(obj: HubItem) {
-		const { content, language } = await getScriptByPath(obj.path)
-		codeViewerContent = content
-		codeViewerLanguage = language
-		codeViewerObj = obj
+		codeViewerContent = undefined
+		codeViewerLanguage = undefined
+		codeViewerObj = undefined
+		getScriptByPath(obj.path).then(({ content, language }) => {
+			codeViewerContent = content
+			codeViewerLanguage = language
+			codeViewerObj = obj
+		})
+
 		codeViewer.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
-		const hub = await FlowService.getHubFlowById({ id: obj.flow_id })
-		delete hub['comments']
-		flowViewerFlow = hub
+		flowViewerFlow = undefined
+		FlowService.getHubFlowById({ id: obj.flow_id }).then((hub) => {
+			delete hub['comments']
+			flowViewerFlow = hub
+		})
 		flowViewer.openDrawer?.()
 	}
 
 	async function viewApp(obj: { app_id: number }): Promise<void> {
-		const hub = await AppService.getHubAppById({ id: obj.app_id })
-		delete hub['comments']
-		appViewerApp = hub
+		appViewerApp = undefined
+		AppService.getHubAppById({ id: obj.app_id }).then((hub) => {
+			delete hub['comments']
+			appViewerApp = hub
+		})
 		appViewer.openDrawer?.()
 	}
 </script>
@@ -95,8 +104,13 @@
 				Fork
 			</Button>
 		</svelte:fragment>
-
-		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
+		{#if codeViewerObj != undefined && codeViewerLanguage != undefined}
+			<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
+		{:else}
+			<div class="p-2">
+				<Loader2 class="animate-spin" />
+			</div>
+		{/if}
 	</DrawerContent>
 </Drawer>
 
@@ -128,6 +142,10 @@
 
 		{#if flowViewerFlow?.flow}
 			<FlowViewer flow={flowViewerFlow.flow} />
+		{:else}
+			<div class="p-2">
+				<Loader2 class="animate-spin" />
+			</div>
 		{/if}
 	</DrawerContent>
 </Drawer>
