@@ -11,7 +11,7 @@
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, GitFork, Globe2, Loader2 } from 'lucide-svelte'
+	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -88,6 +88,7 @@
 				color="light"
 				size="xs"
 				target="_blank"
+				disabled={codeViewerObj == undefined}
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -99,6 +100,7 @@
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
+				disabled={codeViewerObj == undefined}
 			>
 				Fork
 			</Button>
@@ -122,6 +124,7 @@
 				color="light"
 				size="xs"
 				target="_blank"
+				disabled={flowViewerFlow == undefined}
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -134,6 +137,7 @@
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
+				disabled={flowViewerFlow == undefined}
 			>
 				Fork
 			</Button>
@@ -158,6 +162,7 @@
 				color="light"
 				size="xs"
 				target="_blank"
+				disabled={appViewerApp == undefined}
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -169,6 +174,7 @@
 				href="/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
+				disabled={appViewerApp == undefined}
 				size="xs"
 			>
 				Fork
@@ -263,24 +269,34 @@
 					{#if subtab == 'script'}
 						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
 							<Button
+								startIcon={{ icon: ExternalLink }}
 								target="_blank"
 								href="https://hub.windmill.dev"
 								variant="border"
 								color="light"
 							>
-								Go to Hub
+								Hub
 							</Button>
 						</PickHubScript>
 					{:else if subtab == 'flow'}
 						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
-							<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-								>Go to Hub
+							<Button
+								startIcon={{ icon: ExternalLink }}
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light"
+								>Hub
 							</Button>
 						</PickHubFlow>
 					{:else if subtab == 'app'}
 						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
-							<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-								>Go to Hub</Button
+							<Button
+								startIcon={{ icon: ExternalLink }}
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Hub</Button
 							>
 						</PickHubApp>
 					{/if}
