@@ -3,7 +3,7 @@
 	import { beforeNavigate, goto } from '$app/navigation'
 	import Button from '../button/Button.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cleanValueProperties, orderedYamlStringify, type Value } from '$lib/utils'
+	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
 	import { tick } from 'svelte'
 
 	export let savedValue: Value | undefined = undefined
@@ -26,7 +26,7 @@
 			if (savedValue && modifiedValue) {
 				const draftOrDeployed = cleanValueProperties(savedValue.draft || savedValue)
 				const current = cleanValueProperties(modifiedValue)
-				if (orderedYamlStringify(draftOrDeployed) === orderedYamlStringify(current)) {
+				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 					bypassBeforeNavigate = true
 					goto(goingTo)
 				} else {

@@ -9,7 +9,7 @@
 		decodeArgs,
 		decodeState,
 		emptySchema,
-		orderedYamlStringify
+		orderedJsonStringify
 	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$app/navigation'
@@ -68,7 +68,7 @@
 				goto(`/flows/edit/${flow!.path}`)
 				loadFlow()
 			}
-			if (orderedYamlStringify(draftOrDeployed) === orderedYamlStringify(urlScript)) {
+			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
 				reloadAction()
 			} else {
 				sendUserToast('Flow loaded from browser storage', false, [

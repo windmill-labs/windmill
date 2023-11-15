@@ -10,7 +10,7 @@
 	import {
 		cleanValueProperties,
 		emptySchema,
-		orderedYamlStringify,
+		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
 	import { cloneDeep } from 'lodash'
@@ -112,7 +112,7 @@
 		if (savedScript && script) {
 			const saved = cleanValueProperties(savedScript)
 			const current = cleanValueProperties(script)
-			if (orderedYamlStringify(saved) !== orderedYamlStringify(current)) {
+			if (orderedJsonStringify(saved) !== orderedJsonStringify(current)) {
 				unsavedModalOpen = true
 			} else {
 				scriptEditorDrawer.closeDrawer()

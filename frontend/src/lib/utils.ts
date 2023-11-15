@@ -688,8 +688,14 @@ export function cleanValueProperties(obj: Value) {
 	}
 }
 
-export function orderedYamlStringify(obj: any, space?: string | number) {
+export function orderedJsonStringify(obj: any, space?: string | number) {
+	const allKeys = new Set()
+	JSON.stringify(obj, (key, value) => (allKeys.add(key), value))
+	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
+}
+
+export function orderedYamlStringify(obj: any) {
 	const allKeys = new Set()
 	YAML.stringify(obj, (key, value) => (allKeys.add(key), value))
-	return YAML.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
+	return YAML.stringify(obj, (Array.from(allKeys) as string[]).sort())
 }

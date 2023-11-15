@@ -6,7 +6,12 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { cloneDeep } from 'lodash'
-	import { cleanValueProperties, orderedYamlStringify, type Value } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		orderedJsonStringify,
+		orderedYamlStringify,
+		type Value
+	} from '$lib/utils'
 	import type { Script } from '$lib/gen'
 
 	type DiffData = {
@@ -60,7 +65,7 @@
 		return {
 			lang: data.language ? scriptLangToEditorLang(data.language as Script.language) : undefined,
 			content,
-			metadata: orderedYamlStringify(metadata, 2)
+			metadata: orderedYamlStringify(metadata)
 		}
 	}
 
@@ -153,7 +158,7 @@
 						variant="border"
 						wrapperClasses="self-start"
 						on:click={restoreDraft}
-						disabled={orderedYamlStringify(data.draft) === orderedYamlStringify(data.current)}
+						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
 						>Restore to latest saved draft</Button
 					>
 				{:else if diffType === 'deployed'}
@@ -164,7 +169,7 @@
 						wrapperClasses="self-start"
 						on:click={restoreDeployed}
 						disabled={!data.draft &&
-							orderedYamlStringify(data.deployed) === orderedYamlStringify(data.current)}
+							orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
 					>
 						Restore to deployed{data.draft ? ' and discard draft' : ''}
 					</Button>

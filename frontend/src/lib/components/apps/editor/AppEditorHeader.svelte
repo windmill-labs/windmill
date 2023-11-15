@@ -47,8 +47,8 @@
 		classNames,
 		cleanValueProperties,
 		copyToClipboard,
-		orderedYamlStringify,
-		truncateRev
+		truncateRev,
+		orderedJsonStringify
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -360,7 +360,7 @@
 			path: newPath || savedApp.draft?.path || savedApp.path,
 			policy
 		})
-		if (!forceSave && orderedYamlStringify(draftOrDeployed) === orderedYamlStringify(current)) {
+		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 			sendUserToast('No changes detected, ignoring', false, [
 				{
 					label: 'Save anyway',
