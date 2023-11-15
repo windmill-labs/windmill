@@ -104,28 +104,29 @@
 
 	function linkedSecretValue(x: string) {
 		let r = 0
-		if (x.includes('secret')) {
+		let lowerCasedX = x.toLowerCase()
+		if (lowerCasedX.includes('secret')) {
 			r += 10
 		}
-		if (x.includes('password')) {
+		if (lowerCasedX.includes('password')) {
 			r += 5
 		}
-		if (x.includes('private')) {
+		if (lowerCasedX.includes('private')) {
 			r += 4
 		}
-		if (x.includes('key')) {
+		if (lowerCasedX.includes('key')) {
 			r += 3
 		}
-		if (x.includes('token')) {
+		if (lowerCasedX.includes('token')) {
 			r += 2
 		}
-		if (x.includes('pass')) {
+		if (lowerCasedX.includes('pass')) {
 			r += 1
 		}
 		return r
 	}
 	$: linkedSecret = linkedSecretCandidates?.sort(
-		(ua, ub) => linkedSecretValue(ua) - linkedSecretValue(ub)
+		(ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua)
 	)?.[0]
 
 	let scopes: string[] = []
