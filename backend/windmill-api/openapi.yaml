@@ -6318,7 +6318,7 @@ paths:
                   dataset_keys:
                     type: array
                     items:
-                      $ref: "#/components/parameters/WindmillLargeFile"
+                      $ref: "#/components/schemas/WindmillLargeFile"
 
 components:
   securitySchemes:

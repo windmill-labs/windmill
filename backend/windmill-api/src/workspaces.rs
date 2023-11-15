@@ -78,8 +78,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info) )
         .route("/edit_error_handler", post(edit_error_handler))
-        .route("/edit_large_file_storage_config", post(edit_large_file_storage_config))
-        .route("/get_large_file_storage_config", get(get_large_file_storage_config));
+        .route("/edit_large_file_storage_config", post(edit_large_file_storage_config));
 
     #[cfg(feature = "enterprise")]
     { 
@@ -867,23 +866,6 @@ async fn edit_large_file_storage_config(
     tx.commit().await?;
 
     Ok(format!("Edit copilot config for workspace {}", &w_id))
-}
-
-async fn get_large_file_storage_config(
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-) -> JsonResult<LargeFileStorage> {
-    let serialized_value = sqlx::query_scalar::<_, Value>(
-        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
-    )
-    .bind(w_id)
-    .fetch_one(&db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("getting large_file_storage: {e}")))?;
-
-    let deserialized_value = serde_json::from_value::<LargeFileStorage>(serialized_value)
-        .map_err(|err| Error::InternalErr(err.to_string()))?;
-    return Ok(Json(deserialized_value))
 }
 
 async fn edit_error_handler(
