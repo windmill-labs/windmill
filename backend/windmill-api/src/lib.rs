@@ -57,6 +57,7 @@ mod granular_acls;
 mod groups;
 mod inputs;
 mod integration;
+pub mod job_helpers;
 pub mod jobs;
 pub mod oauth2;
 mod openai;
@@ -179,31 +180,32 @@ pub async fn run_server(
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/apps", apps::workspaced_service())
-                        .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
+                        .nest(
+                            "/embeddings",
+                            embeddings::workspaced_service(embeddings_db.clone()),
+                        )
+                        .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
+                        .nest("/job_helpers", job_helpers::workspaced_service())
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2::workspaced_service())
+                        .nest("/openai", openai::workspaced_service())
+                        .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
-                        .nest("/drafts", drafts::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
-                        .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/openai", openai::workspaced_service())
-                        .nest(
-                            "/embeddings",
-                            embeddings::workspaced_service(embeddings_db.clone()),
-                        ),
+                        .nest("/workspaces", workspaces::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

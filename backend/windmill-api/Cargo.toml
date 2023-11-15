@@ -82,3 +82,5 @@ tokenizers.workspace = true
 candle-core.workspace = true
 candle-transformers.workspace = true
 candle-nn.workspace = true
+aws-sdk-s3 = "0.36.0"
+aws-config = "0.57.2"
