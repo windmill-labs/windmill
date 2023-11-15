@@ -10,12 +10,20 @@
 
 	export let item: ItemType | FolderItem | UserItem
 
+	export let collapseAll: boolean
 	export let depth: number = 0
 
 	const isFolder = (i: any): i is FolderItem => i && 'folderName' in i
 	const isUser = (i: any): i is UserItem => i && 'username' in i
 
 	let opened: boolean = true
+
+	$: toggleOpened(collapseAll)
+
+	function toggleOpened(collapseAll: boolean) {
+		opened = !collapseAll
+	}
+
 	export let showCode: (path: string, summary: string) => void
 
 	let showMax = 30
@@ -61,6 +69,7 @@
 			<div transition:slide>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
+						{collapseAll}
 						item={subItem}
 						on:scriptChanged
 						on:flowChanged
@@ -121,6 +130,7 @@
 			<div transition:slide>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
+						{collapseAll}
 						item={subItem}
 						on:scriptChanged
 						on:flowChanged
