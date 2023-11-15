@@ -83,7 +83,7 @@ pub fn workspaced_service() -> Router {
 
     #[cfg(feature = "enterprise")]
     { 
-        if std::env::var("STRIPE_KEY").is_err() {
+        if STRIPE_KEY.is_none() {
             return router;
         } else {
             tracing::info!("stripe enabled");
@@ -322,7 +322,7 @@ async fn premium_info(
     };
     if row.premium && row.plan == Some("team".to_string()) {
         let customer_id = row.customer_id.ok_or(Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
-        let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+        let client = stripe::Client::new(STRIPE_KEY.clone().ok_or(Error::InternalErr(format!("stripe key not set")))?);
         let customer_id = stripe::CustomerId::from_str(&customer_id).map_err(to_anyhow)?;
         let subscriptions = stripe::Subscription::list(
             &client,
