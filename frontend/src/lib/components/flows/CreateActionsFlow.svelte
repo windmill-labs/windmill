@@ -8,12 +8,14 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { importFlowStore } from '$lib/components/flows/flowStore'
 	import { Plus } from 'lucide-svelte'
+	import YAML from 'yaml'
 
 	let drawer: Drawer | undefined = undefined
-	let pendingJson: string
+	let pendingRaw: string
+	let importType: 'yaml' | 'json' = 'yaml'
 
-	async function importJson() {
-		$importFlowStore = JSON.parse(pendingJson)
+	async function importRaw() {
+		$importFlowStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
 		await goto('/flows/add')
 		drawer?.closeDrawer?.()
 	}
@@ -29,8 +31,18 @@
 		href="/flows/add?nodraft=true"
 		dropdownItems={[
 			{
+				label: 'Import from YAML',
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'yaml'
+				}
+			},
+			{
 				label: 'Import from JSON',
-				onClick: () => drawer?.toggleDrawer?.()
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'json'
+				}
 			}
 		]}
 	>
@@ -40,10 +52,18 @@
 
 <!-- Raw JSON -->
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Import flow from JSON" on:close={() => drawer?.toggleDrawer?.()}>
-		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" fixedOverflowWidgets={false} />
+	<DrawerContent
+		title={'Import flow from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
+		on:close={() => drawer?.toggleDrawer?.()}
+	>
+		<SimpleEditor
+			bind:code={pendingRaw}
+			lang={importType}
+			class="h-full"
+			fixedOverflowWidgets={false}
+		/>
 		<svelte:fragment slot="actions">
-			<Button size="sm" on:click={importJson}>Import</Button>
+			<Button size="sm" on:click={importRaw}>Import</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

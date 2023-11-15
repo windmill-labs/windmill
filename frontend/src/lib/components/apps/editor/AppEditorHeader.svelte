@@ -47,8 +47,8 @@
 		classNames,
 		cleanValueProperties,
 		copyToClipboard,
-		orderedJsonStringify,
-		truncateRev
+		truncateRev,
+		orderedJsonStringify
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -484,7 +484,7 @@
 			}
 		},
 		{
-			displayName: 'JSON',
+			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
 				appExport.open($app)
