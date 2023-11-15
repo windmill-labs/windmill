@@ -99,9 +99,9 @@
 		<div class="flex flex-col gap-0.5">
 			{#if plan}
 				<div class="text-base inline font-bold leading-8 mb-2">
-					Current plan: {capitalize(plan)} plan ({premiumInfo.seats} seat{premiumInfo.seats > 1
-						? 's'
-						: ''})
+					Current plan: {capitalize(plan)} plan{plan === 'team'
+						? `(${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
+						: ''}
 				</div>
 			{:else}
 				<div class="inline text-lg font-bold">Current plan: Free plan</div>
@@ -173,11 +173,13 @@
 									><div
 										class={twMerge(
 											'font-semibold',
-											premiumInfo.usedSeats > premiumInfo.seats ? 'text-red-500' : ''
+											plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats
+												? 'text-red-500'
+												: ''
 										)}
 										>Used seats <Tooltip
 											>Highest between seats from authors + operators and seats from computations
-										</Tooltip>{premiumInfo.usedSeats > premiumInfo.seats
+										</Tooltip>{plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats
 											? ' > Paid seats'
 											: ''}</div
 									></Cell
@@ -186,7 +188,9 @@
 									<div
 										class={twMerge(
 											'text-base font-bold',
-											premiumInfo.usedSeats > premiumInfo.seats ? 'text-red-500' : ''
+											plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats
+												? 'text-red-500'
+												: ''
 										)}
 									>
 										max(u, c) = max({premiumInfo.seatsFromUsers}, {premiumInfo.seatsFromComps}) = {premiumInfo.usedSeats}{premiumInfo.usedSeats >
@@ -199,7 +203,7 @@
 						</tbody>
 					</DataTable>
 
-					{#if premiumInfo.usedSeats > premiumInfo.seats}
+					{#if plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats}
 						<p class="text-red-500 mt-2 text-right text-base"
 							>You have exceeded your allowed number of seats, please update your plan in the
 							customer portal.
@@ -230,15 +234,21 @@
 			{#if planTitle == 'Team'}
 				{#if plan != 'team'}
 					<div class="mt-4 mx-auto">
-						<Button
-							size="lg"
-							color="dark"
-							href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team{premiumInfo?.usedSeats
-								? `&seats=${premiumInfo.usedSeats}`
-								: ''}"
-						>
-							Upgrade to the Team plan</Button
-						>
+						{#if plan != 'enterprise'}
+							<Button
+								size="lg"
+								color="dark"
+								href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team{premiumInfo?.usedSeats
+									? `&seats=${premiumInfo.usedSeats}`
+									: ''}"
+							>
+								Upgrade to the Team plan</Button
+							>
+						{:else}
+							<div class="mx-auto font-semibold text-center">
+								Cancel your plan in the customer portal then upgrade to a team plan
+							</div>
+						{/if}
 					</div>
 				{:else}
 					<div class="mx-auto text-md font-semibold">Workspace is on the team plan</div>
@@ -251,7 +261,7 @@
 						</Button>
 					</div>
 				{:else}
-					<div class="mx-auto text-lg font-semibold">Workspace is on enterprise plan</div>
+					<div class="mx-auto text-md font-semibold">Workspace is on enterprise plan</div>
 				{/if}
 			{:else if planTitle === 'Free'}
 				{#if plan}
@@ -259,7 +269,7 @@
 						Cancel your plan in the customer portal to downgrade to the free plan
 					</div>
 				{:else}
-					<Badge class="mx-auto text-lg font-semibold">Workspace is on the free plan</Badge>
+					<Badge class="mx-auto text-md font-semibold">Workspace is on the free plan</Badge>
 				{/if}
 			{/if}
 		</div>
