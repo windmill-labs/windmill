@@ -52,7 +52,7 @@ use windmill_queue::QueueTransaction;
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map};
+use serde_json::{json, Map, Value};
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
@@ -77,7 +77,9 @@ pub fn workspaced_service() -> Router {
         .route("/premium_info", get(premium_info))
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info) )
-        .route("/edit_error_handler", post(edit_error_handler));
+        .route("/edit_error_handler", post(edit_error_handler))
+        .route("/edit_large_file_storage_config", post(edit_large_file_storage_config))
+        .route("/get_large_file_storage_config", get(get_large_file_storage_config));
 
     #[cfg(feature = "enterprise")]
     { 
@@ -135,7 +137,7 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-    pub datasets_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -190,6 +192,11 @@ struct EditWebhook {
 struct EditCopilotConfig {
     openai_resource_path: Option<String>,
     code_completion_enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct EditLargeFileStorageConfig {
+    large_file_storage: Option<LargeFileStorage>,
 }
 
 #[derive(Deserialize)]
@@ -253,7 +260,7 @@ pub struct EditErrorHandler {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
-pub enum DatasetsStorage {
+pub enum LargeFileStorage {
     S3Storage(S3Storage),
     // TODO: Add a filesystem type here in the future if needed
 }
@@ -815,6 +822,69 @@ async fn get_copilot_info(
     }))
 }
 
+async fn edit_large_file_storage_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditLargeFileStorageConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.large_file_storage);
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspaces.edit_large_file_storage_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("large_file_storage", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    if let Some(lfs_config) = new_config.large_file_storage {
+        let serialized_lfs_config = serde_json::to_value::<LargeFileStorage>(lfs_config)
+            .map_err(|err| Error::InternalErr(err.to_string()))?;
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+            serialized_lfs_config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET large_file_storage = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit copilot config for workspace {}", &w_id))
+}
+
+async fn get_large_file_storage_config(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<LargeFileStorage> {
+    let serialized_value = sqlx::query_scalar::<_, Value>(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .fetch_one(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting large_file_storage: {e}")))?;
+
+    let deserialized_value = serde_json::from_value::<LargeFileStorage>(serialized_value)
+        .map_err(|err| Error::InternalErr(err.to_string()))?;
+    return Ok(Json(deserialized_value))
+}
 
 async fn edit_error_handler(
     authed: ApiAuthed,

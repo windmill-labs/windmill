@@ -1,4 +1,4 @@
-use crate::{resources::transform_json_value, users::Tokened, workspaces::DatasetsStorage};
+use crate::{resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage};
 use aws_sdk_s3::config::{Credentials, Region};
 use axum::{
     extract::Path,
@@ -131,7 +131,13 @@ async fn polars_connection_settings(
 
 #[derive(Serialize)]
 struct ListStoredDatasetsResponse {
-    dataset_keys: Vec<String>,
+    windmill_large_files: Vec<WindmillLargeFile>,
+}
+
+#[derive(Serialize, Clone)]
+struct WindmillLargeFile {
+    s3: String,
+    s3_bucket: Option<String>,
 }
 
 async fn test_connection(
@@ -170,7 +176,7 @@ async fn list_stored_datasets(
     let s3_resource = s3_resource_opt.unwrap();
     let s3_client = build_s3_client(&s3_resource);
 
-    let mut stored_dataset_keys = Vec::<String>::new();
+    let mut stored_datasets = Vec::<WindmillLargeFile>::new();
     let s3_bucket = s3_resource.bucket;
     loop {
         let mut list_object_query = s3_client
@@ -178,10 +184,10 @@ async fn list_stored_datasets(
             .bucket(s3_bucket.clone())
             .max_keys(32);
 
-        if let Some(last_dataset_name) = stored_dataset_keys.last() {
+        if let Some(last_dataset_name) = stored_datasets.last() {
             // if stored_datasets already has some elements, it means we're looping through pages
             // according to AWS SDK docs, we can set the marker to the last returned dataset
-            list_object_query = list_object_query.set_marker(Some(last_dataset_name.clone()))
+            list_object_query = list_object_query.set_marker(Some(last_dataset_name.clone().s3))
         }
 
         let bucket_objects = list_object_query
@@ -196,9 +202,13 @@ async fn list_stored_datasets(
             .map(|object| object.key())
             .map(Option::unwrap)
             .map(&str::to_string)
-            .collect::<Vec<String>>();
+            .map(|object_key| WindmillLargeFile {
+                s3: object_key.clone(),
+                s3_bucket: Some(s3_bucket.clone()),
+            })
+            .collect::<Vec<WindmillLargeFile>>();
 
-        stored_dataset_keys.extend(page_datasets.clone());
+        stored_datasets.extend(page_datasets.clone());
 
         if !bucket_objects.is_truncated() {
             break;
@@ -206,7 +216,7 @@ async fn list_stored_datasets(
     }
 
     return Ok(Json(ListStoredDatasetsResponse {
-        dataset_keys: stored_dataset_keys,
+        windmill_large_files: stored_datasets,
     }));
 }
 
@@ -217,8 +227,8 @@ async fn get_workspace_s3_resource<'c>(
     w_id: &str,
 ) -> error::Result<Option<S3Resource>> {
     let mut tx = user_db.clone().begin(authed).await?;
-    let raw_datasets_storage_opt = sqlx::query_scalar!(
-        "SELECT datasets_storage FROM workspace_settings WHERE workspace_id = $1",
+    let raw_lfs_opt = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(&mut *tx)
@@ -226,27 +236,27 @@ async fn get_workspace_s3_resource<'c>(
     .flatten();
     tx.commit().await?;
 
-    if raw_datasets_storage_opt.is_none() {
+    if raw_lfs_opt.is_none() {
         return Ok(None);
     }
 
-    let datasets_storage = serde_json::from_value::<DatasetsStorage>(
-        raw_datasets_storage_opt.unwrap(),
+    let large_file_storage = serde_json::from_value::<LargeFileStorage>(
+        raw_lfs_opt.unwrap(),
     )
     .map_err(|err| {
         tracing::error!(
-            "Value stored in datasets_storage column is invalid and could not be deserialized: {}",
+            "Value stored in large_file_storage column is invalid and could not be deserialized: {}",
             err
         );
         error::Error::InternalErr(
-            "Could not deserialize DatasetsStorage value found in database".to_string(),
+            "Could not deserialize LargeFileStorage value found in database".to_string(),
         )
     })?;
-    let s3_datasets_storage = match datasets_storage {
-        DatasetsStorage::S3Storage(s3_datasets_storage) => s3_datasets_storage,
+    let s3_lfs = match large_file_storage {
+        LargeFileStorage::S3Storage(s3_lfs) => s3_lfs,
     };
 
-    let resource_path_json_value = serde_json::to_value(s3_datasets_storage.s3_resource_path)
+    let resource_path_json_value = serde_json::to_value(s3_lfs.s3_resource_path)
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
     let interpolated_value = transform_json_value(
         authed,

@@ -1176,6 +1176,8 @@ paths:
                     $ref: "#/components/schemas/ScriptArgs"
                   error_handler_muted_on_cancel:
                     type: boolean
+                  large_file_storage:
+                    $ref: "#/components/schemas/LargeFileStorage"
                 required:
                   - code_completion_enabled
 
@@ -1449,6 +1451,49 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/edit_large_file_storage_config:
+    post:
+      summary: edit large file storage settings
+      operationId: editLargeFileStorageConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: LargeFileStorage info
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                large_file_storage:
+                  $ref: "#/components/schemas/LargeFileStorage"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/get_large_file_storage_config:
+    get:
+      summary: get large file storage config
+      operationId: getLargeFileStorageConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LargeFileStorage"
 
   /w/{workspace}/users/list:
     get:
@@ -6239,22 +6284,29 @@ paths:
                   connection_settings_str:
                     type: string
 
-  /w/{workspace}/job_helpers/polars_connection_settings:
+  /w/{workspace}/job_helpers/test_connection:
+    get:
+      summary: Test connection to the workspace datasets storage
+      operationId: datasetStorageTestConnection
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_helpers/list_stored_datasets:
     post:
-      summary: Converts an S3 resource to the settings dicstionnary necessary to connect Polars to an S3 bucket
+      summary: List the dataset keys available in the worspace datasets storage
       operationId: polarsConnectionSettings
       tags:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: S3 resource to connect to
-        required: true
-        content:
-          application/json:
-            schema:
-              s3_resource:
-                $ref: "#/components/schemas/S3Resource"
       responses:
         "200":
           description: Connection settings
@@ -6263,21 +6315,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  endpoint_url:
-                    type: string
-                  key:
-                    type: string
-                  secret:
-                    type: string
-                  use_ssl:
-                    type: boolean
-                  cache_regions:
-                    type: boolean
-                  client_kwargs:
-                    type: object
-                    properties:
-                      region_name:
-                        type: string
+                  dataset_keys:
+                    type: array
+                    items:
+                      $ref: "#/components/parameters/WindmillLargeFile"
 
 components:
   securitySchemes:
@@ -8254,6 +8295,25 @@ components:
       schema:
         type: string
         enum: [script, failure, trigger, approval]
+
+    LargeFileStorage:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["S3Storage"]
+        s3_resource_path:
+          type: string
+
+    WindmillLargeFile:
+      type: object
+      properties:
+        s3:
+          type: string
+        s3_bucket:
+          type: string
+      required:
+        - s3
 
     S3Resource:
       type: object

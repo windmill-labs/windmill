@@ -14,7 +14,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
-	import { OauthService, Script, WorkspaceService } from '$lib/gen'
+	import {
+		LargeFileStorage,
+		OauthService,
+		Script,
+		WorkspaceService,
+		HelpersService
+	} from '$lib/gen'
 	import {
 		enterpriseLicense,
 		copilotInfo,
@@ -47,6 +53,7 @@
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
+	let s3ResourceInitialPath: string | undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -148,6 +155,31 @@
 		sendUserToast(`Copilot settings updated`)
 	}
 
+	async function editWindmillLFSSettings(s3ResourcePath: string): Promise<void> {
+		s3ResourceInitialPath = s3ResourcePath
+		if (s3ResourcePath) {
+			let resourcePathWithPrefix = `$res:${s3ResourcePath}`
+			await WorkspaceService.editLargeFileStorageConfig({
+				workspace: $workspaceStore!,
+				requestBody: {
+					large_file_storage: {
+						type: LargeFileStorage.type.S3STORAGE,
+						s3_resource_path: resourcePathWithPrefix
+					}
+				}
+			})
+			sendUserToast(`Large file storage settings updated`)
+		} else {
+			await WorkspaceService.editLargeFileStorageConfig({
+				workspace: $workspaceStore!,
+				requestBody: {
+					large_file_storage: undefined
+				}
+			})
+			sendUserToast(`Large file storage settings reset`)
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -177,6 +209,11 @@
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
+		console.log(settings)
+		s3ResourceInitialPath =
+			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
+				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
+				: undefined
 	}
 
 	$: {
@@ -259,9 +296,11 @@
 				<Tab size="xs" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
-
 				<Tab size="xs" value="openai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
+				</Tab>
+				<Tab size="xs" value="windmill_lfs">
+					<div class="flex gap-2 items-center my-1">Large File Storage</div>
 				</Tab>
 			</Tabs>
 		</div>
@@ -542,6 +581,33 @@
 						editCopilotConfig(openaiResourceInitialPath || '')
 					}}
 				/>
+			</div>
+		{:else if tab == 'windmill_lfs'}
+			<PageHeader title="Windmill Large File Storage" primary={false} />
+			<div class="mt-5 flex gap-1">
+				{#key s3ResourceInitialPath}
+					<ResourcePicker
+						resourceType="s3"
+						initialValue={s3ResourceInitialPath}
+						on:change={(ev) => {
+							editWindmillLFSSettings(ev.detail)
+						}}
+					/>
+				{/key}
+				<Button
+					size="sm"
+					variant="contained"
+					color="dark"
+					disabled={!s3ResourceInitialPath}
+					on:click={async () => {
+						if ($workspaceStore) {
+							await HelpersService.datasetStorageTestConnection({
+								workspace: $workspaceStore
+							})
+							sendUserToast('Connection successful')
+						}
+					}}>Test Connection</Button
+				>
 			</div>
 		{/if}
 	{:else}
