@@ -271,14 +271,14 @@
 					}}
 				>
 					<div
-						class="flex-row flex-shrink-0 px-3.5 py-3.5 font-semibold text-gray-100 text-opacity-70 h-12 flex items-center gap-1.5"
+						class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
 						class:w-40={!isCollapsed}
 					>
 						<div class:mr-1={!isCollapsed}>
 							<WindmillIcon white={true} height="20px" width="20px" />
 						</div>
 						{#if !isCollapsed}
-							<div class="text-sm mt-0.5"> Windmill </div>
+							<div class="text-sm mt-0.5 text-white"> Windmill </div>
 						{/if}
 					</div>
 				</button>
