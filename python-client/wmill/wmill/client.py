@@ -34,9 +34,7 @@ class JobStatus(Enum):
 _client: "AuthenticatedClient | None" = None
 
 
-def create_client(
-    base_url: "str | None" = None, token: "str | None" = None
-) -> AuthenticatedClient:
+def create_client(base_url: "str | None" = None, token: "str | None" = None) -> AuthenticatedClient:
     env_base_url = os.environ.get("BASE_INTERNAL_URL")
 
     if env_base_url is not None:
@@ -46,9 +44,7 @@ def create_client(
     token_: str = token or os.environ.get("WM_TOKEN") or ""
     global _client
     if _client is None:
-        _client = AuthenticatedClient(
-            base_url=base_url_, token=token_, timeout=30, verify_ssl=False
-        )
+        _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30, verify_ssl=False)
     return _client
 
 
@@ -65,9 +61,7 @@ def get_version() -> str:
     """
     from windmill_api.api.settings import backend_version
 
-    return backend_version.sync_detailed(client=create_client()).content.decode(
-        "us-ascii"
-    )
+    return backend_version.sync_detailed(client=create_client()).content.decode("us-ascii")
 
 
 def run_script_async(
@@ -92,9 +86,7 @@ def run_script_async(
     ).content.decode("us-ascii")
 
 
-def run_script_sync(
-    hash: str, args: Dict[str, Any] = {}, verbose: bool = False
-) -> Dict[str, Any]:
+def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
     """
@@ -133,9 +125,7 @@ def run_script_by_path_async(
     ).content.decode("us-ascii")
 
 
-def run_script_by_path_sync(
-    path: str, args: Dict[str, Any] = {}, verbose: bool = False
-) -> Dict[str, Any]:
+def run_script_by_path_sync(path: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
     """
@@ -159,9 +149,7 @@ def get_job_status(job_id: str) -> JobStatus:
     from windmill_api.models.get_job_response_200_type import GetJobResponse200Type
     from windmill_api.api.job import get_job
 
-    res = get_job.sync_detailed(
-        client=create_client(), workspace=get_workspace(), id=job_id
-    ).parsed
+    res = get_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
     elif not res.type:
@@ -183,9 +171,7 @@ def get_result(job_id: str) -> Dict[str, Any]:
     """
     from windmill_api.api.job import get_completed_job
 
-    res = get_completed_job.sync_detailed(
-        client=create_client(), workspace=get_workspace(), id=job_id
-    ).parsed
+    res = get_completed_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
     if not res.result:
@@ -203,9 +189,7 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
     )
 
     path = path or get_state_path()
-    parsed = get_resource_api.sync_detailed(
-        workspace=get_workspace(), path=path, client=create_client()
-    )
+    parsed = get_resource_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client())
     try:
         content = parsed.content.decode("utf-8")
         parsed = json.loads(content)
@@ -220,6 +204,63 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
                 f"Resource at path {path} does not exist or you do not have read permissions on it: {content}"
             )
 
+    return parsed
+
+
+def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> str | None:
+    """
+    Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+    initiate an S3 connection from DuckDB
+    """
+    from windmill_api.api.helpers import duckdb_connection_settings
+    from windmill_api.models.s3_resource import S3Resource
+
+    parsed = duckdb_connection_settings.sync_detailed(
+        workspace=get_workspace(),
+        client=create_client(),
+        json_body={
+            "s3_resource": s3_resource,
+        },
+    )
+    try:
+        content = parsed.content.decode("utf-8")
+        parsed = json.loads(content)
+    except:
+        parsed = None
+
+    if parsed is None:
+        if none_if_undefined:
+            return None
+        else:
+            raise Exception(f"Could not generate DuckDB S3 connection settings from the provided resource")
+    return parsed
+
+
+def polars_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> Any:
+    """
+    Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+    initiate an S3 connection from Polars
+    """
+    from windmill_api.api.helpers import polars_connection_settings
+
+    parsed = polars_connection_settings.sync_detailed(
+        workspace=get_workspace(),
+        client=create_client(),
+        json_body={
+            "s3_resource": s3_resource,
+        },
+    )
+    try:
+        content = parsed.content.decode("utf-8")
+        parsed = json.loads(content)
+    except:
+        parsed = None
+
+    if parsed is None:
+        if none_if_undefined:
+            return None
+        else:
+            raise Exception(f"Could not generate Polars S3 connection settings from the provided resource")
     return parsed
 
 
@@ -239,9 +280,7 @@ def get_state() -> Any:
     return get_resource(None, True)
 
 
-def set_resource(
-    value: Any, path: str | None = None, resource_type: str = "state"
-) -> None:
+def set_resource(value: Any, path: str | None = None, resource_type: str = "state") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
@@ -258,15 +297,11 @@ def set_resource(
     path = path or get_state_path()
     workspace = get_workspace()
     client = create_client()
-    if not exists_resource.sync_detailed(
-        workspace=workspace, path=path, client=client
-    ).parsed:
+    if not exists_resource.sync_detailed(workspace=workspace, path=path, client=client).parsed:
         create_resource.sync_detailed(
             workspace=workspace,
             client=client,
-            json_body=CreateResourceJsonBody(
-                path=path, value=value, resource_type=resource_type
-            ),
+            json_body=CreateResourceJsonBody(path=path, value=value, resource_type=resource_type),
         )
     else:
         update_resource_value.sync_detailed(
@@ -330,9 +365,7 @@ def get_variable(path: str) -> str:
     """
     from windmill_api.api.variable import get_variable_value as get_variable_api
 
-    res = get_variable_api.sync_detailed(
-        workspace=get_workspace(), path=path, client=create_client()
-    )
+    res = get_variable_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client())
     parsed = res.parsed
     if parsed is None:
         raise Exception(
@@ -357,15 +390,11 @@ def set_variable(path: str, value: str) -> None:
 
     workspace = get_workspace()
     client = create_client()
-    if not exists_variable.sync_detailed(
-        workspace=workspace, path=path, client=client
-    ).parsed:
+    if not exists_variable.sync_detailed(workspace=workspace, path=path, client=client).parsed:
         create_variable.sync_detailed(
             workspace=workspace,
             client=client,
-            json_body=CreateVariableJsonBody(
-                path=path, value=value, is_secret=False, description=""
-            ),
+            json_body=CreateVariableJsonBody(path=path, value=value, is_secret=False, description=""),
         )
     else:
         update_variable.sync_detailed(
@@ -392,9 +421,7 @@ def get_resume_urls(approver: str | None = None) -> Dict:
     import random
 
     nonce = random.randint(0, 1000000000)
-    res = get_resume_urls_api.sync_detailed(
-        workspace, job_id, nonce, client=client, approver=approver
-    )
+    res = get_resume_urls_api.sync_detailed(workspace, job_id, nonce, client=client, approver=approver)
     if res.parsed is not None:
         return res.parsed.to_dict()
     else:
