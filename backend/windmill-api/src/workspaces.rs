@@ -35,6 +35,8 @@ use chrono::Utc;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
+#[cfg(feature = "enterprise")]
+use chrono::{TimeZone, Datelike};
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -50,6 +52,7 @@ use windmill_common::{
 };
 use windmill_queue::QueueTransaction;
 
+
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map};
@@ -57,7 +60,6 @@ use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
-use chrono::{TimeZone, Datelike};
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
@@ -111,6 +113,7 @@ pub fn global_service() -> Router {
         .route("/delete/:workspace", delete(delete_workspace))
 }
 
+#[cfg(feature = "enterprise")]
 lazy_static::lazy_static! {
     pub static ref STRIPE_KEY: Option<String> = std::env::var("STRIPE_KEY").ok();
 }
@@ -334,15 +337,18 @@ async fn premium_info(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
-    let mut result = PremiumWorkspaceInfo {
+    let result = PremiumWorkspaceInfo {
         premium: row.premium,
         usage: row.usage,
         seats: None,
     };
+    #[cfg(feature = "enterprise")]
+    let mut result = result;
+    #[cfg(feature = "enterprise")]
     if row.premium && row.plan == Some("team".to_string()) {
         let customer_id = row.customer_id.ok_or(Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
         let client = stripe::Client::new(STRIPE_KEY.clone().ok_or(Error::InternalErr(format!("stripe key not set")))?);
-        let customer_id = stripe::CustomerId::from_str(&customer_id).map_err(to_anyhow)?;
+        let customer_id = CustomerId::from_str(&customer_id).map_err(to_anyhow)?;
         let subscriptions = stripe::Subscription::list(
             &client,
             &stripe::ListSubscriptions { customer: Some(customer_id.clone()), limit: Some(1), ..Default::default() },
