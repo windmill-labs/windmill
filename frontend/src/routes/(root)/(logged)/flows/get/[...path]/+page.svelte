@@ -161,7 +161,7 @@
 				buttonProps: {
 					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
 					variant: 'contained',
-					size: 'sm',
+					size: 'xs',
 					color: 'dark',
 					disabled: !can_write,
 					startIcon: Pen

@@ -162,10 +162,8 @@
 	$: innerWidth && changeCollapsed()
 
 	function changeCollapsed() {
-		if (innerWidth < 1248 && innerWidth >= 768) {
+		if (innerWidth < 1248 && innerWidth >= 768 && !isCollapsed) {
 			isCollapsed = true
-		} else if ((innerWidth >= 1248 || innerWidth < 768) && !pathInAppMode($page.url.pathname)) {
-			isCollapsed = false
 		}
 	}
 
