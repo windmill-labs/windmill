@@ -89,7 +89,9 @@
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (
 					monacoEditorUnhandledErrors.includes(message) ||
-					message.startsWith('Failed to fetch dynamically imported')
+					message.startsWith('Failed to fetch dynamically imported') ||
+					message.startsWith('Unable to figure out browser width and height') ||
+					message.startsWith('Unable to read file')
 				) {
 					console.warn(message)
 					return

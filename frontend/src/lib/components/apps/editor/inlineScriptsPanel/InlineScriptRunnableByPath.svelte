@@ -108,6 +108,7 @@
 		<Button
 			variant="border"
 			size="xs"
+			color="light"
 			startIcon={{ icon: RefreshCw }}
 			on:click={async () => {
 				sendUserToast('Refreshing inputs')
@@ -115,9 +116,7 @@
 				$stateId = $stateId + 1
 				await tick()
 			}}
-		>
-			Refresh
-		</Button>
+		/>
 		<Button
 			size="xs"
 			variant="border"
@@ -133,6 +132,7 @@
 			<Button
 				variant="border"
 				size="xs"
+				color="light"
 				startIcon={{ icon: Eye }}
 				on:click={() => {
 					flowPath = runnable.path
@@ -144,6 +144,7 @@
 			<Button
 				variant="border"
 				size="xs"
+				color="light"
 				startIcon={{ icon: Pen }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
@@ -152,12 +153,13 @@
 			<Button
 				variant="border"
 				size="xs"
+				color="light"
 				startIcon={{ icon: Eye }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
 				href="/flows/get/{runnable.path}?workspace={$workspaceStore}"
 			>
-				Details page
+				Details
 			</Button>
 		{:else}
 			<Button
