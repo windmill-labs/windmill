@@ -63,7 +63,7 @@
 
 {#if componentStyle}
 	{@const property = componentStyle[key]}
-	{#if property.evalClass}
+	{#if property?.evalClass}
 		<InputValue
 			key={key + extraKey + 'cssGlobal'}
 			{id}
