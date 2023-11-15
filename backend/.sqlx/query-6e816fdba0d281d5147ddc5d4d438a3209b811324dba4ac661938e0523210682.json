@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT premium, is_overquota FROM workspace WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "premium",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_overquota",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6e816fdba0d281d5147ddc5d4d438a3209b811324dba4ac661938e0523210682"
+}
