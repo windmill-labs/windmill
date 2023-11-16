@@ -29,7 +29,7 @@ use std::{
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
-    flows::{Flow, FlowModule, FlowModuleValue, FlowValue},
+    flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::SUPERADMIN_SECRET_EMAIL,
@@ -991,7 +991,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     #[cfg(feature = "benchmark")]
                     let process_start = Instant::now();
 
-                    let is_dependency_job = matches!(jc.job.job_kind, JobKind::Dependencies);
+                    let is_dependency_job = matches!(
+                        jc.job.job_kind,
+                        JobKind::Dependencies | JobKind::FlowDependencies
+                    );
                     handle_receive_completed_job(
                         jc,
                         base_internal_url2,
@@ -1090,79 +1093,94 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     // Option<JoinHandle<()>>,
 
     let mut dedicated_handles: Vec<JoinHandle<()>> = vec![];
-    let dedicated_workers: HashMap<String, Sender<Arc<QueuedJob>>> = if let Some(_wp) =
-        WORKER_CONFIG.read().await.dedicated_worker.clone()
-    {
-        let mut hm = HashMap::new();
-        if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
-            loop {
-                let value = sqlx::query_scalar!(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    flow_path,
-                    _wp.workspace_id
-                )
-                .fetch_optional(db)
-                .await;
-                if let Ok(v) = value {
-                    if let Some(v) = v {
-                        let value = serde_json::from_value::<FlowValue>(v).map_err(|err| {
-                            Error::InternalErr(format!(
-                                "could not convert json to flow for {flow_path}: {err:?}"
-                            ))
-                        });
-                        if let Ok(flow) = value {
-                            let workers = spawn_dedicated_workers_for_flow(
-                                flow,
-                                &worker_name,
-                                db,
-                                &worker_dir,
-                            )
-                            .await;
-                            if let Some(workers) = workers {
-                                workers.into_iter().for_each(|(path, sender, handle)| {
-                                    dedicated_handles.push(handle);
-                                    hm.insert(path, sender);
-                                });
-                                break;
-                            } else {
-                                tracing::error!(
+    let (dedicated_workers, is_flow_worker): (HashMap<String, Sender<Arc<QueuedJob>>>, bool) =
+        if let Some(_wp) = WORKER_CONFIG.read().await.dedicated_worker.clone() {
+            let mut hm = HashMap::new();
+            let is_flow_worker;
+            if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
+                is_flow_worker = true;
+                loop {
+                    let value = sqlx::query_scalar!(
+                        "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                        flow_path,
+                        _wp.workspace_id
+                    )
+                    .fetch_optional(db)
+                    .await;
+                    if let Ok(v) = value {
+                        if let Some(v) = v {
+                            let value = serde_json::from_value::<FlowValue>(v).map_err(|err| {
+                                Error::InternalErr(format!(
+                                    "could not convert json to flow for {flow_path}: {err:?}"
+                                ))
+                            });
+                            if let Ok(flow) = value {
+                                let workers = spawn_dedicated_workers_for_flow(
+                                    &flow.modules,
+                                    &_wp.path,
+                                    &_wp.workspace_id,
+                                    killpill_tx.clone(),
+                                    &killpill_rx,
+                                    db,
+                                    &worker_dir,
+                                    base_internal_url,
+                                    &worker_name,
+                                    &job_completed_tx,
+                                )
+                                .await;
+                                if let Some(workers) = workers {
+                                    workers.into_iter().for_each(|(path, sender, handle)| {
+                                        dedicated_handles.push(handle);
+                                        hm.insert(path, sender);
+                                    });
+                                    break;
+                                } else {
+                                    tracing::error!(
                                         "failed to spawn dedicated workers for flow for {}, waiting 10s",
                                         flow_path
                                     );
+                                }
                             }
+                        } else {
+                            tracing::error!(
+                                "flow present but value not found for {}, waiting 10s",
+                                flow_path
+                            );
                         }
                     } else {
-                        tracing::error!(
-                            "flow present but value not found for {}, waiting 10s",
-                            flow_path
-                        );
+                        tracing::error!("flow not found for {}, waiting 10s,", flow_path);
                     }
-                } else {
-                    tracing::error!("flow not found for {}, waiting 10s,", flow_path);
+                    tokio::time::sleep(Duration::from_millis(10000)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(10000)).await;
+            } else {
+                is_flow_worker = false;
+                loop {
+                    if let Some((path, sender, handle)) = spawn_dedicated_worker(
+                        SpawnWorker::Script { path: _wp.path.clone(), hash: None },
+                        &_wp.workspace_id,
+                        killpill_tx.clone(),
+                        &killpill_rx,
+                        db,
+                        &worker_dir,
+                        base_internal_url,
+                        &worker_name,
+                        &job_completed_tx,
+                        None,
+                    )
+                    .await
+                    {
+                        dedicated_handles.push(handle);
+                        hm.insert(path, sender);
+                        break;
+                    }
+                    tracing::error!("script not found for {}, waiting 10s,", _wp.path);
+                    tokio::time::sleep(Duration::from_millis(10000)).await;
+                }
             }
+            (hm, is_flow_worker)
         } else {
-            if let Some((path, sender, handle)) = spawn_dedicated_worker(
-                killpill_tx,
-                _wp,
-                &killpill_rx,
-                db,
-                &worker_dir,
-                base_internal_url,
-                &worker_name,
-                &job_completed_tx,
-            )
-            .await
-            {
-                dedicated_handles.push(handle);
-                hm.insert(path, sender);
-            }
-        }
-        hm
-    } else {
-        HashMap::new()
-    };
+            (HashMap::new(), false)
+        };
 
     #[cfg(feature = "benchmark")]
     tracing::info!("pre loop time {}s", start.elapsed().as_secs_f64());
@@ -1397,32 +1415,41 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                if matches!(job.job_kind, JobKind::Script | JobKind::Preview)
-                    && job.script_path.is_some()
-                {
-                    if let Some(dedicated_worker_tx) =
-                        dedicated_workers.get(job.script_path.as_ref().unwrap())
-                    {
-                        #[cfg(feature = "benchmark")]
-                        main_duration
-                            .fetch_add(loop_start.elapsed().as_millis() as usize, Ordering::SeqCst);
-                        #[cfg(feature = "benchmark")]
-                        let send_start = Instant::now();
+                if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
+                    if !dedicated_workers.is_empty() {
+                        let key_o = if is_flow_worker {
+                            job.flow_step_id.as_ref().map(|x| x.to_string())
+                        } else {
+                            job.script_path.as_ref().map(|x| x.to_string())
+                        };
+                        if let Some(key) = key_o {
+                            if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
+                                #[cfg(feature = "benchmark")]
+                                main_duration.fetch_add(
+                                    loop_start.elapsed().as_millis() as usize,
+                                    Ordering::SeqCst,
+                                );
+                                #[cfg(feature = "benchmark")]
+                                let send_start = Instant::now();
 
-                        let timer = worker_dedicated_channel_queue_send_duration
-                            .as_ref()
-                            .map(|x| x.start_timer());
+                                let timer = worker_dedicated_channel_queue_send_duration
+                                    .as_ref()
+                                    .map(|x| x.start_timer());
 
-                        if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
-                            tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
+                                if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
+                                    tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
+                                }
+
+                                timer.map(|x| x.stop_and_record());
+
+                                #[cfg(feature = "benchmark")]
+                                send_duration.fetch_add(
+                                    send_start.elapsed().as_millis() as usize,
+                                    Ordering::SeqCst,
+                                );
+                                continue;
+                            }
                         }
-
-                        timer.map(|x| x.stop_and_record());
-
-                        #[cfg(feature = "benchmark")]
-                        send_duration
-                            .fetch_add(send_start.elapsed().as_millis() as usize, Ordering::SeqCst);
-                        continue;
                     }
                 }
                 if matches!(job.job_kind, JobKind::Noop) {
@@ -1671,17 +1698,136 @@ type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, JoinHandle<()>);
 
 #[async_recursion]
 async fn spawn_dedicated_workers_for_flow(
-    flow: FlowValue,
-    worker_name: &str,
+    modules: &Vec<FlowModule>,
+    w_id: &str,
+    path: &str,
+    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &Pool<Postgres>,
     worker_dir: &str,
+    base_internal_url: &str,
+    worker_name: &str,
+    job_completed_tx: &JobCompletedSender,
 ) -> Option<Vec<DedicatedWorker>> {
     let mut workers = vec![];
     let mut has_errors = false;
-    for module in flow.modules.iter() {
+    for module in modules.iter() {
         match &module.value {
-            FlowModuleValue::Script { path, hash, .. } => todo!(),
-            _ => todo!("spawn dedicated worker for flow"),
+            FlowModuleValue::Script { path, hash, .. } => {
+                if let Some(dedi_w) = spawn_dedicated_worker(
+                    SpawnWorker::Script { path: path.to_string(), hash: hash.clone() },
+                    w_id,
+                    killpill_tx.clone(),
+                    killpill_rx,
+                    db,
+                    worker_dir,
+                    base_internal_url,
+                    worker_name,
+                    job_completed_tx,
+                    Some(module.id.clone()),
+                )
+                .await
+                {
+                    workers.push(dedi_w);
+                } else {
+                    has_errors = true;
+                }
+            }
+            FlowModuleValue::ForloopFlow { modules, .. } => {
+                if let Some(w) = spawn_dedicated_workers_for_flow(
+                    &modules,
+                    path,
+                    w_id,
+                    killpill_tx.clone(),
+                    killpill_rx,
+                    db,
+                    worker_dir,
+                    base_internal_url,
+                    worker_name,
+                    job_completed_tx,
+                )
+                .await
+                {
+                    workers.extend(w);
+                } else {
+                    has_errors = true;
+                }
+            }
+            FlowModuleValue::BranchOne { branches, default } => {
+                for modules in branches
+                    .iter()
+                    .map(|x| &x.modules)
+                    .chain(std::iter::once(default))
+                {
+                    if let Some(w) = spawn_dedicated_workers_for_flow(
+                        &modules,
+                        path,
+                        w_id,
+                        killpill_tx.clone(),
+                        killpill_rx,
+                        db,
+                        worker_dir,
+                        base_internal_url,
+                        worker_name,
+                        job_completed_tx,
+                    )
+                    .await
+                    {
+                        workers.extend(w);
+                    } else {
+                        has_errors = true;
+                    }
+                }
+            }
+            FlowModuleValue::BranchAll { branches, .. } => {
+                for branch in branches {
+                    if let Some(w) = spawn_dedicated_workers_for_flow(
+                        &branch.modules,
+                        path,
+                        w_id,
+                        killpill_tx.clone(),
+                        killpill_rx,
+                        db,
+                        worker_dir,
+                        base_internal_url,
+                        worker_name,
+                        job_completed_tx,
+                    )
+                    .await
+                    {
+                        workers.extend(w);
+                    } else {
+                        has_errors = true;
+                    }
+                }
+            }
+            FlowModuleValue::RawScript { content, lock, path: spath, language, .. } => {
+                if let Some(dedi_w) = spawn_dedicated_worker(
+                    SpawnWorker::RawScript {
+                        path: spath.clone().unwrap_or(path.to_string()),
+                        content: content.to_string(),
+                        lock: lock.clone(),
+                        lang: language.clone(),
+                    },
+                    w_id,
+                    killpill_tx.clone(),
+                    killpill_rx,
+                    db,
+                    worker_dir,
+                    base_internal_url,
+                    worker_name,
+                    job_completed_tx,
+                    Some(module.id.clone()),
+                )
+                .await
+                {
+                    workers.push(dedi_w);
+                } else {
+                    has_errors = true;
+                }
+            }
+            FlowModuleValue::Flow { .. } => (),
+            FlowModuleValue::Identity => (),
         }
     }
     if has_errors {
@@ -1691,15 +1837,21 @@ async fn spawn_dedicated_workers_for_flow(
     }
 }
 
+enum SpawnWorker {
+    Script { path: String, hash: Option<ScriptHash> },
+    RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
+}
 async fn spawn_dedicated_worker(
+    sw: SpawnWorker,
+    w_id: &str,
     killpill_tx: tokio::sync::broadcast::Sender<()>,
-    _wp: windmill_common::worker::WorkspacedPath,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &Pool<Postgres>,
-    worker_dir: &String,
+    worker_dir: &str,
     base_internal_url: &str,
-    worker_name: &String,
+    worker_name: &str,
     job_completed_tx: &JobCompletedSender,
+    node_id: Option<String>,
 ) -> Option<DedicatedWorker> {
     #[cfg(not(feature = "enterprise"))]
     {
@@ -1707,7 +1859,6 @@ async fn spawn_dedicated_worker(
         killpill_tx.send(()).expect("send");
         return None;
     }
-    let dedi_path = _wp.path.clone();
 
     #[cfg(feature = "enterprise")]
     {
@@ -1717,12 +1868,19 @@ async fn spawn_dedicated_worker(
         let db = db.clone();
         let worker_dir = worker_dir.clone();
         let base_internal_url = base_internal_url.to_string();
-        let worker_name = worker_name.clone();
+        let worker_name = worker_name.to_string();
         let job_completed_tx = job_completed_tx.clone();
         let job_dir = format!("{}/dedicated", worker_dir);
         tokio::fs::create_dir_all(&job_dir)
             .await
             .expect("create dir");
+
+        let path = match &sw {
+            SpawnWorker::RawScript { path, .. } => path.to_string(),
+            SpawnWorker::Script { path, .. } => path.to_string(),
+        };
+        let path2 = path.clone();
+        let w_id = w_id.to_string();
         let handle = tokio::spawn(async move {
             let token = rd_string(30);
             if let Err(e) = sqlx::query_scalar!(
@@ -1741,47 +1899,62 @@ async fn spawn_dedicated_worker(
                 killpill_tx.clone().send(()).expect("send");
             };
 
-            let (content, lock, language, envs) = {
-                let r;
-                loop {
-                    let q = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
-                "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
-                    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
-                    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
-            )
-            .bind(&_wp.path)
-            .bind(&_wp.workspace_id)
-            .fetch_optional(&db)
-            .await;
-                    if let Ok(q) = q {
-                        if let Some(wp) = q {
-                            r = wp;
-                            break;
+            let (content, lock, language, envs) = match sw {
+                SpawnWorker::Script { path, hash } => {
+                    let r;
+                    loop {
+                        let q = if let Some(hash) = hash {
+                            get_script_content_by_hash(&hash, &w_id, &db).await.map(
+                                |r: ContentReqLangEnvs| {
+                                    Some((r.content, r.lockfile, r.language, r.envs))
+                                },
+                            )
                         } else {
-                            tracing::error!(
-                            "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
-                            _wp.path,
-                            _wp.workspace_id
-                        );
-                            tokio::select! {
-                                biased;
-                                _ = killpill_rx.recv() => {
-                                    tracing::info!("Killing dedicated worker while it was attempting to fetch script");
-                                    return;
-                                }
-                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                                    continue;
-                                }
+                            sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
+                            "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
+                                created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
+                                deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+                        )
+                        .bind(&path)
+                        .bind(&w_id)
+                        .fetch_optional(&db)
+                        .await
+                        .map_err(|e| Error::InternalErr(format!("expected content and lock: {e}")))
+                        };
 
+                        if let Ok(q) = q {
+                            if let Some(wp) = q {
+                                r = wp;
+                                break;
+                            } else {
+                                tracing::error!(
+                            "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
+                            path,
+                            w_id
+                        );
+                                tokio::select! {
+                                    biased;
+                                    _ = killpill_rx.recv() => {
+                                        tracing::info!("Killing dedicated worker while it was attempting to fetch script");
+                                        return;
+                                    }
+                                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                        continue;
+                                    }
+
+                                }
                             }
+                        } else {
+                            tracing::error!("Failed to fetch script for dedicated worker");
+                            killpill_tx.send(()).expect("send");
+                            return;
                         }
-                    } else {
-                        tracing::error!("Failed to fetch script for dedicated worker");
-                        killpill_tx.send(()).expect("send");
-                        return;
                     }
+                    r
                 }
-                r
+                SpawnWorker::RawScript { content, lock, lang, .. } => {
+                    (content, lock, Some(lang), None)
+                }
             };
 
             let worker_envs = build_envs(envs).expect("failed to build envs");
@@ -1796,8 +1969,8 @@ async fn spawn_dedicated_worker(
                         &job_dir,
                         &worker_name,
                         worker_envs,
-                        &_wp.workspace_id,
-                        &_wp.path,
+                        &w_id,
+                        &path,
                         &token,
                         job_completed_tx,
                         dedicated_worker_rx,
@@ -1814,8 +1987,8 @@ async fn spawn_dedicated_worker(
                         &job_dir,
                         &worker_name,
                         worker_envs,
-                        &_wp.workspace_id,
-                        &_wp.path,
+                        &w_id,
+                        &path,
                         &token,
                         job_completed_tx,
                         dedicated_worker_rx,
@@ -1830,8 +2003,8 @@ async fn spawn_dedicated_worker(
                         &job_dir,
                         &worker_name,
                         worker_envs,
-                        &_wp.workspace_id,
-                        &_wp.path,
+                        &w_id,
+                        &path,
                         &token,
                         job_completed_tx,
                         dedicated_worker_rx,
@@ -1844,7 +2017,7 @@ async fn spawn_dedicated_worker(
                 tracing::error!("error in dedicated worker: {:?}", e);
             };
         });
-        return Some((dedi_path, dedicated_worker_tx, handle));
+        return Some((node_id.unwrap_or(path2), dedicated_worker_tx, handle));
         // (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))
     }
 }
@@ -2593,23 +2766,30 @@ async fn get_hub_script_content_and_requirements(
     })
 }
 
-async fn get_script_content_by_hash(job: &QueuedJob, db: &DB) -> error::Result<ContentReqLangEnvs> {
-    let r = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
+async fn get_script_content_by_hash(
+    script_hash: &ScriptHash,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<ContentReqLangEnvs> {
+    let r = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            Option<ScriptLang>,
+            Option<Vec<String>>,
+        ),
+    >(
         "SELECT content, lock, language, envs FROM script WHERE hash = $1 AND workspace_id = $2",
     )
-    .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
-    .bind(&job.workspace_id)
+    .bind(script_hash.0)
+    .bind(w_id)
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
-    Ok(ContentReqLangEnvs {
-        content: r.0,
-        lockfile: r.1,
-        language: r.2,
-        envs: r.3,
-    })
-
+    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3 })
 }
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
@@ -2623,31 +2803,30 @@ async fn handle_code_execution_job(
     base_internal_url: &str,
     worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
-    let (inner_content, requirements_o, language, envs) = match job.job_kind {
-        JobKind::Preview  => (
-            job.raw_code
-                .clone()
-                .unwrap_or_else(|| "no raw code".to_owned()),
-            job.raw_lock.clone(),
-            job.language.to_owned(),
-            None,
-        ),
-        JobKind::Script_Hub => {
-            let r =  get_hub_script_content_and_requirements(job, db).await?;
-            (r.content, r.lockfile, r.language, r.envs)
-        }, 
-        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
-            "SELECT content, lock, language, envs FROM script WHERE hash = $1 AND workspace_id = $2",
-        )
-        .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
-        .bind(&job.workspace_id)
-        .fetch_optional(db)
-        .await?
-        .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?,
-        _ => unreachable!(
-            "handle_code_execution_job should never be reachable with a non-code execution job"
-        ),
-    };
+    let ContentReqLangEnvs { content: inner_content, lockfile: requirements_o, language, envs } =
+        match job.job_kind {
+            JobKind::Preview => ContentReqLangEnvs {
+                content: job
+                    .raw_code
+                    .clone()
+                    .unwrap_or_else(|| "no raw code".to_owned()),
+                lockfile: job.raw_lock.clone(),
+                language: job.language.to_owned(),
+                envs: None,
+            },
+            JobKind::Script_Hub => get_hub_script_content_and_requirements(job, db).await?,
+            JobKind::Script => {
+                get_script_content_by_hash(
+                    &job.script_hash.unwrap_or(ScriptHash(0)),
+                    &job.workspace_id,
+                    db,
+                )
+                .await?
+            }
+            _ => unreachable!(
+                "handle_code_execution_job should never be reachable with a non-code execution job"
+            ),
+        };
 
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(job, &client, &inner_content, db).await;
