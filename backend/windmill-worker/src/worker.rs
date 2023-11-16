@@ -1128,18 +1128,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                                     &job_completed_tx,
                                 )
                                 .await;
-                                if let Some(workers) = workers {
-                                    workers.into_iter().for_each(|(path, sender, handle)| {
-                                        dedicated_handles.push(handle);
-                                        hm.insert(path, sender);
-                                    });
-                                    break;
-                                } else {
-                                    tracing::error!(
-                                        "failed to spawn dedicated workers for flow for {}, waiting 10s",
-                                        flow_path
-                                    );
-                                }
+                                workers.into_iter().for_each(|(path, sender, handle)| {
+                                    dedicated_handles.push(handle);
+                                    hm.insert(path, sender);
+                                });
+                                break;
                             }
                         } else {
                             tracing::error!(
@@ -1172,9 +1165,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         dedicated_handles.push(handle);
                         hm.insert(path, sender);
                         break;
+                    } else {
+                        tracing::error!(
+                        "failed to spawn dedicated worker for {}, script found but not in a compatible language. Retrying 10s",
+                        _wp.path
+                    );
+                        tokio::time::sleep(Duration::from_millis(10000)).await;
                     }
-                    tracing::error!("script not found for {}, waiting 10s,", _wp.path);
-                    tokio::time::sleep(Duration::from_millis(10000)).await;
                 }
             }
             (hm, is_flow_worker)
@@ -1708,9 +1705,8 @@ async fn spawn_dedicated_workers_for_flow(
     base_internal_url: &str,
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
-) -> Option<Vec<DedicatedWorker>> {
+) -> Vec<DedicatedWorker> {
     let mut workers = vec![];
-    let mut has_errors = false;
     for module in modules.iter() {
         match &module.value {
             FlowModuleValue::Script { path, hash, .. } => {
@@ -1729,12 +1725,10 @@ async fn spawn_dedicated_workers_for_flow(
                 .await
                 {
                     workers.push(dedi_w);
-                } else {
-                    has_errors = true;
                 }
             }
             FlowModuleValue::ForloopFlow { modules, .. } => {
-                if let Some(w) = spawn_dedicated_workers_for_flow(
+                let w = spawn_dedicated_workers_for_flow(
                     &modules,
                     path,
                     w_id,
@@ -1746,12 +1740,8 @@ async fn spawn_dedicated_workers_for_flow(
                     worker_name,
                     job_completed_tx,
                 )
-                .await
-                {
-                    workers.extend(w);
-                } else {
-                    has_errors = true;
-                }
+                .await;
+                workers.extend(w);
             }
             FlowModuleValue::BranchOne { branches, default } => {
                 for modules in branches
@@ -1759,7 +1749,7 @@ async fn spawn_dedicated_workers_for_flow(
                     .map(|x| &x.modules)
                     .chain(std::iter::once(default))
                 {
-                    if let Some(w) = spawn_dedicated_workers_for_flow(
+                    let w = spawn_dedicated_workers_for_flow(
                         &modules,
                         path,
                         w_id,
@@ -1771,17 +1761,13 @@ async fn spawn_dedicated_workers_for_flow(
                         worker_name,
                         job_completed_tx,
                     )
-                    .await
-                    {
-                        workers.extend(w);
-                    } else {
-                        has_errors = true;
-                    }
+                    .await;
+                    workers.extend(w);
                 }
             }
             FlowModuleValue::BranchAll { branches, .. } => {
                 for branch in branches {
-                    if let Some(w) = spawn_dedicated_workers_for_flow(
+                    let w = spawn_dedicated_workers_for_flow(
                         &branch.modules,
                         path,
                         w_id,
@@ -1793,12 +1779,8 @@ async fn spawn_dedicated_workers_for_flow(
                         worker_name,
                         job_completed_tx,
                     )
-                    .await
-                    {
-                        workers.extend(w);
-                    } else {
-                        has_errors = true;
-                    }
+                    .await;
+                    workers.extend(w);
                 }
             }
             FlowModuleValue::RawScript { content, lock, path: spath, language, .. } => {
@@ -1822,19 +1804,13 @@ async fn spawn_dedicated_workers_for_flow(
                 .await
                 {
                     workers.push(dedi_w);
-                } else {
-                    has_errors = true;
                 }
             }
             FlowModuleValue::Flow { .. } => (),
             FlowModuleValue::Identity => (),
         }
     }
-    if has_errors {
-        None
-    } else {
-        Some(workers)
-    }
+    workers
 }
 
 enum SpawnWorker {
@@ -1881,6 +1857,68 @@ async fn spawn_dedicated_worker(
         };
         let path2 = path.clone();
         let w_id = w_id.to_string();
+
+        let (content, lock, language, envs) = match sw {
+            SpawnWorker::Script { path, hash } => {
+                let r;
+                loop {
+                    let q = if let Some(hash) = hash {
+                        get_script_content_by_hash(&hash, &w_id, &db).await.map(
+                            |r: ContentReqLangEnvs| {
+                                Some((r.content, r.lockfile, r.language, r.envs))
+                            },
+                        )
+                    } else {
+                        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
+                        "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
+                            created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
+                            deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+                    )
+                    .bind(&path)
+                    .bind(&w_id)
+                    .fetch_optional(&db)
+                    .await
+                    .map_err(|e| Error::InternalErr(format!("expected content and lock: {e}")))
+                    };
+
+                    if let Ok(q) = q {
+                        if let Some(wp) = q {
+                            r = wp;
+                            break;
+                        } else {
+                            tracing::error!(
+                        "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
+                        path,
+                        w_id
+                    );
+                            tokio::select! {
+                                biased;
+                                _ = killpill_rx.recv() => {
+                                    tracing::info!("Killing dedicated worker while it was attempting to fetch script");
+                                    return None;
+                                }
+                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                    continue;
+                                }
+
+                            }
+                        }
+                    } else {
+                        tracing::error!("Failed to fetch script for dedicated worker");
+                        killpill_tx.send(()).expect("send");
+                        return None;
+                    }
+                }
+                r
+            }
+            SpawnWorker::RawScript { content, lock, lang, .. } => (content, lock, Some(lang), None),
+        };
+
+        match language {
+            Some(ScriptLang::Python3) | Some(ScriptLang::Bun) | Some(ScriptLang::Deno) => {}
+            _ => return None,
+        }
+
         let handle = tokio::spawn(async move {
             let token = rd_string(30);
             if let Err(e) = sqlx::query_scalar!(
@@ -1897,64 +1935,6 @@ async fn spawn_dedicated_worker(
             {
                 tracing::error!("failed to create token for dedicated worker: {:?}", e);
                 killpill_tx.clone().send(()).expect("send");
-            };
-
-            let (content, lock, language, envs) = match sw {
-                SpawnWorker::Script { path, hash } => {
-                    let r;
-                    loop {
-                        let q = if let Some(hash) = hash {
-                            get_script_content_by_hash(&hash, &w_id, &db).await.map(
-                                |r: ContentReqLangEnvs| {
-                                    Some((r.content, r.lockfile, r.language, r.envs))
-                                },
-                            )
-                        } else {
-                            sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
-                            "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
-                                created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
-                                deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
-                        )
-                        .bind(&path)
-                        .bind(&w_id)
-                        .fetch_optional(&db)
-                        .await
-                        .map_err(|e| Error::InternalErr(format!("expected content and lock: {e}")))
-                        };
-
-                        if let Ok(q) = q {
-                            if let Some(wp) = q {
-                                r = wp;
-                                break;
-                            } else {
-                                tracing::error!(
-                            "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
-                            path,
-                            w_id
-                        );
-                                tokio::select! {
-                                    biased;
-                                    _ = killpill_rx.recv() => {
-                                        tracing::info!("Killing dedicated worker while it was attempting to fetch script");
-                                        return;
-                                    }
-                                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                                        continue;
-                                    }
-
-                                }
-                            }
-                        } else {
-                            tracing::error!("Failed to fetch script for dedicated worker");
-                            killpill_tx.send(()).expect("send");
-                            return;
-                        }
-                    }
-                    r
-                }
-                SpawnWorker::RawScript { content, lock, lang, .. } => {
-                    (content, lock, Some(lang), None)
-                }
             };
 
             let worker_envs = build_envs(envs).expect("failed to build envs");
