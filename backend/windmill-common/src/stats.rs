@@ -4,7 +4,7 @@ use crate::{
     error::{to_anyhow, Result},
     global_settings::DISABLE_STATS_SETTING,
     scripts::ScriptLang,
-    utils::{get_uid, GIT_VERSION},
+    utils::{get_uid, Mode, GIT_VERSION},
     DB,
 };
 use chrono::Utc;
@@ -34,15 +34,22 @@ pub async fn get_disable_stats_setting(db: &DB) -> bool {
     false
 }
 
-pub async fn schedule_stats(db: &DB, instance_name: String, http_client: &reqwest::Client) -> () {
+pub async fn schedule_stats(
+    instance_name: String,
+    mode: Mode,
+    db: &DB,
+    http_client: &reqwest::Client,
+) -> () {
     let http_client = http_client.clone();
     let db = db.clone();
     tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
+
         loop {
             let disabled = get_disable_stats_setting(&db).await;
             if !disabled {
                 tracing::info!("Sending stats");
-                let result = send_stats(&instance_name, &http_client, &db).await;
+                let result = send_stats(&instance_name, &mode, &http_client, &db).await;
                 if result.is_err() {
                     tracing::info!("Error sending stats: {}", result.err().unwrap());
                 } else {
@@ -83,6 +90,7 @@ struct JobsUsage {
 
 pub async fn send_stats(
     instance_name: &String,
+    mode: &Mode,
     http_client: &reqwest::Client,
     db: &DB,
 ) -> Result<()> {
@@ -108,12 +116,31 @@ pub async fn send_stats(
             .collect::<Vec<serde_json::Value>>();
 
     let workers_usage = sqlx::query!(
-        "SELECT COUNT(*) FROM worker_ping WHERE ping_at > NOW() - INTERVAL '5 minutes'"
+        "SELECT COUNT(*) FROM worker_ping WHERE ping_at > NOW() - INTERVAL '2 minutes'"
     )
     .fetch_one(db)
     .await?
     .count
     .unwrap_or(0);
+
+    let users_count = sqlx::query!("SELECT author.count as author_count, operator.count as operator_count FROM (SELECT count(*)::INT FROM usr where usr.operator IS false) as author, (SELECT count(*)::INT FROM usr where usr.operator IS true) as operator")
+        .fetch_one(db)
+        .await?;
+
+    let vcpus = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/cpu.max"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_string()
+                .split(" ")
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+                .get(0)
+                .map(|s| s.to_string())
+        })
+        .flatten();
 
     let payload = serde_json::json!({
         "uid": uid,
@@ -122,7 +149,15 @@ pub async fn send_stats(
         "jobs_usage": jobs_usage,
         "login_type_usage": login_type_usage,
         "workers_usage": workers_usage,
+        "users_usage": {
+            "author_count": users_count.author_count.unwrap_or(0),
+            "operator_count": users_count.operator_count.unwrap_or(0),
+        },
+        "mode": mode,
+        "vcpus": vcpus,
     });
+
+    tracing::info!("Sending stats: {:#?}", payload);
 
     let request = http_client
         .post("https://hub.windmill.dev/stats")
