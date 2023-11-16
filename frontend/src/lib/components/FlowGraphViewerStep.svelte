@@ -191,6 +191,25 @@
 			<p class="font-medium text-secondary text-center pt-4 pb-8">
 				Only one branch will run based on a predicate
 			</p>
+			<div class="flex-col flex gap-2">
+				<div class="flex flex-row gap-4 text-sm p-2">
+					<Badge large={true} color="blue">Default branch</Badge>
+					<p class="italic text-tertiary"
+						>If none of the predicates' expressions evaluated in-order match, this branch is chosen</p
+					>
+				</div>
+				{#each stepDetail.value.branches as v, i}
+					<div class="flex flex-col gap-4-2 items-center">
+						<div class="w-full flex gap-2 px-2 pt-4 pb-2">
+							<Badge large={true} color="blue">Branch {i + 1}</Badge>
+							<span>{v.summary}</span>
+						</div>
+						<div class="w-full border p-2">
+							<HighlightCode language="frontend" code={v.expr} />
+						</div>
+					</div>
+				{/each}
+			</div>
 		{:else if stepDetail.value.type == 'flow'}
 			<FlowPathViewer noSide path={stepDetail.value.path} />
 		{/if}

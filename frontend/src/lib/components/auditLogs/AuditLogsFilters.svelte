@@ -15,6 +15,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
+	import AutoComplete from 'simple-svelte-autocomplete'
 
 	let usernames: string[]
 	let resources: ListableResource[]
@@ -320,15 +321,15 @@
 	</div>
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Resource</span>
-		<select bind:value={resource}>
-			{#if resources}
-				<option selected value="all">all</option>
 
-				{#each resources as r}
-					<option value={r.path}>{r.path}</option>
-				{/each}
-			{/if}
-		</select>
+		<AutoComplete
+			items={resources?.map((r) => r.path) ?? []}
+			value={resource}
+			bind:selectedItem={resource}
+			inputClassName="!h-[34px] py-1 !text-xs !w-48"
+			hideArrow
+			dropdownClassName="!text-sm !w-48 !max-w-48"
+		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">

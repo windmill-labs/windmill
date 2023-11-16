@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "premium",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_overquota",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -36,6 +41,7 @@
       ]
     },
     "nullable": [
+      false,
       false,
       false,
       false,

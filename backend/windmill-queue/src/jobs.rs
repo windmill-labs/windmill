@@ -494,8 +494,8 @@ pub async fn add_completed_job<
     if *CLOUD_HOSTED && !is_flow && _duration > 1000 {
         let additional_usage = _duration / 1000;
         let w_id = &queued_job.workspace_id;
-        let premium_workspace = *windmill_common::worker::CLOUD_HOSTED
-            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+        let premium_workspace =
+            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e}")))?;
@@ -2088,13 +2088,19 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     #[cfg(feature = "enterprise")]
     if *CLOUD_HOSTED {
-        let premium_workspace = *CLOUD_HOSTED
-            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
-                .fetch_one(_db)
-                .await
-                .map_err(|e| {
-                    Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
-                })?;
+        let row = sqlx::query!(
+            "SELECT premium, is_overquota FROM workspace WHERE id = $1",
+            workspace_id
+        )
+        .fetch_one(_db)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "fetching if {workspace_id} is premium and overquota: {e}"
+            ))
+        })?;
+        let premium_workspace = row.premium;
+        let is_overquota = premium_workspace && row.is_overquota;
 
         // we track only non flow steps
         let usage = if !matches!(
@@ -2112,7 +2118,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 .fetch_one(_db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
-        } else if *CLOUD_HOSTED && !premium_workspace {
+        } else if !premium_workspace {
             sqlx::query_scalar!(
                 "
         SELECT usage.usage + 1 FROM usage 
@@ -2129,7 +2135,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             0
         };
 
-        if *CLOUD_HOSTED && !premium_workspace {
+        if is_overquota || !premium_workspace {
             let is_super_admin =
                 sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
                     .fetch_optional(_db)
@@ -2137,6 +2143,11 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     .unwrap_or(false);
 
             if !is_super_admin {
+                if is_overquota {
+                    return Err(error::Error::BadRequest(format!(
+                        "Workspace {workspace_id} is overquota. Please update your subscription in the customer portal to continue using Windmill."
+                    )));
+                }
                 if usage > MAX_FREE_EXECS
                     && !matches!(job_payload, JobPayload::Dependencies { .. })
                     && !matches!(job_payload, JobPayload::FlowDependencies { .. })

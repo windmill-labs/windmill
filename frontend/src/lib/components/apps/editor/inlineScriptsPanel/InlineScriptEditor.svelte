@@ -204,23 +204,24 @@
 				<Button
 					title="Delete"
 					size="xs"
-					color="light"
-					btnClasses="!px-2 !bg-red-100 hover:!bg-red-200"
+					color="red"
+					variant="border"
+					btnClasses="!px-2"
 					aria-label="Delete"
 					on:click={() => dispatch('delete')}
-				>
-					<Trash2 size={14} class="text-red-800" />
-				</Button>
+					endIcon={{ icon: Trash2 }}
+				/>
 				{#if inlineScript.language != 'frontend'}
 					<Button
 						size="xs"
 						color="light"
-						btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
+						btnClasses="!px-2 !py-1 !bg-surface-secondary hover:!bg-surface-hover"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
+						endIcon={{ icon: Maximize2 }}
 					>
-						Full Editor&nbsp;<Maximize2 size={14} />
+						Full Editor
 					</Button>
 				{/if}
 

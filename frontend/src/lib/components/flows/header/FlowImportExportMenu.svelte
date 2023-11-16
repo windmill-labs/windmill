@@ -21,13 +21,13 @@
 	on:click={() => jsonViewerDrawer.toggleDrawer()}
 	startIcon={{ icon: FileJson }}
 >
-	JSON
+	Export
 </Button>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
-	<DrawerContent title="OpenFlow JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>
+	<DrawerContent title="OpenFlow" on:close={() => jsonViewerDrawer.toggleDrawer()}>
 		{#if $flowStore}
-			<FlowViewer flow={cleanInputs($flowStore)} tab="json" />
+			<FlowViewer flow={cleanInputs($flowStore)} tab="raw" />
 		{/if}
 	</DrawerContent>
 </Drawer>

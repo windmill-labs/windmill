@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import { userStore, usersWorkspaceStore, usageStore, premiumStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, usageStore, isPremiumStore } from '$lib/stores'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
@@ -100,8 +100,8 @@
 			</MenuItem>
 		</div>
 
-		{#if isCloudHosted() && $premiumStore}
-			{#if !$premiumStore.premium}
+		{#if isCloudHosted()}
+			{#if !$isPremiumStore}
 				<div class="py-1" role="none">
 					<span class="text-secondary block w-full text-left px-4 py-2 text-sm"
 						>{$usageStore}/1000 free-tier executions</span

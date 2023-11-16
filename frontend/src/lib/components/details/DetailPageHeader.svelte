@@ -32,8 +32,8 @@
 
 <div class="border-b p-2 shadow-md">
 	<div class="mx-auto">
-		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 h-8 items-center">
-			<div class="grow px-2 sm:w-full inline-flex items-center gap-4">
+		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center">
+			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div class="text-lg min-w-24 font-bold truncate">{title}</div>{#if tag}
 					<Badge>tag: {tag}</Badge>
 				{/if}

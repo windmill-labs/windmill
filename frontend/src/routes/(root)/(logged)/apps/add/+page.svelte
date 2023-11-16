@@ -16,7 +16,7 @@
 	const templatePath = $page.url.searchParams.get('template')
 	const templateId = $page.url.searchParams.get('template_id')
 
-	const importJson = $importStore
+	const importRaw = $importStore
 	if ($importStore) {
 		$importStore = undefined
 	}
@@ -50,14 +50,14 @@
 	loadApp()
 
 	async function loadApp() {
-		if (importJson) {
-			sendUserToast('Loaded from JSON')
-			if ('value' in importJson) {
-				summary = importJson.summary
-				value = importJson.value
-				policy = importJson.policy
+		if (importRaw) {
+			sendUserToast('Loaded from YAML/JSON')
+			if ('value' in importRaw) {
+				summary = importRaw.summary
+				value = importRaw.value
+				policy = importRaw.policy
 			} else {
-				value = importJson
+				value = importRaw
 			}
 		} else if (templatePath) {
 			const template = await AppService.getAppByPath({

@@ -67,8 +67,8 @@
 		},
 		red: {
 			border:
-				'border-red-600 hover:border-red-700 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
-			contained: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-300',
+				'border-red-600/60 hover:border-red-600 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
+			contained: 'bg-red-600 hover:bg-red-600 text-white focus:ring-red-300',
 			divider: 'divide-x divide-red-700'
 		},
 		green: {
