@@ -14,12 +14,18 @@ if (!bo.success) {
   process.exit(1);
 } else {
   let content = await fs.readFile("./out/main.js", { encoding: "utf8" });
-  const imports = new Bun.Transpiler().scanImports(content.replaceAll("__require", "require"));
+  const imports = new Bun.Transpiler().scanImports(
+    content.replaceAll("__require", "require")
+  );
 
   const { intersect } = require("semver-intersect");
   const dependencies: Record<string, string[]> = {};
   for (const i of imports) {
     let [_, name, version] = i.path.match(captureVersion) ?? [];
+    let splitted = name.split("/");
+    if (splitted.length > 2) {
+      name = splitted.slice(0, 2).join("/");
+    }
     if (version == undefined) {
       if (dependencies[name] == undefined) {
         dependencies[name] = [];
