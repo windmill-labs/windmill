@@ -40,6 +40,7 @@
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
+	export let nestedRequired: string[] | undefined = undefined
 	export let extra: Record<string, any> = {}
 	export let displayType: boolean = true
 
@@ -277,7 +278,7 @@
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<LightweightSchemaForm
-							schema={{ properties, $schema: '', required: [], type: 'object' }}
+							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
 							bind:args={value}
 						/>
 					</div>
