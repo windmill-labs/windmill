@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.206.0
+  version: 1.208.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1534,6 +1534,24 @@ paths:
                 properties:
                   deploy_to:
                     type: string
+  /w/{workspace}/workspaces/is_premium:
+    get:
+      summary: get if workspace is premium
+      operationId: getIsPremium
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      responses:
+        '200':
+          description: status
+          content:
+            application/json:
+              schema:
+                type: boolean
   /w/{workspace}/workspaces/premium_info:
     get:
       summary: get premium info
@@ -1556,6 +1574,8 @@ paths:
                   premium:
                     type: boolean
                   usage:
+                    type: number
+                  seats:
                     type: number
                 required:
                   - premium
@@ -9466,9 +9486,9 @@ paths:
             application/json:
               schema: {}
   /w/{workspace}/job_helpers/list_stored_datasets:
-    post:
+    get:
       summary: List the dataset keys available in the worspace datasets storage
-      operationId: polarsConnectionSettings
+      operationId: listStoredDatasets
       tags:
         - helpers
       parameters:
@@ -9484,14 +9504,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  dataset_keys:
+                  windmill_large_files:
                     type: array
                     items:
                       type: object
                       properties: &ref_155
                         s3:
-                          type: string
-                        s3_bucket:
                           type: string
                       required: &ref_156
                         - s3

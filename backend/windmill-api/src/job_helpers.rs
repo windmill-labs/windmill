@@ -137,7 +137,6 @@ struct ListStoredDatasetsResponse {
 #[derive(Serialize, Clone)]
 struct WindmillLargeFile {
     s3: String,
-    s3_bucket: Option<String>,
 }
 
 async fn test_connection(
@@ -202,10 +201,7 @@ async fn list_stored_datasets(
             .map(|object| object.key())
             .map(Option::unwrap)
             .map(&str::to_string)
-            .map(|object_key| WindmillLargeFile {
-                s3: object_key.clone(),
-                s3_bucket: Some(s3_bucket.clone()),
-            })
+            .map(|object_key| WindmillLargeFile { s3: object_key.clone() })
             .collect::<Vec<WindmillLargeFile>>();
 
         stored_datasets.extend(page_datasets.clone());

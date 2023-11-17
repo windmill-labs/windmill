@@ -6337,9 +6337,9 @@ paths:
               schema: {}
 
   /w/{workspace}/job_helpers/list_stored_datasets:
-    post:
+    get:
       summary: List the dataset keys available in the worspace datasets storage
-      operationId: polarsConnectionSettings
+      operationId: listStoredDatasets
       tags:
         - helpers
       parameters:
@@ -6352,7 +6352,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  dataset_keys:
+                  windmill_large_files:
                     type: array
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
@@ -8353,8 +8353,6 @@ components:
       type: object
       properties:
         s3:
-          type: string
-        s3_bucket:
           type: string
       required:
         - s3
