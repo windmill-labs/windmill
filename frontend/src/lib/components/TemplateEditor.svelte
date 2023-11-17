@@ -448,6 +448,15 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
 		})
 
+		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		editor.onDidChangeModelContent((event) => {
+			timeoutModel && clearTimeout(timeoutModel)
+			timeoutModel = setTimeout(() => {
+				code = getCode()
+				dispatch('change', { code })
+			}, 200)
+		})
+
 		extraModel = meditor.createModel('`' + model.getValue() + '`', 'javascript')
 		const worker = await languages.typescript.getJavaScriptWorker()
 		const client = await worker(extraModel.uri)
@@ -527,15 +536,6 @@
 					}
 				}
 			}
-		})
-
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
-		editor.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
-			}, 200)
 		})
 
 		if (autoHeight) {
