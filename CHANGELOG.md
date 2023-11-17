@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.209.0](https://github.com/windmill-labs/windmill/compare/v1.208.0...v1.209.0) (2023-11-17)
+
+
+### Features
+
+* add prompt history ([#2638](https://github.com/windmill-labs/windmill/issues/2638)) ([c2557a2](https://github.com/windmill-labs/windmill/commit/c2557a270f89d4bc055d03833bb90b20161e9de0))
+* collect vcpus and accounts usage ([#2635](https://github.com/windmill-labs/windmill/issues/2635)) ([8183c38](https://github.com/windmill-labs/windmill/commit/8183c38d05da220e036ec36a8ac5cc6f6e004d56))
+* dedicated workers for flows ([#2637](https://github.com/windmill-labs/windmill/issues/2637)) ([b13cc58](https://github.com/windmill-labs/windmill/commit/b13cc58315ea07d67d98bffb907e2cbd0c1d6b7d))
+* **frontend:** add filter by resource on Audit Log page ([#2628](https://github.com/windmill-labs/windmill/issues/2628)) ([1d1258f](https://github.com/windmill-labs/windmill/commit/1d1258ff5873023e66e727a87d6ecb04d1a77e70))
+* **frontend:** Add optional dropdown trigger ([#2642](https://github.com/windmill-labs/windmill/issues/2642)) ([998843b](https://github.com/windmill-labs/windmill/commit/998843ba62a9b154c7a4903bef5b6fc2dc3fafe5))
+
+
+### Bug Fixes
+
+* improve suspended flow handling when missing next step ([316d5f3](https://github.com/windmill-labs/windmill/commit/316d5f344f409ca564f92e32d6a04068a316c012))
+* nested schemas can use required ([33dfcfb](https://github.com/windmill-labs/windmill/commit/33dfcfbdc74d611e457e54cc8ddb9152bf365560))
+* support non root imports in bun ([9ff428f](https://github.com/windmill-labs/windmill/commit/9ff428f210dd1dea6cff664aaade1411317587c5))
+* www-url-encoded body ([9c7bb5e](https://github.com/windmill-labs/windmill/commit/9c7bb5ecd9f169d627d98cc1a494d0e5010f0166))
+* x overflow scroll + add clear history btn ([#2641](https://github.com/windmill-labs/windmill/issues/2641)) ([1aef2aa](https://github.com/windmill-labs/windmill/commit/1aef2aae9027010346ce352e6a6993fb175bc904))
+
 ## [1.208.0](https://github.com/windmill-labs/windmill/compare/v1.207.0...v1.208.0) (2023-11-15)
 
 
