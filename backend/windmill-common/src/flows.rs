@@ -347,3 +347,24 @@ pub struct ListFlowQuery {
     pub order_desc: Option<bool>,
     pub starred_only: Option<bool>,
 }
+
+pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
+    if modules.len() > 0
+        && (modules[modules.len() - 1].sleep.is_some()
+            || modules[modules.len() - 1].suspend.is_some())
+    {
+        modules.push(FlowModule {
+            id: format!("{}-v", modules[modules.len() - 1].id),
+            value: FlowModuleValue::Identity,
+            stop_after_if: None,
+            summary: Some("Virtual module needed for suspend/sleep when last module".to_string()),
+            mock: None,
+            retry: None,
+            sleep: None,
+            suspend: None,
+            cache_ttl: None,
+            timeout: None,
+            priority: None,
+        });
+    }
+}
