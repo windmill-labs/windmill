@@ -270,7 +270,6 @@
 			{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
 				<div class="mt-2 min-h-[28px]">
 					{#if arg}
-						{arg.value}
 						<TemplateEditor
 							bind:this={monacoTemplate}
 							{extraLib}
