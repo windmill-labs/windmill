@@ -869,7 +869,7 @@
 	let initialized = false
 	async function loadMonaco() {
 		try {
-			console.error("Loading Monaco's language client")
+			console.log("Loading Monaco's language client")
 			await initializeVscode()
 		} catch (e) {
 			console.log('error initializing services', e)
