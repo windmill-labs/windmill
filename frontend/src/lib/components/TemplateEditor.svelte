@@ -410,6 +410,9 @@
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 
 	let initialized = false
+
+	let jsLoader: NodeJS.Timeout | undefined = undefined
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
@@ -458,85 +461,6 @@
 		})
 
 		extraModel = meditor.createModel('`' + model.getValue() + '`', 'javascript')
-		const worker = await languages.typescript.getJavaScriptWorker()
-		const client = await worker(extraModel.uri)
-
-		cip = languages.registerCompletionItemProvider('template', {
-			triggerCharacters: ['.'],
-
-			provideCompletionItems: async (model, position) => {
-				extraModel.setValue('`' + model.getValue() + '`')
-
-				const offset = model.getOffsetAt(position) + 1
-				const info = await client.getCompletionsAtPosition(extraModel.uri.toString(), offset)
-				if (!info) {
-					return { suggestions: [] }
-				}
-				const wordInfo = model.getWordUntilPosition(position)
-				const wordRange = new Range(
-					position.lineNumber,
-					wordInfo.startColumn,
-					position.lineNumber,
-					wordInfo.endColumn
-				)
-
-				const suggestions = info.entries
-					.filter((x) => x.kind != 'keyword' && x.kind != 'var')
-					.map((entry) => {
-						let range = wordRange
-						if (entry.replacementSpan) {
-							const p1 = model.getPositionAt(entry.replacementSpan.start)
-							const p2 = model.getPositionAt(
-								entry.replacementSpan.start + entry.replacementSpan.length
-							)
-							range = new Range(p1.lineNumber, p1.column, p2.lineNumber, p2.column)
-						}
-
-						const tags: languages.CompletionItemTag[] = []
-						if (entry.kindModifiers?.indexOf('deprecated') !== -1) {
-							tags.push(languages.CompletionItemTag.Deprecated)
-						}
-						return {
-							uri: model.uri,
-							position: position,
-							offset: offset,
-							range: range,
-							label: entry.name,
-							insertText: entry.name,
-							sortText: entry.sortText,
-							kind: convertKind(entry.kind),
-							tags
-						}
-					})
-				return { suggestions }
-			},
-			resolveCompletionItem: async (item: languages.CompletionItem, token: any) => {
-				extraModel.setValue('`' + model.getValue() + '`')
-
-				const myItem = <any>item
-				const position = myItem.position
-				const offset = myItem.offset
-
-				const details = await client.getCompletionEntryDetails(
-					extraModel.uri.toString(),
-					offset,
-					myItem.label
-				)
-				if (!details) {
-					return myItem
-				}
-				return <any>{
-					uri: model.uri,
-					position: position,
-					label: details.name,
-					kind: convertKind(details.kind),
-					detail: displayPartsToString(details.displayParts),
-					documentation: {
-						value: createDocumentationString(details)
-					}
-				}
-			}
-		})
 
 		if (autoHeight) {
 			const updateHeight = () => {
@@ -559,6 +483,89 @@
 		editor.onDidBlurEditorText(() => {
 			code = getCode()
 		})
+
+		jsLoader = setTimeout(async () => {
+			jsLoader = undefined
+			const worker = await languages.typescript.getJavaScriptWorker()
+			const client = await worker(extraModel.uri)
+
+			cip = languages.registerCompletionItemProvider('template', {
+				triggerCharacters: ['.'],
+
+				provideCompletionItems: async (model, position) => {
+					extraModel.setValue('`' + model.getValue() + '`')
+
+					const offset = model.getOffsetAt(position) + 1
+					const info = await client.getCompletionsAtPosition(extraModel.uri.toString(), offset)
+					if (!info) {
+						return { suggestions: [] }
+					}
+					const wordInfo = model.getWordUntilPosition(position)
+					const wordRange = new Range(
+						position.lineNumber,
+						wordInfo.startColumn,
+						position.lineNumber,
+						wordInfo.endColumn
+					)
+
+					const suggestions = info.entries
+						.filter((x) => x.kind != 'keyword' && x.kind != 'var')
+						.map((entry) => {
+							let range = wordRange
+							if (entry.replacementSpan) {
+								const p1 = model.getPositionAt(entry.replacementSpan.start)
+								const p2 = model.getPositionAt(
+									entry.replacementSpan.start + entry.replacementSpan.length
+								)
+								range = new Range(p1.lineNumber, p1.column, p2.lineNumber, p2.column)
+							}
+
+							const tags: languages.CompletionItemTag[] = []
+							if (entry.kindModifiers?.indexOf('deprecated') !== -1) {
+								tags.push(languages.CompletionItemTag.Deprecated)
+							}
+							return {
+								uri: model.uri,
+								position: position,
+								offset: offset,
+								range: range,
+								label: entry.name,
+								insertText: entry.name,
+								sortText: entry.sortText,
+								kind: convertKind(entry.kind),
+								tags
+							}
+						})
+					return { suggestions }
+				},
+				resolveCompletionItem: async (item: languages.CompletionItem, token: any) => {
+					extraModel.setValue('`' + model.getValue() + '`')
+
+					const myItem = <any>item
+					const position = myItem.position
+					const offset = myItem.offset
+
+					const details = await client.getCompletionEntryDetails(
+						extraModel.uri.toString(),
+						offset,
+						myItem.label
+					)
+					if (!details) {
+						return myItem
+					}
+					return <any>{
+						uri: model.uri,
+						position: position,
+						label: details.name,
+						kind: convertKind(details.kind),
+						detail: displayPartsToString(details.displayParts),
+						documentation: {
+							value: createDocumentationString(details)
+						}
+					}
+				}
+			})
+		}, 300)
 	}
 
 	export function focus() {
@@ -592,6 +599,7 @@
 
 	onDestroy(() => {
 		try {
+			jsLoader && clearTimeout(jsLoader)
 			model && model.dispose()
 			editor && editor.dispose()
 			cip && cip.dispose()
