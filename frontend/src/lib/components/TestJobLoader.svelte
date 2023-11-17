@@ -158,7 +158,6 @@
 						job.mem_peak = previewJobUpdates.mem_peak
 					}
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						console.log({ a: previewJobUpdates.running, b: previewJobUpdates.completed })
 						job = await JobService.getJob({ workspace: workspace!, id })
 					}
 				} else {
