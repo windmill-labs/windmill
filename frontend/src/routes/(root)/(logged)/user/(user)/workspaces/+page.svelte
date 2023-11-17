@@ -14,6 +14,7 @@
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { Cog, Crown } from 'lucide-svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -71,6 +72,18 @@
 	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
 	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
 
+	async function getCreateWorkspaceRequireSuperadmin() {
+		const r = await fetch('/api/workspaces/create_workspace_require_superadmin')
+		const t = await r.text()
+		createWorkspace = t != 'true'
+	}
+
+	let createWorkspace = $superadmin || isCloudHosted()
+
+	if (!createWorkspace) {
+		getCreateWorkspaceRequireSuperadmin()
+	}
+
 	loadInvites()
 	loadWorkspaces()
 
@@ -114,7 +127,8 @@
 	{#if workspaces && $usersWorkspaceStore}
 		{#if workspaces.length == 0}
 			<p class="text-sm text-tertiary mt-2">
-				You are not a member of any workspace yet. Accept an invitation or create your own
+				You are not a member of any workspace yet. Accept an invitation {#if createWorkspace}or
+					create your own{/if}
 				workspace.
 			</p>
 		{/if}
@@ -157,16 +171,18 @@
 		{/each}
 	{/if}
 
-	<div class="flex flex-row-reverse pt-4">
-		<Button
-			size="sm"
-			btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
-			color={noWorkspaces ? 'dark' : 'blue'}
-			href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-			variant={noWorkspaces ? 'contained' : 'border'}
-			>+&nbsp;Create a new workspace
-		</Button>
-	</div>
+	{#if createWorkspace}
+		<div class="flex flex-row-reverse pt-4">
+			<Button
+				size="sm"
+				btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
+				color={noWorkspaces ? 'dark' : 'blue'}
+				href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+				variant={noWorkspaces ? 'contained' : 'border'}
+				>+&nbsp;Create a new workspace
+			</Button>
+		</div>
+	{/if}
 
 	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
 	{#if invites.length == 0}
