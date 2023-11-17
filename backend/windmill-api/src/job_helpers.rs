@@ -16,7 +16,7 @@ use polars::{
     },
     lazy::{
         dsl::col,
-        frame::{LazyCsvReader, LazyFrame, ScanArgsParquet},
+        frame::{LazyFrame, ScanArgsParquet},
     },
     prelude::CsvReader,
 };
@@ -265,16 +265,21 @@ async fn load_file_preview(
     let s3_client = build_s3_client(&s3_resource);
 
     let s3_bucket = s3_resource.bucket.clone();
-    let s3_object = s3_client
-        .get_object()
+    let s3_object_metadata = s3_client
+        .head_object()
         .bucket(&s3_bucket)
         .key(&file_key)
-        .range("bytes=0-0".to_string()) // get only the metadata here, download will happen later depending of the type of the file
         .send()
         .await
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
 
-    let object_content_type = s3_object.content_type();
+    tracing::warn!("Content length: {}", s3_object_metadata.content_length());
+    let file_chunk_length = cmp::min(
+        8 * 1024 * 1024, // no more than 8MB per chunk by default
+        s3_object_metadata.content_length() - query.from.unwrap_or(0) as i64,
+    );
+
+    let object_content_type = s3_object_metadata.content_type();
     let content_preview = match object_content_type {
         Some("application/json") | Some("application/x-yaml") => Some(
             read_s3_text_object_head(
@@ -282,7 +287,7 @@ async fn load_file_preview(
                 &s3_bucket,
                 &file_key,
                 query.from.unwrap_or(0),
-                query.length.unwrap_or(256),
+                file_chunk_length, // 1KB by default
             )
             .await?,
         ),
@@ -296,20 +301,30 @@ async fn load_file_preview(
                 None
             }
         }
+        Some(mt) if mt.starts_with("text/") => Some(
+            read_s3_text_object_head(
+                &s3_client,
+                &s3_bucket,
+                &file_key,
+                query.from.unwrap_or(0),
+                file_chunk_length,
+            )
+            .await?,
+        ),
         _ => None,
     };
 
     let response = LoadFilePreviewResponse {
-        mime_type: s3_object.content_type().map(&str::to_string),
-        last_modified: s3_object
+        mime_type: s3_object_metadata.content_type().map(&str::to_string),
+        last_modified: s3_object_metadata
             .last_modified()
             .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
             .flatten(),
-        expires: s3_object
+        expires: s3_object_metadata
             .expires()
             .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
             .flatten(),
-        version_id: s3_object.version_id().map(&str::to_string),
+        version_id: s3_object_metadata.version_id().map(&str::to_string),
         content_preview: content_preview,
     };
 
@@ -434,39 +449,27 @@ async fn read_s3_text_object_head(
     s3_bucket: &str,
     file_key: &str,
     from_char: usize,
-    length: usize,
+    length: i64,
 ) -> error::Result<String> {
-    let mut payload: Vec<u8> = vec![];
+    let s3_object = s3_client
+        .get_object()
+        .range(format!("bytes={}-{}", from_char, length).to_string())
+        .bucket(s3_bucket)
+        .key(file_key)
+        .send()
+        .await
+        .map_err(|err| {
+            tracing::warn!("Error fetching text file from S3: {:?}", err);
+            error::Error::InternalErr(err.to_string())
+        })?;
 
-    let mut start = from_char;
-    let chunk_size = 128;
-    let mut end = start + cmp::min(chunk_size, length);
-    let mut number_of_chars_read = 0;
-    loop {
-        let s3_object = s3_client
-            .get_object()
-            .range(format!("bytes={}-{}", start, end).to_string())
-            .bucket(s3_bucket)
-            .key(file_key)
-            .send()
-            .await
-            .map_err(|err| error::Error::InternalErr(err.to_string()))?;
-        start = end + 1;
-        end = end + cmp::min(chunk_size, length - number_of_chars_read);
-
-        let chunk_bytes = s3_object
-            .body
-            .collect()
-            .await
-            .unwrap()
-            .into_bytes()
-            .to_vec();
-        number_of_chars_read += chunk_bytes.len();
-        payload.extend(chunk_bytes);
-        if number_of_chars_read >= length {
-            break;
-        }
-    }
+    let payload = s3_object
+        .body
+        .collect()
+        .await
+        .unwrap()
+        .into_bytes()
+        .to_vec();
 
     let file_header_str = String::from_utf8(payload).unwrap();
     return Ok(file_header_str);

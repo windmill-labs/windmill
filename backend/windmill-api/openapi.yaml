@@ -6339,6 +6339,39 @@ paths:
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
 
+  /w/{workspace}/job_helpers/load_file_preview:
+    get:
+      summary: Load a preview of the file
+      operationId: loadFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: integer
+        - name: length
+          in: query
+          schema:
+            type: integer
+        - name: separator
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -8335,6 +8368,17 @@ components:
           type: string
       required:
         - s3
+
+    WindmillFilePreview:
+      type: object
+      properties:
+        mime_type:
+          type: string
+        last_modified:
+          type: string
+          format: date-time
+        content_preview:
+          type: string
 
     S3Resource:
       type: object
