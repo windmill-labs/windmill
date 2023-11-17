@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.210.0](https://github.com/windmill-labs/windmill/compare/v1.209.0...v1.210.0) (2023-11-17)
+
+
+### Features
+
+* truncate logs when necessary ([05d3fca](https://github.com/windmill-labs/windmill/commit/05d3fcad269adebd2a701da8a49cdc692f26b18f))
+* truncate logs when necessary ([4d92745](https://github.com/windmill-labs/windmill/commit/4d927457867a3c828b5d09f43fc905984769e29f))
+
+
+### Bug Fixes
+
+* remove stats payload logging ([#2644](https://github.com/windmill-labs/windmill/issues/2644)) ([cc978c2](https://github.com/windmill-labs/windmill/commit/cc978c230fe65d4f93b369abff96ee3354d3a899))
+* restore flow local storage ([526b14c](https://github.com/windmill-labs/windmill/commit/526b14cca3ca5eb3fc2c60e404b057da05b84b4c))
+
 ## [1.209.0](https://github.com/windmill-labs/windmill/compare/v1.208.0...v1.209.0) (2023-11-17)
 
 
