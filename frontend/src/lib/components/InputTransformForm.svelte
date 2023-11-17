@@ -300,6 +300,7 @@
 					contentEncoding={schema.properties[argName].contentEncoding}
 					bind:itemsType={schema.properties[argName].items}
 					properties={schema.properties[argName].properties}
+					nestedRequired={schema.properties[argName].required}
 					displayHeader={false}
 					extra={argExtra}
 					{variableEditor}

@@ -92,6 +92,7 @@
 							format={schema.properties[argName].format}
 							contentEncoding={schema.properties[argName].contentEncoding}
 							properties={schema.properties[argName].properties}
+							nestedRequired={schema.properties[argName].required}
 							itemsType={schema.properties[argName].items}
 							extra={schema.properties[argName]}
 						/>

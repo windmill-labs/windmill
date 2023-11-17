@@ -270,12 +270,12 @@
 </script>
 
 <div class="flex flex-col">
-	<div class="flex justify-between gap-x-2">
+	<div class="flex justify-between items-center gap-x-2">
 		<div>
 			<Button
 				variant="contained"
 				color="dark"
-				size="sm"
+				size={lightMode ? 'xs2' : 'sm'}
 				startIcon={{ icon: Plus }}
 				on:click={() => {
 					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
@@ -288,6 +288,7 @@
 
 		<div class="flex items-center">
 			<Toggle
+				size={lightMode ? 'xs' : 'sm'}
 				on:change={() => switchTab()}
 				options={{
 					right: 'As JSON'
@@ -342,6 +343,7 @@
 		{:else}
 			<div class="border rounded p-2">
 				<SimpleEditor
+					small
 					bind:this={jsonEditor}
 					fixedOverflowWidgets={false}
 					on:change={() => {
