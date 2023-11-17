@@ -19,7 +19,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Ban, Check, ExternalLink, Wand2, X } from 'lucide-svelte'
+	import { Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 
@@ -47,6 +47,7 @@
 		if (funcDesc.length <= 0) {
 			return
 		}
+		savePrompt()
 		try {
 			genLoading = true
 			blockPopupOpen = true
@@ -154,6 +155,24 @@
 			lastScrollHeight = codeDiv.scrollHeight
 		}
 	}
+
+	let promptHistory: string[] = []
+	function getPromptHistory() {
+		promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+	}
+
+	function savePrompt() {
+		if (promptHistory.includes(funcDesc)) {
+			return
+		}
+		promptHistory.unshift(funcDesc)
+		while (promptHistory.length > 5) {
+			promptHistory.pop()
+		}
+		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+	}
+	$: lang && getPromptHistory()
+
 	$: $generatedCode && updateScroll()
 </script>
 
@@ -317,6 +336,21 @@
 							startIcon={{ icon: Wand2 }}
 						/>
 					</div>
+					{#if promptHistory.length > 0}
+						<div class="w-96 flex flex-col gap-1">
+							{#each promptHistory as p}
+								<Button
+									size="xs2"
+									color="light"
+									btnClasses="justify-start"
+									startIcon={{ icon: HistoryIcon }}
+									on:click={() => {
+										funcDesc = p
+									}}>{p}</Button
+								>
+							{/each}
+						</div>
+					{/if}
 
 					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang) && dbSchema?.lang === lang}
 						<div class="flex flex-row items-center justify-between gap-2 w-96">
