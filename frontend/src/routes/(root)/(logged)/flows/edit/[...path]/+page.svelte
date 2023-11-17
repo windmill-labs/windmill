@@ -54,18 +54,19 @@
 	async function loadFlow(): Promise<void> {
 		loading = true
 		let flow: Flow
-		if (stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == $page.params.path) {
+		let statePath = stateLoadedFromUrl?.path
+		if (stateLoadedFromUrl != undefined && statePath == $page.params.path) {
 			savedFlow = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
-				path: stateLoadedFromUrl.flow.path
+				path: statePath
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
+			const urlScript = cleanValueProperties(statePath)
 			flow = stateLoadedFromUrl.flow
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
-				goto(`/flows/edit/${flow!.path}`)
+				goto(`/flows/edit/${statePath}`)
 				loadFlow()
 			}
 			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {

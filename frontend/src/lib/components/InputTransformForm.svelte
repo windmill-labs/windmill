@@ -267,6 +267,8 @@
 					Connect input &rightarrow;
 				</span>
 			{/if}
+			<!-- {inputCat}
+			{propertyType} -->
 			{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
 				<div class="mt-2 min-h-[28px]">
 					{#if arg}
