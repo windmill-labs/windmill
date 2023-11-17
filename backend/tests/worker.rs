@@ -2578,6 +2578,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     tag: None,
                     ws_error_handler_muted: None,
                     priority: None,
+                    dedicated_worker: None,
                 },
                 draft_only: None,
             },

@@ -13,7 +13,9 @@ export type FlowEditorContext = {
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
-	flowStore: Writable<OpenFlow & { tag?: string, ws_error_handler_muted?: boolean}>
+	flowStore: Writable<
+		OpenFlow & { tag?: string; ws_error_handler_muted?: boolean; dedicated_worker?: boolean }
+	>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void

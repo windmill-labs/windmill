@@ -361,6 +361,41 @@
 						{:else}
 							<Loader2 class="animate-spin" />
 						{/if}
+
+						<div class="py-6" />
+						<span class="my-4 text-lg font-bold">Dedicated Worker</span>
+
+						<Toggle
+							disabled={false && (!$enterpriseLicense || isCloudHosted())}
+							size="sm"
+							checked={Boolean($flowStore.dedicated_worker)}
+							on:change={() => {
+								if ($flowStore.dedicated_worker) {
+									$flowStore.dedicated_worker = undefined
+								} else {
+									$flowStore.dedicated_worker = true
+								}
+							}}
+							options={{
+								right: 'Flow is run on dedicated workers'
+							}}
+						/>
+						{#if $flowStore.dedicated_worker}
+							<div class="py-2">
+								<Alert type="info" title="Require dedicated workers">
+									One worker in a worker group needs to be configured with dedicated worker set to: <pre
+										>{$workspaceStore}:flow/{$pathStore}</pre
+									>
+								</Alert>
+							</div>
+						{/if}
+						<svelte:fragment slot="header">
+							<Tooltip
+								>In this mode, the script is meant to be run on dedicated workers that run the
+								script at native speed. Can reach >1500rps per dedicated worker. Only available on
+								enterprise edition and for the Bun language.</Tooltip
+							>
+						</svelte:fragment>
 					</TabContent>
 					<TabContent value="settings-early-stop" class="p-4">
 						<Section label="Early stop">

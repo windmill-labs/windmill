@@ -191,7 +191,13 @@
 				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 					<ButtonDropdown target="body" hasPadding={false}>
 						<svelte:fragment slot="buttonReplacement">
-							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
+							<Button
+								btnClasses="!py-2"
+								nonCaptureEvent
+								variant="border"
+								size="sm"
+								startIcon={{ icon: Trash }}
+							/>
 						</svelte:fragment>
 						<svelte:fragment slot="items">
 							<MenuItem

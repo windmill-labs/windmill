@@ -3,7 +3,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 
 	let loaded = false
 
@@ -27,6 +27,10 @@
 			console.error(e)
 		}
 		loaded = true
+	})
+
+	onDestroy(() => {
+		globalThis.windmill = undefined
 	})
 </script>
 

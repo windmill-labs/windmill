@@ -3,7 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{
-    fs::{DirBuilder, File},
+    fs::{create_dir, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
 };
@@ -50,15 +50,18 @@ pub async fn handle_go_job(
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
-    let bin_path = if let Some(requirements) = requirements_o.clone() {
-        Some(format!(
-            "{}/{}",
-            GO_BIN_CACHE_DIR,
-            calculate_hash(&format!("{}{}", inner_content, requirements))
+    let bin_path = Some(format!(
+        "{}/{}",
+        GO_BIN_CACHE_DIR,
+        calculate_hash(&format!(
+            "{}{}",
+            inner_content,
+            requirements_o
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_default()
         ))
-    } else {
-        None
-    };
+    ));
 
     let bin_exists = if let Some(bin_path) = bin_path.clone() {
         tokio::fs::metadata(bin_path).await.is_ok()
@@ -66,7 +69,10 @@ pub async fn handle_go_job(
         false
     };
 
-    let (skip_go_mod, skip_tidy) = if let Some(requirements) = requirements_o {
+    let (skip_go_mod, skip_tidy) = if bin_exists {
+        create_dir(job_dir).await?;
+        (true, true)
+    } else if let Some(requirements) = requirements_o {
         gen_go_mod(inner_content, job_dir, &requirements).await?
     } else {
         (false, false)
@@ -215,8 +221,14 @@ func Run(req Req) (interface{{}}, error){{
         }
     } else {
         let path = bin_path.unwrap().clone();
-        logs.push_str(&format!("found cached binary: {}\n", path));
-        tokio::fs::copy(path, format!("{job_dir}/main")).await?;
+        logs.push_str(&format!("found cached binary: {path}\n"));
+        tokio::fs::copy(&path, format!("{job_dir}/main"))
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "could not copy cached binary from {path} to {job_dir}/main: {e:?}"
+                ))
+            })?;
         logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
         set_logs(logs, &job.id, db).await;
         create_args_and_out_file(client, job, job_dir, db).await?;

@@ -50,7 +50,10 @@
 					summary: summary ?? '',
 					description: flow.description,
 					value: flow.value,
-					schema: flow.schema
+					schema: flow.schema,
+					tag: flow.tag,
+					dedicated_worker: flow.dedicated_worker,
+					ws_error_handler_muted: flow.ws_error_handler_muted
 				}
 			})
 		} else if (kind == 'script') {
