@@ -111,6 +111,7 @@ pub fn global_service() -> Router {
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
         .route("/unarchive/:workspace", post(unarchive_workspace))
         .route("/delete/:workspace", delete(delete_workspace))
+        .route("/create_workspace_require_superadmin", get(create_workspace_require_superadmin))
 }
 
 #[cfg(feature = "enterprise")]
@@ -1070,8 +1071,17 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
 
 lazy_static::lazy_static! {
 
-    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(true));
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
+        match std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN") {
+            Ok(val) => val == "true",
+            Err(_) => true,
+        }
+    };
 
+}
+
+async fn create_workspace_require_superadmin() -> String {
+    format!("{}", *CREATE_WORKSPACE_REQUIRE_SUPERADMIN)
 }
 
 async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
