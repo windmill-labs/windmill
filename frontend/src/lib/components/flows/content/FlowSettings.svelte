@@ -366,7 +366,7 @@
 						<span class="my-4 text-lg font-bold">Dedicated Worker</span>
 
 						<Toggle
-							disabled={false && (!$enterpriseLicense || isCloudHosted())}
+							disabled={!$enterpriseLicense || isCloudHosted()}
 							size="sm"
 							checked={Boolean($flowStore.dedicated_worker)}
 							on:change={() => {
@@ -391,9 +391,9 @@
 						{/if}
 						<svelte:fragment slot="header">
 							<Tooltip
-								>In this mode, the script is meant to be run on dedicated workers that run the
-								script at native speed. Can reach >1500rps per dedicated worker. Only available on
-								enterprise edition and for the Bun language.</Tooltip
+								>In this mode, every scripts of this flow is run on the workers dedicated to this
+								flow that keep the scripts "hot" so that there is not cold start cost incurred.
+								Steps can run at >1500 rps in this mode.</Tooltip
 							>
 						</svelte:fragment>
 					</TabContent>
