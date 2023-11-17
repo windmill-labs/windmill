@@ -60,7 +60,13 @@
 		</svelte:fragment>
 		<div>
 			<pre class="bg-surface-secondary text-secondary text-xs w-full p-2"
-				>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+				>{#if content}{#if content?.length > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
+							on:click={() => {
+								scroll = false
+								LOG_LIMIT = LOG_LIMIT + Math.min(LOG_INC, content?.length ?? 0 - LOG_LIMIT)
+							}}>Show more</button
+						>
+					{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
 	</DrawerContent>
