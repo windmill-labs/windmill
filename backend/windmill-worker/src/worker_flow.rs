@@ -2669,7 +2669,7 @@ fn raw_script_to_payload(
 }
 
 fn flow_to_payload(path: &str) -> JobPayloadWithTag {
-    let payload = JobPayload::Flow(path.to_string());
+    let payload = JobPayload::Flow { path: path.to_string(), dedicated_worker: None };
     JobPayloadWithTag { payload, tag: None }
 }
 

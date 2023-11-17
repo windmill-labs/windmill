@@ -168,6 +168,7 @@ pub struct Script {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,

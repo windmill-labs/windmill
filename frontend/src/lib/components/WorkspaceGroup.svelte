@@ -175,7 +175,7 @@
 				position="dedicated"
 				value="dedicated"
 				size="sm"
-				label="Dedicated to a script"
+				label="Dedicated to a script/flow"
 			/>
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}

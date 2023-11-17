@@ -2105,7 +2105,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         // we track only non flow steps
         let usage = if !matches!(
             job_payload,
-            JobPayload::Flow(_) | JobPayload::RawFlow { .. }
+            JobPayload::Flow { .. } | JobPayload::RawFlow { .. }
         ) {
             sqlx::query_scalar!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
@@ -2134,6 +2134,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         } else {
             0
         };
+
 
         if is_overquota || !premium_workspace {
             let is_super_admin =
@@ -2263,7 +2264,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             dedicated_worker,
             None,
         ),
-        JobPayload::Dependencies { hash, dependencies, language, path } => (
+        JobPayload::Dependencies { hash, dependencies, language, path, dedicated_worker } => (
             Some(hash.0),
             Some(path),
             Some((dependencies, None)),
@@ -2274,10 +2275,10 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
-            None,
+            dedicated_worker,
             None,
         ),
-        JobPayload::FlowDependencies { path } => {
+        JobPayload::FlowDependencies { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
@@ -2303,7 +2304,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 None,
                 None,
-                None,
+                dedicated_worker,
                 None,
             )
         }
@@ -2371,24 +2372,24 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.priority,
             )
         }
-        JobPayload::Flow(flow) => {
+        JobPayload::Flow { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    flow,
+                    path,
                     workspace_id
                 ),
                 tx
             )?
-            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
             let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
                 Error::InternalErr(format!(
-                    "could not convert json to flow for {flow}: {err:?}"
+                    "could not convert json to flow for {path}: {err:?}"
                 ))
             })?;
             (
                 None,
-                Some(flow),
+                Some(path),
                 None,
                 JobKind::Flow,
                 Some(value.clone()),
@@ -2397,7 +2398,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
-                None,
+                dedicated_worker,
                 value.priority,
             )
         }
@@ -2548,8 +2549,13 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(
-            "{}:{}",
+            "{}:{}{}",
             workspace_id,
+            if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
+                "flow/"
+            } else {
+                ""
+            },
             script_path.clone().expect("dedicated script has a path")
         )
     } else if job_kind == JobKind::Script_Hub {

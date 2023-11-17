@@ -1,12 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tag from flow WHERE path = $1 and workspace_id = $2",
+  "query": "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "tag",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "dedicated_worker",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -16,8 +21,9 @@
       ]
     },
     "nullable": [
+      true,
       true
     ]
   },
-  "hash": "238a59ebc80619504e6dc41c3c24f4ce27786997f380e520d27e169023b28d89"
+  "hash": "3a534b4fc36171efaa7c647f48320b59bbc414cfb92e960c174dd63fc180e187"
 }
