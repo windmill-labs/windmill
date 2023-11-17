@@ -1997,12 +1997,13 @@ where
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
         {
-            let Form(payload): Form<Option<HashMap<String, Box<RawValue>>>> =
+            let Form(payload): Form<HashMap<String, Option<String>>> =
                 req.extract().await.map_err(IntoResponse::into_response)?;
-            return Ok(PushArgs {
-                extra: HashMap::new(),
-                args: Json(payload.unwrap_or_else(HashMap::new)),
-            });
+            let payload = payload
+                .into_iter()
+                .map(|(k, v)| (k, to_raw_value(&v)))
+                .collect::<HashMap<_, _>>();
+            return Ok(PushArgs { extra: HashMap::new(), args: Json(payload) });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
