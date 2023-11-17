@@ -26,7 +26,14 @@
 
 <Menu placement="bottom-end" justifyEnd on:close on:open>
 	<div slot="trigger">
-		<MoreVertical size={16} class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md" />
+		{#if $$slots.buttonReplacement}
+			<slot name="buttonReplacement" />
+		{:else}
+			<MoreVertical
+				size={16}
+				class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+			/>
+		{/if}
 	</div>
 
 	<div class="flex flex-col">
