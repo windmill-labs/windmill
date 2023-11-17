@@ -18,7 +18,7 @@
 	import { copyToClipboard } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { WorkerService } from '$lib/gen'
-	import { Clipboard, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, Clipboard, Loader2 } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
@@ -363,7 +363,14 @@
 						{/if}
 
 						<div class="py-6" />
-						<span class="my-4 text-lg font-bold">Dedicated Worker</span>
+						<span class="my-4 text-lg font-bold flex items-baseline gap-8"
+							>Dedicated Worker {#if !$enterpriseLicense}<div
+									class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap"
+								>
+									<AlertTriangle size={16} />
+									EE only
+								</div>{/if}</span
+						>
 
 						<Toggle
 							disabled={!$enterpriseLicense || isCloudHosted()}

@@ -634,7 +634,7 @@
 										{/if}
 									</div>
 								</Section>
-								<Section label="Dedicated Workers">
+								<Section label="Dedicated Workers" eeOnly>
 									<Toggle
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
@@ -666,8 +666,9 @@
 										<Tooltip
 											>In this mode, the script is meant to be run on dedicated workers that run the
 											script at native speed. Can reach >1500rps per dedicated worker. Only
-											available on enterprise edition and for Python3, Deno and Bun. For other languages, the efficiency
-											is already on par with deidcated workers since they do not spawn a full runtime</Tooltip
+											available on enterprise edition and for Python3, Deno and Bun. For other
+											languages, the efficiency is already on par with deidcated workers since they
+											do not spawn a full runtime</Tooltip
 										>
 									</svelte:fragment>
 								</Section>
