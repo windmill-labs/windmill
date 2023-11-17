@@ -6,7 +6,12 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { cloneDeep } from 'lodash'
-	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		orderedJsonStringify,
+		orderedYamlStringify,
+		type Value
+	} from '$lib/utils'
 	import type { Script } from '$lib/gen'
 
 	type DiffData = {
@@ -60,7 +65,7 @@
 		return {
 			lang: data.language ? scriptLangToEditorLang(data.language as Script.language) : undefined,
 			content,
-			metadata: orderedJsonStringify(metadata, 2)
+			metadata: orderedYamlStringify(metadata)
 		}
 	}
 
@@ -217,7 +222,7 @@
 									<DiffEditor
 										automaticLayout
 										class="h-full"
-										defaultLang="json"
+										defaultLang="yaml"
 										defaultOriginal={metadata}
 										defaultModified={data.current.metadata}
 										readOnly

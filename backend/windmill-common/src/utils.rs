@@ -162,3 +162,11 @@ pub async fn get_uid(db: &DB) -> Result<String> {
 
     Ok(uid)
 }
+
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Worker,
+    Server,
+    Standalone,
+}

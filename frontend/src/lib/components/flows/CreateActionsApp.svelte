@@ -11,17 +11,20 @@
 	import { workspaceStore } from '$lib/stores'
 	import Path from '../Path.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import YAML from 'yaml'
 
 	let drawer: Drawer | undefined = undefined
 	let rawAppDrawer: Drawer | undefined = undefined
-	let pendingJson: string = ''
+	let pendingRaw: string = ''
 	let pendingCode: string = ''
 	let summary: string = ''
 	let path: string = ''
 	let pathError: string = ''
 
-	async function importJson() {
-		$importStore = JSON.parse(pendingJson)
+	let importType: 'yaml' | 'json' = 'yaml'
+
+	async function importRaw() {
+		$importStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
 		await goto('/apps/add?nodraft=true')
 		drawer?.closeDrawer?.()
 	}
@@ -49,8 +52,18 @@
 		href="/apps/add?nodraft=true"
 		dropdownItems={[
 			{
+				label: 'Import low-code app from YAML',
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'yaml'
+				}
+			},
+			{
 				label: 'Import low-code app from JSON',
-				onClick: () => drawer?.toggleDrawer?.()
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'json'
+				}
 			},
 			{
 				label: 'Import app in React/Vue/Svelte',
@@ -66,10 +79,18 @@
 
 <!-- Raw JSON -->
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Import low-code app from JSON" on:close={() => drawer?.toggleDrawer?.()}>
-		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" fixedOverflowWidgets={false} />
+	<DrawerContent
+		title={'Import low-code app from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
+		on:close={() => drawer?.toggleDrawer?.()}
+	>
+		<SimpleEditor
+			bind:code={pendingRaw}
+			lang={importType}
+			class="h-full"
+			fixedOverflowWidgets={false}
+		/>
 		<svelte:fragment slot="actions">
-			<Button size="sm" on:click={importJson}>Import</Button>
+			<Button size="sm" on:click={importRaw}>Import</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

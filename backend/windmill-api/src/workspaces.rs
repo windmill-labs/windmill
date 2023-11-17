@@ -35,6 +35,8 @@ use chrono::Utc;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
+#[cfg(feature = "enterprise")]
+use chrono::{TimeZone, Datelike};
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -49,6 +51,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
 };
 use windmill_queue::QueueTransaction;
+
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -74,14 +77,16 @@ pub fn workspaced_service() -> Router {
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
+        .route("/is_premium", get(is_premium))
         .route("/premium_info", get(premium_info))
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info) )
-        .route("/edit_error_handler", post(edit_error_handler));
+        .route("/edit_error_handler", post(edit_error_handler))
+        .route("/edit_large_file_storage_config", post(edit_large_file_storage_config));
 
     #[cfg(feature = "enterprise")]
     { 
-        if std::env::var("STRIPE_KEY").is_err() {
+        if STRIPE_KEY.is_none() {
             return router;
         } else {
             tracing::info!("stripe enabled");
@@ -108,6 +113,12 @@ pub fn global_service() -> Router {
         .route("/delete/:workspace", delete(delete_workspace))
 }
 
+#[cfg(feature = "enterprise")]
+lazy_static::lazy_static! {
+    pub static ref STRIPE_KEY: Option<String> = std::env::var("STRIPE_KEY").ok();
+}
+
+
 #[derive(FromRow, Serialize)]
 struct Workspace {
     id: String,
@@ -115,6 +126,7 @@ struct Workspace {
     owner: String,
     deleted: bool,
     premium: bool,
+    is_overquota: bool,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -135,6 +147,7 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
+    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -189,6 +202,11 @@ struct EditWebhook {
 struct EditCopilotConfig {
     openai_resource_path: Option<String>,
     code_completion_enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct EditLargeFileStorageConfig {
+    large_file_storage: Option<LargeFileStorage>,
 }
 
 #[derive(Deserialize)]
@@ -250,6 +268,18 @@ pub struct EditErrorHandler {
     pub error_handler_muted_on_cancel: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum LargeFileStorage {
+    S3Storage(S3Storage),
+    // TODO: Add a filesystem type here in the future if needed
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct S3Storage {
+    pub s3_resource_path: String,
+}
+
 async fn list_pending_invites(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -268,10 +298,30 @@ async fn list_pending_invites(
     Ok(Json(rows))
 }
 
-#[derive(Serialize, FromRow)]
+async fn is_premium(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<bool> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let mut tx = db.begin().await?;
+    let row = sqlx::query_scalar!(
+        "SELECT premium FROM workspace WHERE workspace.id = $1",
+        &w_id
+       
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+
+#[derive(Serialize)]
 pub struct PremiumWorkspaceInfo {
     pub premium: bool,
     pub usage: Option<i32>,
+    pub seats: Option<i32>,
 }
 async fn premium_info(
     authed: ApiAuthed,
@@ -280,20 +330,46 @@ async fn premium_info(
 ) -> JsonResult<PremiumWorkspaceInfo> {
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
-    let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
+    let row = sqlx::query!(
+        r#"SELECT premium, usage.usage as "usage?", workspace_settings.customer_id, workspace_settings.plan FROM workspace LEFT JOIN workspace_settings ON workspace_settings.workspace_id = $1 LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1"#,
+       &w_id
     )
-    .bind(w_id)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(row))
+    let result = PremiumWorkspaceInfo {
+        premium: row.premium,
+        usage: row.usage,
+        seats: None,
+    };
+    #[cfg(feature = "enterprise")]
+    let mut result = result;
+    #[cfg(feature = "enterprise")]
+    if row.premium && row.plan == Some("team".to_string()) {
+        let customer_id = row.customer_id.ok_or(Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
+        let client = stripe::Client::new(STRIPE_KEY.clone().ok_or(Error::InternalErr(format!("stripe key not set")))?);
+        let customer_id = CustomerId::from_str(&customer_id).map_err(to_anyhow)?;
+        let subscriptions = stripe::Subscription::list(
+            &client,
+            &stripe::ListSubscriptions { customer: Some(customer_id.clone()), limit: Some(1), ..Default::default() },
+        ).await.map_err(to_anyhow)?;
+        if subscriptions.data.len() > 1 {
+            return Err(Error::InternalErr(format!("multiple subscriptions for customer {}, please contact us at ccontact@windmill.dev", customer_id)));
+        }
+        let subscription = subscriptions.data.get(0).ok_or_else(|| Error::InternalErr(format!("no subscription for customer {}", customer_id)))?;
+        result.seats = subscription.items.data.iter().filter_map(|item|{
+            item.price.clone().map(|p| p.metadata.map(|m| m.get("plan").filter(|plan| plan == &"team").map(|_| item.quantity.map(|x| x as i32)))).flatten().flatten().flatten()
+        }).collect::<Vec<_>>().get(0).copied();
+    }
+    
+    Ok(Json(result))
 }
 
 #[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct PlanQuery {
     plan: String,
+    seats: Option<i32>,
 }
 
 #[cfg(feature = "enterprise")]
@@ -301,38 +377,70 @@ async fn stripe_checkout(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Query(plan): Query<PlanQuery>,
+    Extension(db): Extension<DB>,
 ) -> Result<Redirect> {
     // #[cfg(feature = "enterprise")]
     {
         require_admin(authed.is_admin, &authed.username)?;
-
-        let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+        let client = stripe::Client::new(STRIPE_KEY.clone().ok_or(Error::InternalErr(format!("stripe key not set")))?);
         let base_url = BASE_URL.read().await.clone();
         let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url);
         let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url);
         let checkout_session = {
-            let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
+            let mut params = stripe::CreateCheckoutSession::new(&success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
+            params.cancel_url = Some(&failure_rd);
             params.line_items = match plan.plan.as_str() {
                 "team" => Some(vec![
                     stripe::CreateCheckoutSessionLineItems {
-                        quantity: Some(1),
+                        quantity: Some(plan.seats.unwrap_or(1) as u64),
                         price: Some("price_1NCNOgGU3NdFi9eLuG4fZuEP".to_string()),
-                        ..Default::default()
-                    },
-                    stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1NCNCpGU3NdFi9eLbiE6Ca42".to_string()),
+                        adjustable_quantity: Some(stripe::CreateCheckoutSessionLineItemsAdjustableQuantity {
+                            enabled: true,
+                            minimum: Some(1),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     },
                 ]),
                 _ => Err(Error::BadRequest("invalid plan".to_string()))?,
             };
-            params.customer_email = Some(&authed.email);
             params.client_reference_id = Some(&w_id);
+            let customer_id = sqlx::query_scalar!(
+                "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_one(&db)
+            .await?;
+
+            match customer_id {
+                Some(customer_id) => {
+                    params.customer = Some(CustomerId::from_str(&customer_id).map_err(to_anyhow)?)
+                }
+                _ => params.customer_email = Some(&authed.email),
+            }
+            
+            params.subscription_data = Some(stripe::CreateCheckoutSessionSubscriptionData {
+                metadata: {
+                    let mut map = std::collections::HashMap::new();
+                    map.insert("workspace_id".to_string(), w_id.clone());
+                    Some(map)
+                },
+                billing_cycle_anchor: Some({
+                    // first of the next month (and possibly next year) at noon UTC
+                    let now = Utc::now();
+                    let date = if now.month() == 12 {
+                        Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 12, 0, 0).single().unwrap()
+                    } else {
+                        Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 12, 0, 0).single().unwrap()
+                    };
+                    date.timestamp()
+                }),
+                ..Default::default()
+            });
+
             stripe::CheckoutSession::create(&client, params)
-                .await
-                .unwrap()
+                .await.map_err(to_anyhow)?
         };
         let uri = checkout_session
             .url
@@ -355,7 +463,7 @@ async fn stripe_portal(
     .fetch_one(&db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
-    let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+    let client = stripe::Client::new(STRIPE_KEY.clone().ok_or(Error::InternalErr(format!("stripe key not set")))?);
     let success_rd = format!("{}/workspace_settings?tab=premium", BASE_URL.read().await.clone());
     let portal_session = {
         let customer_id = CustomerId::from_str(&customer_id).unwrap();
@@ -802,6 +910,52 @@ async fn get_copilot_info(
     }))
 }
 
+async fn edit_large_file_storage_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditLargeFileStorageConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.large_file_storage);
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspaces.edit_large_file_storage_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("large_file_storage", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    if let Some(lfs_config) = new_config.large_file_storage {
+        let serialized_lfs_config = serde_json::to_value::<LargeFileStorage>(lfs_config)
+            .map_err(|err| Error::InternalErr(err.to_string()))?;
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+            serialized_lfs_config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET large_file_storage = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit copilot config for workspace {}", &w_id))
+}
 
 async fn edit_error_handler(
     authed: ApiAuthed,

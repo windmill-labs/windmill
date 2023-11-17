@@ -18,7 +18,7 @@
 	import CustomOauth from './CustomOauth.svelte'
 	import { AlertTriangle, Plus } from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
-	import AuthentikSetting from "$lib/components/AuthentikSetting.svelte";
+	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -177,8 +177,10 @@
 							<ul class="list-disc list-inside pl-2">
 								<li>version</li>
 								<li>number and total duration of jobs</li>
+								<li>accounts usage</li>
 								<li>login type usage</li>
 								<li>workers usage</li>
+								<li>vcpus usage</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
@@ -216,7 +218,7 @@
 								<KeycloakSetting bind:value={oauths['keycloak']} />
 								<AuthentikSetting bind:value={oauths['authentik']} />
 								{#each Object.keys(oauths) as k}
-									{#if !['authentik','google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && 'login_config' in oauths[k]}
+									{#if !['authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && 'login_config' in oauths[k]}
 										{#if oauths[k]}
 											<div class="flex flex-col gap-2 pb-4">
 												<div class="flex flex-row items-center gap-2">
@@ -281,7 +283,7 @@
 							<div class="py-1" />
 
 							{#each Object.keys(oauths) as k}
-								{#if !['authentik','google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && !('login_config' in oauths[k])}
+								{#if !['authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && !('login_config' in oauths[k])}
 									{#if oauths[k]}
 										<div class="flex flex-col gap-2 pb-4">
 											<div class="flex flex-row items-center gap-2">

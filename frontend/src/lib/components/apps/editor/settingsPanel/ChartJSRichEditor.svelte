@@ -10,7 +10,7 @@
 
 <PanelSection
 	title={`Plotly configuration`}
-	tooltip="The configuration is divided into two parts: X-axis data and an array of datasets. Each dataset hold the data fot he Y-axis and the configuration for the plot (type, color, etc)."
+	tooltip="The configuration is divided into two parts: X-axis data and an array of datasets. Each dataset hold the data for the Y-axis and the configuration for the plot (type, color, etc)."
 >
 	<div class="w-full flex flex-col gap-4">
 		{#if xData}
