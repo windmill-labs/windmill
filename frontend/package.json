@@ -290,6 +290,11 @@
 		"./gen/core/OpenAPI": {
 			"types": "./package/gen/core/OpenAPI.d.ts",
 			"default": "./package/gen/core/OpenAPI.js"
+		},
+		"./components/DropdownV2.svelte": {
+			"types": "./package/components/DropdownV2.svelte.d.ts",
+			"svelte": "./package/components/DropdownV2.svelte",
+			"default": "./package/components/DropdownV2.svelte"
 		}
 	},
 	"files": [
@@ -389,6 +394,9 @@
 			],
 			"gen/core/OpenAPI": [
 				"./package/gen/core/OpenAPI.d.ts"
+			],
+			"components/DropdownV2.svelte": [
+				"./package/components/DropdownV2.svelte.d.ts"
 			]
 		}
 	},
