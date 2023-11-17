@@ -9,7 +9,6 @@
 use gethostname::gethostname;
 use git_version::git_version;
 use rand::Rng;
-use serde::Deserialize;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -30,7 +29,7 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING,
     },
     stats::schedule_stats,
-    utils::rd_string,
+    utils::{rd_string, Mode},
     worker::{reload_custom_tags_setting, WORKER_GROUP},
     DB, METRICS_ADDR, METRICS_ENABLED,
 };
@@ -58,14 +57,6 @@ mod monitor;
 
 #[cfg(feature = "pg_embed")]
 mod pg_embed;
-
-#[derive(Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Worker,
-    Server,
-    Standalone,
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -460,10 +451,8 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        if mode == Mode::Server || mode == Mode::Standalone {
-            let instance_name = rd_string(8);
-            schedule_stats(&db, instance_name, &HTTP_CLIENT).await;
-        }
+        let instance_name = rd_string(8);
+        schedule_stats(instance_name, mode, &db, &HTTP_CLIENT).await;
 
         futures::try_join!(shutdown_signal, server_f, metrics_f, workers_f, monitor_f)?;
     } else {
