@@ -80,6 +80,10 @@
 
 	let createWorkspace = $superadmin || isCloudHosted()
 
+	$: if ($superadmin) {
+		createWorkspace = true
+	}
+
 	if (!createWorkspace) {
 		getCreateWorkspaceRequireSuperadmin()
 	}
