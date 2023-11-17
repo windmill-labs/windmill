@@ -157,8 +157,6 @@ pub async fn send_stats(
         "vcpus": vcpus,
     });
 
-    tracing::info!("Sending stats: {:#?}", payload);
-
     let request = http_client
         .post("https://hub.windmill.dev/stats")
         .body(serde_json::to_string(&payload).map_err(to_anyhow)?)
