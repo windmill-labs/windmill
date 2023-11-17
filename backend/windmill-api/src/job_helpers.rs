@@ -1,11 +1,25 @@
+use std::cmp;
+
 use crate::{resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage};
 use aws_sdk_s3::config::{Credentials, Region};
 use axum::{
-    extract::Path,
+    extract::{Path, Query},
     routing::{get, post},
     Extension, Json, Router,
 };
 use hyper::http;
+use object_store::ClientConfigKey;
+use polars::{
+    io::{
+        cloud::{AmazonS3ConfigKey, CloudOptions},
+        SerReader,
+    },
+    lazy::{
+        dsl::col,
+        frame::{LazyCsvReader, LazyFrame, ScanArgsParquet},
+    },
+    prelude::CsvReader,
+};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::{db::UserDB, error};
@@ -31,6 +45,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/list_stored_datasets",
             get(list_stored_datasets).layer(cors.clone()),
+        )
+        .route(
+            "/load_file_preview",
+            get(load_file_preview).layer(cors.clone()),
         )
 }
 
@@ -216,6 +234,88 @@ async fn list_stored_datasets(
     }));
 }
 
+#[derive(Deserialize)]
+pub struct LoadFilePreviewQuery {
+    pub file_key: String,
+    pub from: Option<usize>,
+    pub length: Option<usize>,
+    pub separator: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LoadFilePreviewResponse {
+    pub mime_type: Option<String>,
+    pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
+    pub expires: Option<chrono::DateTime<chrono::Utc>>,
+    pub version_id: Option<String>,
+    pub content_preview: Option<String>,
+}
+
+async fn load_file_preview(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Query(query): Query<LoadFilePreviewQuery>,
+) -> error::JsonResult<LoadFilePreviewResponse> {
+    let file_key = query.file_key.clone();
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.unwrap();
+    let s3_client = build_s3_client(&s3_resource);
+
+    let s3_bucket = s3_resource.bucket.clone();
+    let s3_object = s3_client
+        .get_object()
+        .bucket(&s3_bucket)
+        .key(&file_key)
+        .range("bytes=0-0".to_string()) // get only the metadata here, download will happen later depending of the type of the file
+        .send()
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+
+    let object_content_type = s3_object.content_type();
+    let content_preview = match object_content_type {
+        Some("application/json") | Some("application/x-yaml") => Some(
+            read_s3_text_object_head(
+                &s3_client,
+                &s3_bucket,
+                &file_key,
+                query.from.unwrap_or(0),
+                query.length.unwrap_or(256),
+            )
+            .await?,
+        ),
+        Some("text/csv") => {
+            Some(read_s3_csv_object_head(&s3_client, &s3_bucket, &file_key, query.separator).await?)
+        }
+        Some("application/octet-stream") => {
+            if file_key.to_lowercase().ends_with(".parquet") {
+                Some(read_s3_parquet_object_head(&s3_resource, &file_key).await?)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    let response = LoadFilePreviewResponse {
+        mime_type: s3_object.content_type().map(&str::to_string),
+        last_modified: s3_object
+            .last_modified()
+            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+            .flatten(),
+        expires: s3_object
+            .expires()
+            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+            .flatten(),
+        version_id: s3_object.version_id().map(&str::to_string),
+        content_preview: content_preview,
+    };
+
+    return Ok(Json(response));
+}
+
 async fn get_workspace_s3_resource<'c>(
     authed: &ApiAuthed,
     user_db: &UserDB,
@@ -272,18 +372,9 @@ async fn get_workspace_s3_resource<'c>(
 fn build_s3_client(s3_resource_ref: &S3Resource) -> aws_sdk_s3::Client {
     let s3_resource = s3_resource_ref.clone();
 
-    let endpoint_with_prefix = if s3_resource.endpoint.starts_with("http://")
-        || s3_resource.endpoint.starts_with("https://")
-    {
-        s3_resource.endpoint.clone()
-    } else if s3_resource.use_ssl {
-        format!("https://{}", s3_resource.endpoint)
-    } else {
-        format!("http://{}", s3_resource.endpoint)
-    };
-
+    let endpoint = render_endpoint(&s3_resource);
     let mut s3_config_builder = aws_sdk_s3::Config::builder()
-        .endpoint_url(endpoint_with_prefix)
+        .endpoint_url(endpoint)
         .region(Region::new(s3_resource.region));
     if s3_resource.access_key.is_some() {
         s3_config_builder = s3_config_builder.credentials_provider(Credentials::new(
@@ -299,4 +390,172 @@ fn build_s3_client(s3_resource_ref: &S3Resource) -> aws_sdk_s3::Client {
     }
     let s3_config = s3_config_builder.build();
     return aws_sdk_s3::Client::from_conf(s3_config);
+}
+
+fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
+    let s3_resource = s3_resource_ref.to_owned();
+    let mut s3_configs: Vec<(AmazonS3ConfigKey, String)> = vec![
+        (AmazonS3ConfigKey::Region, s3_resource.region),
+        (AmazonS3ConfigKey::Bucket, s3_resource.bucket),
+        (
+            AmazonS3ConfigKey::Endpoint,
+            render_endpoint(s3_resource_ref),
+        ),
+        (
+            AmazonS3ConfigKey::Client(ClientConfigKey::AllowHttp),
+            (!s3_resource.use_ssl).to_string(),
+        ),
+        (
+            AmazonS3ConfigKey::VirtualHostedStyleRequest,
+            (!s3_resource.path_style).to_string(),
+        ),
+    ];
+    if let Some(access_key) = s3_resource.access_key {
+        s3_configs.push((AmazonS3ConfigKey::AccessKeyId, access_key));
+    }
+    if let Some(secret_key) = s3_resource.secret_key {
+        s3_configs.push((AmazonS3ConfigKey::SecretAccessKey, secret_key));
+    }
+    return CloudOptions::default().with_aws(s3_configs);
+}
+
+fn render_endpoint(s3_resource: &S3Resource) -> String {
+    if s3_resource.endpoint.starts_with("http://") || s3_resource.endpoint.starts_with("https://") {
+        s3_resource.endpoint.clone()
+    } else if s3_resource.use_ssl {
+        format!("https://{}", s3_resource.endpoint)
+    } else {
+        format!("http://{}", s3_resource.endpoint)
+    }
+}
+
+async fn read_s3_text_object_head(
+    s3_client: &aws_sdk_s3::Client,
+    s3_bucket: &str,
+    file_key: &str,
+    from_char: usize,
+    length: usize,
+) -> error::Result<String> {
+    let mut payload: Vec<u8> = vec![];
+
+    let mut start = from_char;
+    let chunk_size = 128;
+    let mut end = start + cmp::min(chunk_size, length);
+    let mut number_of_chars_read = 0;
+    loop {
+        let s3_object = s3_client
+            .get_object()
+            .range(format!("bytes={}-{}", start, end).to_string())
+            .bucket(s3_bucket)
+            .key(file_key)
+            .send()
+            .await
+            .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+        start = end + 1;
+        end = end + cmp::min(chunk_size, length - number_of_chars_read);
+
+        let chunk_bytes = s3_object
+            .body
+            .collect()
+            .await
+            .unwrap()
+            .into_bytes()
+            .to_vec();
+        number_of_chars_read += chunk_bytes.len();
+        payload.extend(chunk_bytes);
+        if number_of_chars_read >= length {
+            break;
+        }
+    }
+
+    let file_header_str = String::from_utf8(payload).unwrap();
+    return Ok(file_header_str);
+}
+
+async fn read_s3_parquet_object_head(
+    s3_resource_ref: &S3Resource,
+    file_key: &str,
+) -> error::Result<String> {
+    let s3_cloud_config = build_polars_s3_config(s3_resource_ref);
+
+    let args: ScanArgsParquet = ScanArgsParquet {
+        n_rows: Some(1),
+        cache: false,
+        parallel: polars::io::parquet::ParallelStrategy::Auto,
+        rechunk: false,
+        row_count: None,
+        low_memory: false,
+        use_statistics: false,
+        hive_partitioning: false,
+        cloud_options: Some(s3_cloud_config),
+    };
+
+    let file_key_clone = file_key.to_string();
+    let s3_bucket_clone = s3_resource_ref.bucket.to_string();
+    let polars_df_result = tokio::task::spawn_blocking(move || {
+        let s3_file_key = format!("s3://{}/{}", s3_bucket_clone, file_key_clone);
+        let lzdf_result = LazyFrame::scan_parquet(s3_file_key, args);
+        match lzdf_result {
+            Err(err) => {
+                tracing::warn!("Error fetching parquet file from S3: {:?}", err);
+                return Err(error::Error::InternalErr(err.to_string()));
+            }
+            Ok(lzdf) => {
+                let df = lzdf
+                    .select(&[col("*")])
+                    .limit(10) // for now read only first 10 lines
+                    .collect()
+                    .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+                return Ok(format!("{:?}", df).to_string());
+            }
+        }
+    })
+    .await
+    .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+
+    return polars_df_result;
+}
+
+async fn read_s3_csv_object_head(
+    s3_client: &aws_sdk_s3::Client,
+    s3_bucket: &str,
+    file_key: &str,
+    separator: Option<String>,
+) -> error::Result<String> {
+    let separator_final = if let Some(separator_char) = separator {
+        if separator_char.len() != 1 {
+            return Err(error::Error::BadRequest(
+                "Separator must be a single character".to_string(),
+            ));
+        }
+        separator_char.as_bytes()[0]
+    } else {
+        ",".as_bytes()[0]
+    };
+
+    let s3_object = s3_client
+        .get_object()
+        .bucket(s3_bucket)
+        .range("bytes=0-33554432".to_string()) // safeguard - do not load CSV files larger than 32MB
+        .key(file_key)
+        .send()
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+
+    // TODO: polars does not seem to support lazy csv reader, unfortunately. We can implement it ourselves if needed
+    let file_content_bytes = s3_object
+        .body
+        .collect()
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?
+        .into_bytes();
+    let cursor = std::io::Cursor::new(file_content_bytes);
+
+    let csv_df = CsvReader::new(cursor)
+        .with_n_rows(Some(10)) // for now read only first 10 lines
+        .with_separator(separator_final)
+        .finish()
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+
+    return Ok(format!("{:?}", csv_df).to_string());
 }
