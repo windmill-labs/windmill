@@ -1693,6 +1693,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
 type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, JoinHandle<()>);
 
+// spawn one dedicated worker per compatible steps of the flow, associating the node id to the dedicated worker channel send
 #[async_recursion]
 async fn spawn_dedicated_workers_for_flow(
     modules: &Vec<FlowModule>,
@@ -1817,6 +1818,10 @@ enum SpawnWorker {
     Script { path: String, hash: Option<ScriptHash> },
     RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
 }
+
+// spawn one dedicated worker and return the key, the channel sender and the join handle
+// note that for it will return none for language that do not support dedicated workers
+// note that go using cache binary does not need dedicated workers so all languages are supported
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,
