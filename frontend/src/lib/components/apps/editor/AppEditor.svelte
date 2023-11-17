@@ -612,7 +612,7 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									<div class="relative h-full w-full">
+									<div class="relative h-full w-full z-[100]">
 										<InlineScriptsPanel />
 									</div>
 								</Pane>
