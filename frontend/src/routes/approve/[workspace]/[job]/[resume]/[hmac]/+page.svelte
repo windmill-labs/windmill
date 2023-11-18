@@ -28,7 +28,7 @@
 
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
 	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema
-	let timeout: NodeJS.Timer | undefined = undefined
+	let timeout: NodeJS.Timeout | undefined = undefined
 	let error: string | undefined = undefined
 	let payload: any = {}
 

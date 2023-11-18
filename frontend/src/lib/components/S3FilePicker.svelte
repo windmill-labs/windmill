@@ -46,8 +46,8 @@
 		  }
 		| undefined = undefined
 
-	async function loadDatasets() {
-		let availableFiles = await HelpersService.listStoredDatasets({ workspace: $workspaceStore! })
+	async function loadFiles() {
+		let availableFiles = await HelpersService.listStoredFiles({ workspace: $workspaceStore! })
 		if (
 			availableFiles.windmill_large_files !== undefined &&
 			availableFiles.windmill_large_files.length > 0
@@ -108,7 +108,7 @@
 
 	export async function open() {
 		initialFileKeyInternalCopy = { ...initialFileKey }
-		await loadDatasets() // TODO: Potentially load only on the first open and add a refresh button
+		await loadFiles() // TODO: Potentially load only on the first open and add a refresh button
 		if (selectedFileKey !== undefined && all_files_by_key[selectedFileKey.s3] !== undefined) {
 			loadFilePreview(selectedFileKey.s3)
 		}
@@ -181,10 +181,10 @@
 	size="1200px"
 >
 	<DrawerContent
-		title="Pick a dataset"
+		title="Pick a file"
 		overflow_y={false}
 		on:close={exit}
-		tooltip="Datasets present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
+		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
 		<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>

@@ -43,8 +43,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/test_connection", get(test_connection).layer(cors.clone()))
         .route(
-            "/list_stored_datasets",
-            get(list_stored_datasets).layer(cors.clone()),
+            "/list_stored_files",
+            get(list_stored_files).layer(cors.clone()),
         )
         .route(
             "/load_file_preview",
@@ -182,7 +182,7 @@ async fn test_connection(
     return Ok(Json(()));
 }
 
-async fn list_stored_datasets(
+async fn list_stored_files(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,

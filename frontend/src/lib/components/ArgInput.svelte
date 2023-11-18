@@ -25,7 +25,7 @@
 	import ArgEnum from './ArgEnum.svelte'
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
-	import DatasetPicker from './DatasetPicker.svelte'
+	import S3FilePicker from './S3FilePicker.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -73,7 +73,7 @@
 
 	let error: string = ''
 
-	let datasetPicker: DatasetPicker
+	let s3FilePicker: S3FilePicker
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -187,8 +187,8 @@
 	$: validateInput(pattern, value, required)
 </script>
 
-<DatasetPicker
-	bind:this={datasetPicker}
+<S3FilePicker
+	bind:this={s3FilePicker}
 	initialFileKey={value}
 	bind:selectedFileKey={value}
 	on:close={() => {
@@ -414,9 +414,9 @@
 						size="xs"
 						btnClasses="mt-1"
 						on:click={() => {
-							datasetPicker?.open?.()
+							s3FilePicker?.open?.()
 						}}
-						id="arg-input-add-item"
+						id="arg-input-file-picker"
 						startIcon={{ icon: Pipette }}
 					>
 						Choose a dataset from the catalog

@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.208.0
+  version: 1.210.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1689,6 +1689,8 @@ paths:
               type: object
               properties:
                 operator:
+                  type: boolean
+                invite_all:
                   type: boolean
       responses:
         '200':
@@ -9489,10 +9491,10 @@ paths:
           content:
             application/json:
               schema: {}
-  /w/{workspace}/job_helpers/list_stored_datasets:
+  /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the dataset keys available in the worspace datasets storage
-      operationId: listStoredDatasets
+      summary: List the file keys available in the worspace files storage (S3)
+      operationId: listStoredFiles
       tags:
         - helpers
       parameters:
@@ -9502,7 +9504,7 @@ paths:
           schema: *ref_0
       responses:
         '200':
-          description: Connection settings
+          description: List of file keys
           content:
             application/json:
               schema:

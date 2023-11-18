@@ -65,7 +65,7 @@
 	let topHash: string | undefined
 	let can_write = false
 	let deploymentInProgress = false
-	let intervalId: NodeJS.Timer
+	let intervalId: NodeJS.Timeout
 	let shareModal: ShareModal
 	let runForm: RunForm
 

@@ -6322,17 +6322,17 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/job_helpers/list_stored_datasets:
+  /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the dataset keys available in the worspace datasets storage
-      operationId: listStoredDatasets
+      summary: List the file keys available in the worspace files storage (S3)
+      operationId: listStoredFiles
       tags:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: Connection settings
+          description: List of file keys
           content:
             application/json:
               schema:
