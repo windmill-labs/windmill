@@ -1,5 +1,5 @@
 from typing import Any, Union, Dict
-from typing import Generic, TypeVar, TypeAlias
+from typing import Generic, TypeVar
 
 import os
 import json
@@ -18,11 +18,6 @@ S = TypeVar("S")
 
 class Resource(Generic[S]):
     pass
-
-
-postgresql = TypeAlias
-mysql = TypeAlias
-bigquery = TypeAlias
 
 
 class JobStatus(Enum):
@@ -180,7 +175,7 @@ def get_result(job_id: str) -> Dict[str, Any]:
         return res.result
 
 
-def get_resource(path: str | None = None, none_if_undefined: bool = False) -> Any:
+def get_resource(path: Union[str, None] = None, none_if_undefined: bool = False) -> Any:
     """
     Returns the resource at a given path
     """
@@ -207,7 +202,7 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
     return parsed
 
 
-def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> str | None:
+def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> Union[str, None]:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
@@ -264,7 +259,7 @@ def polars_connection_settings(s3_resource: Any, none_if_undefined: bool = False
     return parsed
 
 
-def whoami() -> WhoamiResponse200 | None:
+def whoami() -> Union[WhoamiResponse200, None]:
     """
     Returns the current user
     """
@@ -280,7 +275,7 @@ def get_state() -> Any:
     return get_resource(None, True)
 
 
-def set_resource(value: Any, path: str | None = None, resource_type: str = "state") -> None:
+def set_resource(value: Any, path: Union[str, None] = None, resource_type: str = "state") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
@@ -412,7 +407,7 @@ def get_state_path() -> str:
     return state_path
 
 
-def get_resume_urls(approver: str | None = None) -> Dict:
+def get_resume_urls(approver: Union[str, None] = None) -> Dict:
     from windmill_api.api.job import get_resume_urls as get_resume_urls_api
 
     workspace = get_workspace()
