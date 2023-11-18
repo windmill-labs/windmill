@@ -247,6 +247,7 @@ async fn list_resources(
 async fn get_resource(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableResource> {
     let path = path.to_path();
@@ -269,7 +270,9 @@ async fn get_resource(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
-
+    if resource_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db).await?;
+    }
     let resource = not_found_if_none(resource_o, "Resource", path)?;
     Ok(Json(resource))
 }
@@ -295,6 +298,7 @@ async fn exists_resource(
 async fn get_resource_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
@@ -307,10 +311,53 @@ async fn get_resource_value(
     )
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
+    if value_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db).await?;
+    }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     Ok(Json(value))
+}
+
+async fn explain_resource_perm_error(
+    path: &str,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> windmill_common::error::Result<()> {
+    let extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms from resource WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Resource {} not found", path)))?;
+    if path.starts_with("f/") {
+        let folder = path.split("/").nth(1).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "path {} should have at least 2 components separated by /",
+                path
+            ))
+        })?;
+        let folder_extra_perms = sqlx::query_scalar!(
+            "SELECT extra_perms from folder WHERE name = $1 AND workspace_id = $2",
+            folder,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+        return Err(Error::NotAuthorized(format!(
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+        )));
+    } else {
+        return Err(Error::NotAuthorized(format!(
+            "Resource exists but you don't have access to it:\nresource perms: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+        )));
+    }
 }
 
 async fn custom_component(
@@ -347,6 +394,7 @@ struct JobInfo {
 async fn get_resource_value_interpolated(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(job_info): Query<JobInfo>,
@@ -362,11 +410,23 @@ async fn get_resource_value_interpolated(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
+    if value_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db).await?;
+    }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
         Ok(Json(Some(
-            transform_json_value(&authed, &user_db, &w_id, value, &job_info.job_id, &token).await?,
+            transform_json_value(
+                &authed,
+                &user_db,
+                &db,
+                &w_id,
+                value,
+                &job_info.job_id,
+                &token,
+            )
+            .await?,
         )))
     } else {
         Ok(Json(None))
@@ -379,6 +439,7 @@ use async_recursion::async_recursion;
 pub async fn transform_json_value<'c>(
     authed: &ApiAuthed,
     user_db: &UserDB,
+    db: &DB,
     workspace: &str,
     v: Value,
     job_id: &Option<Uuid>,
@@ -388,8 +449,8 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
             let tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
-            let v =
-                crate::variables::get_value_internal(tx, workspace, path, &authed.username).await?;
+            let v = crate::variables::get_value_internal(tx, db, workspace, path, &authed.username)
+                .await?;
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -408,7 +469,7 @@ pub async fn transform_json_value<'c>(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(authed, user_db, workspace, v, job_id, token).await
+                transform_json_value(authed, user_db, db, workspace, v, job_id, token).await
             } else {
                 Ok(Value::Null)
             }
@@ -466,7 +527,7 @@ pub async fn transform_json_value<'c>(
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(authed, user_db, workspace, b, job_id, token).await?,
+                    transform_json_value(authed, user_db, db, workspace, b, job_id, token).await?,
                 );
             }
             Ok(Value::Object(m))
