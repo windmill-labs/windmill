@@ -1,4 +1,6 @@
-use crate::{resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage};
+use crate::{
+    db::DB, resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage,
+};
 use aws_sdk_s3::config::{Credentials, Region};
 use axum::{
     extract::Path,
@@ -143,10 +145,11 @@ struct WindmillLargeFile {
 async fn test_connection(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
 ) -> error::JsonResult<()> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
     if s3_resource_opt.is_none() {
         return Err(error::Error::NotFound(
             "No datasets storage resource defined at the workspace level".to_string(),
@@ -168,10 +171,11 @@ async fn test_connection(
 async fn list_stored_datasets(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
 ) -> error::JsonResult<ListStoredDatasetsResponse> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.unwrap();
     let s3_client = build_s3_client(&s3_resource);
@@ -223,6 +227,7 @@ async fn list_stored_datasets(
 async fn get_workspace_s3_resource<'c>(
     authed: &ApiAuthed,
     user_db: &UserDB,
+    db: &DB,
     token: &str,
     w_id: &str,
 ) -> error::Result<Option<S3Resource>> {
@@ -261,6 +266,7 @@ async fn get_workspace_s3_resource<'c>(
     let interpolated_value = transform_json_value(
         authed,
         user_db,
+        db,
         &w_id,
         resource_path_json_value,
         &Option::None,

@@ -107,6 +107,7 @@ struct GetVariableQuery {
 async fn get_variable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Query(q): Query<GetVariableQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableVariable> {
@@ -128,7 +129,12 @@ async fn get_variable(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let variable = not_found_if_none(variable_o, "Variable", &path)?;
+    let variable = if let Some(variable) = variable_o {
+        variable
+    } else {
+        explain_variable_perm_error(&path, &w_id, &db).await?;
+        unreachable!()
+    };
 
     let decrypt_secret = q.decrypt_secret.unwrap_or(true);
 
@@ -172,17 +178,20 @@ async fn get_variable(
 async fn get_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
     let path = path.to_path();
     let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &w_id, &path, &authed.username)
+    return get_value_internal(tx, &db, &w_id, &path, &authed.username)
         .await
         .map(Json);
 }
 
 pub async fn get_value_internal<'c>(
     mut tx: Transaction<'c, Postgres>,
+    db: &DB,
     w_id: &str,
     path: &str,
     username: &str,
@@ -194,7 +203,12 @@ pub async fn get_value_internal<'c>(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let variable = not_found_if_none(variable_o, "Variable", &path)?;
+    let variable = if let Some(variable) = variable_o {
+        variable
+    } else {
+        explain_variable_perm_error(path, w_id, db).await?;
+        unreachable!()
+    };
 
     let r = if variable.is_secret {
         audit_log(
@@ -224,6 +238,45 @@ pub async fn get_value_internal<'c>(
     };
 
     Ok(r)
+}
+
+async fn explain_variable_perm_error(
+    path: &str,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> windmill_common::error::Result<()> {
+    let extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms from variable WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Variable {} not found", path)))?;
+    if path.starts_with("f/") {
+        let folder = path.split("/").nth(1).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "path {} should have at least 2 components separated by /",
+                path
+            ))
+        })?;
+        let folder_extra_perms = sqlx::query_scalar!(
+            "SELECT extra_perms from folder WHERE name = $1 AND workspace_id = $2",
+            folder,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+        return Err(Error::NotAuthorized(format!(
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+        )));
+    } else {
+        return Err(Error::NotAuthorized(format!(
+            "Variable exists but you don't have access to it:\nvariable perms: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+        )));
+    }
 }
 
 async fn exists_variable(
