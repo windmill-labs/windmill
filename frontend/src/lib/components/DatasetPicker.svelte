@@ -14,6 +14,7 @@
 	let initialFileKeyInternalCopy: { s3: string }
 	export let selectedFileKey: { s3: string } | undefined = undefined
 
+	let csvSeparatorDefaultChar: string = ','
 	let csvSeparatorChar: string = ','
 
 	let dispatch = createEventDispatcher()
@@ -126,6 +127,8 @@
 	}
 
 	function selectItem(index: number, toggleCollapsed: boolean = true) {
+		csvSeparatorChar = csvSeparatorDefaultChar
+
 		let item_key = displayed_file_keys[index]
 		let item = all_files_by_key[item_key]
 		if (item.type === 'folder') {
@@ -257,7 +260,7 @@
 							{/if}
 						</div>
 						<pre class="grow whitespace-no-wrap break-words"
-							>{#if !emptyString(filePreview.content_preview)}{filePreview.content_preview}{/if}</pre
+							>{#if !emptyString(filePreview.content_preview)}{filePreview.content_preview}{:else if filePreview.content_type !== undefined}Preview impossible. If it's a CSV file, you can try changing the separator{/if}</pre
 						>
 					{/if}
 				</div>
