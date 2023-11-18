@@ -263,7 +263,7 @@
 	tooltip="Manage invites on your workspace."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 >
-	<div class="flex gap-8">
+	<div class="flex gap-8 items-center">
 		{#if auto_invite_domain != undefined}
 			<Toggle
 				size="xs"

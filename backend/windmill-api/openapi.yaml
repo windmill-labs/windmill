@@ -731,6 +731,20 @@ paths:
               schema:
                 type: string
 
+  /users/leave_instance:
+    post:
+      summary: leave instance
+      operationId: leaveInstance
+      tags:
+        - user
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/usage:
     get:
       summary: get current usage outside of premium workspaces
@@ -826,22 +840,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
-
-  /w/{workspace}/users/leave_workspace:
-    post:
-      summary: leave workspace
-      operationId: leaveWorkspace
-      tags:
-        - user
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /users/accept_invite:
     post:
@@ -1039,6 +1037,22 @@ paths:
     delete:
       summary: delete workspace (require super admin)
       operationId: deleteWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/leave:
+    post:
+      summary: leave workspace
+      operationId: leaveWorkspace
       tags:
         - workspace
       parameters:
