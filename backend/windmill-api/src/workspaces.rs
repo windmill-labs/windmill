@@ -83,7 +83,8 @@ pub fn workspaced_service() -> Router {
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info) )
         .route("/edit_error_handler", post(edit_error_handler))
-        .route("/edit_large_file_storage_config", post(edit_large_file_storage_config));
+        .route("/edit_large_file_storage_config", post(edit_large_file_storage_config))
+        .route("/leave", post(leave_workspace));
 
     #[cfg(feature = "enterprise")]
     { 
@@ -1304,6 +1305,31 @@ async fn archive_workspace(
     tx.commit().await?;
 
     Ok(format!("Archived workspace {}", &w_id))
+}
+
+async fn leave_workspace(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { email, username, .. }: ApiAuthed,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM usr WHERE workspace_id = $1 AND email = $2", &w_id, &email)
+        .execute(&mut *tx)
+        .await?;
+
+    audit_log(
+        &mut *tx,
+        &username,
+        "workspaces.leave",
+        ActionKind::Delete,
+        &w_id,
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Left workspace {}", &w_id))
 }
 
 async fn unarchive_workspace(
