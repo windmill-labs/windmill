@@ -20,6 +20,7 @@
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
 	import { FunctionSquare, Plug } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
+	import type { FlowCopilotContext } from './copilot/flow'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -47,11 +48,20 @@
 
 	let propertyType = getPropertyType(arg)
 
+	const { shouldUpdatePropertyType } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
 	function updatePropertyType() {
-		propertyType = arg.type
+		propertyType = $shouldUpdatePropertyType?.[argName] || 'static'
+		shouldUpdatePropertyType?.set({
+			...$shouldUpdatePropertyType,
+			[argName]: undefined
+		})
 	}
 
-	$: arg?.type && arg.type !== propertyType && updatePropertyType()
+	$: $shouldUpdatePropertyType?.[argName] &&
+		arg?.type === $shouldUpdatePropertyType?.[argName] &&
+		updatePropertyType()
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'
