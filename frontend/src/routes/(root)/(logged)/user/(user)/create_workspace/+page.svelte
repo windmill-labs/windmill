@@ -183,7 +183,7 @@
 		bind:checked={auto_invite}
 		options={{
 			right: isCloudHosted()
-				? `Auto-invite users with the same email address domain (${domain})`
+				? `Auto-invite anyone from ${domain}`
 				: `Auto-invite anyone joining the instance`
 		}}
 	/>

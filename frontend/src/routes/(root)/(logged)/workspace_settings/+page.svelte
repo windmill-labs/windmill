@@ -209,7 +209,6 @@
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
-		console.log(settings)
 		s3ResourceInitialPath =
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
