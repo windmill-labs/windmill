@@ -1108,9 +1108,9 @@ async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
     let nb_workspaces = sqlx::query_scalar!("SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = false",)
         .fetch_one(db)
         .await?;
-    if nb_workspaces.unwrap_or(0) >= 3 {
+    if nb_workspaces.unwrap_or(0) >= 2 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of workspaces (3 outside of default worskapce 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
+            "You have reached the maximum number of workspaces (2 outside of default worskapce 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
                 .to_string(),
         ));
     }
