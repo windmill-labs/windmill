@@ -291,11 +291,7 @@ async fn load_file_preview(
 
     tracing::warn!("Content length: {}", s3_object_metadata.content_length());
     let file_chunk_length = cmp::min(
-        if query.length {
-            query.length
-        } else {
-            8 * 1024 * 1024
-        }, // no more than 8MB per chunk by default
+        query.length.unwrap_or(8 * 1024 * 1024) as i64, // no more than 8MB per chunk by default
         s3_object_metadata.content_length() - query.from.unwrap_or(0) as i64,
     );
 
