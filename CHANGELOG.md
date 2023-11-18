@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.210.1](https://github.com/windmill-labs/windmill/compare/v1.210.0...v1.210.1) (2023-11-18)
+
+
+### Bug Fixes
+
+* add toggle to invites ([36379d6](https://github.com/windmill-labs/windmill/commit/36379d6db05de170e0237b12e767b6d6f4a6f2ef))
+* auto-invite all instead of by domain ([c07e905](https://github.com/windmill-labs/windmill/commit/c07e9056f1872cae70b8c3bebdbbf47daeee7ac5))
+* flow copilot arg types ([#2648](https://github.com/windmill-labs/windmill/issues/2648)) ([08c14e5](https://github.com/windmill-labs/windmill/commit/08c14e51c792fe65d4f993379eff0e5c8a75215b))
+* improve error message for unauthorized variables/resources ([5a72ca9](https://github.com/windmill-labs/windmill/commit/5a72ca9b24c5c4e9fe94c7865b9145283aceff53))
+* leave workspace + instance api ([ee243de](https://github.com/windmill-labs/windmill/commit/ee243dedc6df28a64f15e0b274b7fa96f6428474))
+* make wmill compatible with python 3.7 ([6ae1a69](https://github.com/windmill-labs/windmill/commit/6ae1a69b75fe039586956064880c274a21fc5970))
+* migrate old state env variable to new env variable ([2692737](https://github.com/windmill-labs/windmill/commit/2692737418ed601c0a36c368f59ffb8d10d9ad38))
+
 ## [1.210.0](https://github.com/windmill-labs/windmill/compare/v1.209.0...v1.210.0) (2023-11-17)
 
 
