@@ -1,4 +1,4 @@
-use std::cmp;
+use std::{cmp, task::RawWakerVTable};
 
 use crate::{resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage};
 use aws_sdk_s3::config::{Credentials, Region};
@@ -235,7 +235,7 @@ async fn list_stored_datasets(
 }
 
 #[derive(Deserialize)]
-pub struct LoadFilePreviewQuery {
+struct LoadFilePreviewQuery {
     pub file_key: String,
     pub from: Option<usize>,
     pub length: Option<usize>,
@@ -243,12 +243,28 @@ pub struct LoadFilePreviewQuery {
 }
 
 #[derive(Serialize)]
-pub struct LoadFilePreviewResponse {
+struct LoadFilePreviewResponse {
     pub mime_type: Option<String>,
+    pub size_in_bytes: Option<i64>,
     pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
     pub expires: Option<chrono::DateTime<chrono::Utc>>,
     pub version_id: Option<String>,
-    pub content_preview: Option<String>,
+    pub content_preview: FileContentPreview,
+}
+
+#[derive(Serialize)]
+struct FileContentPreview {
+    pub content: Option<String>,
+    pub content_type: WindmillContentType,
+    pub msg: Option<String>,
+}
+
+#[derive(Serialize)]
+enum WindmillContentType {
+    RawText,
+    Csv,
+    Parquet,
+    Unknown,
 }
 
 async fn load_file_preview(
@@ -280,8 +296,10 @@ async fn load_file_preview(
     );
 
     let object_content_type = s3_object_metadata.content_type();
+    let content_type: WindmillContentType;
     let content_preview = match object_content_type {
-        Some("application/json") | Some("application/x-yaml") => Some(
+        Some("application/json") | Some("application/x-yaml") => {
+            content_type = WindmillContentType::RawText;
             read_s3_text_object_head(
                 &s3_client,
                 &s3_bucket,
@@ -289,19 +307,26 @@ async fn load_file_preview(
                 query.from.unwrap_or(0),
                 file_chunk_length, // 1KB by default
             )
-            .await?,
-        ),
+            .await
+        }
         Some("text/csv") => {
-            Some(read_s3_csv_object_head(&s3_client, &s3_bucket, &file_key, query.separator).await?)
+            content_type = WindmillContentType::Csv;
+            read_s3_csv_object_head(&s3_client, &s3_bucket, &file_key, query.separator).await
         }
         Some("application/octet-stream") => {
             if file_key.to_lowercase().ends_with(".parquet") {
-                Some(read_s3_parquet_object_head(&s3_resource, &file_key).await?)
+                content_type = WindmillContentType::Parquet;
+                read_s3_parquet_object_head(&s3_resource, &file_key).await
             } else {
-                None
+                content_type = WindmillContentType::Unknown;
+                Err(error::Error::ExecutionErr(
+                    "Preview is not available for content of type application/octet-stream"
+                        .to_string(),
+                ))
             }
         }
-        Some(mt) if mt.starts_with("text/") => Some(
+        Some(mt) if mt.starts_with("text/") => {
+            content_type = WindmillContentType::RawText;
             read_s3_text_object_head(
                 &s3_client,
                 &s3_bucket,
@@ -309,13 +334,19 @@ async fn load_file_preview(
                 query.from.unwrap_or(0),
                 file_chunk_length,
             )
-            .await?,
-        ),
-        _ => None,
+            .await
+        }
+        _ => {
+            content_type = WindmillContentType::Unknown;
+            Err(error::Error::ExecutionErr(
+                "Preview is not available for content of type application/octet-stream".to_string(),
+            ))
+        }
     };
 
     let response = LoadFilePreviewResponse {
         mime_type: s3_object_metadata.content_type().map(&str::to_string),
+        size_in_bytes: Some(s3_object_metadata.content_length()),
         last_modified: s3_object_metadata
             .last_modified()
             .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
@@ -325,7 +356,16 @@ async fn load_file_preview(
             .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
             .flatten(),
         version_id: s3_object_metadata.version_id().map(&str::to_string),
-        content_preview: content_preview,
+        content_preview: match content_preview {
+            Ok(content) => {
+                FileContentPreview { content_type: content_type, content: Some(content), msg: None }
+            }
+            Err(err) => FileContentPreview {
+                content_type: content_type,
+                content: None,
+                msg: Some(err.to_string()),
+            },
+        },
     };
 
     return Ok(Json(response));

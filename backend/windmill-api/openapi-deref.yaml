@@ -3286,32 +3286,32 @@ paths:
                                 id:
                                   type: string
                                 value:
-                                  oneOf: &ref_178
+                                  oneOf: &ref_179
                                     - type: object
-                                      properties: &ref_162
+                                      properties: &ref_163
                                         input_transforms:
                                           type: object
                                           additionalProperties:
                                             oneOf: &ref_24
                                               - type: object
-                                                properties: &ref_158
+                                                properties: &ref_159
                                                   value: {}
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_159
+                                                required: &ref_160
                                                   - expr
                                                   - type
                                               - type: object
-                                                properties: &ref_160
+                                                properties: &ref_161
                                                   expr:
                                                     type: string
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_161
+                                                required: &ref_162
                                                   - expr
                                                   - type
                                             discriminator: &ref_25
@@ -3351,13 +3351,13 @@ paths:
                                           type: number
                                         concurrency_time_window_s:
                                           type: number
-                                      required: &ref_163
+                                      required: &ref_164
                                         - type
                                         - content
                                         - language
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_164
+                                      properties: &ref_165
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3371,12 +3371,12 @@ paths:
                                           type: string
                                           enum:
                                             - script
-                                      required: &ref_165
+                                      required: &ref_166
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_166
+                                      properties: &ref_167
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3388,12 +3388,12 @@ paths:
                                           type: string
                                           enum:
                                             - flow
-                                      required: &ref_167
+                                      required: &ref_168
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_168
+                                      properties: &ref_169
                                         modules:
                                           type: array
                                           items:
@@ -3415,13 +3415,13 @@ paths:
                                           type: boolean
                                         parallelism:
                                           type: integer
-                                      required: &ref_169
+                                      required: &ref_170
                                         - modules
                                         - iterator
                                         - skip_failures
                                         - type
                                     - type: object
-                                      properties: &ref_170
+                                      properties: &ref_171
                                         branches:
                                           type: array
                                           items:
@@ -3452,12 +3452,12 @@ paths:
                                           type: string
                                           enum:
                                             - branchone
-                                      required: &ref_171
+                                      required: &ref_172
                                         - branches
                                         - default
                                         - type
                                     - type: object
-                                      properties: &ref_172
+                                      properties: &ref_173
                                         branches:
                                           type: array
                                           items:
@@ -3482,28 +3482,28 @@ paths:
                                             - branchall
                                         parallel:
                                           type: boolean
-                                      required: &ref_173
+                                      required: &ref_174
                                         - branches
                                         - type
                                     - type: object
-                                      properties: &ref_174
+                                      properties: &ref_175
                                         type:
                                           type: string
                                           enum:
                                             - identity
                                         flow:
                                           type: boolean
-                                      required: &ref_175
+                                      required: &ref_176
                                         - type
                                     - type: object
-                                      properties: &ref_176
+                                      properties: &ref_177
                                         type:
                                           type: string
                                           enum:
                                             - graphql
-                                      required: &ref_177
+                                      required: &ref_178
                                         - type
-                                  discriminator: &ref_179
+                                  discriminator: &ref_180
                                     propertyName: type
                                     mapping:
                                       rawscript: '#/components/schemas/RawScript'
@@ -3559,7 +3559,7 @@ paths:
                                   type: number
                                 retry:
                                   type: object
-                                  properties: &ref_180
+                                  properties: &ref_181
                                     constant:
                                       type: object
                                       properties:
@@ -9558,8 +9558,31 @@ paths:
                   last_modified:
                     type: string
                     format: date-time
-                  content_preview:
+                  size_in_bytes:
+                    type: integer
+                  expires:
                     type: string
+                    format: date-time
+                  version_id:
+                    type: string
+                  content_preview:
+                    type: object
+                    properties:
+                      msg:
+                        type: string
+                      content:
+                        type: string
+                      content_type:
+                        type: string
+                        enum:
+                          - RawText
+                          - Csv
+                          - Parquet
+                          - Unknown
+                    required:
+                      - content_type
+                required: &ref_158
+                  - content_preview
 components:
   securitySchemes:
     bearerAuth:
@@ -10168,6 +10191,7 @@ components:
     WindmillFilePreview:
       type: object
       properties: *ref_157
+      required: *ref_158
     S3Resource:
       type: object
       properties:
@@ -10193,57 +10217,57 @@ components:
         - pathStyle
     StaticTransform:
       type: object
-      properties: *ref_158
-      required: *ref_159
+      properties: *ref_159
+      required: *ref_160
     JavascriptTransform:
       type: object
-      properties: *ref_160
-      required: *ref_161
+      properties: *ref_161
+      required: *ref_162
     InputTransform:
       oneOf: *ref_24
       discriminator: *ref_25
     RawScript:
       type: object
-      properties: *ref_162
-      required: *ref_163
+      properties: *ref_163
+      required: *ref_164
     PathScript:
       type: object
-      properties: *ref_164
-      required: *ref_165
+      properties: *ref_165
+      required: *ref_166
     PathFlow:
       type: object
-      properties: *ref_166
-      required: *ref_167
+      properties: *ref_167
+      required: *ref_168
     FlowModule:
       type: object
       properties: *ref_26
       required: *ref_27
     ForloopFlow:
       type: object
-      properties: *ref_168
-      required: *ref_169
+      properties: *ref_169
+      required: *ref_170
     BranchOne:
       type: object
-      properties: *ref_170
-      required: *ref_171
+      properties: *ref_171
+      required: *ref_172
     BranchAll:
       type: object
-      properties: *ref_172
-      required: *ref_173
+      properties: *ref_173
+      required: *ref_174
     Identity:
       type: object
-      properties: *ref_174
-      required: *ref_175
+      properties: *ref_175
+      required: *ref_176
     Graphql:
       type: object
-      properties: *ref_176
-      required: *ref_177
+      properties: *ref_177
+      required: *ref_178
     FlowModuleValue:
-      oneOf: *ref_178
-      discriminator: *ref_179
+      oneOf: *ref_179
+      discriminator: *ref_180
     Retry:
       type: object
-      properties: *ref_180
+      properties: *ref_181
     FlowValue:
       type: object
       properties: *ref_48

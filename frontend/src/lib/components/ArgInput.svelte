@@ -188,7 +188,8 @@
 
 <DatasetPicker
 	bind:this={datasetPicker}
-	bind:pickedDatasetKey={value}
+	initialFileKey={value}
+	bind:selectedFileKey={value}
 	on:close={() => {
 		rawValue = JSON.stringify(value, null, 2)
 		editor?.setCode(rawValue)

@@ -2,12 +2,19 @@
 	import { File, FolderClosed, FolderOpen } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
+	import { displayDate, displaySize, emptyString } from '$lib/utils'
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import Section from './Section.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
+	import TableSimple from './TableSimple.svelte'
 
-	export let pickedDatasetKey: { s3: string } | undefined = undefined
+	export let initialFileKey: { s3: string }
+	let initialFileKeyInternalCopy: { s3: string }
+	export let selectedFileKey: { s3: string } | undefined = undefined
+
+	let csvSeparatorChar: string = ','
 
 	let dispatch = createEventDispatcher()
 
@@ -30,8 +37,11 @@
 	let filePreview:
 		| {
 				file_key: string
+				mime_type: string | undefined
+				size: string | undefined
 				last_modified: string | undefined
 				content_preview: string | undefined
+				content_type: string | undefined
 		  }
 		| undefined = undefined
 
@@ -56,7 +66,6 @@
 					if (all_files_by_key[current_path] !== undefined) {
 						continue
 					}
-					console.log(current_path)
 					all_files_by_key[current_path] = {
 						type: i === split_path.length - 1 ? 'leaf' : 'folder',
 						full_key: current_path,
@@ -69,34 +78,50 @@
 				}
 			}
 			displayed_file_keys = displayed_file_keys.sort()
-			console.log(displayed_file_keys)
-			console.log(all_files_by_key)
 		}
 	}
 
-	async function loadFilePreview(file_key: string) {
+	async function loadFilePreview(file_key: string | undefined) {
+		if (file_key === undefined) {
+			return
+		}
 		let filePreviewRaw = await HelpersService.loadFilePreview({
 			workspace: $workspaceStore!,
 			fileKey: file_key,
 			from: undefined,
 			length: undefined,
-			separator: undefined
+			separator: csvSeparatorChar
 		})
+
 		if (filePreviewRaw !== undefined) {
 			filePreview = {
 				file_key: file_key,
-				last_modified: filePreviewRaw.last_modified,
-				content_preview: filePreviewRaw.content_preview
+				size: displaySize(filePreviewRaw.size_in_bytes),
+				mime_type: filePreviewRaw.mime_type,
+				last_modified: displayDate(filePreviewRaw.last_modified),
+				content_preview: filePreviewRaw.content_preview.content,
+				content_type: filePreviewRaw.content_preview.content_type
 			}
 		}
 	}
 
 	export async function open() {
+		initialFileKeyInternalCopy = { ...initialFileKey }
 		await loadDatasets() // TODO: Potentially load only on the first open and add a refresh button
+		if (selectedFileKey !== undefined && all_files_by_key[selectedFileKey.s3] !== undefined) {
+			loadFilePreview(selectedFileKey.s3)
+		}
 		drawer.openDrawer?.()
 	}
 
-	async function close() {
+	async function selectAndClose() {
+		drawer.closeDrawer?.()
+	}
+
+	async function exit() {
+		if (initialFileKey !== undefined) {
+			selectedFileKey = { ...initialFileKeyInternalCopy }
+		}
 		drawer.closeDrawer?.()
 	}
 
@@ -135,10 +160,10 @@
 			}
 			displayed_file_keys = displayed_file_keys.sort()
 		} else {
-			pickedDatasetKey = {
+			selectedFileKey = {
 				s3: item_key
 			}
-			loadFilePreview(item_key)
+			loadFilePreview(selectedFileKey.s3)
 		}
 	}
 </script>
@@ -155,7 +180,7 @@
 	<DrawerContent
 		title="Pick a dataset"
 		overflow_y={false}
-		on:close={drawer.closeDrawer}
+		on:close={exit}
 		tooltip="Datasets present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
@@ -172,7 +197,7 @@
 						<div
 							on:click={() => selectItem(index)}
 							class={`flex flex-row h-full font-semibold text-xs items-center justify-start ${
-								pickedDatasetKey !== undefined && pickedDatasetKey.s3 === file_info.full_key
+								selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
 									? 'bg-surface-hover'
 									: ''
 							}`}
@@ -194,15 +219,53 @@
 					</div></VirtualList
 				>
 			</div>
-			<div class="flex h-full w-full overflow-auto">
-				<pre class="grow whitespace-no-wrap break-words bg-surface-secondary text-xs p-2"
-					>{#if filePreview !== undefined}{filePreview.content_preview}{/if}
-                </pre>
+			<div class="flex flex-col h-full w-full overflow-auto">
+				{#if filePreview === undefined}
+					<div class="p-4">
+						<Section label="Select a file for preview" />
+					</div>
+				{:else}
+					<div class="p-4 gap-2">
+						<Section label={filePreview.file_key} />
+						<TableSimple
+							headers={['Last modified', 'Size', 'Type']}
+							data={[filePreview]}
+							keys={['last_modified', 'size', 'mime_type']}
+						/>
+					</div>
+				{/if}
+
+				<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
+					{#if filePreview !== undefined}
+						<div class="flex h-6 items-center text-tertiary mb-4">
+							{#if filePreview.content_type === 'Unknown'}
+								Type of file not supported for preview
+							{:else if filePreview.content_type === 'Csv'}
+								Previewing a {filePreview.content_type?.toLowerCase()} file. Change the separator:
+								<div class="inline-flex w-12 ml-2">
+									<select
+										class="h-8"
+										bind:value={csvSeparatorChar}
+										on:change={(e) => loadFilePreview(filePreview?.file_key)}
+									>
+										<option value=",">,</option>
+										<option value=";">;</option>
+									</select>
+								</div>
+							{:else}
+								Previewing a {filePreview.content_type?.toLowerCase()} file
+							{/if}
+						</div>
+						<pre class="grow whitespace-no-wrap break-words"
+							>{#if !emptyString(filePreview.content_preview)}{filePreview.content_preview}{/if}</pre
+						>
+					{/if}
+				</div>
 			</div>
 		</div>
 
 		<div slot="actions" class="flex gap-1">
-			<Button disable={pickedDatasetKey === undefined} on:click={close}>Select</Button>
+			<Button disable={selectedFileKey === undefined} on:click={selectAndClose}>Select</Button>
 		</div>
 	</DrawerContent>
 </Drawer>

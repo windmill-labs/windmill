@@ -8377,8 +8377,27 @@ components:
         last_modified:
           type: string
           format: date-time
-        content_preview:
+        size_in_bytes:
+          type: integer
+        expires:
           type: string
+          format: date-time
+        version_id:
+          type: string
+        content_preview:
+          type: object
+          properties:
+            msg:
+              type: string
+            content:
+              type: string
+            content_type:
+              type: string
+              enum: ["RawText", "Csv", "Parquet", "Unknown"]
+          required:
+            - content_type
+      required:
+        - content_preview
 
     S3Resource:
       type: object
