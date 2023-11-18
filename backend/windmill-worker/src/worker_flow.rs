@@ -29,6 +29,7 @@ use uuid::Uuid;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
+use windmill_common::flows::add_virtual_items_if_necessary;
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
     RawCode,
@@ -2305,7 +2306,8 @@ async fn compute_next_flow_transform(
                         failure_module.id_append(&format!("{}/{}", status.step, ns.index));
                         fm = Some(failure_module);
                     }
-                    let modules = (*modules).clone();
+                    let mut modules = (*modules).clone();
+                    add_virtual_items_if_necessary(&mut modules);
                     let inner_path = Some(format!("{}/loop-{}", flow_job.script_path(), ns.index));
                     if is_simple {
                         let payload = payload_from_simple_module(
@@ -2451,7 +2453,7 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let modules = if let BranchChosen::Branch { branch } = branch {
+            let mut modules = if let BranchChosen::Branch { branch } = branch {
                 branches
                     .get(branch)
                     .map(|b| b.modules.clone())
@@ -2463,6 +2465,8 @@ async fn compute_next_flow_transform(
             } else {
                 default.clone()
             };
+            add_virtual_items_if_necessary(&mut modules);
+
             let mut fm = flow.failure_module.clone();
             if let Some(mut failure_module) = flow.failure_module.clone() {
                 failure_module.id_append(&status.step.to_string());
@@ -2516,10 +2520,12 @@ async fn compute_next_flow_transform(
                                                 .id_append(&format!("{}/{i}", status.step));
                                             fm = Some(failure_module);
                                         }
+                                        let mut modules = b.modules.clone();
+                                        add_virtual_items_if_necessary(&mut modules);
                                         JobPayloadWithTag {
                                             payload: JobPayload::RawFlow {
                                                 value: FlowValue {
-                                                    modules: b.modules.clone(),
+                                                    modules,
                                                     failure_module: fm.clone(),
                                                     same_worker: flow.same_worker,
                                                     concurrent_limit: None,
@@ -2565,7 +2571,7 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let modules = branches
+            let mut modules = branches
                 .get(branch_status.branch)
                 .map(|b| b.modules.clone())
                 .ok_or_else(|| {
@@ -2574,6 +2580,7 @@ async fn compute_next_flow_transform(
                     ))
                 })?;
 
+            add_virtual_items_if_necessary(&mut modules);
             let mut fm = flow.failure_module.clone();
             if let Some(mut failure_module) = flow.failure_module.clone() {
                 failure_module.id_append(&format!("{}/{}", status.step, branch_status.branch));

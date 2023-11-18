@@ -48,7 +48,7 @@ use windmill_common::{
         BranchAllStatus, FlowStatus, FlowStatusModule, FlowStatusModuleWParent, Iterator,
         JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
-    flows::{FlowModule, FlowModuleValue, FlowValue},
+    flows::{add_virtual_items_if_necessary, FlowModuleValue, FlowValue},
     jobs::{
         get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
         JobPayload, QueuedJob, RawCode,
@@ -1997,12 +1997,13 @@ where
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
         {
-            let Form(payload): Form<Option<HashMap<String, Box<RawValue>>>> =
+            let Form(payload): Form<HashMap<String, Option<String>>> =
                 req.extract().await.map_err(IntoResponse::into_response)?;
-            return Ok(PushArgs {
-                extra: HashMap::new(),
-                args: Json(payload.unwrap_or_else(HashMap::new)),
-            });
+            let payload = payload
+                .into_iter()
+                .map(|(k, v)| (k, to_raw_value(&v)))
+                .collect::<HashMap<_, _>>();
+            return Ok(PushArgs { extra: HashMap::new(), args: Json(payload) });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
@@ -2135,7 +2136,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             0
         };
 
-
         if is_overquota || !premium_workspace {
             let is_super_admin =
                 sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
@@ -2192,7 +2192,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         script_path,
         raw_code_tuple,
         job_kind,
-        mut raw_flow,
+        raw_flow,
         flow_status,
         language,
         concurrent_limit,
@@ -2322,7 +2322,9 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
         ),
-        JobPayload::RawFlow { value, path, restarted_from } => {
+        JobPayload::RawFlow { mut value, path, restarted_from } => {
+            add_virtual_items_if_necessary(&mut value.modules);
+
             let flow_status: FlowStatus = match restarted_from {
                 Some(restarted_from_val) => {
                     let (_, _, step_n, truncated_modules, _) = restarted_flows_resolution(
@@ -2382,24 +2384,30 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+            let mut value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
                 Error::InternalErr(format!(
                     "could not convert json to flow for {path}: {err:?}"
                 ))
             })?;
+            let priority = value.priority;
+            add_virtual_items_if_necessary(&mut value.modules);
+            let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
+            let concurrency_time_window_s = value.concurrency_time_window_s.clone();
+            let concurrent_limit = value.concurrent_limit.clone();
+            let status = Some(FlowStatus::new(&value));
             (
                 None,
                 Some(path),
                 None,
                 JobKind::Flow,
-                Some(value.clone()),
-                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
+                Some(value),
+                status, // this is a new flow being pushed, flow_status is set to flow_value
                 None,
-                value.concurrent_limit.clone(),
-                value.concurrency_time_window_s,
-                value.cache_ttl.map(|x| x as i32),
+                concurrent_limit,
+                concurrency_time_window_s,
+                cache_ttl,
                 dedicated_worker,
-                value.priority,
+                priority,
             )
         }
         JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
@@ -2516,30 +2524,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     )))?
                 }
             }
-        }
-
-        // If last module has a sleep or suspend, we insert a virtual identity module
-        if flow.modules.len() > 0
-            && (flow.modules[flow.modules.len() - 1].sleep.is_some()
-                || flow.modules[flow.modules.len() - 1].suspend.is_some())
-        {
-            let mut modules = flow.modules.clone();
-            modules.push(FlowModule {
-                id: format!("{}-v", flow.modules[flow.modules.len() - 1].id),
-                value: FlowModuleValue::Identity,
-                stop_after_if: None,
-                summary: Some(
-                    "Virtual module needed for suspend/sleep when last module".to_string(),
-                ),
-                mock: None,
-                retry: None,
-                sleep: None,
-                suspend: None,
-                cache_ttl: None,
-                timeout: None,
-                priority: None,
-            });
-            raw_flow = Some(FlowValue { modules, ..flow.clone() });
         }
     }
 

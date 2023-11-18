@@ -15,7 +15,7 @@ export type FlowCopilotModule = {
 	hubCompletions: {
 		path: string
 		summary: string
-		kind: HubScriptKind,
+		kind: HubScriptKind
 		app: string
 		ask_id: number
 	}[]
@@ -36,6 +36,9 @@ export type FlowCopilotContext = {
 	modulesStore: Writable<FlowCopilotModule[]>
 	currentStepStore: Writable<string | undefined>
 	genFlow: ((i: number, modules: FlowModule[], stepOnly?: boolean) => Promise<void>) | undefined
+	shouldUpdatePropertyType: Writable<{
+		[key: string]: 'static' | 'javascript' | undefined
+	}>
 }
 
 const systemPrompt = `You write code as instructed by the user. Only output code. Wrap the code in a code block. 
@@ -125,7 +128,7 @@ const gluePrompt = `I'm building a workflow which is a sequence of script steps.
 My current step code has the following inputs: {inputs}. 
 Determine what to pass as inputs. You can only use the following:
 - \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties.
-- \`prev_output\` (javascript object): previous output is the output of the previous step. {inferTypeGluePrompt}
+- \`results.{prevId}\` (javascript object): previous output is the output of the previous step. {inferTypeGluePrompt}
 
 Reply in the following format:
 input_name: expr`
@@ -194,6 +197,7 @@ export async function glueCopilot(
 	inputs: string[],
 	prevCode: string,
 	prevLang: Script.language | undefined,
+	prevId: string,
 	isFirstInLoop: boolean,
 	abortController: AbortController
 ) {
@@ -203,6 +207,7 @@ export async function glueCopilot(
 				role: 'user',
 				content: (isFirstInLoop ? loopGluePrompt : gluePrompt)
 					.replace('{inputs}', inputs.join(', '))
+					.replace('{prevId}', prevId)
 					.replace(
 						'{inferTypeGluePrompt}',
 						prevCode.length > 0 && prevLang

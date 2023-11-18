@@ -209,7 +209,6 @@
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
-		console.log(settings)
 		s3ResourceInitialPath =
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
@@ -285,9 +284,6 @@
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
-				<Tab size="xs" value="export_delete">
-					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
-				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 					<Tab size="xs" value="webhook">
 						<div class="flex gap-2 items-center my-1">Webhook</div>
@@ -298,6 +294,9 @@
 				</Tab>
 				<Tab size="xs" value="openai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
+				</Tab>
+				<Tab size="xs" value="export_delete">
+					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 			</Tabs>
 		</div>

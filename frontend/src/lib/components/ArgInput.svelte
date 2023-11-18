@@ -52,6 +52,7 @@
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
+	export let nestedRequired: string[] | undefined = undefined
 	export let autofocus = false
 	export let compact = false
 	export let password = false
@@ -427,7 +428,7 @@
 						<SchemaForm
 							{disablePortal}
 							{disabled}
-							schema={{ properties, $schema: '', required: [], type: 'object' }}
+							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
 							bind:args={value}
 						/>
 					</div>

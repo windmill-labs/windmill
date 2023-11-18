@@ -103,6 +103,7 @@
 								bind:format={schema.properties[argName].format}
 								contentEncoding={schema.properties[argName].contentEncoding}
 								properties={schema.properties[argName].properties}
+								nestedRequired={schema.properties[argName].required}
 								bind:itemsType={schema.properties[argName].items}
 								disabled={disabledArgs.includes(argName) || disabled}
 								{editableSchema}
@@ -131,6 +132,7 @@
 								format={schema.properties[argName].format}
 								contentEncoding={schema.properties[argName].contentEncoding}
 								properties={schema.properties[argName].properties}
+								nestedRequired={schema.properties[argName].required}
 								itemsType={schema.properties[argName].items}
 								disabled={disabledArgs.includes(argName) || disabled}
 								{compact}

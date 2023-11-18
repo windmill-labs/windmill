@@ -19,12 +19,26 @@
 	let scroll = true
 	let div: HTMLElement | null = null
 
-	$: if (content != undefined) {
+	let LOG_INC = 10000
+	let LOG_LIMIT = LOG_INC
+
+	let lastJobId = jobId
+	$: if (jobId !== lastJobId) {
+		lastJobId = jobId
+		LOG_LIMIT = LOG_INC
+	}
+	$: truncatedContent = content
+		? (content.length ?? 0) > LOG_LIMIT
+			? content?.slice(-LOG_LIMIT)
+			: content
+		: ''
+
+	$: if (content != undefined && isLoading) {
 		isLoading = false
 	}
 
-	$: content && scrollToBottom()
-	$: html = ansi_up.ansi_to_html(content ?? '')
+	$: truncatedContent && scrollToBottom()
+	$: html = ansi_up.ansi_to_html(truncatedContent ?? '')
 	export function scrollToBottom() {
 		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
 	}
@@ -46,7 +60,13 @@
 		</svelte:fragment>
 		<div>
 			<pre class="bg-surface-secondary text-secondary text-xs w-full p-2"
-				>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+				>{#if content}{#if content?.length > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
+							on:click={() => {
+								scroll = false
+								LOG_LIMIT = LOG_LIMIT + Math.min(LOG_INC, content?.length ?? 0 - LOG_LIMIT)
+							}}>Show more</button
+						>
+					{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
 	</DrawerContent>
@@ -81,8 +101,13 @@
 			>
 		{/if}
 		<pre class="whitespace-pre-wrap break-words text-xs w-full p-2"
-			>{#if content}<span>{@html html}</span>{:else if !isLoading}<span
-					>No logs are available yet</span
+			>{#if content}{#if content?.length > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
+						on:click={() => {
+							scroll = false
+							LOG_LIMIT = LOG_LIMIT + Math.min(LOG_INC, content?.length ?? 0 - LOG_LIMIT)
+						}}>Show more</button
+					>
+				{/if}<span>{@html html}</span>{:else if !isLoading}<span>No logs are available yet</span
 				>{/if}</pre
 		>
 	</div>

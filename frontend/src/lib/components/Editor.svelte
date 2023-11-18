@@ -107,7 +107,7 @@
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
-	let websocketInterval: NodeJS.Timer | undefined
+	let websocketInterval: NodeJS.Timeout | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: () => void | undefined
@@ -869,7 +869,7 @@
 	let initialized = false
 	async function loadMonaco() {
 		try {
-			console.error("Loading Monaco's language client")
+			console.log("Loading Monaco's language client")
 			await initializeVscode()
 		} catch (e) {
 			console.log('error initializing services', e)

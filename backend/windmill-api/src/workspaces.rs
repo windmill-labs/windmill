@@ -42,6 +42,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -111,6 +112,7 @@ pub fn global_service() -> Router {
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
         .route("/unarchive/:workspace", post(unarchive_workspace))
         .route("/delete/:workspace", delete(delete_workspace))
+        .route("/create_workspace_require_superadmin", get(create_workspace_require_superadmin))
 }
 
 #[cfg(feature = "enterprise")]
@@ -191,6 +193,7 @@ struct EditDeployTo {
 #[derive(Deserialize)]
 struct EditAutoInvite {
     operator: Option<bool>,
+    invite_all: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -737,7 +740,25 @@ async fn edit_auto_invite(
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let domain = email.split('@').last().unwrap();
+    
+    // #[cfg(not(feature = "enterprise"))]
+    // {
+    //     return Err(Error::BadRequest(
+    //         "Auto-invite is only available on enterprise".to_string(),
+    //     ));
+    // }
+
+    let domain = if ea.invite_all.is_some_and(|x| x) {
+        if  *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "invite_all is only available locally".to_string(),
+        ));
+        } else {
+            "*"
+        }  
+    } else {
+        email.split('@').last().unwrap()
+    };
 
     let mut tx = db.begin().await?;
 
@@ -761,7 +782,7 @@ async fn edit_auto_invite(
         sqlx::query!(
             "INSERT INTO workspace_invite
         (workspace_id, email, is_admin, operator)
-        SELECT $1::text, email, false, $3 FROM password WHERE email LIKE CONCAT('%', $2::text) AND NOT EXISTS (
+        SELECT $1::text, email, false, $3 FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
             SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
         )
         ON CONFLICT DO NOTHING",
@@ -1070,17 +1091,26 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
 
 lazy_static::lazy_static! {
 
-    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(true));
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
+        match std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN") {
+            Ok(val) => val == "true",
+            Err(_) => true,
+        }
+    };
 
+}
+
+async fn create_workspace_require_superadmin() -> String {
+    format!("{}", *CREATE_WORKSPACE_REQUIRE_SUPERADMIN)
 }
 
 async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
     let nb_workspaces = sqlx::query_scalar!("SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = false",)
         .fetch_one(db)
         .await?;
-    if nb_workspaces.unwrap_or(0) >= 3 {
+    if nb_workspaces.unwrap_or(0) >= 2 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of workspaces (3 outside of default worskapce 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
+            "You have reached the maximum number of workspaces (2 outside of default worskapce 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
                 .to_string(),
         ));
     }
@@ -1319,6 +1349,15 @@ async fn delete_workspace(
     let mut tx = db.begin().await?;
     require_super_admin(&db, &email).await?;
 
+    sqlx::query!("DELETE FROM queue WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM draft WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM script WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1404,7 +1443,7 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
     let mut tx = db.begin().await?;
     let domain = email.split('@').last().unwrap();
     let workspaces = sqlx::query!(
-        "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1",
+        "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1 OR auto_invite_domain = '*'",
         domain
     )
     .fetch_all(&mut *tx)

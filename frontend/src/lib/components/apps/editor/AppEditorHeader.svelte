@@ -751,7 +751,7 @@
 							copyToClipboard(href)
 						}}
 						{href}
-						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 inline-flex gap-2"
 					>
 						{url}
 						<span class="text-gray-700 ml-2">

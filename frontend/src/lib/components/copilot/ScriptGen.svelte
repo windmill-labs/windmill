@@ -171,6 +171,11 @@
 		}
 		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
 	}
+
+	function clearPromptHistory() {
+		promptHistory = []
+		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+	}
 	$: lang && getPromptHistory()
 
 	$: $generatedCode && updateScroll()
@@ -342,13 +347,17 @@
 								<Button
 									size="xs2"
 									color="light"
-									btnClasses="justify-start"
-									startIcon={{ icon: HistoryIcon }}
+									btnClasses="justify-start overflow-x-scroll no-scrollbar"
+									startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
 									on:click={() => {
 										funcDesc = p
 									}}>{p}</Button
 								>
 							{/each}
+							<button
+								class="underline text-xs text-start px-2 text-secondary font-normal"
+								on:click={clearPromptHistory}>clear history</button
+							>
 						</div>
 					{/if}
 

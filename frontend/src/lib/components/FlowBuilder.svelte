@@ -444,7 +444,10 @@
 		drawerStore: writable<Drawer | undefined>(undefined),
 		modulesStore: writable<FlowCopilotModule[]>([]),
 		currentStepStore: writable<string | undefined>(undefined),
-		genFlow: undefined
+		genFlow: undefined,
+		shouldUpdatePropertyType: writable<{
+			[key: string]: 'static' | 'javascript' | undefined
+		}>({})
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -452,7 +455,8 @@
 	const {
 		drawerStore: copilotDrawerStore,
 		modulesStore: copilotModulesStore,
-		currentStepStore: copilotCurrentStepStore
+		currentStepStore: copilotCurrentStepStore,
+		shouldUpdatePropertyType
 	} = flowCopilotContext
 
 	let doneTs = 0
@@ -553,6 +557,7 @@
 						type: 'static',
 						value: undefined
 					}
+					$shouldUpdatePropertyType[key] = 'static'
 				}
 			}
 		}
@@ -716,6 +721,7 @@
 							Object.keys(flowModule.value.input_transforms),
 							pastModule.value.type === 'rawscript' ? pastModule.value.content : '',
 							pastModule.value.type === 'rawscript' ? pastModule.value.language : undefined,
+							prevNodeId,
 							isFirstInLoop,
 							abortController
 						)
@@ -747,6 +753,7 @@
 								type: 'javascript',
 								expr: expr.replaceAll(/flow_input\.([A-Za-z0-9_]+)/g, (_, p1) => 'flow_input.' + p1)
 							}
+							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
 						if (
@@ -799,6 +806,7 @@
 											: 'flow_input.' + snakeKey
 										: 'flow_input.' + snakeKey
 							}
+							$shouldUpdatePropertyType[key] = 'javascript'
 						}
 					}
 

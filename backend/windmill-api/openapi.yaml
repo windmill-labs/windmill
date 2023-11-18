@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.208.0
+  version: 1.210.0
   title: Windmill API
 
   contact:
@@ -1348,6 +1348,8 @@ paths:
               type: object
               properties:
                 operator:
+                  type: boolean
+                invite_all:
                   type: boolean
 
       responses:
@@ -6278,7 +6280,9 @@ paths:
 
   /w/{workspace}/job_helpers/duckdb_connection_settings:
     post:
-      summary: Converts an S3 resource to the set of instructions necessary to connect DuckDB to an S3 bucket
+      summary:
+        Converts an S3 resource to the set of instructions necessary to connect
+        DuckDB to an S3 bucket
       operationId: duckdbConnectionSettings
       tags:
         - helpers

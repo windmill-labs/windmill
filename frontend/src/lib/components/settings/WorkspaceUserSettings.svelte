@@ -20,6 +20,7 @@
 	import Cell from '../table/Cell.svelte'
 	import Row from '../table/Row.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -65,7 +66,7 @@
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
 			invites
-				.filter((x) => x.email.endsWith('@' + auto_invite_domain ?? ''))
+				.filter((x) => (isCloudHosted() ? x.email.endsWith('@' + auto_invite_domain ?? '') : true))
 				.map(({ email, is_admin, operator }) =>
 					WorkspaceService.deleteInvite({
 						workspace: $workspaceStore ?? '',
@@ -255,13 +256,59 @@
 		</tbody>
 	</DataTable>
 </div>
+
 <PageHeader
 	title="Invites ({invites.length ?? ''})"
 	primary={false}
 	tooltip="Manage invites on your workspace."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 >
-	<InviteUser on:new={listInvites} />
+	<div class="flex gap-8">
+		{#if auto_invite_domain != undefined}
+			<Toggle
+				size="xs"
+				bind:checked={operatorOnly}
+				options={{
+					right: `Auto-invited users to join as operators`
+				}}
+				on:change={async (e) => {
+					console.log(e.detail)
+					await removeAllInvitesFromDomain()
+					await WorkspaceService.editAutoInvite({
+						workspace: $workspaceStore ?? '',
+						requestBody: { operator: e.detail }
+					})
+					loadSettings()
+					listInvites()
+				}}
+			/>
+		{/if}
+		<Toggle
+			size="xs"
+			checked={auto_invite_domain != undefined}
+			on:change={async (e) => {
+				console.log(e.detail)
+				await removeAllInvitesFromDomain()
+				await WorkspaceService.editAutoInvite({
+					workspace: $workspaceStore ?? '',
+					requestBody: e.detail
+						? { operator: operatorOnly ?? false, invite_all: !isCloudHosted() }
+						: { operator: undefined }
+				})
+				loadSettings()
+				listInvites()
+			}}
+			options={{
+				right: isCloudHosted()
+					? `Auto-invite anyone from ${auto_invite_domain}`
+					: 'Auto-invite anyone joining the instance'
+			}}
+		/>
+		{#if !allowedAutoDomain}
+			<div class="text-red-400 text-xs mb-2">{domain} domain not allowed for auto-invite</div>
+		{/if}
+		<InviteUser on:new={listInvites} />
+	</div>
 </PageHeader>
 
 <div>
@@ -323,67 +370,6 @@
 		>
 	{/if}
 </div>
-
-<PageHeader
-	title="Auto Invite"
-	tooltip="Auto invite to the workspace users from your domain."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite"
-	primary={false}
-/>
-<div class="flex gap-2">
-	{#if auto_invite_domain != domain}
-		<div>
-			<Button
-				disabled={!allowedAutoDomain}
-				on:click={async () => {
-					await WorkspaceService.editAutoInvite({
-						workspace: $workspaceStore ?? '',
-						requestBody: { operator: false }
-					})
-					loadSettings()
-					listInvites()
-				}}>Set auto-invite to {domain}</Button
-			>
-		</div>
-	{/if}
-	{#if auto_invite_domain}
-		<div class="flex flex-col gap-y-2">
-			<Toggle
-				bind:checked={operatorOnly}
-				options={{
-					right: `Auto-invited users to join as operators`
-				}}
-				on:change={async (e) => {
-					await removeAllInvitesFromDomain()
-					await WorkspaceService.editAutoInvite({
-						workspace: $workspaceStore ?? '',
-						requestBody: { operator: e.detail }
-					})
-					loadSettings()
-					listInvites()
-				}}
-			/>
-			<div>
-				<Button
-					on:click={async () => {
-						await removeAllInvitesFromDomain()
-						await WorkspaceService.editAutoInvite({
-							workspace: $workspaceStore ?? '',
-							requestBody: { operator: undefined }
-						})
-						loadSettings()
-						listInvites()
-					}}
-				>
-					Unset auto-invite from {auto_invite_domain} domain
-				</Button>
-			</div>
-		</div>
-	{/if}
-</div>
-{#if !allowedAutoDomain}
-	<div class="text-red-400 text-xs mb-2">{domain} domain not allowed for auto-invite</div>
-{/if}
 
 <ConfirmationModal
 	open={Boolean(deleteConfirmedCallback)}
