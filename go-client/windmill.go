@@ -102,7 +102,11 @@ func SetVariable(path string, value string) error {
 }
 
 func GetStatePath() string {
-	return os.Getenv("WM_STATE_PATH_NEW")
+	value := os.Getenv("WM_STATE_PATH_NEW")
+	if len(value) == 0 {
+        return os.Getenv("WM_STATE_PATH")
+    }
+    return value
 }
 
 func GetState() (interface{}, error) {

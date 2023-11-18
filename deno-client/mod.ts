@@ -89,7 +89,7 @@ export async function resolveDefaultResource(obj: any): Promise<any> {
 }
 
 export function getStatePath(): string {
-  const state_path = Deno.env.get("WM_STATE_PATH_NEW");
+  const state_path = Deno.env.get("WM_STATE_PATH_NEW") ?? Deno.env.get("WM_STATE_PATH");
   if (state_path === undefined) {
     throw Error("State path not set");
   }
