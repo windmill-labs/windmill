@@ -160,14 +160,16 @@
 				/>
 
 				{#if isStaticTemplate(inputCat)}
-					<span
-						class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2 {propertyType ==
-							'static' && arg.type === 'javascript'
-							? 'visible'
-							: 'invisible'}"
-					>
-						{'${...}'}
-					</span>
+					<div>
+						<span
+							class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 !py-0.5 rounded ml-2 {propertyType ==
+								'static' && arg.type === 'javascript'
+								? 'visible'
+								: 'invisible'}"
+						>
+							{'${...}'}
+						</span>
+					</div>
 				{/if}
 			</div>
 			{#if !noDynamicToggle}

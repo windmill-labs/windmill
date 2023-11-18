@@ -20,6 +20,7 @@
 	import Cell from '../table/Cell.svelte'
 	import Row from '../table/Row.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -331,18 +332,20 @@
 	primary={false}
 />
 <div class="flex gap-2">
-	{#if auto_invite_domain != domain}
+	{#if auto_invite_domain != domain && auto_invite_domain != '*'}
 		<div>
 			<Button
 				disabled={!allowedAutoDomain}
 				on:click={async () => {
 					await WorkspaceService.editAutoInvite({
 						workspace: $workspaceStore ?? '',
-						requestBody: { operator: false }
+						requestBody: { operator: false, invite_all: !isCloudHosted() }
 					})
 					loadSettings()
 					listInvites()
-				}}>Set auto-invite to {domain}</Button
+				}}
+				>{#if isCloudHosted()}Auto-invite any users from {domain}{:else}Auto-invite anyone joining
+					the instance{/if}</Button
 			>
 		</div>
 	{/if}
@@ -375,7 +378,11 @@
 						listInvites()
 					}}
 				>
-					Unset auto-invite from {auto_invite_domain} domain
+					{#if isCloudHosted()}
+						Unset auto-invite from {auto_invite_domain} domain
+					{:else}
+						Unset auto-invite anyone joining the instance
+					{/if}
 				</Button>
 			</div>
 		</div>
