@@ -12,7 +12,7 @@
 	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	let loading: boolean = false
-	let timeout: NodeJS.Timer | undefined = undefined
+	let timeout: NodeJS.Timeout | undefined = undefined
 	let interval: number | undefined = undefined
 	let shouldRefresh = false
 	let firstLoad = false

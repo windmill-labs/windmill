@@ -33,7 +33,7 @@
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 
 	let jobs: Job[] | undefined
-	let intervalId: NodeJS.Timer | undefined
+	let intervalId: NodeJS.Timeout | undefined
 	let selectedId: string | undefined = undefined
 
 	// All Filters
