@@ -9510,6 +9510,8 @@ paths:
               schema:
                 type: object
                 properties:
+                  file_count:
+                    type: integer
                   windmill_large_files:
                     type: array
                     items:
@@ -9519,6 +9521,9 @@ paths:
                           type: string
                       required: &ref_156
                         - s3
+                required:
+                  - file_count
+                  - windmill_large_files
   /w/{workspace}/job_helpers/load_file_preview:
     get:
       summary: Load a preview of the file

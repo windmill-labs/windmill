@@ -149,6 +149,7 @@ async fn polars_connection_settings(
 
 #[derive(Serialize)]
 struct ListStoredDatasetsResponse {
+    file_count: usize,
     windmill_large_files: Vec<WindmillLargeFile>,
 }
 
@@ -170,7 +171,9 @@ async fn test_connection(
         ));
     }
 
-    let s3_resource = s3_resource_opt.unwrap();
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
     let s3_client = build_s3_client(&s3_resource);
     s3_client
         .list_objects()
@@ -190,7 +193,9 @@ async fn list_stored_files(
 ) -> error::JsonResult<ListStoredDatasetsResponse> {
     let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &token, &w_id).await?;
 
-    let s3_resource = s3_resource_opt.unwrap();
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
     let s3_client = build_s3_client(&s3_resource);
 
     let mut stored_datasets = Vec::<WindmillLargeFile>::new();
@@ -229,7 +234,14 @@ async fn list_stored_files(
         }
     }
 
+    let file_count = stored_datasets.len();
+    #[cfg(not(feature = "enterprise"))]
+    if stored_datasets.len() > 10 {
+        stored_datasets = vec![];
+    }
+
     return Ok(Json(ListStoredDatasetsResponse {
+        file_count: file_count, // TODO: for now, no pagination. Add in the future to support large buckets
         windmill_large_files: stored_datasets,
     }));
 }
@@ -277,7 +289,9 @@ async fn load_file_preview(
     let file_key = query.file_key.clone();
     let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &token, &w_id).await?;
 
-    let s3_resource = s3_resource_opt.unwrap();
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
     let s3_client = build_s3_client(&s3_resource);
 
     let s3_bucket = s3_resource.bucket.clone();
@@ -289,7 +303,6 @@ async fn load_file_preview(
         .await
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
 
-    tracing::warn!("Content length: {}", s3_object_metadata.content_length());
     let file_chunk_length = cmp::min(
         query.length.unwrap_or(8 * 1024 * 1024) as i64, // no more than 8MB per chunk by default
         s3_object_metadata.content_length() - query.from.unwrap_or(0) as i64,
@@ -507,11 +520,25 @@ async fn read_s3_text_object_head(
         .body
         .collect()
         .await
-        .unwrap()
+        .map_err(|err| {
+            tracing::warn!(
+                "Error reading raw text file {}. Error was: {:?}",
+                file_key,
+                err
+            );
+            error::Error::InternalErr("File encoding is not supported".to_string())
+        })?
         .into_bytes()
         .to_vec();
 
-    let file_header_str = String::from_utf8(payload).unwrap();
+    let file_header_str = String::from_utf8(payload).map_err(|err| {
+        tracing::warn!(
+            "Encoding of file {} unsupported. Error was: {:?}",
+            file_key,
+            err
+        );
+        error::Error::InternalErr("File encoding is not supported".to_string())
+    })?;
     return Ok(file_header_str);
 }
 
