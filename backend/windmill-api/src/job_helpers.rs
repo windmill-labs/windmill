@@ -1,6 +1,8 @@
 use std::cmp;
 
-use crate::{resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage};
+use crate::{
+    db::DB, resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage,
+};
 use aws_sdk_s3::config::{Credentials, Region};
 use axum::{
     extract::{Path, Query},
@@ -284,12 +286,13 @@ enum WindmillContentType {
 async fn load_file_preview(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<LoadFilePreviewQuery>,
 ) -> error::JsonResult<LoadFilePreviewResponse> {
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
