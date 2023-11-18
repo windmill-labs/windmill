@@ -75,25 +75,6 @@ pub async fn get_reserved_variables(
     step_id: Option<String>,
 ) -> [ContextualVariable; 15] {
     let state_path = {
-        let flow_path = flow_path
-            .clone()
-            .unwrap_or_else(|| "NO_FLOW_PATH".to_string());
-        let script_path = path.clone().unwrap_or_else(|| "NO_JOB_PATH".to_string());
-        let schedule_path = schedule_path
-            .clone()
-            .map(|x| format!("/{x}"))
-            .unwrap_or_else(String::new);
-
-        let script_path = if script_path.ends_with("/") {
-            "NO_NAME".to_string()
-        } else {
-            script_path
-        };
-
-        format!("{permissioned_as}/{flow_path}/{script_path}{schedule_path}")
-    };
-
-    let state_path_2 = {
         let trigger = if schedule_path.is_some() {
             username.to_string()
         } else {
@@ -200,13 +181,13 @@ pub async fn get_reserved_variables(
         },
         ContextualVariable {
             name: "WM_STATE_PATH".to_string(),
-            value: state_path,
-            description: "State resource path unique to a script and its trigger (legacy, in a migration period against WM_STATE_PATH_NEW)".to_string(),
+            value: state_path.clone(),
+            description: "State resource path unique to a script and its trigger".to_string(),
         },
         ContextualVariable {
             name: "WM_STATE_PATH_NEW".to_string(),
-            value: state_path_2,
-            description: "State resource path unique to a script and its trigger".to_string(),
+            value: state_path,
+            description: "State resource path unique to a script and its trigger (legacy)".to_string(),
         },
         ContextualVariable {
             name: "WM_FLOW_STEP_ID".to_string(),
