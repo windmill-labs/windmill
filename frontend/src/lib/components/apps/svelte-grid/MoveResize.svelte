@@ -196,7 +196,7 @@
 
 	let sign = { x: 0, y: 0 }
 	let vel = { x: 0, y: 0 }
-	let intervalId: NodeJS.Timer | undefined = undefined
+	let intervalId: NodeJS.Timeout | undefined = undefined
 
 	const stopAutoscroll = () => {
 		intervalId && clearInterval(intervalId)

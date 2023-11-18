@@ -20,7 +20,7 @@
 	let filteredWorkers: WorkerPing[] = []
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
-	let intervalId: NodeJS.Timer | undefined
+	let intervalId: NodeJS.Timeout | undefined
 
 	const splitter = '_%%%_'
 	let globalCache = false
@@ -60,7 +60,7 @@
 		}
 	}
 
-	let secondInterval: NodeJS.Timer | undefined = undefined
+	let secondInterval: NodeJS.Timeout | undefined = undefined
 	onMount(() => {
 		loadWorkers()
 		loadWorkerGroups()
