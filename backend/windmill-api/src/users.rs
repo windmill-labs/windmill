@@ -94,6 +94,7 @@ pub fn global_service() -> Router {
             "/tutorial_progress",
             post(update_tutorial_progress).get(get_tutorial_progress),
         )
+        .route("/leave_instance", post(leave_instance))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -1416,6 +1417,29 @@ async fn add_user_to_workspace<'c>(
     Ok(tx)
 }
 
+async fn leave_instance(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, username, .. }: ApiAuthed,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM password WHERE email = $1", &email)
+        .execute(&mut *tx)
+        .await?;
+
+    audit_log(
+        &mut *tx,
+        &username,
+        "workspaces.leave",
+        ActionKind::Delete,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Left instance",))
+}
 async fn update_workspace_user(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,

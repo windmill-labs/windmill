@@ -263,7 +263,7 @@
 	tooltip="Manage invites on your workspace."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 >
-	<div class="flex gap-8">
+	<div class="flex gap-8 items-center">
 		{#if auto_invite_domain != undefined}
 			<Toggle
 				size="xs"
@@ -326,13 +326,48 @@
 					<Row>
 						<Cell first>{email}</Cell>
 						<Cell>
-							{#if operator}
-								<Badge>Operator</Badge>
-							{:else if is_admin}
-								<Badge>Admin</Badge>
-							{:else}
-								<Badge>Author</Badge>
-							{/if}
+							<div>
+								<ToggleButtonGroup
+									selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
+									on:selected={async (e) => {
+										const body =
+											e.detail == 'admin'
+												? { is_admin: true, operator: false }
+												: e.detail == 'operator'
+												? { is_admin: false, operator: true }
+												: { is_admin: false, operator: false }
+										await WorkspaceService.inviteUser({
+											workspace: $workspaceStore ?? '',
+											requestBody: {
+												email,
+												...body
+											}
+										})
+										listUsers()
+									}}
+								>
+									<ToggleButton
+										value="operator"
+										size="xs"
+										label="Operator"
+										tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+									/>
+
+									<ToggleButton
+										value="author"
+										size="xs"
+										label="Author"
+										tooltip="An Author can execute and view scripts/flows/apps, but they can also create new ones."
+									/>
+
+									<ToggleButton
+										value="admin"
+										size="xs"
+										label="Admin"
+										tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+									/>
+								</ToggleButtonGroup>
+							</div>
 						</Cell>
 						<Cell last>
 							<button

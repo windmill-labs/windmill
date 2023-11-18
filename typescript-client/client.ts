@@ -80,7 +80,9 @@ export async function getResource(
     if (undefinedIfEmpty && e.status === 404) {
       return undefined;
     } else {
-      throw Error(`Resource not found at ${path} or not visible to you`);
+      throw Error(
+        `Resource not found at ${path} or not visible to you: ${e.body}`
+      );
     }
   }
 }
@@ -200,7 +202,9 @@ export async function getVariable(path: string): Promise<string> {
   try {
     return await VariableService.getVariableValue({ workspace, path });
   } catch (e: any) {
-    throw Error(`Variable not found at ${path} or not visible to you`);
+    throw Error(
+      `Variable not found at ${path} or not visible to you: ${e.body}`
+    );
   }
 }
 

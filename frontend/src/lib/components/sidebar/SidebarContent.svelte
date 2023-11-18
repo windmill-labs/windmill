@@ -1,6 +1,6 @@
 <script lang="ts">
 	import MenuLink from './MenuLink.svelte'
-	import { superadmin, userStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
@@ -14,6 +14,7 @@
 		Github,
 		HelpCircle,
 		Home,
+		LogOut,
 		Play,
 		ServerCog,
 		Settings,
@@ -24,6 +25,11 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
+	import { WorkspaceService } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import { clearStores } from '$lib/storeUtils'
+	import { goto } from '$app/navigation'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -37,6 +43,13 @@
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
 		}
 	]
+
+	async function leaveWorkspace() {
+		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
+		sendUserToast('You left the workspace')
+		clearStores()
+		goto('/user/workspaces')
+	}
 
 	$: secondaryMenuLinks = [
 		// {
@@ -71,6 +84,19 @@
 								label: 'Instance',
 								href: '#superadmin-settings',
 								icon: ServerCog,
+								faIcon: undefined
+							}
+					  ]
+					: []),
+				...(!$superadmin && !$userStore?.is_admin
+					? [
+							{
+								label: 'Leave Workspace',
+								action: () => {
+									leaveWorkspaceModal = true
+								},
+								class: 'text-red-400',
+								icon: LogOut,
 								faIcon: undefined
 							}
 					  ]
@@ -124,6 +150,8 @@
 	]
 
 	export let isCollapsed: boolean = false
+
+	let leaveWorkspaceModal = false
 </script>
 
 <nav
@@ -146,20 +174,35 @@
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
 								<div class="py-1" role="none">
-									<a
-										href={subItem.href}
-										class="text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
-										role="menuitem"
-										tabindex="-1"
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<svelte:component this={subItem.icon} size={16} />
-											{/if}
+									{#if subItem?.['action']}
+										<button
+											class="{subItem['class']} px-4 py-2 !text-2xs"
+											on:click={subItem?.['action']}
+										>
+											<div class="flex flex-row items-center gap-2">
+												{#if subItem.icon}
+													<svelte:component this={subItem.icon} size={16} />
+												{/if}
 
-											{subItem.label}
-										</div>
-									</a>
+												{subItem.label}
+											</div>
+										</button>
+									{:else}
+										<a
+											href={subItem.href}
+											class="text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
+											role="menuitem"
+											tabindex="-1"
+										>
+											<div class="flex flex-row items-center gap-2">
+												{#if subItem.icon}
+													<svelte:component this={subItem.icon} size={16} />
+												{/if}
+
+												{subItem.label}
+											</div>
+										</a>
+									{/if}
 								</div>
 							</MenuItem>
 						{/each}
@@ -203,3 +246,19 @@
 		</div>
 	</div>
 </nav>
+
+<ConfirmationModal
+	open={leaveWorkspaceModal}
+	title="Leave workspace"
+	confirmationText="Remove"
+	on:canceled={() => {
+		leaveWorkspaceModal = false
+	}}
+	on:confirmed={() => {
+		leaveWorkspace()
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to leave this workspace?</span>
+	</div>
+</ConfirmationModal>

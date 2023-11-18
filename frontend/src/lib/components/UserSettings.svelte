@@ -145,7 +145,7 @@
 				{/if}
 
 				<div class="grid grid-cols-2 pt-8 pb-1">
-					<h2 class="py-0 my-0 border-b">Tokens</h2>
+					<h2 class="py-0 my-0 border-b pt-3">Tokens</h2>
 					<div class="flex justify-end border-b pb-1">
 						<Button
 							size="sm"

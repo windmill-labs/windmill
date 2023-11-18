@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
@@ -87,19 +87,21 @@
 				All workspaces & invites
 			</a>
 		</div>
-		<div class="py-1" role="none">
-			<MenuItem>
-				<a
-					href="/workspace_settings"
-					class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
-					role="menuitem"
-					tabindex="-1"
-				>
-					<Settings size={16} />
-					Workspace Settings
-				</a>
-			</MenuItem>
-		</div>
+		{#if $userStore?.is_admin || $superadmin}
+			<div class="py-1" role="none">
+				<MenuItem>
+					<a
+						href="/workspace_settings"
+						class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
+						role="menuitem"
+						tabindex="-1"
+					>
+						<Settings size={16} />
+						Workspace Settings
+					</a>
+				</MenuItem>
+			</div>
+		{/if}
 	</div>
 	{#if $enterpriseLicense}
 		<MultiplayerMenu />
