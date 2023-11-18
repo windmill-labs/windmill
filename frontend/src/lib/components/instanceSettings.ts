@@ -32,7 +32,7 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://windmill.com',
 			storage: 'setting',
 			isValid: (value: string | undefined) =>
-				value ? value?.startsWith('http') && !value?.endsWith('/') : true
+				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true
 		},
 		{
 			label: 'Request Size Limit In MB',

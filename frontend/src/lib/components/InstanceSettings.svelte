@@ -376,7 +376,7 @@
 													type="text"
 													placeholder={setting.placeholder}
 													class={hasError
-														? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30 !bg-red-100'
+														? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30'
 														: ''}
 													bind:value={values[setting.key]}
 												/>
@@ -450,7 +450,7 @@
 
 											{#if hasError}
 												<span class="text-red-500 text-xs">
-													Base url must start with http:// or https:// and must not end with a
+													Base url must start with http:// or https:// and must NOT end with a
 													trailing slash.
 												</span>
 											{/if}

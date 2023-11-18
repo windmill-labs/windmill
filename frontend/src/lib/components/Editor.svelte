@@ -107,7 +107,7 @@
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
-	let websocketInterval: NodeJS.Timer | undefined
+	let websocketInterval: NodeJS.Timeout | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: () => void | undefined
