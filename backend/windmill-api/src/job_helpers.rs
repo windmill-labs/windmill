@@ -1,4 +1,4 @@
-use std::{cmp, task::RawWakerVTable};
+use std::cmp;
 
 use crate::{resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage};
 use aws_sdk_s3::config::{Credentials, Region};
@@ -291,7 +291,11 @@ async fn load_file_preview(
 
     tracing::warn!("Content length: {}", s3_object_metadata.content_length());
     let file_chunk_length = cmp::min(
-        8 * 1024 * 1024, // no more than 8MB per chunk by default
+        if query.length {
+            query.length
+        } else {
+            8 * 1024 * 1024
+        }, // no more than 8MB per chunk by default
         s3_object_metadata.content_length() - query.from.unwrap_or(0) as i64,
     );
 

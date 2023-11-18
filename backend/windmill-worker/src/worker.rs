@@ -1847,7 +1847,6 @@ async fn spawn_dedicated_worker(
             mpsc::channel::<Arc<QueuedJob>>(MAX_BUFFERED_DEDICATED_JOBS);
         let mut killpill_rx = killpill_rx.resubscribe();
         let db = db.clone();
-        let worker_dir = worker_dir.clone();
         let base_internal_url = base_internal_url.to_string();
         let worker_name = worker_name.to_string();
         let job_completed_tx = job_completed_tx.clone();
