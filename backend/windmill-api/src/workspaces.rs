@@ -1481,7 +1481,8 @@ async fn invite_user(
     sqlx::query!(
         "INSERT INTO workspace_invite
             (workspace_id, email, is_admin, operator)
-            VALUES ($1, $2, $3, $4)",
+            VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, email)
+            DO UPDATE SET is_admin = $3, operator = $4",
         &w_id,
         nu.email,
         nu.is_admin,
