@@ -748,13 +748,17 @@ async fn edit_auto_invite(
     //     ));
     // }
 
-    if ea.invite_all.is_some_and(|x| x) && *CLOUD_HOSTED {
+    let domain = if ea.invite_all.is_some_and(|x| x) {
+        if  *CLOUD_HOSTED {
         return Err(Error::BadRequest(
             "invite_all is only available locally".to_string(),
         ));
-
-    }
-    let domain = email.split('@').last().unwrap();
+        } else {
+            "*"
+        }  
+    } else {
+        email.split('@').last().unwrap()
+    };
 
     let mut tx = db.begin().await?;
 
@@ -778,7 +782,7 @@ async fn edit_auto_invite(
         sqlx::query!(
             "INSERT INTO workspace_invite
         (workspace_id, email, is_admin, operator)
-        SELECT $1::text, email, false, $3 FROM password WHERE $2::text = '*' OR email LIKE CONCAT('%', $2::text) AND NOT EXISTS (
+        SELECT $1::text, email, false, $3 FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
             SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
         )
         ON CONFLICT DO NOTHING",
