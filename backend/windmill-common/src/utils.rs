@@ -167,6 +167,7 @@ pub async fn get_uid(db: &DB) -> Result<String> {
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Worker,
+    Agent,
     Server,
     Standalone,
 }

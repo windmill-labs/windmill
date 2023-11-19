@@ -124,7 +124,7 @@ impl ApiServer {
 
         let addr = sock.local_addr().unwrap();
         drop(sock);
-        let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<u16>();
+        let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<String>();
 
         let task = tokio::task::spawn(windmill_api::run_server(
             db.clone(),
