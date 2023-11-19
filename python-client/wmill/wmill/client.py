@@ -92,7 +92,7 @@ def run_script_sync(
     args: Optional[Dict[str, Any]] = None, 
     verbose: bool = False,
     assert_result_is_not_none: bool = True,
-    cancel_atexit: bool = True,
+    cleanup: bool = True,
     timeout: Optional[timedelta] = None,
 ) -> Dict[str, Any]:
     """
@@ -106,16 +106,15 @@ def run_script_sync(
             sync_detailed,
             CancelQueuedJobJsonBody,
         )
-        import wmill
         logger.warning(f"cancelling job {job_id}")
         return sync_detailed(
-            workspace=wmill.get_workspace(),
+            workspace=get_workspace(),
             id=job_id,
-            client=wmill.create_client(),
+            client=create_client(),
             json_body=CancelQueuedJobJsonBody(reason="killed by exit handler"),
         )
 
-    if cancel_atexit:
+    if cleanup:
         atexit.register(cancel_job)
 
     nb_iter = 0
@@ -144,7 +143,7 @@ def run_script_sync(
     )
 
     # the job finished--we don't need to cancel it anymore
-    if cancel_atexit:
+    if cleanup:
         atexit.unregister(cancel_job)
 
     error = isinstance(result, dict) and result.get("error")
@@ -181,7 +180,7 @@ def run_script_by_path_sync(
     args: Dict[str, Any] = {}, 
     verbose: bool = False,
     assert_result_is_not_none: bool = True,
-    cancel_atexit: bool = True,
+    cleanup: bool = True,
     timeout: Optional[timedelta] = None,
 ) -> Dict[str, Any]:
     """
@@ -203,7 +202,7 @@ def run_script_by_path_sync(
             json_body=CancelQueuedJobJsonBody(reason="killed by exit handler"),
         )
 
-    if cancel_atexit:
+    if cleanup:
         atexit.register(cancel_job)
 
     nb_iter = 0
@@ -232,7 +231,7 @@ def run_script_by_path_sync(
     )
 
     # the job finished--we don't need to cancel it anymore
-    if cancel_atexit:
+    if cleanup:
         atexit.unregister(cancel_job)
 
     error = isinstance(result, dict) and result.get("error")
