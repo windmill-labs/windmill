@@ -3,6 +3,7 @@
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Button } from './common'
+	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
 	export let enum_: string[] | undefined
@@ -91,12 +92,19 @@
 {#if kind == 'pattern'}
 	<label for="input" class="mb-2 text-secondary text-xs">
 		Pattern (Regex)
-		<div class="flex flex-row">
+		<div class="flex flex-row items-center gap-0.5">
 			<input
 				id="input"
 				type="text"
 				placeholder="^(\\([0-9]{3}\\))?[0-9]{3}-[0-9]{4}$"
 				bind:value={patternStr}
+			/>
+			<RegexGen
+				on:gen={(e) => {
+					const { res, prompt } = e.detail
+					patternStr = res
+					customErrorMessage = 'does not match: ' + prompt
+				}}
 			/>
 			<Button
 				variant="border"

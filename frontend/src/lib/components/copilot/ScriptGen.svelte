@@ -121,7 +121,7 @@
 		diffEditor?.hide()
 	}
 
-	$: input?.focus()
+	$: input && setTimeout(() => input?.focus(), 100)
 
 	function clear() {
 		$generatedCode = ''
