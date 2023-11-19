@@ -102,6 +102,7 @@
 								bind:enum_={schema.properties[argName].enum}
 								bind:format={schema.properties[argName].format}
 								bind:contentEncoding={schema.properties[argName].contentEncoding}
+								bind:customErrorMessage={schema.properties[argName].customErrorMessage}
 								properties={schema.properties[argName].properties}
 								nestedRequired={schema.properties[argName].required}
 								bind:itemsType={schema.properties[argName].items}
@@ -131,6 +132,7 @@
 								enum_={schema.properties[argName].enum}
 								format={schema.properties[argName].format}
 								contentEncoding={schema.properties[argName].contentEncoding}
+								customErrorMessage={schema.properties[argName].customErrorMessage}
 								properties={schema.properties[argName].properties}
 								nestedRequired={schema.properties[argName].required}
 								itemsType={schema.properties[argName].items}

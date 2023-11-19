@@ -311,6 +311,7 @@ export function isString(value: any) {
 
 export type InputCat =
 	| 'string'
+	| 'email'
 	| 'number'
 	| 'boolean'
 	| 'list'
@@ -350,6 +351,8 @@ export function setInputCat(
 		return 'yaml'
 	} else if (type == 'string' && contentEncoding == 'base64') {
 		return 'base64'
+	} else if (type == 'string' && format == 'email') {
+		return 'email'
 	} else {
 		return 'string'
 	}

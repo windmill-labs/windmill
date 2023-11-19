@@ -1,12 +1,14 @@
 <script lang="ts">
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
+	import Toggle from './Toggle.svelte'
 	import { Button } from './common'
 
 	export let pattern: string | undefined
 	export let enum_: string[] | undefined
 	export let format: string | undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined
+	export let customErrorMessage: string | undefined
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
@@ -32,6 +34,11 @@
 	$: pattern = patternStr == '' ? undefined : patternStr
 	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
 
+	$: {
+		if (format == 'email') {
+			pattern = '^[\\w-.]+@([\\w-]+\\.)+[\\w-]{2,4}$'
+		}
+	}
 	function add() {
 		enum_ = enum_ ? enum_.concat('') : ['']
 	}
@@ -102,6 +109,22 @@
 			>
 				clear
 			</Button>
+		</div>
+		<div class="mt-2 flex gap-2">
+			<Toggle
+				size="xs"
+				options={{ right: 'Custom error message' }}
+				checked={customErrorMessage != undefined && customErrorMessage != ''}
+				on:change={(e) => {
+					if (e.detail) {
+						customErrorMessage = 'Custom error message'
+					} else {
+						customErrorMessage = undefined
+					}
+				}}
+				>Custom error message
+			</Toggle>
+			<input type="text" bind:value={customErrorMessage} />
 		</div>
 	</label>
 {:else if kind == 'enum'}
