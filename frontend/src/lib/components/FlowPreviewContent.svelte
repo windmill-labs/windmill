@@ -16,11 +16,12 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { ArrowRight, Play, RefreshCw, X } from 'lucide-svelte'
+	import { AlertTriangle, ArrowRight, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, getModifierKey } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
+	import { deepEqual } from 'fast-equals'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -86,6 +87,7 @@
 		}
 	}
 
+	let lastPreviewFlow: undefined | OpenFlow = undefined
 	export async function runPreview(
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
@@ -93,6 +95,7 @@
 		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
 		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+		lastPreviewFlow = JSON.parse(JSON.stringify($flowStore))
 		isRunning = true
 	}
 
@@ -157,10 +160,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div
-	class="flex divide-y flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full"
-	id="flow-preview-content"
->
+<div class="flex flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full" id="flow-preview-content">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
 			<Button
@@ -321,10 +321,21 @@
 			>
 		</div>
 	</div>
-	<FlowProgressBar {job} bind:reset={jobProgressReset} />
-
-	<div class="overflow-y-auto grow divide-y divide-gray-600 pr-4">
-		<div class="max-h-1/2 overflow-auto border-b border-gray-700">
+	<div class="w-full flex flex-col gap-y-1">
+		{#if lastPreviewFlow && !deepEqual($flowStore, lastPreviewFlow)}
+			<div class="pt-1">
+				<div
+					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
+				>
+					<AlertTriangle size={14} /> Flow changed since last preview
+					<div class="flex" />
+				</div>
+			</div>
+		{/if}
+		<FlowProgressBar {job} bind:reset={jobProgressReset} />
+	</div>
+	<div class="overflow-y-auto grow pr-4">
+		<div class="max-h-1/2 overflow-auto border-b">
 			<SchemaForm
 				noVariablePicker
 				compact

@@ -123,7 +123,7 @@
 				variant={'border'}
 				nonCaptureEvent
 			>
-				AI Flow Builder
+				AI
 			</Button>
 		</svelte:fragment>
 		<div class="block text-primary">
