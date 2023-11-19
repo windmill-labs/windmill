@@ -69,6 +69,7 @@
 	$: {
 		dataflow
 		moving
+		success
 		width && height && minHeight && $selectedId && flowModuleStates && renderCount
 
 		createGraph()
