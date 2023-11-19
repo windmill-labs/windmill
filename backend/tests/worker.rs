@@ -961,7 +961,7 @@ fn spawn_test_worker(
     tokio::sync::broadcast::Sender<()>,
     tokio::task::JoinHandle<()>,
 ) {
-    for x in [windmill_worker::LOCK_CACHE_DIR] {
+    for x in [windmill_worker::LOCK_CACHE_DIR, windmill_worker::GO_BIN_CACHE_DIR] {
         std::fs::DirBuilder::new()
             .recursive(true)
             .create(x)
