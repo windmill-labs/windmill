@@ -256,7 +256,7 @@
 		</div>
 		<svelte:fragment slot="actions">
 			<Button
-				color="blue"
+				color="dark"
 				disabled={!property.name || error != ''}
 				on:click={() => {
 					dispatch('save', property)

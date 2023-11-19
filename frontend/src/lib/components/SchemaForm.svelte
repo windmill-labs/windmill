@@ -101,7 +101,7 @@
 								defaultValue={schema.properties[argName].default}
 								bind:enum_={schema.properties[argName].enum}
 								bind:format={schema.properties[argName].format}
-								contentEncoding={schema.properties[argName].contentEncoding}
+								bind:contentEncoding={schema.properties[argName].contentEncoding}
 								properties={schema.properties[argName].properties}
 								nestedRequired={schema.properties[argName].required}
 								bind:itemsType={schema.properties[argName].items}
