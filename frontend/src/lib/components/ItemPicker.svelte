@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { RotateCw } from 'lucide-svelte'
 	import { Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import NoItemFound from './home/NoItemFound.svelte'
@@ -26,14 +27,19 @@
 
 	export function openDrawer() {
 		loading = true
-		loadItems().then((v) => {
-			items = v
-			loading = false
-		})
+		loadItems()
+			.then((v) => {
+				items = v
+			})
+			.finally(() => {
+				loading = false
+			})
 		drawer.openDrawer?.()
 	}
 
 	let drawer: Drawer
+
+	let refreshing = false
 </script>
 
 <SearchItems
@@ -58,7 +64,7 @@
 		on:close={drawer.closeDrawer}
 	>
 		<div class="w-full h-full flex flex-col">
-			<div class="w-12/12 pb-4">
+			<div class="flex flex-row gap-2 pb-4">
 				<input
 					type="text"
 					placeholder="Search {itemName}s"
@@ -66,10 +72,27 @@
 					class="search-item"
 					autofocus
 				/>
+				<Button
+					color="light"
+					variant="border"
+					on:click={() => {
+						refreshing = true
+						loadItems()
+							.then((v) => {
+								items = v
+							})
+							.finally(() => {
+								loading = false
+								refreshing = false
+							})
+					}}
+					iconOnly
+					startIcon={{ icon: RotateCw, classes: loading || refreshing ? 'animate-spin' : '' }}
+				/>
 			</div>
 			{#if loading}
-				{#each new Array(6) as _}
-					<Skeleton layout={[[2], 0.7]} />
+				{#each new Array(3) as _}
+					<Skeleton layout={[[5], 0.2]} />
 				{/each}
 			{:else if !items?.length}
 				<div class="text-center text-sm text-tertiary mt-2">
