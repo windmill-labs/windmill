@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setInputCat as computeInputCat } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -43,12 +43,11 @@
 	export let nestedRequired: string[] | undefined = undefined
 	export let extra: Record<string, any> = {}
 	export let displayType: boolean = true
+	export let customErrorMessage: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
 	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
-
-	$: validateInput(pattern, value)
 
 	export let error: string = ''
 
@@ -68,10 +67,8 @@
 	}
 
 	$: {
-		error = ''
 		if (inputCat === 'object') {
 			evalValueToRaw()
-			validateInput(pattern, value)
 		}
 	}
 
@@ -102,17 +99,23 @@
 		}
 	}
 
-	function validateInput(pattern: string | undefined, v: any): void {
+	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (required && (v == undefined || v == null || v === '')) {
 			error = 'Required'
-			valid = false
+			valid && (valid = false)
 		} else {
 			if (pattern && !testRegex(pattern, v)) {
-				error = `Should match ${pattern}`
-				valid = false
+				if (!emptyString(customErrorMessage)) {
+					error = customErrorMessage ?? ''
+				} else if (format == 'email') {
+					error = 'invalid email address'
+				} else {
+					error = `should match ${pattern}`
+				}
+				valid && (valid = false)
 			} else {
 				error = ''
-				valid = true
+				!valid && (valid = true)
 			}
 		}
 	}
@@ -140,6 +143,8 @@
 			}
 		}
 	}
+
+	$: validateInput(pattern, value, required)
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
@@ -209,47 +214,51 @@
 			{:else if inputCat == 'list'}
 				<div class="w-full">
 					<div class="w-full">
-						{#each value ?? [] as v, i}
-							<div class="flex flex-row max-w-md mt-1 w-full">
-								{#if itemsType?.type == 'number'}
-									<input type="number" bind:value={v} />
-								{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-									<input
-										type="file"
-										class="my-6"
-										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-										multiple={false}
-									/>
-								{:else if Array.isArray(itemsType?.enum)}
-									<select
-										on:focus={(e) => {
-											dispatch('focus')
+						{#if Array.isArray(value)}
+							{#each value ?? [] as v, i}
+								<div class="flex flex-row max-w-md mt-1 w-full">
+									{#if itemsType?.type == 'number'}
+										<input type="number" bind:value={v} />
+									{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+										<input
+											type="file"
+											class="my-6"
+											on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+											multiple={false}
+										/>
+									{:else if Array.isArray(itemsType?.enum)}
+										<select
+											on:focus={(e) => {
+												dispatch('focus')
+											}}
+											class="px-6"
+											bind:value={v}
+										>
+											{#each itemsType?.enum ?? [] as e}
+												<option>{e}</option>
+											{/each}
+										</select>
+									{:else}
+										<input type="text" bind:value={v} />
+									{/if}
+									<button
+										transition:fade|local={{ duration: 100 }}
+										class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+										aria-label="Clear"
+										on:click={() => {
+											value = value.filter((el) => el != v)
+											if (value.length == 0) {
+												value = undefined
+											}
 										}}
-										class="px-6"
-										bind:value={v}
 									>
-										{#each itemsType?.enum ?? [] as e}
-											<option>{e}</option>
-										{/each}
-									</select>
-								{:else}
-									<input type="text" bind:value={v} />
-								{/if}
-								<button
-									transition:fade|local={{ duration: 100 }}
-									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-									aria-label="Clear"
-									on:click={() => {
-										value = value.filter((el) => el != v)
-										if (value.length == 0) {
-											value = undefined
-										}
-									}}
-								>
-									<X size={14} />
-								</button>
-							</div>
-						{/each}
+										<X size={14} />
+									</button>
+								</div>
+							{/each}
+						{:else}
+							List is not an array
+						{/if}
 					</div>
 					<div class="flex my-2">
 						<Button
@@ -269,7 +278,7 @@
 						</Button>
 					</div>
 					<span class="ml-2">
-						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
+						{(value ?? []).length} item{(value ?? []).length != 1 ? 's' : ''}
 					</span>
 				</div>
 			{:else if inputCat == 'resource-object'}
@@ -312,12 +321,16 @@
 			{:else if inputCat == 'date'}
 				<DateTimeInput bind:value />
 			{:else if inputCat == 'base64'}
-				<input
-					type="file"
-					class="my-6"
-					on:change={(x) => fileChanged(x, (val) => (value = val))}
-					multiple={false}
-				/>
+				<div class="flex flex-col my-6 w-full">
+					<input
+						type="file"
+						on:change={(x) => fileChanged(x, (val) => (value = val))}
+						multiple={false}
+					/>
+					{#if value?.length}
+						<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div>
+					{/if}
+				</div>
 			{:else if inputCat == 'resource-string'}
 				<div class="flex flex-row gap-x-1 w-full">
 					<LightweightResourcePicker
@@ -327,6 +340,16 @@
 							: undefined}
 					/>
 				</div>
+			{:else if inputCat == 'email'}
+				<input
+					on:focus
+					type="email"
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+					placeholder={defaultValue ?? ''}
+					bind:value
+				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between">
