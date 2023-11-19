@@ -128,7 +128,7 @@ pub async fn create_token_for_owner(
     w_id: &str,
     owner: &str,
     label: &str,
-    expires_in: i32,
+    expires_in: u64,
     email: &str,
 ) -> error::Result<String> {
     // TODO: Bad implementation. We should not have access to this DB here.
@@ -273,10 +273,10 @@ lazy_static::lazy_static! {
 
     pub static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT);
 
-    pub static ref SCRIPT_TOKEN_EXPIRY: i32 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+    pub static ref SCRIPT_TOKEN_EXPIRY: u64 = std::env::var("SCRIPT_TOKEN_EXPIRY")
         .ok()
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(900);
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(*TIMEOUT);
 
     pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
         .ok()
