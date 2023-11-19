@@ -73,6 +73,11 @@
 		['Pattern', 'pattern']
 	]}
 	bind:value={kind}
+	on:change={(e) => {
+		if (e.detail != 'enum') {
+			enum_ = undefined
+		}
+	}}
 />
 <div class="my-2" />
 

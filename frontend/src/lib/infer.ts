@@ -123,6 +123,7 @@ function argSigToJsonSchemaType(
 		| { object: { key: string; typ: any }[] },
 	oldS: SchemaProperty
 ): void {
+	console.log(JSON.st)
 	const newS: SchemaProperty = { type: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
