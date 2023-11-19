@@ -75,6 +75,7 @@
 				enum_={schema.properties[argName].enum}
 				format={schema.properties[argName].format}
 				contentEncoding={schema.properties[argName].contentEncoding}
+				customErrorMessage={schema.properties[argName].customErrorMessage}
 				properties={schema.properties[argName].properties}
 				nestedRequired={schema.properties[argName].required}
 				itemsType={schema.properties[argName].items}

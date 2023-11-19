@@ -50,7 +50,7 @@ pub async fn handle_go_job(
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
-    let bin_path = Some(format!(
+    let bin_path = format!(
         "{}/{}",
         GO_BIN_CACHE_DIR,
         calculate_hash(&format!(
@@ -61,13 +61,8 @@ pub async fn handle_go_job(
                 .map(|x| x.to_string())
                 .unwrap_or_default()
         ))
-    ));
-
-    let bin_exists = if let Some(bin_path) = bin_path.clone() {
-        tokio::fs::metadata(bin_path).await.is_ok()
-    } else {
-        false
-    };
+    );
+    let bin_exists = tokio::fs::metadata(&bin_path).await.is_ok();
 
     let (skip_go_mod, skip_tidy) = if bin_exists {
         create_dir(job_dir).await?;
@@ -215,12 +210,11 @@ func Run(req Req) (interface{{}}, error){{
         )
         .await?;
 
-        if let Some(bin_path) = bin_path.clone() {
-            tokio::fs::copy(format!("{job_dir}/main"), &bin_path).await?;
-            logs.push_str(&format!("write cached binary: {}\n", bin_path));
-        }
+        create_dir(&bin_path).await?;
+        tokio::fs::copy(format!("{job_dir}/main"), format!("{bin_path}/main")).await?;
+        logs.push_str(&format!("write cached binary: {}\n", bin_path));
     } else {
-        let path = bin_path.unwrap().clone();
+        let path = format!("{bin_path}/main");
         logs.push_str(&format!("found cached binary: {path}\n"));
         tokio::fs::copy(&path, format!("{job_dir}/main"))
             .await

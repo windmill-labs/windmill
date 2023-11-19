@@ -1,5 +1,5 @@
 <script lang="ts" context="module">
-	import type { SchemaProperty, Schema } from '$lib/common'
+	import { type SchemaProperty, type ModalSchemaProperty, modalToSchema } from '$lib/common'
 	import Tab from './common/tabs/Tab.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -7,20 +7,6 @@
 
 	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
 	export type ArgType = (typeof ARG_TYPES)[number]
-
-	export interface ModalSchemaProperty {
-		selectedType?: string
-		description: string
-		name: string
-		required: boolean
-		format?: string
-		pattern?: string
-		enum_?: string[]
-		default?: any
-		items?: { type?: 'string' | 'number' }
-		contentEncoding?: 'base64' | 'binary'
-		schema?: Schema
-	}
 
 	export function schemaToModal(
 		schema: SchemaProperty,
@@ -68,6 +54,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
+	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 
 	export let error = ''
 	export let editing = false
@@ -202,7 +189,10 @@
 						bind:value={property.default}
 						type={property.selectedType}
 						pattern={property.pattern}
+						customErrorMessage={property.customErrorMessage}
 						itemsType={property.items}
+						contentEncoding={property.contentEncoding}
+						format={property.format}
 					/>
 					<Toggle
 						options={{ right: 'Required' }}
@@ -224,6 +214,7 @@
 					<div class="font-semibold text-secondary mb-1">Advanced</div>
 					{#if property.selectedType == 'string'}
 						<StringTypeNarrowing
+							bind:customErrorMessage={property.customErrorMessage}
 							bind:format={property.format}
 							bind:pattern={property.pattern}
 							bind:enum_={property.enum_}
@@ -254,9 +245,20 @@
 				</div>
 			{/if}
 		</div>
+		<div class="font-semibold text-secondary mb-1 pt-4">Preview</div>
+		<LightweightSchemaForm
+			displayType={false}
+			schema={{
+				properties: {
+					[property.name]: modalToSchema(property)
+				},
+				required: property.required ? [property.name] : []
+			}}
+		/>
 		<svelte:fragment slot="actions">
+			<div class="h-10" />
 			<Button
-				color="blue"
+				color="dark"
 				disabled={!property.name || error != ''}
 				on:click={() => {
 					dispatch('save', property)
