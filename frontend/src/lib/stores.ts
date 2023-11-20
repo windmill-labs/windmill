@@ -65,7 +65,7 @@ export const copilotInfo = writable<{
 	code_completion_enabled: false
 })
 export const codeCompletionLoading = writable<boolean>(false)
-export const codeCompletionSessionEnabled = writable<boolean>(false)
+export const codeCompletionSessionEnabled = writable<boolean>(true)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
