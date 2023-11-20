@@ -410,6 +410,13 @@ async fn prepare_wrapper(
         .to_lowercase();
     let module_dir = format!("{}/{}", job_dir, dirs);
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
+
+    let last = if last.starts_with(|x: char| x.is_ascii_digit()) {
+        format!("_{}", last)
+    } else {
+        last
+    };
+
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
     if relative_imports {
         let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
@@ -484,11 +491,6 @@ if args["{name}"] is None:
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
-    let last = if last.starts_with(|x: char| x.is_ascii_digit()) {
-        format!("_{}", last)
-    } else {
-        last
-    };
     Ok((
         import_loader,
         import_base64,
