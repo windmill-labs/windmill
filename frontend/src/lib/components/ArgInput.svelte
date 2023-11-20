@@ -432,7 +432,7 @@
 						id="arg-input-file-picker"
 						startIcon={{ icon: Pipette }}
 					>
-						Choose a dataset from the catalog
+						Choose an object from the catalog
 					</Button>
 				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
