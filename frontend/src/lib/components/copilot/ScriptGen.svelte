@@ -19,7 +19,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
+	import { Ban, Check, ExternalLink, HistoryIcon, Wand2, X, ZapIcon } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 
@@ -309,10 +309,16 @@
 				</div>
 			{:else if $copilotInfo.exists_openai_resource_path}
 				<div class="flex flex-col gap-4">
-					<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
-						<ToggleButton value={'gen'} label="Generate from scratch" small light />
-						<ToggleButton value={'edit'} label="Edit existing code" small light />
-					</ToggleButtonGroup>
+					<div class="flex flex-row justify-between items-center">
+						<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
+							<ToggleButton value={'gen'} label="Generate from scratch" small light />
+							<ToggleButton value={'edit'} label="Edit existing code" small light />
+						</ToggleButtonGroup>
+
+						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
+							GPT-4 Turbo<ZapIcon size={14} />
+						</div>
+					</div>
 					<div class="flex w-96">
 						<input
 							type="text"
@@ -368,7 +374,7 @@
 									Context: {lang === 'graphql' ? 'GraphQL' : 'DB'} schema
 								</p>
 								<Tooltip>
-									In order to better generate the script, we pass the selected schema to GPT-4-turbo.
+									We pass the selected schema to GPT-4 Turbo for better script generation.
 								</Tooltip>
 							</div>
 							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
