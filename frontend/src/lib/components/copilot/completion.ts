@@ -1,5 +1,6 @@
-import type { CreateChatCompletionRequestMessage } from 'openai/resources/chat'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat'
 import { getNonStreamingCompletion } from './lib'
+import { codeCompletionLoading } from '$lib/stores'
 
 const systemPrompt =
 	'You are a code completion assistant, return the code that should go inside the <completion></completion> tags. If you add a line break, take into account the indentation of the code. You can also not return anything if you think the code is already complete.'
@@ -26,7 +27,8 @@ export async function editorCodeCompletion(
 	lang: string,
 	abortController: AbortController
 ) {
-	const messages: CreateChatCompletionRequestMessage[] = [
+	codeCompletionLoading.set(true)
+	const messages: ChatCompletionMessageParam[] = [
 		{
 			role: 'system',
 			content: systemPrompt
@@ -57,5 +59,7 @@ export async function editorCodeCompletion(
 		if (err.message !== 'Request was aborted.') {
 			console.log(err)
 		}
+	} finally {
+		codeCompletionLoading.set(false)
 	}
 }
