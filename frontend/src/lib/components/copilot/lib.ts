@@ -8,17 +8,18 @@ import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import type {
-	CompletionCreateParamsStreaming,
-	CreateChatCompletionRequestMessage
+	ChatCompletionCreateParamsStreaming,
+	ChatCompletionMessageParam
 } from 'openai/resources/chat'
 import { buildClientSchema, printSchema } from 'graphql'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
-const openaiConfig: CompletionCreateParamsStreaming = {
+const openaiConfig: ChatCompletionCreateParamsStreaming = {
 	temperature: 0,
 	max_tokens: 2048,
-	model: 'gpt-4',
+	model: 'gpt-4-1106-preview',
+	seed: 42,
 	stream: true,
 	messages: []
 }
@@ -32,7 +33,7 @@ export async function testKey({
 	messages
 }: {
 	apiKey?: string
-	messages: CreateChatCompletionRequestMessage[]
+	messages: ChatCompletionMessageParam[]
 	abortController: AbortController
 }) {
 	if (apiKey) {
@@ -236,9 +237,9 @@ const PROMPTS_CONFIGS = {
 }
 
 export async function getNonStreamingCompletion(
-	messages: CreateChatCompletionRequestMessage[],
+	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	model: string = 'gpt-4'
+	model: string = 'gpt-4-1106-preview'
 ) {
 	if (!openai) {
 		throw new Error('OpenAI not initialized')
@@ -265,7 +266,7 @@ export async function getNonStreamingCompletion(
 }
 
 export async function getCompletion(
-	messages: CreateChatCompletionRequestMessage[],
+	messages: ChatCompletionMessageParam[],
 	abortController: AbortController
 ) {
 	if (!openai) {
@@ -374,7 +375,7 @@ function getStringEndDelta(prev: string, now: string) {
 }
 
 export async function deltaCodeCompletion(
-	messages: CreateChatCompletionRequestMessage[],
+	messages: ChatCompletionMessageParam[],
 	generatedCodeDelta: Writable<string>,
 	abortController: AbortController
 ) {

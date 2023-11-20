@@ -41,7 +41,8 @@ export type FlowCopilotContext = {
 	}>
 }
 
-const systemPrompt = `You write code as instructed by the user. Only output code. Wrap the code in a code block. 
+const systemPrompt = `You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.
+Only output code. Wrap the code in a code block.
 Put explanations directly in the code as comments.
 
 Here's how interactions have to look like:
@@ -55,24 +56,24 @@ const additionalInfos: {
 	python3: string
 } = {
 	bun: `<contextual_information>
-We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
-If needed, the standard fetch method is available globally, do not import it.
-You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
-The following resource types are available:
+You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+The fetch standard method is available globally.
+You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
 <resourceTypes>
 {resourceTypes}
 </resourceTypes>
-Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+You need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
+The resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.
 </contextual_information>`,
 	python3: `<contextual_information>
-We have to export a "main" function and specify the parameter types but do not call it.
-You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
-The following resource types are available:
+You have to write a function in Python called "main". Specify the parameter types. Do not call the main function.
+You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
 <resourceTypes>
 {resourceTypes}
 </resourceTypes>
-Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified (has to be IN LOWERCASE). If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
-</contextual_information>`
+You need to define the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
+The resource type name has to be exactly as specified (has to be IN LOWERCASE). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.
+<contextual_information>`
 }
 
 const triggerPrompts: {
