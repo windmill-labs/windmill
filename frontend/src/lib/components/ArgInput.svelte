@@ -411,7 +411,7 @@
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
 				<ObjectResourceInput {disablePortal} {format} bind:value {showSchemaExplorer} />
-			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format.replace('resource-', '') == 'dataset'}
+			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format.replace('resource-', '') == 's3object'}
 				<div class="flex flex-col w-full gap-1">
 					<JsonEditor
 						bind:editor
