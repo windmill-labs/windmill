@@ -18,7 +18,7 @@ prompts:
       {code}
       ```
       <contextual_information>
-      You have to write a function in python called "main". Specify the parameter types. Do not call the main function.
+      You have to write a function in python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.
       You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
       <resourceTypes>
       {resourceTypes}
@@ -35,7 +35,7 @@ prompts:
       {code}
       ```
       <contextual_information>
-      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
       If needed, the standard fetch method is available globally, do not import it.
       You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
       The following resource types are available:
@@ -152,7 +152,7 @@ prompts:
       {code}
       ```
       <contextual_information>
-      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
       You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource". 
       The following resource types are available:
       <resourceTypes>
@@ -169,7 +169,7 @@ prompts:
       {code}
       ```
       <contextual_information>
-      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
       If needed, the standard fetch method is available globally, do not import it.
       You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
       The following resource types are available:
