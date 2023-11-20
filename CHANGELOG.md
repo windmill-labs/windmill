@@ -1,6 +1,38 @@
 # Changelog
 
 
+## [1.211.0](https://github.com/windmill-labs/windmill/compare/v1.210.1...v1.211.0) (2023-11-20)
+
+
+### Features
+
+* agent mode v0 ([cd260e7](https://github.com/windmill-labs/windmill/commit/cd260e7062802ab39115025577a2456c66435899))
+* agent mode v0 ([47ad8d6](https://github.com/windmill-labs/windmill/commit/47ad8d6013e7144a5d018f43c827b171228b5f42))
+* ai regex ([19907e4](https://github.com/windmill-labs/windmill/commit/19907e4012e88a8fd28a5f0564a7ea48ec12020c))
+* custom error messages for forms ([2f15ebc](https://github.com/windmill-labs/windmill/commit/2f15ebc5f9628b0d26ec08b3527ddc96c6d42ba0))
+* **python:** Add functionality and resiliency to wmill python client ([#2650](https://github.com/windmill-labs/windmill/issues/2650)) ([c7a30f7](https://github.com/windmill-labs/windmill/commit/c7a30f7c9db26252f0ee69e1276ddccc0d52acb3))
+
+
+### Bug Fixes
+
+* add refresh button to item picker ([4882d94](https://github.com/windmill-labs/windmill/commit/4882d94dfe18c156662fe483e1dd4f5d3e3be3af))
+* fix base64 assignment (file input) ([70f1210](https://github.com/windmill-labs/windmill/commit/70f121035edd94b3940f530a5603b1ff4bf03839))
+* main broken tests ([#2652](https://github.com/windmill-labs/windmill/issues/2652)) ([c90f7f1](https://github.com/windmill-labs/windmill/commit/c90f7f167e0b9c20008a62eeeef7819e24fc3da9))
+* token expiry is equal to timeout ([b667317](https://github.com/windmill-labs/windmill/commit/b667317d44f37bb50f24e356a1a3d231ebe8b4b4))
+
+## [1.210.1](https://github.com/windmill-labs/windmill/compare/v1.210.0...v1.210.1) (2023-11-18)
+
+
+### Bug Fixes
+
+* add toggle to invites ([36379d6](https://github.com/windmill-labs/windmill/commit/36379d6db05de170e0237b12e767b6d6f4a6f2ef))
+* auto-invite all instead of by domain ([c07e905](https://github.com/windmill-labs/windmill/commit/c07e9056f1872cae70b8c3bebdbbf47daeee7ac5))
+* flow copilot arg types ([#2648](https://github.com/windmill-labs/windmill/issues/2648)) ([08c14e5](https://github.com/windmill-labs/windmill/commit/08c14e51c792fe65d4f993379eff0e5c8a75215b))
+* improve error message for unauthorized variables/resources ([5a72ca9](https://github.com/windmill-labs/windmill/commit/5a72ca9b24c5c4e9fe94c7865b9145283aceff53))
+* leave workspace + instance api ([ee243de](https://github.com/windmill-labs/windmill/commit/ee243dedc6df28a64f15e0b274b7fa96f6428474))
+* make wmill compatible with python 3.7 ([6ae1a69](https://github.com/windmill-labs/windmill/commit/6ae1a69b75fe039586956064880c274a21fc5970))
+* migrate old state env variable to new env variable ([2692737](https://github.com/windmill-labs/windmill/commit/2692737418ed601c0a36c368f59ffb8d10d9ad38))
+
 ## [1.210.0](https://github.com/windmill-labs/windmill/compare/v1.209.0...v1.210.0) (2023-11-17)
 
 

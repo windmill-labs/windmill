@@ -786,7 +786,7 @@
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex h-full max-h-12 items-center px-4 border-b">
+		<div class="flex h-12 items-center px-4">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
 				<div class="flex flex-row gap-2">
 					<div class="center-center">

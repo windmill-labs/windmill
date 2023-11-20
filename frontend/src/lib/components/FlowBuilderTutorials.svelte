@@ -24,9 +24,7 @@
 				variant="border"
 				id="tutorials-button"
 				startIcon={{ icon: BookOpen }}
-			>
-				Tutorials
-			</Button>
+			/>
 		</svelte:fragment>
 		<svelte:fragment slot="items">
 			<TutorialItem

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
@@ -67,6 +67,7 @@
 	export let disablePortal = false
 	export let showSchemaExplorer = false
 	export let simpleTooltip: string | undefined = undefined
+	export let customErrorMessage: string | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -153,7 +154,13 @@
 			valid && (valid = false)
 		} else {
 			if (pattern && !testRegex(pattern, v)) {
-				error = `Should match ${pattern}`
+				if (!emptyString(customErrorMessage)) {
+					error = customErrorMessage ?? ''
+				} else if (format == 'email') {
+					error = 'invalid email address'
+				} else {
+					error = `Should match ${pattern}`
+				}
 				valid && (valid = false)
 			} else {
 				error = ''
@@ -247,7 +254,13 @@
 					{#if seeEditable}
 						<div class="mt-2">
 							{#if type == 'string' && format != 'date-time'}
-								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
+								<StringTypeNarrowing
+									bind:customErrorMessage
+									bind:format
+									bind:pattern
+									bind:enum_
+									bind:contentEncoding
+								/>
 							{:else if type == 'number'}
 								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
 							{:else if type == 'object'}
@@ -483,6 +496,18 @@
 						: undefined}
 					{showSchemaExplorer}
 				/>
+			{:else if inputCat == 'email'}
+				<input
+					{autofocus}
+					on:focus
+					{disabled}
+					type="email"
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+					placeholder={defaultValue ?? ''}
+					bind:value
+				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
@@ -504,7 +529,7 @@
 									'w-full',
 									valid
 										? ''
-										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
 								)}
 								placeholder={defaultValue ?? ''}
 								bind:value

@@ -97,6 +97,15 @@ async fn main() -> anyhow::Result<()> {
             } else if &x == "worker" {
                 tracing::info!("Binary is in 'worker' mode");
                 Mode::Worker
+            } else if &x == "agent" {
+                tracing::info!("Binary is in 'agent' mode");
+                if std::env::var("BASE_INTERNAL_URL").is_err() {
+                    panic!("BASE_INTERNAL_URL is required in agent mode")
+                }
+                if std::env::var("WORKER_TOKEN").is_err() {
+                    tracing::warn!("WORKER_TOKEN is not passed, hence workers will still create one ephemeral token per job and the DATABASE_URL need to be of a role that can INSERT into the token table")
+                }
+                Mode::Agent
             } else {
                 if &x != "standalone" {
                     tracing::error!("mode not recognized, defaulting to standalone: {x}");
@@ -248,8 +257,19 @@ Windmill Community Edition {GIT_VERSION}
             port_var.unwrap_or(0)
         };
 
+        let default_base_internal_url = format!("http://localhost:{}", port.to_string());
+        let is_agent = mode == Mode::Agent;
         // since it's only on server mode, the port is statically defined
-        let base_internal_url: String = format!("http://localhost:{}", port.to_string());
+        let base_internal_url: String = if let Ok(base_url) = std::env::var("BASE_INTERNAL_URL") {
+            if !is_agent {
+                tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored unless the mode is 'agent', you can remove it.");
+                default_base_internal_url.clone()
+            } else {
+                base_url
+            }
+        } else {
+            default_base_internal_url.clone()
+        };
 
         initial_load(&db, tx.clone(), worker_mode, server_mode).await;
 
@@ -257,14 +277,10 @@ Windmill Community Edition {GIT_VERSION}
 
         monitor_pool(&db).await;
 
-        if std::env::var("BASE_INTERNAL_URL").is_ok() {
-            tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
-        }
-
         let addr = SocketAddr::from((server_bind_address, port));
 
         let rsmq2 = rsmq.clone();
-        let (port_tx, port_rx) = tokio::sync::oneshot::channel::<u16>();
+        let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
         DirBuilder::new()
             .recursive(true)
@@ -273,21 +289,28 @@ Windmill Community Edition {GIT_VERSION}
             .expect("could not create initial server dir");
 
         let server_f = async {
-            windmill_api::run_server(
-                db.clone(),
-                rsmq2,
-                addr,
-                rx.resubscribe(),
-                port_tx,
-                server_mode,
-            )
-            .await?;
+            if !is_agent {
+                windmill_api::run_server(
+                    db.clone(),
+                    rsmq2,
+                    addr,
+                    rx.resubscribe(),
+                    base_internal_tx,
+                    server_mode,
+                )
+                .await?;
+            } else {
+                base_internal_tx
+                    .send(base_internal_url.clone())
+                    .map_err(|e| {
+                        anyhow::anyhow!("Could not send base_internal_url to agent: {e}")
+                    })?;
+            }
             Ok(()) as anyhow::Result<()>
         };
 
         let workers_f = async {
-            let port = port_rx.await?;
-            let base_internal_url: String = format!("http://localhost:{}", port.to_string());
+            let base_internal_url = base_internal_rx.await?;
             if worker_mode {
                 run_workers(
                     db.clone(),

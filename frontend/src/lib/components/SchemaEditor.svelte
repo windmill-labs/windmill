@@ -1,9 +1,14 @@
 <script lang="ts">
-	import type { Schema, SchemaProperty, PropertyDisplayInfo } from '$lib/common'
+	import {
+		type Schema,
+		type SchemaProperty,
+		type PropertyDisplayInfo,
+		modalToSchema,
+		type ModalSchemaProperty
+	} from '$lib/common'
 	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
-	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
 	import PropertyRow from './PropertyRow.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -79,20 +84,6 @@
 		}
 	}
 
-	function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
-		return {
-			type: schema.selectedType,
-			description: schema.description,
-			pattern: schema.pattern,
-			default: schema.default,
-			enum: schema.enum_,
-			items: schema.items,
-			contentEncoding: schema.contentEncoding,
-			format: schema.format,
-			properties: schema.schema?.properties,
-			required: schema.schema?.required
-		}
-	}
 	function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''

@@ -568,7 +568,7 @@
 
 						<FlowGraph
 							download
-							success={isSuccess(job?.['success'])}
+							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$flowModuleStates}
 							on:select={(e) => {
 								rightColumnSelect = 'detail'

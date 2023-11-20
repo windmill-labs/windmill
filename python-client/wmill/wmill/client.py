@@ -1,8 +1,12 @@
 from typing import Any, Union, Dict
-from typing import Generic, TypeVar, TypeAlias
+from typing import Generic, TypeVar, Optional
 
 import os
 import json
+from datetime import timedelta
+import logging
+import atexit
+import time
 
 from time import sleep
 from windmill_api.models.whoami_response_200 import WhoamiResponse200
@@ -20,11 +24,6 @@ class Resource(Generic[S]):
     pass
 
 
-postgresql = TypeAlias
-mysql = TypeAlias
-bigquery = TypeAlias
-
-
 class JobStatus(Enum):
     WAITING = 1
     RUNNING = 2
@@ -32,6 +31,8 @@ class JobStatus(Enum):
 
 
 _client: "AuthenticatedClient | None" = None
+
+logger = logging.getLogger("wmill_client")
 
 
 def create_client(base_url: "str | None" = None, token: "str | None" = None) -> AuthenticatedClient:
@@ -86,13 +87,48 @@ def run_script_async(
     ).content.decode("us-ascii")
 
 
-def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
+def run_script_sync(
+    hash: str, 
+    args: Optional[Dict[str, Any]] = None, 
+    verbose: bool = False,
+    assert_result_is_not_none: bool = True,
+    cleanup: bool = True,
+    timeout: Optional[timedelta] = None,
+) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
     """
+    args = args or {}
     job_id = run_script_async(hash, args, None)
+
+    def cancel_job():
+        from windmill_api.api.job.cancel_queued_job import (
+            sync_detailed,
+            CancelQueuedJobJsonBody,
+        )
+        logger.warning(f"cancelling job {job_id}")
+        return sync_detailed(
+            workspace=get_workspace(),
+            id=job_id,
+            client=create_client(),
+            json_body=CancelQueuedJobJsonBody(reason="killed by exit handler"),
+        )
+
+    if cleanup:
+        atexit.register(cancel_job)
+
     nb_iter = 0
+
+    start_time = time.time()
+    timeout_seconds = timeout.total_seconds() if timeout else None
+
     while get_job_status(job_id) != JobStatus.COMPLETED:
+        if timeout_seconds is not None:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout_seconds:
+                msg = f"Script execution timed out after {timeout_seconds} seconds"
+                logger.warning(msg)
+                raise TimeoutError(msg)
         if verbose:
             print(f"Waiting for {job_id} to complete...")
         if nb_iter < 10:
@@ -100,7 +136,21 @@ def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False)
         else:
             sleep(5.0)
         nb_iter += 1
-    return get_result(job_id)
+    
+    result = get_result(
+        job_id,
+        assert_result_is_not_none=assert_result_is_not_none,
+    )
+
+    # the job finished--we don't need to cancel it anymore
+    if cleanup:
+        atexit.unregister(cancel_job)
+
+    error = isinstance(result, dict) and result.get("error")
+
+    assert not error, error
+
+    return result
 
 
 def run_script_by_path_async(
@@ -125,13 +175,48 @@ def run_script_by_path_async(
     ).content.decode("us-ascii")
 
 
-def run_script_by_path_sync(path: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
+def run_script_by_path_sync(
+    path: str, 
+    args: Dict[str, Any] = {}, 
+    verbose: bool = False,
+    assert_result_is_not_none: bool = True,
+    cleanup: bool = True,
+    timeout: Optional[timedelta] = None,
+) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
     """
+    args = args or {}
     job_id = run_script_by_path_async(path, args, None)
+
+    def cancel_job():
+        from windmill_api.api.job.cancel_queued_job import (
+            sync_detailed,
+            CancelQueuedJobJsonBody,
+        )
+        logger.warning(f"cancelling job {job_id}")
+        return sync_detailed(
+            workspace=get_workspace(),
+            id=job_id,
+            client=create_client(),
+            json_body=CancelQueuedJobJsonBody(reason="killed by exit handler"),
+        )
+
+    if cleanup:
+        atexit.register(cancel_job)
+
     nb_iter = 0
+
+    start_time = time.time()
+    timeout_seconds = timeout.total_seconds() if timeout else None
+
     while get_job_status(job_id) != JobStatus.COMPLETED:
+        if timeout_seconds is not None:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout_seconds:
+                msg = f"Script execution timed out after {timeout_seconds} seconds"
+                logger.warning(msg)
+                raise TimeoutError(msg)
         if verbose:
             print(f"Waiting for {job_id} to complete...")
         if nb_iter < 10:
@@ -139,7 +224,21 @@ def run_script_by_path_sync(path: str, args: Dict[str, Any] = {}, verbose: bool 
         else:
             sleep(5.0)
         nb_iter += 1
-    return get_result(job_id)
+    
+    result = get_result(
+        job_id,
+        assert_result_is_not_none=assert_result_is_not_none,
+    )
+
+    # the job finished--we don't need to cancel it anymore
+    if cleanup:
+        atexit.unregister(cancel_job)
+
+    error = isinstance(result, dict) and result.get("error")
+
+    assert not error, error
+
+    return result
 
 
 def get_job_status(job_id: str) -> JobStatus:
@@ -165,7 +264,7 @@ def get_job_status(job_id: str) -> JobStatus:
             return JobStatus.WAITING
 
 
-def get_result(job_id: str) -> Dict[str, Any]:
+def get_result(job_id: str, assert_result_is_not_none: bool = True) -> Dict[str, Any]:
     """
     Returns the result of a completed job
     """
@@ -174,13 +273,13 @@ def get_result(job_id: str) -> Dict[str, Any]:
     res = get_completed_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
-    if not res.result:
-        raise Exception(f"Unexpected result not found for completed job {job_id}")
+    if assert_result_is_not_none and res.result is None:
+        raise Exception(f"result was null for completed job {job_id}")
     else:
         return res.result
 
 
-def get_resource(path: str | None = None, none_if_undefined: bool = False) -> Any:
+def get_resource(path: Union[str, None] = None, none_if_undefined: bool = False) -> Any:
     """
     Returns the resource at a given path
     """
@@ -207,7 +306,7 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
     return parsed
 
 
-def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> str | None:
+def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> Union[str, None]:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
@@ -264,7 +363,7 @@ def polars_connection_settings(s3_resource: Any, none_if_undefined: bool = False
     return parsed
 
 
-def whoami() -> WhoamiResponse200 | None:
+def whoami() -> Union[WhoamiResponse200, None]:
     """
     Returns the current user
     """
@@ -280,7 +379,7 @@ def get_state() -> Any:
     return get_resource(None, True)
 
 
-def set_resource(value: Any, path: str | None = None, resource_type: str = "state") -> None:
+def set_resource(value: Any, path: Union[str, None] = None, resource_type: str = "state") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
@@ -412,7 +511,7 @@ def get_state_path() -> str:
     return state_path
 
 
-def get_resume_urls(approver: str | None = None) -> Dict:
+def get_resume_urls(approver: Union[str, None] = None) -> Dict:
     from windmill_api.api.job import get_resume_urls as get_resume_urls_api
 
     workspace = get_workspace()

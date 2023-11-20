@@ -112,7 +112,7 @@ pub async fn run_server(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
-    port_tx: tokio::sync::oneshot::Sender<u16>,
+    port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
 ) -> anyhow::Result<()> {
     if let Some(mut rsmq) = rsmq.clone() {
@@ -284,7 +284,7 @@ pub async fn run_server(
     );
 
     port_tx
-        .send(server.local_addr().port())
+        .send(format!("http://localhost:{}", server.local_addr().port()))
         .expect("Failed to send port");
 
     let server = server.with_graceful_shutdown(async {

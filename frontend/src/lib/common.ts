@@ -28,10 +28,41 @@ export interface SchemaProperty {
 		contentEncoding?: 'base64'
 		enum?: string[]
 	}
+	customErrorMessage?: string
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
 }
 
+export interface ModalSchemaProperty {
+	selectedType?: string
+	description: string
+	name: string
+	required: boolean
+	format?: string
+	pattern?: string
+	enum_?: string[]
+	default?: any
+	items?: { type?: 'string' | 'number' }
+	contentEncoding?: 'base64' | 'binary'
+	schema?: Schema
+	customErrorMessage?: string
+}
+
+export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
+	return {
+		type: schema.selectedType,
+		description: schema.description,
+		pattern: schema.pattern,
+		default: schema.default,
+		enum: schema.enum_,
+		items: schema.items,
+		contentEncoding: schema.contentEncoding,
+		format: schema.format,
+		customErrorMessage: schema.customErrorMessage,
+		properties: schema.schema?.properties,
+		required: schema.schema?.required
+	}
+}
 export type Schema = {
 	$schema: string | undefined
 	type: string
