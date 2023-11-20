@@ -119,19 +119,21 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
         (system, prompt, template_prompt) = prepare_prompt(
             query, GEN_CONFIG, EDIT_CONFIG, FIX_CONFIG
         )
-        chat_completion = openai.ChatCompletion.create(
-            model="gpt-4",
+        client = openai.OpenAI()
+        chat_completion = client.chat.completions.create(
+            model="gpt-4-1106-preview",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
             temperature=0,
             max_tokens=2048,
+            seed=42,
         )
 
         answer = {
             **query,
-            "answer": Literal(format_literal(chat_completion["choices"][0]["message"]["content"])),  # type: ignore
+            "answer": Literal(format_literal(chat_completion.choices[0].message.content)),  # type: ignore
             "template_system": Literal(format_literal(system)),
             "template_prompt": Literal(format_literal(template_prompt)),
         }

@@ -8,7 +8,7 @@
 </script>
 
 <Button
-	size="sm"
+	size="xs"
 	variant="contained"
 	color="dark"
 	{disabled}

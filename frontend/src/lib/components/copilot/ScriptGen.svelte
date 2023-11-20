@@ -368,7 +368,7 @@
 									Context: {lang === 'graphql' ? 'GraphQL' : 'DB'} schema
 								</p>
 								<Tooltip>
-									In order to better generate the script, we pass the selected schema to GPT-4.
+									In order to better generate the script, we pass the selected schema to GPT-4-turbo.
 								</Tooltip>
 							</div>
 							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
