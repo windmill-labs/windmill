@@ -7,6 +7,7 @@
 	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import S3FilePicker from './S3FilePicker.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -130,6 +131,7 @@
 	}
 
 	let jsonViewer: Drawer
+	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
 		return JSON.stringify(result, null, 4)
@@ -161,7 +163,15 @@
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
 							><ClipboardCopy size={16} /></button
 						>
-						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+						<button
+							on:click={() => {
+								if (Object.keys(result).length == 1 && Object.keys(result).indexOf('s3') >= 0) {
+									s3FileViewer?.open?.()
+								} else {
+									jsonViewer.openDrawer
+								}
+							}}><Expand size={16} /></button
+						>
 					</div>
 				{/if}</div
 			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
@@ -362,5 +372,14 @@
 				{/if}
 			</DrawerContent>
 		</Drawer>
+	</Portal>
+
+	<Portal>
+		<S3FilePicker
+			bind:this={s3FileViewer}
+			initialFileKey={result}
+			selectedFileKey={result}
+			readOnlyMode={true}
+		/>
 	</Portal>
 {/if}

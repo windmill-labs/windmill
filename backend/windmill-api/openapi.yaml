@@ -6344,6 +6344,15 @@ paths:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: max_keys
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: marker
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: List of file keys
@@ -6352,15 +6361,35 @@ paths:
               schema:
                 type: object
                 properties:
-                  file_count:
-                    type: integer
+                  next_marker:
+                    type: string
                   windmill_large_files:
                     type: array
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
                 required:
-                  - file_count
                   - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_file_metadata:
+    get:
+      summary: Load metadata of the file
+      operationId: loadFileMetadata
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
 
   /w/{workspace}/job_helpers/load_file_preview:
     get:
@@ -6375,18 +6404,26 @@ paths:
           required: true
           schema:
             type: string
-        - name: from
+        - name: file_size_in_bytes
           in: query
           schema:
             type: integer
-        - name: length
-          in: query
-          schema:
-            type: integer
-        - name: separator
+        - name: file_mime_type
           in: query
           schema:
             type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: read_bytes_from
+          in: query
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          schema:
+            type: integer
       responses:
         "200":
           description: FilePreview
@@ -8392,35 +8429,34 @@ components:
       required:
         - s3
 
-    WindmillFilePreview:
+    WindmillFileMetadata:
       type: object
       properties:
         mime_type:
           type: string
+        size_in_bytes:
+          type: integer
         last_modified:
           type: string
           format: date-time
-        size_in_bytes:
-          type: integer
         expires:
           type: string
           format: date-time
         version_id:
           type: string
-        content_preview:
-          type: object
-          properties:
-            msg:
-              type: string
-            content:
-              type: string
-            content_type:
-              type: string
-              enum: ["RawText", "Csv", "Parquet", "Unknown"]
-          required:
-            - content_type
+
+    WindmillFilePreview:
+      type: object
+      properties:
+        msg:
+          type: string
+        content:
+          type: string
+        content_type:
+          type: string
+          enum: ["RawText", "Csv", "Parquet", "Unknown"]
       required:
-        - content_preview
+        - content_type
 
     S3Resource:
       type: object

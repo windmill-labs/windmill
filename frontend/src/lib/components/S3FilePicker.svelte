@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { File, FolderClosed, FolderOpen, RotateCw } from 'lucide-svelte'
+	import { File, FolderClosed, FolderOpen, RotateCw, Loader2 } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
 	import { displayDate, displaySize, emptyString } from '$lib/utils'
@@ -11,6 +11,8 @@
 	import TableSimple from './TableSimple.svelte'
 
 	let workspaceSettingsInitialized = true
+
+	export let readOnlyMode: boolean
 
 	export let initialFileKey: { s3: string }
 	let initialFileKeyInternalCopy: { s3: string }
@@ -34,24 +36,35 @@
 		}
 	> = {}
 	let displayedFileKeys: string[] = []
+	let paginationMarker: string | undefined = undefined
 
 	let listDivHeight: number = 0
 
+	let fileMetadata:
+		| {
+				fileKey: string
+				mimeType: string | undefined
+				size: number | undefined
+				sizeStr: string | undefined
+				lastModified: string | undefined
+		  }
+		| undefined = undefined
+	let filePreviewLoading: boolean = false
 	let filePreview:
 		| {
-				file_key: string
-				mime_type: string | undefined
-				size: string | undefined
-				last_modified: string | undefined
-				content_preview: string | undefined
-				content_type: string | undefined
+				fileKey: string
+				contentPreview: string | undefined
+				contentType: string | undefined
 		  }
 		| undefined = undefined
 
 	async function loadFiles() {
-		let availableFiles = await HelpersService.listStoredFiles({ workspace: $workspaceStore! })
-		for (let i = 0; i < availableFiles.file_count; i++) {
-			let file_path = availableFiles.windmill_large_files[i]
+		let availableFiles = await HelpersService.listStoredFiles({
+			workspace: $workspaceStore!,
+			maxKeys: 128, // fixed pages of 128 files for now
+			marker: paginationMarker
+		})
+		for (let file_path of availableFiles.windmill_large_files) {
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
 			let current_path: string | undefined = undefined
@@ -77,30 +90,53 @@
 			}
 		}
 		displayedFileKeys = displayedFileKeys.sort()
+		if (availableFiles.next_marker !== undefined) {
+			paginationMarker = availableFiles.next_marker
+		}
 	}
 
-	async function loadFilePreview(file_key: string | undefined) {
-		if (file_key === undefined) {
+	async function loadFileMetadataPlusPreviewAsync(fileKey: string | undefined) {
+		if (fileKey === undefined) {
 			return
 		}
+		let fileMetadataRaw = await HelpersService.loadFileMetadata({
+			workspace: $workspaceStore!,
+			fileKey: fileKey
+		})
+
+		if (fileMetadataRaw !== undefined) {
+			fileMetadata = {
+				fileKey: fileKey,
+				size: fileMetadataRaw.size_in_bytes,
+				sizeStr: displaySize(fileMetadataRaw.size_in_bytes),
+				mimeType: fileMetadataRaw.mime_type,
+				lastModified: displayDate(fileMetadataRaw.last_modified)
+			}
+		}
+		// async call
+		loadFilePreview(fileKey, fileMetadataRaw.size_in_bytes, fileMetadataRaw.mime_type)
+	}
+
+	async function loadFilePreview(fileKey: string, fileSizeInBytes?: number, fileMimeType?: string) {
+		filePreviewLoading = true
 		let filePreviewRaw = await HelpersService.loadFilePreview({
 			workspace: $workspaceStore!,
-			fileKey: file_key,
-			from: undefined,
-			length: undefined,
-			separator: csvSeparatorChar
+			fileKey: fileKey,
+			fileSizeInBytes: fileSizeInBytes,
+			fileMimeType: fileMimeType,
+			csvSeparator: csvSeparatorChar,
+			readBytesFrom: 0,
+			readBytesLength: 1 * 1024 * 1024 // For now static limit of 1Mb per file
 		})
 
 		if (filePreviewRaw !== undefined) {
 			filePreview = {
-				file_key: file_key,
-				size: displaySize(filePreviewRaw.size_in_bytes),
-				mime_type: filePreviewRaw.mime_type,
-				last_modified: displayDate(filePreviewRaw.last_modified),
-				content_preview: filePreviewRaw.content_preview.content,
-				content_type: filePreviewRaw.content_preview.content_type
+				fileKey: fileKey,
+				contentPreview: filePreviewRaw.content,
+				contentType: filePreviewRaw.content_type
 			}
 		}
+		filePreviewLoading = false
 	}
 
 	export async function open() {
@@ -122,7 +158,7 @@
 			if (allFilesByKey[selectedFileKey.s3] === undefined) {
 				selectedFileKey = { s3: '' }
 			} else {
-				loadFilePreview(selectedFileKey.s3)
+				loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 			}
 		}
 	}
@@ -178,7 +214,7 @@
 			selectedFileKey = {
 				s3: item_key
 			}
-			loadFilePreview(selectedFileKey.s3)
+			loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 		}
 	}
 </script>
@@ -193,7 +229,7 @@
 	size="1200px"
 >
 	<DrawerContent
-		title="Pick a file"
+		title="S3 file browser"
 		overflow_y={false}
 		on:close={exit}
 		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
@@ -254,50 +290,70 @@
 										{/if}
 									</div>
 								</div>
-							</div></VirtualList
-						>
+							</div>
+							<div slot="footer">
+								{#if !emptyString(paginationMarker)}
+									<div
+										style="cursor: pointer;"
+										class="text-tertiary text-xs text-center italic"
+										on:click={loadFiles}
+									>
+										More files available. Click here to load more...
+									</div>
+								{/if}
+							</div>
+						</VirtualList>
 					{/if}
 				</div>
 				<div class="flex flex-col h-full w-full overflow-auto">
-					{#if filePreview === undefined}
+					{#if fileMetadata === undefined}
 						<div class="p-4">
 							<Section label="Select a file for preview" />
 						</div>
 					{:else}
 						<div class="p-4 gap-2">
-							<Section label={filePreview.file_key} />
+							<Section label={fileMetadata.fileKey} />
 							<TableSimple
 								headers={['Last modified', 'Size', 'Type']}
-								data={[filePreview]}
-								keys={['last_modified', 'size', 'mime_type']}
+								data={[fileMetadata]}
+								keys={['lastModified', 'sizeStr', 'mimeType']}
 							/>
 						</div>
 					{/if}
 
 					<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
-						{#if filePreview !== undefined}
+						{#if fileMetadata !== undefined && filePreview !== undefined}
 							<div class="flex h-6 items-center text-tertiary mb-4">
-								{#if filePreview.content_type === 'Unknown'}
+								{#if filePreview.contentType === 'Unknown'}
 									Type of file not supported for preview
-								{:else if filePreview.content_type === 'Csv'}
-									Previewing a {filePreview.content_type?.toLowerCase()} file. Change the separator:
+								{:else if filePreview.contentType === 'Csv'}
+									Previewing a {filePreview.contentType?.toLowerCase()} file. Change the separator:
 									<div class="inline-flex w-12 ml-2">
 										<select
 											class="h-8"
 											bind:value={csvSeparatorChar}
-											on:change={(e) => loadFilePreview(filePreview?.file_key)}
+											on:change={(e) =>
+												loadFilePreview(
+													fileMetadata?.fileKey ?? '',
+													fileMetadata?.size,
+													fileMetadata?.mimeType
+												)}
 										>
 											<option value=",">,</option>
 											<option value=";">;</option>
 										</select>
 									</div>
 								{:else}
-									Previewing a {filePreview.content_type?.toLowerCase()} file
+									Previewing a {filePreview.contentType?.toLowerCase()} file
 								{/if}
 							</div>
 							<pre class="grow whitespace-no-wrap break-words"
-								>{#if !emptyString(filePreview.content_preview)}{filePreview.content_preview}{:else if filePreview.content_type !== undefined}Preview impossible. If it's a CSV file, you can try changing the separator{/if}</pre
+								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible. If it's a CSV file, you can try changing the separator{/if}</pre
 							>
+						{:else if filePreviewLoading}
+							<div class="flex h-6 items-center text-tertiary mb-4">
+								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
+							</div>
 						{/if}
 					</div>
 				</div>
@@ -305,10 +361,12 @@
 		{/if}
 
 		<div slot="actions" class="flex gap-1">
-			<Button
-				disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
-				on:click={selectAndClose}>Select</Button
-			>
+			{#if !readOnlyMode}
+				<Button
+					disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
+					on:click={selectAndClose}>Select</Button
+				>
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>
