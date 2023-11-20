@@ -64,6 +64,8 @@ export const copilotInfo = writable<{
 	exists_openai_resource_path: false,
 	code_completion_enabled: false
 })
+export const codeCompletionLoading = writable<boolean>(false)
+export const codeCompletionSessionEnabled = writable<boolean>(false)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

@@ -31,6 +31,7 @@
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import type { Script } from '$lib/gen'
+	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -525,6 +526,8 @@
 			{/if}
 
 			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+
+			<CodeCompletionStatus />
 
 			<!-- <Popover
 				notClickable
