@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.212.0](https://github.com/windmill-labs/windmill/compare/v1.211.0...v1.212.0) (2023-11-20)
+
+
+### Features
+
+* S3 file picker as a drawer ([#2640](https://github.com/windmill-labs/windmill/issues/2640)) ([624b4d0](https://github.com/windmill-labs/windmill/commit/624b4d0e9898dddcce3cb2ce989ce1f9e4736061))
+* test an iteration ([c2598b3](https://github.com/windmill-labs/windmill/commit/c2598b330450f9885f7d10e2b5baa54d6ef88cc5))
+* upgrade to gpt-4-turbo ([#2655](https://github.com/windmill-labs/windmill/issues/2655)) ([8ea98c2](https://github.com/windmill-labs/windmill/commit/8ea98c2c8d636209954a267116eb03ab13217ef8))
+
 ## [1.211.0](https://github.com/windmill-labs/windmill/compare/v1.210.1...v1.211.0) (2023-11-20)
 
 
