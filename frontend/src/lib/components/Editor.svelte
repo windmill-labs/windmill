@@ -32,7 +32,7 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-	import { dbSchemas, type DBSchema, copilotInfo } from '$lib/stores'
+	import { dbSchemas, type DBSchema, copilotInfo, codeCompletionSessionEnabled } from '$lib/stores'
 
 	import {
 		createHash as randomHash,
@@ -377,6 +377,9 @@
 						if (copilotTs === thisTs) {
 							abortController?.abort()
 							abortController = new AbortController()
+							token.onCancellationRequested(() => {
+								abortController?.abort()
+							})
 							const insertText = await editorCodeCompletion(
 								textUntilPosition,
 								textAfterPosition,
@@ -410,8 +413,11 @@
 
 	$: $copilotInfo.exists_openai_resource_path &&
 		$copilotInfo.code_completion_enabled &&
+		$codeCompletionSessionEnabled &&
 		initialized &&
 		addCopilotSuggestions()
+
+	$: !$codeCompletionSessionEnabled && copilotCompletor && copilotCompletor.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
