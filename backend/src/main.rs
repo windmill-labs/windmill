@@ -310,8 +310,7 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let workers_f = async {
-            let port = base_internal_rx.await?;
-            let base_internal_url: String = format!("http://localhost:{}", port.to_string());
+            let base_internal_url = base_internal_rx.await?;
             if worker_mode {
                 run_workers(
                     db.clone(),
