@@ -3,10 +3,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { ClipboardCopy, Expand } from 'lucide-svelte'
-	import { Button, DrawerContent } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Button, DrawerContent } from './common'
 
 	export let value: any
 	let jsonViewer: Drawer
@@ -21,6 +21,25 @@
 			.value
 	}
 </script>
+
+<Drawer bind:this={jsonViewer} size="800px">
+	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<Button
+				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
+				color="light"
+				size="xs"
+			>
+				<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
+			</Button>
+		</svelte:fragment>
+		{#if isString(jsonViewerContent)}
+			<pre>{jsonViewerContent}</pre>
+		{:else}
+			<ObjectViewer pureViewer json={jsonViewerContent} />
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 {#if value == undefined || value == null}
 	<span class="text-tertiary">null</span>
