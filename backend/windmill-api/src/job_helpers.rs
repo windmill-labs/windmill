@@ -238,14 +238,17 @@ async fn list_stored_files(
         }
     }
 
-    let file_count = stored_datasets.len();
     #[cfg(not(feature = "enterprise"))]
     if stored_datasets.len() > 10 {
+        return Err(Error::ExecutionErr(
+            "The workspace s3 bucket contains more than 10 files. To continue to use this feature, conseder upgrading to Windmill Enterprise Edition"
+                .to_string(),
+        ));
         stored_datasets = vec![];
     }
 
     return Ok(Json(ListStoredDatasetsResponse {
-        file_count: file_count, // TODO: for now, no pagination. Add in the future to support large buckets
+        file_count: stored_datasets.len(), // TODO: for now, no pagination. Add in the future to support large buckets
         windmill_large_files: stored_datasets,
     }));
 }
