@@ -102,8 +102,8 @@ async fn main() -> anyhow::Result<()> {
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
-                if std::env::var("WORKER_TOKEN").is_err() {
-                    tracing::warn!("WORKER_TOKEN is not passed, hence workers will still create one ephemeral token per job and the DATABASE_URL need to be of a role that can INSERT into the token table")
+                if std::env::var("JOB_TOKEN").is_err() {
+                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still create one ephemeral token per job and the DATABASE_URL need to be of a role that can INSERT into the token table")
                 }
                 Mode::Agent
             } else {
@@ -139,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false)
-        && mode != Mode::Worker;
+        && (mode == Mode::Server || mode == Mode::Standalone);
 
     let server_bind_address: IpAddr = if server_mode {
         std::env::var("SERVER_BIND_ADDR")
@@ -200,31 +200,36 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let last_mig_version =
-        sqlx::query_scalar!("select version from _sqlx_migrations order by version desc limit 1;")
-            .fetch_optional(&db)
-            .await
-            .ok()
-            .flatten();
+    let is_agent = mode == Mode::Agent;
 
-    tracing::info!(
+    if !is_agent {
+        let last_mig_version = sqlx::query_scalar!(
+            "select version from _sqlx_migrations order by version desc limit 1;"
+        )
+        .fetch_optional(&db)
+        .await
+        .ok()
+        .flatten();
+
+        tracing::info!(
         "Last migration version: {last_mig_version:?}. Starting potential migration of the db if first connection on a new windmill version (can take a while depending on the migration) ...",
     );
 
-    // migration code to avoid break
-    windmill_api::migrate_db(&db).await?;
+        // migration code to avoid break
+        windmill_api::migrate_db(&db).await?;
 
-    let last_mig_version =
-        sqlx::query_scalar!("select version from _sqlx_migrations order by version desc limit 1;")
-            .fetch_optional(&db)
-            .await
-            .ok()
-            .flatten();
+        let last_mig_version = sqlx::query_scalar!(
+            "select version from _sqlx_migrations order by version desc limit 1;"
+        )
+        .fetch_optional(&db)
+        .await
+        .ok()
+        .flatten();
 
-    tracing::info!(
-        "Completed potential migration of the db. Last migration version: {last_mig_version:?}",
-    );
-
+        tracing::info!(
+            "Completed potential migration of the db. Last migration version: {last_mig_version:?}",
+        );
+    }
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx.clone(), rx.resubscribe());
 
@@ -258,7 +263,6 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let default_base_internal_url = format!("http://localhost:{}", port.to_string());
-        let is_agent = mode == Mode::Agent;
         // since it's only on server mode, the port is statically defined
         let base_internal_url: String = if let Ok(base_url) = std::env::var("BASE_INTERNAL_URL") {
             if !is_agent {
