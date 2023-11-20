@@ -9,13 +9,16 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Button, Drawer, Tab, TabContent, Tabs } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import { Play } from 'lucide-svelte'
+	import type { Job } from '$lib/gen'
+	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -37,7 +40,26 @@
 		$previewArgs,
 		false
 	)
+
+	let previewOpen = false
+	let jobId: string | undefined = undefined
+	let job: Job | undefined = undefined
+
+	$: previewIterationArgs = $flowStateStore[mod.id]?.previewArgs ?? {}
 </script>
+
+<Drawer bind:open={previewOpen} alwaysOpen size="75%">
+	<FlowLoopIterationPreview
+		modules={mod.value.type == 'forloopflow' ? mod.value.modules : []}
+		open={previewOpen}
+		previewArgs={previewIterationArgs}
+		bind:job
+		bind:jobId
+		on:close={() => {
+			previewOpen = false
+		}}
+	/>
+</Drawer>
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="For loop">
@@ -116,6 +138,11 @@
 						/>
 					{/if}
 				{/if}
+				<div class="flex mt-4">
+					<Button on:click={() => (previewOpen = true)} startIcon={{ icon: Play }} color="dark"
+						>Test an iteration</Button
+					>
+				</div>
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
 				<Tabs bind:selected>
