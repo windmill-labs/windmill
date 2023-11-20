@@ -45,7 +45,8 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "shapefile" => "pyshp",
     "sklearn" => "scikit-learn",
     "umap" => "umap-learn",
-    "cv2" => "opencv-python"
+    "cv2" => "opencv-python",
+    "atlassian" => "atlassian-python-api"
 };
 
 fn replace_import(x: String) -> String {
@@ -167,7 +168,7 @@ pub async fn parse_python_imports(
                 let code = sqlx::query_scalar!(
                     r#"
                     SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                    AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND 
+                    AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND
                     workspace_id = $2)
                     "#,
                     &rpath,
