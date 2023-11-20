@@ -202,6 +202,7 @@
 		rawValue = JSON.stringify(value, null, 2)
 		editor?.setCode(rawValue)
 	}}
+	readOnlyMode={false}
 />
 
 <!-- svelte-ignore a11y-autofocus -->

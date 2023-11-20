@@ -7,6 +7,7 @@
 	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import S3FilePicker from './S3FilePicker.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -28,6 +29,7 @@
 		| 'approval'
 		| 'svg'
 		| 'filename'
+		| 's3object'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -123,6 +125,8 @@
 					keys.includes('approvalPage')
 				) {
 					return 'approval'
+				} else if (keys.length === 1 && keys.includes('s3')) {
+					return 's3object'
 				}
 			} catch (err) {}
 		}
@@ -130,6 +134,7 @@
 	}
 
 	let jsonViewer: Drawer
+	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
 		return JSON.stringify(result, null, 4)
@@ -146,7 +151,7 @@
 
 <div class="inline-highlight relative grow min-h-[200px]">
 	{#if result != undefined && length != undefined && largeObject != undefined}
-		{#if resultKind && resultKind != 'json'}
+		{#if resultKind && !['json', 's3object'].includes(resultKind)}
 			<div class="top-0 flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
@@ -164,7 +169,9 @@
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}</div
-			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
+			>
+		{/if}
+		{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border rounded-md"
 			>
 				{#each Object.keys(result) as col}
@@ -291,6 +298,17 @@
 					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
 				>
 			</div>
+		{:else if !forceJson && resultKind == 's3object'}
+			<div class="absolute top-1 h-full w-full">
+				<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
+				<button
+					class="text-secondary underline text-2xs whitespace-nowrap"
+					on:click={() => {
+						s3FileViewer?.open?.()
+					}}
+					>s3 explorer
+				</button>
+			</div>
 		{:else if largeObject}<div class="text-sm text-tertiary"
 				><a
 					download="{filename ?? 'result'}.json"
@@ -362,5 +380,14 @@
 				{/if}
 			</DrawerContent>
 		</Drawer>
+	</Portal>
+
+	<Portal>
+		<S3FilePicker
+			bind:this={s3FileViewer}
+			initialFileKey={result}
+			selectedFileKey={result}
+			readOnlyMode={true}
+		/>
 	</Portal>
 {/if}

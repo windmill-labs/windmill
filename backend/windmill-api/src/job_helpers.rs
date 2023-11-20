@@ -49,6 +49,10 @@ pub fn workspaced_service() -> Router {
             get(list_stored_files).layer(cors.clone()),
         )
         .route(
+            "/load_file_metadata",
+            get(load_file_metadata).layer(cors.clone()),
+        )
+        .route(
             "/load_file_preview",
             get(load_file_preview).layer(cors.clone()),
         )
@@ -149,13 +153,7 @@ async fn polars_connection_settings(
     return Ok(Json(response));
 }
 
-#[derive(Serialize)]
-struct ListStoredDatasetsResponse {
-    file_count: usize,
-    windmill_large_files: Vec<WindmillLargeFile>,
-}
-
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct WindmillLargeFile {
     s3: String,
 }
@@ -188,12 +186,25 @@ async fn test_connection(
     return Ok(Json(()));
 }
 
+#[derive(Deserialize)]
+struct ListStoredFilesQuery {
+    pub max_keys: i32,
+    pub marker: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ListStoredDatasetsResponse {
+    windmill_large_files: Vec<WindmillLargeFile>,
+    pub next_marker: Option<String>,
+}
+
 async fn list_stored_files(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
+    Query(query): Query<ListStoredFilesQuery>,
 ) -> error::JsonResult<ListStoredDatasetsResponse> {
     let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
 
@@ -202,41 +213,28 @@ async fn list_stored_files(
     ))?;
     let s3_client = build_s3_client(&s3_resource);
 
-    let mut stored_datasets = Vec::<WindmillLargeFile>::new();
     let s3_bucket = s3_resource.bucket;
-    loop {
-        let mut list_object_query = s3_client
-            .list_objects()
-            .bucket(s3_bucket.clone())
-            .max_keys(32);
 
-        if let Some(last_dataset_name) = stored_datasets.last() {
-            // if stored_datasets already has some elements, it means we're looping through pages
-            // according to AWS SDK docs, we can set the marker to the last returned dataset
-            list_object_query = list_object_query.set_marker(Some(last_dataset_name.clone().s3))
-        }
+    let list_object_query = s3_client
+        .list_objects()
+        .bucket(s3_bucket.clone())
+        .max_keys(query.max_keys)
+        .set_marker(query.marker);
 
-        let bucket_objects = list_object_query
-            .send()
-            .await
-            .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+    let bucket_objects = list_object_query
+        .send()
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
 
-        let page_datasets = bucket_objects
-            .contents()
-            .iter()
-            .filter(|object| object.key().is_some())
-            .map(|object| object.key())
-            .map(Option::unwrap)
-            .map(&str::to_string)
-            .map(|object_key| WindmillLargeFile { s3: object_key.clone() })
-            .collect::<Vec<WindmillLargeFile>>();
-
-        stored_datasets.extend(page_datasets.clone());
-
-        if !bucket_objects.is_truncated() {
-            break;
-        }
-    }
+    let stored_datasets = bucket_objects
+        .contents()
+        .iter()
+        .filter(|object| object.key().is_some())
+        .map(|object| object.key())
+        .map(Option::unwrap)
+        .map(&str::to_string)
+        .map(|object_key| WindmillLargeFile { s3: object_key.clone() })
+        .collect::<Vec<WindmillLargeFile>>();
 
     #[cfg(not(feature = "enterprise"))]
     if stored_datasets.len() > 10 {
@@ -246,32 +244,53 @@ async fn list_stored_files(
         ));
     }
 
+    let next_marker = if bucket_objects.is_truncated() {
+        bucket_objects.next_marker().map(|v| v.to_owned())
+    } else {
+        None
+    };
+
     return Ok(Json(ListStoredDatasetsResponse {
-        file_count: stored_datasets.len(), // TODO: for now, no pagination. Add in the future to support large buckets
         windmill_large_files: stored_datasets,
+        next_marker: next_marker,
     }));
 }
 
 #[derive(Deserialize)]
-struct LoadFilePreviewQuery {
+struct LoadFileMetadataQuery {
     pub file_key: String,
-    pub from: Option<usize>,
-    pub length: Option<usize>,
-    pub separator: Option<String>,
 }
 
 #[derive(Serialize)]
-struct LoadFilePreviewResponse {
+struct LoadFileMetadataResponse {
     pub mime_type: Option<String>,
     pub size_in_bytes: Option<i64>,
     pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
     pub expires: Option<chrono::DateTime<chrono::Utc>>,
     pub version_id: Option<String>,
-    pub content_preview: FileContentPreview,
+}
+
+#[derive(Deserialize)]
+struct LoadFilePreviewQuery {
+    pub file_key: String,
+
+    // The two options below are requested from s3 with an additional query is not set
+    pub file_size_in_bytes: Option<i64>,
+    pub file_mime_type: Option<String>,
+
+    // For CSV files, the separator needs to be specify
+    pub csv_separator: Option<String>,
+
+    // Specify the content length to be read. Both will be taken into account when reading files, except for:
+    // - CSVs: only the length will be taken into account, a CSV file larger than this will be truncated.
+    //   Note that truncated CSV files might not be valid CSV files anymore, and therefore the preview might fail
+    // - Parquet files: Parquet files are lazy-loaded. Therefore none of those params will be taken into account
+    pub read_bytes_from: i64,
+    pub read_bytes_length: i64,
 }
 
 #[derive(Serialize)]
-struct FileContentPreview {
+struct LoadFilePreviewResponse {
     pub content: Option<String>,
     pub content_type: WindmillContentType,
     pub msg: Option<String>,
@@ -285,14 +304,14 @@ enum WindmillContentType {
     Unknown,
 }
 
-async fn load_file_preview(
+async fn load_file_metadata(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
-    Query(query): Query<LoadFilePreviewQuery>,
-) -> error::JsonResult<LoadFilePreviewResponse> {
+    Query(query): Query<LoadFileMetadataQuery>,
+) -> error::JsonResult<LoadFileMetadataResponse> {
     let file_key = query.file_key.clone();
     let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
 
@@ -310,28 +329,96 @@ async fn load_file_preview(
         .await
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
 
+    let response = LoadFileMetadataResponse {
+        mime_type: s3_object_metadata.content_type().map(&str::to_string),
+        size_in_bytes: Some(s3_object_metadata.content_length()),
+        last_modified: s3_object_metadata
+            .last_modified()
+            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+            .flatten(),
+        expires: s3_object_metadata
+            .expires()
+            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
+            .flatten(),
+        version_id: s3_object_metadata.version_id().map(&str::to_string),
+    };
+    return Ok(Json(response));
+}
+
+async fn load_file_preview(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Query(query): Query<LoadFilePreviewQuery>,
+) -> error::JsonResult<LoadFilePreviewResponse> {
+    // query validation
+    if query.read_bytes_length > 8 * 1024 * 1024 {
+        return Err(error::Error::BadRequest(
+            "Cannot load file bigger than 8MB".to_string(),
+        ));
+    }
+
+    let file_key = query.file_key.clone();
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let s3_client = build_s3_client(&s3_resource);
+
+    let s3_bucket = s3_resource.bucket.clone();
+
+    // if content length is provided in the request, use it, otherwise get it from s3
+    let (s3_object_mime_type, s3_object_content_length) =
+        if query.file_size_in_bytes.is_none() || query.file_mime_type.is_none() {
+            let s3_object_metadata = s3_client
+                .head_object()
+                .bucket(&s3_bucket)
+                .key(&file_key)
+                .send()
+                .await
+                .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+            (
+                s3_object_metadata.content_type().map(|v| v.to_owned()),
+                s3_object_metadata.content_length(),
+            )
+        } else {
+            (
+                query.file_mime_type.clone(),
+                query.file_size_in_bytes.unwrap(),
+            )
+        };
+
     let file_chunk_length = cmp::min(
-        query.length.unwrap_or(8 * 1024 * 1024) as i64, // no more than 8MB per chunk by default
-        s3_object_metadata.content_length() - query.from.unwrap_or(0) as i64,
+        query.read_bytes_length,
+        s3_object_content_length - query.read_bytes_from,
     );
 
-    let object_content_type = s3_object_metadata.content_type();
     let content_type: WindmillContentType;
-    let content_preview = match object_content_type {
+    let content_preview = match s3_object_mime_type.as_deref() {
         Some("application/json") | Some("application/x-yaml") => {
             content_type = WindmillContentType::RawText;
             read_s3_text_object_head(
                 &s3_client,
                 &s3_bucket,
                 &file_key,
-                query.from.unwrap_or(0),
-                file_chunk_length, // 1KB by default
+                query.read_bytes_from,
+                file_chunk_length,
             )
             .await
         }
         Some("text/csv") => {
             content_type = WindmillContentType::Csv;
-            read_s3_csv_object_head(&s3_client, &s3_bucket, &file_key, query.separator).await
+            read_s3_csv_object_head(
+                &s3_client,
+                &s3_bucket,
+                &file_key,
+                file_chunk_length,
+                query.csv_separator,
+            )
+            .await
         }
         Some("application/octet-stream") => {
             if file_key.to_lowercase().ends_with(".parquet") {
@@ -351,7 +438,7 @@ async fn load_file_preview(
                 &s3_client,
                 &s3_bucket,
                 &file_key,
-                query.from.unwrap_or(0),
+                query.read_bytes_from,
                 file_chunk_length,
             )
             .await
@@ -364,27 +451,17 @@ async fn load_file_preview(
         }
     };
 
-    let response = LoadFilePreviewResponse {
-        mime_type: s3_object_metadata.content_type().map(&str::to_string),
-        size_in_bytes: Some(s3_object_metadata.content_length()),
-        last_modified: s3_object_metadata
-            .last_modified()
-            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
-            .flatten(),
-        expires: s3_object_metadata
-            .expires()
-            .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
-            .flatten(),
-        version_id: s3_object_metadata.version_id().map(&str::to_string),
-        content_preview: match content_preview {
-            Ok(content) => {
-                FileContentPreview { content_type: content_type, content: Some(content), msg: None }
-            }
-            Err(err) => FileContentPreview {
-                content_type: content_type,
-                content: None,
-                msg: Some(err.to_string()),
-            },
+    let response: LoadFilePreviewResponse = match content_preview {
+        Ok(content) => LoadFilePreviewResponse {
+            content_type: content_type,
+            content: Some(content),
+            msg: None,
+        },
+
+        Err(err) => LoadFilePreviewResponse {
+            content_type: content_type,
+            content: None,
+            msg: Some(err.to_string()),
         },
     };
 
@@ -510,7 +587,7 @@ async fn read_s3_text_object_head(
     s3_client: &aws_sdk_s3::Client,
     s3_bucket: &str,
     file_key: &str,
-    from_char: usize,
+    from_char: i64,
     length: i64,
 ) -> error::Result<String> {
     let s3_object = s3_client
@@ -599,6 +676,7 @@ async fn read_s3_csv_object_head(
     s3_client: &aws_sdk_s3::Client,
     s3_bucket: &str,
     file_key: &str,
+    length: i64,
     separator: Option<String>,
 ) -> error::Result<String> {
     let separator_final = if let Some(separator_char) = separator {
@@ -609,19 +687,21 @@ async fn read_s3_csv_object_head(
         }
         separator_char.as_bytes()[0]
     } else {
-        ",".as_bytes()[0]
+        ",".as_bytes()[0] // polars uses the comma as default, doing the same here
     };
 
     let s3_object = s3_client
         .get_object()
         .bucket(s3_bucket)
-        .range("bytes=0-33554432".to_string()) // safeguard - do not load CSV files larger than 32MB
+        .range(format!("bytes=0-{}", length).to_string())
         .key(file_key)
         .send()
         .await
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
 
     // TODO: polars does not seem to support lazy csv reader, unfortunately. We can implement it ourselves if needed
+    // Right now it's fine b/c we limit the download from AWS to 32MB. We should recomment users to use parquet
+    // for larger files
     let file_content_bytes = s3_object
         .body
         .collect()
