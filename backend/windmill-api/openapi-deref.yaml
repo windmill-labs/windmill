@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.206.0
+  version: 1.210.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1534,6 +1534,24 @@ paths:
                 properties:
                   deploy_to:
                     type: string
+  /w/{workspace}/workspaces/is_premium:
+    get:
+      summary: get if workspace is premium
+      operationId: getIsPremium
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      responses:
+        '200':
+          description: status
+          content:
+            application/json:
+              schema:
+                type: boolean
   /w/{workspace}/workspaces/premium_info:
     get:
       summary: get premium info
@@ -1556,6 +1574,8 @@ paths:
                   premium:
                     type: boolean
                   usage:
+                    type: number
+                  seats:
                     type: number
                 required:
                   - premium
@@ -1669,6 +1689,8 @@ paths:
               type: object
               properties:
                 operator:
+                  type: boolean
+                invite_all:
                   type: boolean
       responses:
         '200':
@@ -3266,32 +3288,32 @@ paths:
                                 id:
                                   type: string
                                 value:
-                                  oneOf: &ref_177
+                                  oneOf: &ref_179
                                     - type: object
-                                      properties: &ref_161
+                                      properties: &ref_163
                                         input_transforms:
                                           type: object
                                           additionalProperties:
                                             oneOf: &ref_24
                                               - type: object
-                                                properties: &ref_157
+                                                properties: &ref_159
                                                   value: {}
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_158
+                                                required: &ref_160
                                                   - expr
                                                   - type
                                               - type: object
-                                                properties: &ref_159
+                                                properties: &ref_161
                                                   expr:
                                                     type: string
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_160
+                                                required: &ref_162
                                                   - expr
                                                   - type
                                             discriminator: &ref_25
@@ -3331,13 +3353,13 @@ paths:
                                           type: number
                                         concurrency_time_window_s:
                                           type: number
-                                      required: &ref_162
+                                      required: &ref_164
                                         - type
                                         - content
                                         - language
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_163
+                                      properties: &ref_165
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3351,12 +3373,12 @@ paths:
                                           type: string
                                           enum:
                                             - script
-                                      required: &ref_164
+                                      required: &ref_166
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_165
+                                      properties: &ref_167
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3368,12 +3390,12 @@ paths:
                                           type: string
                                           enum:
                                             - flow
-                                      required: &ref_166
+                                      required: &ref_168
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_167
+                                      properties: &ref_169
                                         modules:
                                           type: array
                                           items:
@@ -3395,13 +3417,13 @@ paths:
                                           type: boolean
                                         parallelism:
                                           type: integer
-                                      required: &ref_168
+                                      required: &ref_170
                                         - modules
                                         - iterator
                                         - skip_failures
                                         - type
                                     - type: object
-                                      properties: &ref_169
+                                      properties: &ref_171
                                         branches:
                                           type: array
                                           items:
@@ -3432,12 +3454,12 @@ paths:
                                           type: string
                                           enum:
                                             - branchone
-                                      required: &ref_170
+                                      required: &ref_172
                                         - branches
                                         - default
                                         - type
                                     - type: object
-                                      properties: &ref_171
+                                      properties: &ref_173
                                         branches:
                                           type: array
                                           items:
@@ -3462,28 +3484,28 @@ paths:
                                             - branchall
                                         parallel:
                                           type: boolean
-                                      required: &ref_172
-                                        - branches
-                                        - type
-                                    - type: object
-                                      properties: &ref_173
-                                        type:
-                                          type: string
-                                          enum:
-                                            - identity
-                                        flow:
-                                          type: boolean
                                       required: &ref_174
+                                        - branches
                                         - type
                                     - type: object
                                       properties: &ref_175
                                         type:
                                           type: string
                                           enum:
-                                            - graphql
+                                            - identity
+                                        flow:
+                                          type: boolean
                                       required: &ref_176
                                         - type
-                                  discriminator: &ref_178
+                                    - type: object
+                                      properties: &ref_177
+                                        type:
+                                          type: string
+                                          enum:
+                                            - graphql
+                                      required: &ref_178
+                                        - type
+                                  discriminator: &ref_180
                                     propertyName: type
                                     mapping:
                                       rawscript: '#/components/schemas/RawScript'
@@ -3539,7 +3561,7 @@ paths:
                                   type: number
                                 retry:
                                   type: object
-                                  properties: &ref_179
+                                  properties: &ref_181
                                     constant:
                                       type: object
                                       properties:
@@ -5132,6 +5154,8 @@ paths:
                               type: boolean
                             priority:
                               type: integer
+                            dedicated_worker:
+                              type: boolean
                           required: &ref_144
                             - path
                             - edited_by
@@ -5279,6 +5303,8 @@ paths:
                           type: boolean
                         priority:
                           type: integer
+                        dedicated_worker:
+                          type: boolean
                       required:
                         - path
                 - type: object
@@ -9465,10 +9491,10 @@ paths:
           content:
             application/json:
               schema: {}
-  /w/{workspace}/job_helpers/list_stored_datasets:
-    post:
-      summary: List the dataset keys available in the worspace datasets storage
-      operationId: polarsConnectionSettings
+  /w/{workspace}/job_helpers/list_stored_files:
+    get:
+      summary: List the file keys available in the worspace files storage (S3)
+      operationId: listStoredFiles
       tags:
         - helpers
       parameters:
@@ -9478,23 +9504,92 @@ paths:
           schema: *ref_0
       responses:
         '200':
-          description: Connection settings
+          description: List of file keys
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  dataset_keys:
+                  file_count:
+                    type: integer
+                  windmill_large_files:
                     type: array
                     items:
                       type: object
                       properties: &ref_155
                         s3:
                           type: string
-                        s3_bucket:
-                          type: string
                       required: &ref_156
                         - s3
+                required:
+                  - file_count
+                  - windmill_large_files
+  /w/{workspace}/job_helpers/load_file_preview:
+    get:
+      summary: Load a preview of the file
+      operationId: loadFilePreview
+      tags:
+        - helpers
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: integer
+        - name: length
+          in: query
+          schema:
+            type: integer
+        - name: separator
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: &ref_157
+                  mime_type:
+                    type: string
+                  last_modified:
+                    type: string
+                    format: date-time
+                  size_in_bytes:
+                    type: integer
+                  expires:
+                    type: string
+                    format: date-time
+                  version_id:
+                    type: string
+                  content_preview:
+                    type: object
+                    properties:
+                      msg:
+                        type: string
+                      content:
+                        type: string
+                      content_type:
+                        type: string
+                        enum:
+                          - RawText
+                          - Csv
+                          - Parquet
+                          - Unknown
+                    required:
+                      - content_type
+                required: &ref_158
+                  - content_preview
 components:
   securitySchemes:
     bearerAuth:
@@ -10100,6 +10195,10 @@ components:
       type: object
       properties: *ref_155
       required: *ref_156
+    WindmillFilePreview:
+      type: object
+      properties: *ref_157
+      required: *ref_158
     S3Resource:
       type: object
       properties:
@@ -10125,57 +10224,57 @@ components:
         - pathStyle
     StaticTransform:
       type: object
-      properties: *ref_157
-      required: *ref_158
-    JavascriptTransform:
-      type: object
       properties: *ref_159
       required: *ref_160
+    JavascriptTransform:
+      type: object
+      properties: *ref_161
+      required: *ref_162
     InputTransform:
       oneOf: *ref_24
       discriminator: *ref_25
     RawScript:
       type: object
-      properties: *ref_161
-      required: *ref_162
-    PathScript:
-      type: object
       properties: *ref_163
       required: *ref_164
-    PathFlow:
+    PathScript:
       type: object
       properties: *ref_165
       required: *ref_166
+    PathFlow:
+      type: object
+      properties: *ref_167
+      required: *ref_168
     FlowModule:
       type: object
       properties: *ref_26
       required: *ref_27
     ForloopFlow:
       type: object
-      properties: *ref_167
-      required: *ref_168
-    BranchOne:
-      type: object
       properties: *ref_169
       required: *ref_170
-    BranchAll:
+    BranchOne:
       type: object
       properties: *ref_171
       required: *ref_172
-    Identity:
+    BranchAll:
       type: object
       properties: *ref_173
       required: *ref_174
-    Graphql:
+    Identity:
       type: object
       properties: *ref_175
       required: *ref_176
+    Graphql:
+      type: object
+      properties: *ref_177
+      required: *ref_178
     FlowModuleValue:
-      oneOf: *ref_177
-      discriminator: *ref_178
+      oneOf: *ref_179
+      discriminator: *ref_180
     Retry:
       type: object
-      properties: *ref_179
+      properties: *ref_181
     FlowValue:
       type: object
       properties: *ref_48

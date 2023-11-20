@@ -49,6 +49,20 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 	}
 }
 
+export function displaySize(sizeInBytes: number | undefined): string | undefined {
+	if (sizeInBytes === undefined) {
+		return undefined
+	}
+	const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB']
+	let size = sizeInBytes
+	let unit_idx = 0
+	while (unit_idx < units.length - 1 && size > 1024) {
+		size /= 1024
+		unit_idx += 1
+	}
+	return `${size.toFixed(1)}${units[unit_idx]}`
+}
+
 export function msToSec(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
 	return (ms / 1000).toLocaleString(undefined, {

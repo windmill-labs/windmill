@@ -2192,8 +2192,7 @@ paths:
 
   /w/{workspace}/resources/get_value_interpolated/{path}:
     get:
-      summary:
-        get resource interpolated (variables and resources are fully unrolled)
+      summary: get resource interpolated (variables and resources are fully unrolled)
       operationId: getResourceValueInterpolated
       tags:
         - resource
@@ -2881,8 +2880,7 @@ paths:
           schema:
             type: string
         - name: first_parent_hash
-          description:
-            mask to filter scripts whom first direct parent has exact hash
+          description: mask to filter scripts whom first direct parent has exact hash
           in: query
           schema:
             type: string
@@ -3077,8 +3075,7 @@ paths:
 
   /workers/custom_tags:
     get:
-      summary:
-        get all instance custom tags (tags are used to dispatch jobs to
+      summary: get all instance custom tags (tags are used to dispatch jobs to
         different worker groups)
       operationId: getCustomTags
       tags:
@@ -3129,8 +3126,7 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary:
-        delete script by hash (erase content but keep hash, require admin)
+      summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -3322,16 +3318,14 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4304,8 +4298,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4313,8 +4306,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4366,8 +4358,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4375,8 +4366,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4414,8 +4404,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4423,8 +4412,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4455,8 +4443,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4489,8 +4476,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4705,8 +4691,7 @@ paths:
         - job
       responses:
         "200":
-          description:
-            the timestamp of the db that can be used to compute the drift
+          description: the timestamp of the db that can be used to compute the drift
           content:
             application/json:
               schema:
@@ -4942,8 +4927,7 @@ paths:
 
   /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
     get:
-      summary:
-        get resume urls given a job_id, resume_id and a nonce to resume a flow
+      summary: get resume urls given a job_id, resume_id and a nonce to resume a flow
       operationId: getResumeUrls
       tags:
         - job
@@ -5494,8 +5478,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the groups the user is member of (default false)
+          description: only list the groups the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -5683,8 +5666,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the folders the user is member of (default false)
+          description: only list the folders the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -6354,26 +6336,64 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/job_helpers/list_stored_datasets:
-    post:
-      summary: List the dataset keys available in the worspace datasets storage
-      operationId: polarsConnectionSettings
+  /w/{workspace}/job_helpers/list_stored_files:
+    get:
+      summary: List the file keys available in the worspace files storage (S3)
+      operationId: listStoredFiles
       tags:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: Connection settings
+          description: List of file keys
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  dataset_keys:
+                  file_count:
+                    type: integer
+                  windmill_large_files:
                     type: array
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
+                required:
+                  - file_count
+                  - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_file_preview:
+    get:
+      summary: Load a preview of the file
+      operationId: loadFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: integer
+        - name: length
+          in: query
+          schema:
+            type: integer
+        - name: separator
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
 
 components:
   securitySchemes:
@@ -6467,8 +6487,7 @@ components:
         type: integer
     PerPage:
       name: per_page
-      description:
-        number of items to return for a given page (default 30, max 100)
+      description: number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
@@ -6602,8 +6621,7 @@ components:
         type: boolean
     ArgsFilter:
       name: args
-      description:
-        filter on jobs containing those args as a json subset (@> in postgres)
+      description: filter on jobs containing those args as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -6615,8 +6633,7 @@ components:
         type: string
     ResultFilter:
       name: result
-      description:
-        filter on jobs containing those result as a json subset (@> in postgres)
+      description: filter on jobs containing those result as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -8372,10 +8389,38 @@ components:
       properties:
         s3:
           type: string
-        s3_bucket:
-          type: string
       required:
         - s3
+
+    WindmillFilePreview:
+      type: object
+      properties:
+        mime_type:
+          type: string
+        last_modified:
+          type: string
+          format: date-time
+        size_in_bytes:
+          type: integer
+        expires:
+          type: string
+          format: date-time
+        version_id:
+          type: string
+        content_preview:
+          type: object
+          properties:
+            msg:
+              type: string
+            content:
+              type: string
+            content_type:
+              type: string
+              enum: ["RawText", "Csv", "Parquet", "Unknown"]
+          required:
+            - content_type
+      required:
+        - content_preview
 
     S3Resource:
       type: object
