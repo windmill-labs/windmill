@@ -10,9 +10,6 @@
 	import VirtualList from 'svelte-tiny-virtual-list'
 	import TableSimple from './TableSimple.svelte'
 
-	const BLURRED_FILE_KEY = 'HIDDENS3FILEKEYPATH'
-	let shouldBlurFileKeys = false
-
 	let workspaceSettingsInitialized = true
 
 	export let initialFileKey: { s3: string }
@@ -54,13 +51,7 @@
 	async function loadFiles() {
 		let availableFiles = await HelpersService.listStoredFiles({ workspace: $workspaceStore! })
 		for (let i = 0; i < availableFiles.file_count; i++) {
-			let file_path = { s3: `${BLURRED_FILE_KEY}#${i}` }
-			if (availableFiles.windmill_large_files.length > i) {
-				shouldBlurFileKeys = false
-				file_path = availableFiles.windmill_large_files[i]
-			} else {
-				shouldBlurFileKeys = true
-			}
+			let file_path = availableFiles.windmill_large_files[i]
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
 			let current_path: string | undefined = undefined
@@ -226,15 +217,6 @@
 				</div>
 			</Alert>
 		{:else}
-			{#if shouldBlurFileKeys === true}
-				<Alert type="warning" title="Large buckets are only accessible with Enterprise Edition">
-					<p class="text-clip grow min-w-0">
-						The workspace bucket contains more than 10 files. Consider upgrading to Windmill
-						Enterprise Edition to continue to use this feature.
-					</p>
-				</Alert>
-				<div class="py-1" />
-			{/if}
 			<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>
 				<div class="min-w-[30%] border-r">
 					{#if displayedFileKeys.length === 0}
@@ -251,11 +233,7 @@
 							<div slot="item" let:index let:style {style} class="hover:bg-surface-hover border">
 								{@const file_info = allFilesByKey[displayedFileKeys[index]]}
 								<div
-									on:click={() => {
-										if (!file_info.display_name.startsWith(BLURRED_FILE_KEY)) {
-											selectItem(index)
-										}
-									}}
+									on:click={() => selectItem(index)}
 									class={`flex flex-row h-full font-semibold text-xs items-center justify-start ${
 										selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
 											? 'bg-surface-hover'
@@ -265,7 +243,7 @@
 									<div
 										class={`flex flex-row w-full ml-${
 											2 + file_info.nestingLevel
-										} gap-2 h-full items-center ${shouldBlurFileKeys ? 'blur-sm' : ''}`}
+										} gap-2 h-full items-center`}
 									>
 										{#if file_info.type === 'folder'}
 											{#if file_info.collapsed}<FolderClosed />{:else}<FolderOpen />{/if}

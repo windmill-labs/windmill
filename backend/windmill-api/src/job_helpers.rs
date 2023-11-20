@@ -240,11 +240,10 @@ async fn list_stored_files(
 
     #[cfg(not(feature = "enterprise"))]
     if stored_datasets.len() > 10 {
-        return Err(Error::ExecutionErr(
-            "The workspace s3 bucket contains more than 10 files. To continue to use this feature, conseder upgrading to Windmill Enterprise Edition"
+        return Err(error::Error::ExecutionErr(
+            "The workspace s3 bucket contains more than 10 files. Consider upgrading to Windmill Enterprise Edition to continue to use this feature, "
                 .to_string(),
         ));
-        stored_datasets = vec![];
     }
 
     return Ok(Json(ListStoredDatasetsResponse {
