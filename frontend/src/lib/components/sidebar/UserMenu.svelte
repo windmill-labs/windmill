@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import { userStore, usersWorkspaceStore, usageStore, isPremiumStore } from '$lib/stores'
+	import { userStore, usageStore, isPremiumStore } from '$lib/stores'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
@@ -34,7 +34,7 @@
 	<div class="divide-y">
 		<div class="px-4 py-3" role="none">
 			<p class="text-sm font-medium text-primary truncate" role="none">
-				{$usersWorkspaceStore?.email}
+				{$userStore?.email}
 			</p>
 			<span class="text-xs text-tertiary flex flex-row gap-2 items-center">
 				{#if $userStore?.is_admin}
