@@ -3763,6 +3763,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
 
 [[package]]
+name = "itoap"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9028f49264629065d057f340a86acb84867925865f73bbf8d47b4d149a7e88b8"
+
+[[package]]
 name = "jobserver"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5145,6 +5151,7 @@ checksum = "dd503430a6d9779b07915d858865fe998317ef3cfef8973881f578ac5d4baae7"
 dependencies = [
  "ahash 0.8.6",
  "arrow-format",
+ "atoi 2.0.0",
  "atoi_simd",
  "bytemuck",
  "chrono",
@@ -5184,6 +5191,7 @@ dependencies = [
  "either",
  "hashbrown 0.14.2",
  "indexmap 2.1.0",
+ "itoap",
  "num-traits",
  "once_cell",
  "polars-arrow",

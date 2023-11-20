@@ -18,7 +18,6 @@
 	let initialFileKeyInternalCopy: { s3: string }
 	export let selectedFileKey: { s3: string } | undefined = undefined
 
-	let csvSeparatorDefaultChar: string = ','
 	let csvSeparatorChar: string = ','
 
 	let dispatch = createEventDispatcher()
@@ -175,8 +174,6 @@
 	}
 
 	function selectItem(index: number, toggleCollapsed: boolean = true) {
-		csvSeparatorChar = csvSeparatorDefaultChar
-
 		let item_key = displayedFileKeys[index]
 		let item = allFilesByKey[item_key]
 		if (item.type === 'folder') {
@@ -339,6 +336,7 @@
 										>
 											<option value=",">,</option>
 											<option value=";">;</option>
+											<option value="|">|</option>
 										</select>
 									</div>
 								{:else}
