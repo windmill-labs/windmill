@@ -266,7 +266,7 @@
 	<div class="flex gap-8 items-center">
 		{#if auto_invite_domain != undefined}
 			<Toggle
-				size="xs"
+				size="sm"
 				bind:checked={operatorOnly}
 				options={{
 					right: `Auto-invited users to join as operators`
@@ -284,7 +284,7 @@
 			/>
 		{/if}
 		<Toggle
-			size="xs"
+			size="sm"
 			checked={auto_invite_domain != undefined}
 			on:change={async (e) => {
 				console.log(e.detail)
@@ -298,9 +298,12 @@
 				loadSettings()
 				listInvites()
 			}}
+			disabled={!allowedAutoDomain}
 			options={{
 				right: isCloudHosted()
-					? `Auto-invite anyone from ${auto_invite_domain}`
+					? `Auto-invite anyone from ${
+							auto_invite_domain != undefined ? auto_invite_domain : domain
+					  }`
 					: 'Auto-invite anyone joining the instance'
 			}}
 		/>
