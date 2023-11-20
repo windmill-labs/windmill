@@ -7,7 +7,7 @@
 	function loadCodeCompletionSessinoEnabled() {
 		const stored = localStorage.getItem('codeCompletionSessionEnabled')
 		if (stored) {
-			$codeCompletionSessionEnabled = JSON.parse(stored) ?? true
+			$codeCompletionSessionEnabled = JSON.parse(stored)
 		}
 	}
 
