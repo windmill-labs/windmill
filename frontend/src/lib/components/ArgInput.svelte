@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
-	import { ChevronDown, DollarSign, Plus, X } from 'lucide-svelte'
+	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Multiselect from 'svelte-multiselect'
@@ -25,6 +25,7 @@
 	import ArgEnum from './ArgEnum.svelte'
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import S3FilePicker from './S3FilePicker.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -72,6 +73,8 @@
 	const dispatch = createEventDispatcher()
 
 	let error: string = ''
+
+	let s3FilePicker: S3FilePicker
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -190,6 +193,16 @@
 
 	$: validateInput(pattern, value, required)
 </script>
+
+<S3FilePicker
+	bind:this={s3FilePicker}
+	initialFileKey={value}
+	bind:selectedFileKey={value}
+	on:close={() => {
+		rawValue = JSON.stringify(value, null, 2)
+		editor?.setCode(rawValue)
+	}}
+/>
 
 <!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
@@ -398,6 +411,30 @@
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
 				<ObjectResourceInput {disablePortal} {format} bind:value {showSchemaExplorer} />
+			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format.replace('resource-', '') == 's3object'}
+				<div class="flex flex-col w-full gap-1">
+					<JsonEditor
+						bind:editor
+						on:focus={(e) => {
+							dispatch('focus')
+						}}
+						code={JSON.stringify({ s3: '' }, null, 2)}
+						bind:value
+					/>
+					<Button
+						variant="border"
+						color="light"
+						size="xs"
+						btnClasses="mt-1"
+						on:click={() => {
+							s3FilePicker?.open?.()
+						}}
+						id="arg-input-file-picker"
+						startIcon={{ icon: Pipette }}
+					>
+						Choose an object from the catalog
+					</Button>
+				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">

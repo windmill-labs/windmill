@@ -126,8 +126,9 @@ async fn proxy(
         "https://api.openai.com/v1"
     };
 
+    let url = format!("{}/{}", base_url, openai_path);
     let mut request = HTTP_CLIENT
-        .post(base_url.to_string() + "/" + &openai_path)
+        .post(url)
         .header("content-type", "application/json")
         .body(body);
 
