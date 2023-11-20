@@ -6,6 +6,8 @@
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
+	import Portal from 'svelte-portal'
+	import S3FilePicker from '../S3FilePicker.svelte'
 
 	export let json: any
 	export let level = 0
@@ -17,8 +19,10 @@
 	export let topLevelNode = false
 	export let allowCopy = true
 
+	let s3FileViewer: S3FilePicker
+
 	const collapsedSymbol = '...'
-	$: keys = getTypeAsString(json) === 'object' ? Object.keys(json) : []
+	$: keys = ['object', 's3object'].includes(getTypeAsString(json)) ? Object.keys(json) : []
 	$: isArray = Array.isArray(json)
 	$: openBracket = isArray ? '[' : '{'
 	$: closeBracket = isArray ? ']' : '}'
@@ -29,6 +33,9 @@
 		}
 		if (arg === undefined) {
 			return 'undefined'
+		}
+		if (Object.keys(arg).length === 1 && Object.keys(arg).includes('s3')) {
+			return 's3object'
 		}
 		return typeof arg
 	}
@@ -49,6 +56,15 @@
 
 	$: keyLimit = isArray ? 1 : 100
 </script>
+
+<Portal>
+	<S3FilePicker
+		bind:this={s3FileViewer}
+		initialFileKey={json}
+		selectedFileKey={json}
+		readOnlyMode={true}
+	/>
+</Portal>
 
 {#if keys.length > 0}
 	{#if !collapsed}
@@ -118,7 +134,18 @@
 					</button>
 				{/if}
 			</ul>
-			{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
+			{#if level == 0 && topBrackets}
+				<span class="h-0">{closeBracket}</span>
+				{#if getTypeAsString(json) === 's3object'}
+					<button
+						class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+						on:click={() => {
+							s3FileViewer?.open?.()
+						}}
+						>s3 explorer
+					</button>
+				{/if}
+			{/if}
 		</span>
 	{/if}
 

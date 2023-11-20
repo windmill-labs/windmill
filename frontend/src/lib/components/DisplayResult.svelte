@@ -29,6 +29,7 @@
 		| 'approval'
 		| 'svg'
 		| 'filename'
+		| 's3object'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -124,6 +125,8 @@
 					keys.includes('approvalPage')
 				) {
 					return 'approval'
+				} else if (keys.length === 1 && keys.includes('s3')) {
+					return 's3object'
 				}
 			} catch (err) {}
 		}
@@ -148,7 +151,7 @@
 
 <div class="inline-highlight relative grow min-h-[200px]">
 	{#if result != undefined && length != undefined && largeObject != undefined}
-		{#if resultKind && resultKind != 'json'}
+		{#if resultKind && !['json', 's3object'].includes(resultKind)}
 			<div class="top-0 flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
@@ -163,18 +166,12 @@
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
 							><ClipboardCopy size={16} /></button
 						>
-						<button
-							on:click={() => {
-								if (Object.keys(result).length == 1 && Object.keys(result).indexOf('s3') >= 0) {
-									s3FileViewer?.open?.()
-								} else {
-									jsonViewer.openDrawer
-								}
-							}}><Expand size={16} /></button
-						>
+						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}</div
-			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
+			>
+		{/if}
+		{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border rounded-md"
 			>
 				{#each Object.keys(result) as col}
@@ -300,6 +297,17 @@
 				<div class="center-center"
 					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
 				>
+			</div>
+		{:else if !forceJson && resultKind == 's3object'}
+			<div class="absolute top-1 h-full w-full">
+				<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
+				<button
+					class="text-secondary underline text-2xs whitespace-nowrap"
+					on:click={() => {
+						s3FileViewer?.open?.()
+					}}
+					>s3 explorer
+				</button>
 			</div>
 		{:else if largeObject}<div class="text-sm text-tertiary"
 				><a

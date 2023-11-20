@@ -22,25 +22,6 @@
 	}
 </script>
 
-<Drawer bind:this={jsonViewer} size="800px">
-	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
-			<Button
-				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
-				color="light"
-				size="xs"
-			>
-				<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
-			</Button>
-		</svelte:fragment>
-		{#if isString(jsonViewerContent)}
-			<pre>{jsonViewerContent}</pre>
-		{:else}
-			<ObjectViewer pureViewer json={jsonViewerContent} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-
 {#if value == undefined || value == null}
 	<span class="text-tertiary">null</span>
 {:else if value == '<function call>'}

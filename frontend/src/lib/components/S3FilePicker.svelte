@@ -61,7 +61,7 @@
 	async function loadFiles() {
 		let availableFiles = await HelpersService.listStoredFiles({
 			workspace: $workspaceStore!,
-			maxKeys: 128, // fixed pages of 128 files for now
+			maxKeys: 500, // fixed pages of 500 files for now
 			marker: paginationMarker
 		})
 		for (let file_path of availableFiles.windmill_large_files) {
@@ -293,13 +293,11 @@
 							</div>
 							<div slot="footer">
 								{#if !emptyString(paginationMarker)}
-									<div
-										style="cursor: pointer;"
-										class="text-tertiary text-xs text-center italic"
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap text-center w-full"
 										on:click={loadFiles}
-									>
-										More files available. Click here to load more...
-									</div>
+										>More files in bucket. Click here to load more...
+									</button>
 								{/if}
 							</div>
 						</VirtualList>
