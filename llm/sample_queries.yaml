@@ -15,7 +15,7 @@
   description: comment my code
 - lang: go
   type: gen
-  description: civide a number by 16
+  description: divide a number by 16
 - lang: deno
   type: gen
   description: convert a number to a word
