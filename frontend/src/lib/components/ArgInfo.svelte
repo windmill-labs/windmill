@@ -3,10 +3,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { ClipboardCopy, Expand } from 'lucide-svelte'
-	import { Button, DrawerContent } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Button, DrawerContent } from './common'
 
 	export let value: any
 	let jsonViewer: Drawer
