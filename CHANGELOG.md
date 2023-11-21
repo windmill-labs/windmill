@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.213.0](https://github.com/windmill-labs/windmill/compare/v1.212.0...v1.213.0) (2023-11-21)
+
+
+### Features
+
+* code completion UI + other nits ([#2657](https://github.com/windmill-labs/windmill/issues/2657)) ([6d426b4](https://github.com/windmill-labs/windmill/commit/6d426b4ec49d4749a89c86dc5eb1f11bf705ca26))
+* Expanding an s3object result now opens the S3 file browser ([#2656](https://github.com/windmill-labs/windmill/issues/2656)) ([baac93f](https://github.com/windmill-labs/windmill/commit/baac93f40140ee37548a273885c028a8e6500b6d))
+
+
+### Bug Fixes
+
+* ask to return value ([#2659](https://github.com/windmill-labs/windmill/issues/2659)) ([de1e1f5](https://github.com/windmill-labs/windmill/commit/de1e1f545d4cd42f46d9af9a0349af86acf1901c))
+* fix embedded approval step timeouts ([51ce2f8](https://github.com/windmill-labs/windmill/commit/51ce2f8cb308da285dab0dc433bf596caa5eeed0))
+* fix error handling for list of errors ([c1bb97d](https://github.com/windmill-labs/windmill/commit/c1bb97d990810c9b3d909c9a045f0ce84be6c25e))
+* set session code completion to enabled by default ([#2664](https://github.com/windmill-labs/windmill/issues/2664)) ([ded0bb8](https://github.com/windmill-labs/windmill/commit/ded0bb890bb54ef80c857395474e692865ee4717))
+
 ## [1.212.0](https://github.com/windmill-labs/windmill/compare/v1.211.0...v1.212.0) (2023-11-20)
 
 
