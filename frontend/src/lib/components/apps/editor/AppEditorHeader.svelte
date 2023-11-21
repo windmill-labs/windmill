@@ -264,8 +264,7 @@
 		sendUserToast('App deployed successfully')
 		if (appPath !== npath) {
 			localStorage.removeItem(`app-${appPath}`)
-			await goto(`/apps/edit/${npath}?nodraft=true`)
-			window.location.reload()
+			window.location.pathname = `/apps/edit/${npath}?nodraft=true`
 		}
 	}
 

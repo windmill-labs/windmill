@@ -21,7 +21,6 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
-	import { deepEqual } from 'fast-equals'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -87,15 +86,15 @@
 		}
 	}
 
-	let lastPreviewFlow: undefined | OpenFlow = undefined
+	let lastPreviewFlow: undefined | string = undefined
 	export async function runPreview(
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
+		lastPreviewFlow = JSON.stringify($flowStore)
 		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
 		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
-		lastPreviewFlow = JSON.parse(JSON.stringify($flowStore))
 		isRunning = true
 	}
 
@@ -322,7 +321,7 @@
 		</div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		{#if lastPreviewFlow && !deepEqual($flowStore, lastPreviewFlow)}
+		{#if lastPreviewFlow && JSON.stringify($flowStore) != lastPreviewFlow}
 			<div class="pt-1">
 				<div
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"

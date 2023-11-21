@@ -45,7 +45,7 @@
 		}
 	}
 
-	let dynamicClass: boolean = value.evalClass !== undefined
+	let dynamicClass: boolean = value?.evalClass !== undefined
 </script>
 
 <div class=" border-b flex justify-between items-center p-2 text-xs leading-6 font-bold">
@@ -207,7 +207,7 @@
 			}}
 		/>
 
-		{#if value.evalClass && dynamicClass}
+		{#if value?.evalClass && dynamicClass}
 			<CssEval bind:evalClass={value.evalClass} />
 		{/if}
 	</div>

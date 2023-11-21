@@ -1383,10 +1383,29 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     logs,
                     0,
                     canceled_by,
-                    rsmq,
+                    rsmq.clone(),
                 )
                 .await?;
-
+                if flow_job.is_flow_step {
+                    if let Some(parent_job) = flow_job.parent_job {
+                        update_flow_status_after_job_completion(
+                            db,
+                            client,
+                            parent_job,
+                            &flow_job.id,
+                            &flow_job.workspace_id,
+                            true,
+                            &to_raw_value(&result),
+                            false,
+                            same_worker_tx.clone(),
+                            &worker_dir,
+                            None,
+                            rsmq,
+                            worker_name,
+                        )
+                        .await?;
+                    }
+                }
                 return Ok(());
             }
         }
