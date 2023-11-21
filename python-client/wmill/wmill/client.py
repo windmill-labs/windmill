@@ -41,13 +41,19 @@ class Windmill:
             headers=self.headers,
         )
 
-    def get(self, endpoint, **kwargs) -> httpx.Response:
+    def get(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
         endpoint = endpoint.lstrip("/")
-        return self.client.get(f"/{endpoint}", **kwargs)
+        resp = self.client.get(f"/{endpoint}", **kwargs)
+        if raise_for_status:
+            resp.raise_for_status()
+        return resp
 
-    def post(self, endpoint, **kwargs) -> httpx.Response:
+    def post(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
         endpoint = endpoint.lstrip("/")
-        return self.client.post(f"/{endpoint}", **kwargs)
+        resp = self.client.post(f"/{endpoint}", **kwargs)
+        if raise_for_status:
+            resp.raise_for_status()
+        return resp
 
     def create_token(self, duration=dt.timedelta(days=1)) -> str:
         endpoint = "/users/tokens/create"
@@ -55,7 +61,7 @@ class Windmill:
             "label": f"refresh {time.time()}",
             "expiration": (dt.datetime.now() + duration).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
-        return self.post(endpoint, json=payload).text
+        return self.post(endpoint, json=payload, refresh_client=False).text
 
     def create_job(
         self,
@@ -175,7 +181,7 @@ class Windmill:
         return result
 
     def get_job_status(self, job_id: str) -> JobStatus:
-        resp = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}")
+        resp = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}", raise_for_status=False)
         assert not resp.status_code == 404, f"{job_id} not found"
         resp_json = resp.json()
         job_type = resp_json.get("type", "")
@@ -210,7 +216,7 @@ class Windmill:
     def set_variable(self, path: str, value: str) -> None:
         """Set variable from Windmill"""
         # check if variable exists
-        r = self.get(f"/w/{self.workspace}/variables/get/{path}")
+        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
         if r.status_code == 404:
             # create variable
             self.post(
@@ -250,7 +256,7 @@ class Windmill:
         resource_type: str,
     ):
         # check if resource exists
-        r = self.get(f"/w/{self.workspace}/resources/get/{path}")
+        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
         if r.status_code == 404:
             # create resource
             self.post(
