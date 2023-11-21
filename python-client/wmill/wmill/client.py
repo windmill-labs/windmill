@@ -1,527 +1,624 @@
-from typing import Any, Union, Dict
-from typing import Generic, TypeVar, Optional
+from __future__ import annotations
 
-import os
-import json
-from datetime import timedelta
-import logging
 import atexit
+import datetime as dt
+import functools
+import logging
+import os
+import random
 import time
+import warnings
+from json import JSONDecodeError
+from typing import Dict, Any, Union, Literal
 
-from time import sleep
-from windmill_api.models.whoami_response_200 import WhoamiResponse200
+import httpx
 
-from windmill_api.client import AuthenticatedClient
-
-from enum import Enum
-
-from windmill_api.types import Unset
-
-S = TypeVar("S")
+_client: "Windmill | None" = None
 
 
-class Resource(Generic[S]):
-    pass
+logger = logging.getLogger("windmill_client")
+
+JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
-class JobStatus(Enum):
-    WAITING = 1
-    RUNNING = 2
-    COMPLETED = 3
+class Windmill:
+    def __init__(self, base_url=None, token=None):
+        base = base_url or os.environ.get("BASE_INTERNAL_URL")
 
+        self.base_url = f"{base}/api"
+        self.token = token or os.environ.get("WM_TOKEN")
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        }
+        self.client = self.get_client()
+        self.workspace = os.environ.get("WM_WORKSPACE")
+        self.path = os.environ.get("WM_JOB_PATH")
 
-_client: "AuthenticatedClient | None" = None
-
-logger = logging.getLogger("wmill_client")
-
-
-def create_client(base_url: "str | None" = None, token: "str | None" = None) -> AuthenticatedClient:
-    env_base_url = os.environ.get("BASE_INTERNAL_URL")
-
-    if env_base_url is not None:
-        env_base_url = env_base_url + "/api"
-
-    base_url_: str = base_url or env_base_url or "http://localhost:8000/api"
-    token_: str = token or os.environ.get("WM_TOKEN") or ""
-    global _client
-    if _client is None:
-        _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30, verify_ssl=False)
-    return _client
-
-
-def get_workspace() -> str:
-    from_env = os.environ.get("WM_WORKSPACE")
-    if from_env is None:
-        raise Exception("Workspace not passed as WM_WORKSPACE")
-    return from_env
-
-
-def get_version() -> str:
-    """
-    Returns the current version of the backend
-    """
-    from windmill_api.api.settings import backend_version
-
-    return backend_version.sync_detailed(client=create_client()).content.decode("us-ascii")
-
-
-def run_script_async(
-    hash: str,
-    args: Dict[str, Any] = {},
-    scheduled_in_secs: Union[None, int] = None,
-) -> str:
-    """
-    Launch the run of a script and return immediately its job id
-    """
-    from windmill_api.api.job import run_script_by_hash
-
-    from windmill_api.models.run_script_by_hash_json_body import RunScriptByHashJsonBody
-
-    return run_script_by_hash.sync_detailed(
-        client=create_client(),
-        workspace=get_workspace(),
-        hash_=hash,
-        json_body=RunScriptByHashJsonBody.from_dict(args),
-        scheduled_in_secs=scheduled_in_secs,
-        parent_job=os.environ.get("DT_JOB_ID"),
-    ).content.decode("us-ascii")
-
-
-def run_script_sync(
-    hash: str, 
-    args: Optional[Dict[str, Any]] = None, 
-    verbose: bool = False,
-    assert_result_is_not_none: bool = True,
-    cleanup: bool = True,
-    timeout: Optional[timedelta] = None,
-) -> Dict[str, Any]:
-    """
-    Run a script, wait for it to complete and return the result of the launched script
-    """
-    args = args or {}
-    job_id = run_script_async(hash, args, None)
-
-    def cancel_job():
-        from windmill_api.api.job.cancel_queued_job import (
-            sync_detailed,
-            CancelQueuedJobJsonBody,
-        )
-        logger.warning(f"cancelling job {job_id}")
-        return sync_detailed(
-            workspace=get_workspace(),
-            id=job_id,
-            client=create_client(),
-            json_body=CancelQueuedJobJsonBody(reason="killed by exit handler"),
+    def get_client(self) -> httpx.Client:
+        return httpx.Client(
+            base_url=self.base_url,
+            headers=self.headers,
         )
 
-    if cleanup:
-        atexit.register(cancel_job)
+    def get(self, endpoint, **kwargs) -> httpx.Response:
+        endpoint = endpoint.lstrip("/")
+        return self.client.get(f"/{endpoint}", **kwargs)
 
-    nb_iter = 0
+    def post(self, endpoint, **kwargs) -> httpx.Response:
+        endpoint = endpoint.lstrip("/")
+        return self.client.post(f"/{endpoint}", **kwargs)
 
-    start_time = time.time()
-    timeout_seconds = timeout.total_seconds() if timeout else None
+    def create_token(self, duration=dt.timedelta(days=1)) -> str:
+        endpoint = "/users/tokens/create"
+        payload = {
+            "label": f"refresh {time.time()}",
+            "expiration": (dt.datetime.now() + duration).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        return self.post(endpoint, json=payload, refresh_client=False).text
 
-    while get_job_status(job_id) != JobStatus.COMPLETED:
-        if timeout_seconds is not None:
-            elapsed_time = time.time() - start_time
-            if elapsed_time > timeout_seconds:
-                msg = f"Script execution timed out after {timeout_seconds} seconds"
-                logger.warning(msg)
-                raise TimeoutError(msg)
+    def create_job(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a job and return its job id."""
+        assert not (path and hash_), "path and hash_ are mutually exclusive"
+        args = args or {}
+        params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if path:
+            endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
+        elif hash_:
+            endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
+        else:
+            raise Exception("path or hash_ must be provided")
+        return self.post(endpoint, json=args, params=params).text
+
+    def run_script(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        timeout: dt.timedelta | int | float = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = True,
+    ):
+        """Run script synchronously and return its result."""
+        args = args or {}
+
         if verbose:
-            print(f"Waiting for {job_id} to complete...")
-        if nb_iter < 10:
-            sleep(2.0)
-        else:
-            sleep(5.0)
-        nb_iter += 1
-    
-    result = get_result(
-        job_id,
-        assert_result_is_not_none=assert_result_is_not_none,
-    )
+            logger.info(f"running `{path}` synchronously with {args = }")
 
-    # the job finished--we don't need to cancel it anymore
-    if cleanup:
-        atexit.unregister(cancel_job)
+        if isinstance(timeout, dt.timedelta):
+            timeout = timeout.total_seconds
 
-    error = isinstance(result, dict) and result.get("error")
+        start_time = time.time()
 
-    assert not error, error
+        job_id = self.create_job(path=path, hash_=hash_, args=args)
 
-    return result
+        def cancel_job():
+            logger.warning(f"cancelling job: {job_id}")
+            self.post(
+                f"/w/{self.workspace}/jobs_u/queue/cancel/{job_id}",
+                json={"reason": "parent script cancelled"},
+            ).raise_for_status()
 
+        if cleanup:
+            atexit.register(cancel_job)
 
-def run_script_by_path_async(
-    path: str,
-    args: Dict[str, Any] = {},
-    scheduled_in_secs: Union[None, int] = None,
-) -> str:
-    """
-    Launch the run of a script and return immediately its job id
-    """
-    from windmill_api.api.job import run_script_by_path
+        while True:
+            job = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
 
-    from windmill_api.models.run_script_by_path_json_body import RunScriptByPathJsonBody
-
-    return run_script_by_path.sync_detailed(
-        client=create_client(),
-        workspace=get_workspace(),
-        path=path,
-        json_body=RunScriptByPathJsonBody.from_dict(args),
-        scheduled_in_secs=scheduled_in_secs,
-        parent_job=os.environ.get("DT_JOB_ID"),
-    ).content.decode("us-ascii")
-
-
-def run_script_by_path_sync(
-    path: str, 
-    args: Dict[str, Any] = {}, 
-    verbose: bool = False,
-    assert_result_is_not_none: bool = True,
-    cleanup: bool = True,
-    timeout: Optional[timedelta] = None,
-) -> Dict[str, Any]:
-    """
-    Run a script, wait for it to complete and return the result of the launched script
-    """
-    args = args or {}
-    job_id = run_script_by_path_async(path, args, None)
-
-    def cancel_job():
-        from windmill_api.api.job.cancel_queued_job import (
-            sync_detailed,
-            CancelQueuedJobJsonBody,
-        )
-        logger.warning(f"cancelling job {job_id}")
-        return sync_detailed(
-            workspace=get_workspace(),
-            id=job_id,
-            client=create_client(),
-            json_body=CancelQueuedJobJsonBody(reason="killed by exit handler"),
-        )
-
-    if cleanup:
-        atexit.register(cancel_job)
-
-    nb_iter = 0
-
-    start_time = time.time()
-    timeout_seconds = timeout.total_seconds() if timeout else None
-
-    while get_job_status(job_id) != JobStatus.COMPLETED:
-        if timeout_seconds is not None:
-            elapsed_time = time.time() - start_time
-            if elapsed_time > timeout_seconds:
-                msg = f"Script execution timed out after {timeout_seconds} seconds"
+            if timeout and ((time.time() - start_time) > timeout):
+                msg = "reached timeout"
                 logger.warning(msg)
+                self.post(
+                    f"/w/{self.workspace}/jobs_u/queue/cancel/{job_id}",
+                    json={"reason": msg},
+                )
                 raise TimeoutError(msg)
-        if verbose:
-            print(f"Waiting for {job_id} to complete...")
-        if nb_iter < 10:
-            sleep(2.0)
+
+            result = job.get("result")
+            canceled, canceled_reason = job.get("canceled"), job.get("canceled_reason")
+            success = job.get("success")
+
+            if cleanup and (canceled or success):
+                atexit.unregister(cancel_job)
+
+            if canceled:
+                raise Exception(f"job canceled: {canceled_reason}")
+
+            if success:
+                if assert_result_is_not_none and result is None:
+                    raise Exception(f"result is None for {job_id = }")
+                return result
+
+            if verbose:
+                logger.info(f"sleeping 3 seconds for {job_id = }")
+
+            time.sleep(3)
+
+    def cancel_running(self) -> dict:
+        """Cancel currently running executions of the same script."""
+        logger.info("canceling running executions of this script")
+
+        jobs = self.get(
+            f"/w/{self.workspace}/jobs/list",
+            params={
+                "running": "true",
+                "script_path_exact": self.path,
+            },
+        ).json()
+
+        current_job_id = os.environ.get("WM_JOB_ID")
+
+        logger.debug(f"{current_job_id = }")
+
+        job_ids = [j["id"] for j in jobs if j["id"] != current_job_id]
+
+        if job_ids:
+            logger.info(f"cancelling the following job ids: {job_ids}")
         else:
-            sleep(5.0)
-        nb_iter += 1
-    
-    result = get_result(
-        job_id,
-        assert_result_is_not_none=assert_result_is_not_none,
-    )
+            logger.info("no previous executions to cancel")
 
-    # the job finished--we don't need to cancel it anymore
-    if cleanup:
-        atexit.unregister(cancel_job)
+        result = {}
 
-    error = isinstance(result, dict) and result.get("error")
-
-    assert not error, error
-
-    return result
-
-
-def get_job_status(job_id: str) -> JobStatus:
-    """
-    Returns the status of a queued or completed job
-    """
-    from windmill_api.models.get_job_response_200_type import GetJobResponse200Type
-    from windmill_api.api.job import get_job
-
-    res = get_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
-    if not res:
-        raise Exception(f"Job {job_id} not found")
-    elif not res.type:
-        raise Exception(f"Unexpected type not found for job {job_id}")
-    elif res.type == GetJobResponse200Type.COMPLETEDJOB:
-        return JobStatus.COMPLETED
-    else:
-        if not "running" in res.additional_properties:
-            raise Exception(f"Unexpected running not found for completed job {job_id}")
-        elif bool(res.additional_properties["running"]):
-            return JobStatus.RUNNING
-        else:
-            return JobStatus.WAITING
-
-
-def get_result(job_id: str, assert_result_is_not_none: bool = True) -> Dict[str, Any]:
-    """
-    Returns the result of a completed job
-    """
-    from windmill_api.api.job import get_completed_job
-
-    res = get_completed_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
-    if not res:
-        raise Exception(f"Job {job_id} not found")
-    if assert_result_is_not_none and res.result is None:
-        raise Exception(f"result was null for completed job {job_id}")
-    else:
-        return res.result
-
-
-def get_resource(path: Union[str, None] = None, none_if_undefined: bool = False) -> Any:
-    """
-    Returns the resource at a given path
-    """
-    from windmill_api.api.resource import (
-        get_resource_value_interpolated as get_resource_api,
-    )
-
-    path = path or get_state_path()
-    parsed = get_resource_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client())
-    try:
-        content = parsed.content.decode("utf-8")
-        parsed = json.loads(content)
-    except:
-        parsed = None
-
-    if parsed is None:
-        if none_if_undefined:
-            return None
-        else:
-            raise Exception(
-                f"Resource at path {path} does not exist or you do not have read permissions on it: {content}"
+        for id_ in job_ids:
+            result[id_] = self.post(
+                f"/w/{self.workspace}/jobs_u/queue/cancel/{id_}",
+                json={"reason": "killed by `cancel_running` method"},
             )
 
-    return parsed
+        return result
+
+    def get_job_status(self, job_id: str) -> JobStatus:
+        resp = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}")
+        assert not resp.status_code == 404, f"{job_id} not found"
+        resp_json = resp.json()
+        job_type = resp_json.get("type", "")
+        assert job_type, f"{resp_json} is not a valid job"
+        if job_type.lower() == "completedjob":
+            return "COMPLETED"
+        additional_properties = resp_json.get("additional_properties", {})
+        if "running" not in additional_properties:
+            raise Exception(f"{job_id} is not running")
+        if additional_properties.get("running"):
+            return "RUNNING"
+        return "WAITING"
+
+    def get_result(
+        self,
+        job_id: str,
+        assert_result_is_not_none: bool = True,
+    ) -> Any:
+        result = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result/{job_id}")
+        result_text = result.text
+        if assert_result_is_not_none and result_text is None:
+            raise Exception(f"result is None for {job_id = }")
+        try:
+            return result.json()
+        except JSONDecodeError:
+            return result_text
+
+    def get_variable(self, path: str) -> str:
+        """Get variable from Windmill"""
+        return self.get(f"/w/{self.workspace}/variables/get/{path}").json()["value"]
+
+    def set_variable(self, path: str, value: str) -> None:
+        """Set variable from Windmill"""
+        # check if variable exists
+        r = self.get(f"/w/{self.workspace}/variables/get/{path}")
+        if r.status_code == 404:
+            # create variable
+            self.post(
+                f"/w/{self.workspace}/variables/create",
+                json={
+                    "path": path,
+                    "value": value,
+                    "is_secret": False,
+                    "description": "",
+                },
+            )
+        else:
+            # update variable
+            self.post(
+                f"/w/{self.workspace}/variables/update/{path}",
+                json={"value": value},
+            )
+
+    def get_resource(
+        self,
+        path: str,
+        none_if_undefined: bool = False,
+    ) -> str | None:
+        """Get resource from Windmill"""
+        try:
+            return self.get(f"/w/{self.workspace}/resources/get/{path}").json()["value"]
+        except Exception as e:
+            logger.error(e)
+            if none_if_undefined:
+                return None
+            raise e
+
+    def set_resource(
+        self,
+        value: Any,
+        path: str,
+        resource_type: str,
+    ):
+        # check if resource exists
+        r = self.get(f"/w/{self.workspace}/resources/get/{path}")
+        if r.status_code == 404:
+            # create resource
+            self.post(
+                f"/w/{self.workspace}/resources/create",
+                json={
+                    "path": path,
+                    "value": value,
+                    "resource_type": resource_type,
+                },
+            )
+        else:
+            # update resource
+            self.post(
+                f"/w/{self.workspace}/resources/update_value/{path}",
+                json={"value": value},
+            )
+
+    def set_state(self, value: Any):
+        self.set_resource(value, path=self.state_path, resource_type="state")
+
+    @property
+    def version(self):
+        return self.get("version").text
+
+    def get_duckdb_connection_settings(
+        self,
+        s3_resource: Any,
+        none_if_undefined: bool = False,
+    ) -> Union[str, None]:
+        """
+        Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+        initiate an S3 connection from DuckDB
+        """
+        try:
+            return self.post(
+                f"/w/{self.workspace}/job_helpers/duckdb_connection_settings",
+                json={"s3_resource": s3_resource},
+            ).json()
+        except JSONDecodeError as e:
+            if none_if_undefined:
+                return None
+            raise Exception(
+                "Could not generate DuckDB S3 connection settings from the provided resource"
+            ) from e
+
+    def get_polars_connection_settings(
+        self,
+        s3_resource: Any,
+        none_if_undefined: bool = False,
+    ) -> Any:
+        """
+        Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+        initiate an S3 connection from Polars
+        """
+        try:
+            return self.post(
+                f"/w/{self.workspace}/job_helpers/polars_connection_settings",
+                json={"s3_resource": s3_resource},
+            ).json()
+        except JSONDecodeError as e:
+            if none_if_undefined:
+                return None
+            raise Exception(
+                "Could not generate Polars S3 connection settings from the provided resource"
+            ) from e
+
+    def whoami(self) -> dict:
+        return self.get("/users/whoami").json()
+
+    @property
+    def user(self) -> dict:
+        return self.whoami()
+
+    @property
+    def state_path(self) -> str:
+        state_path = os.environ.get(
+            "WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH")
+        )
+        if state_path is None:
+            raise Exception("State path not found")
+        return state_path
+
+    @property
+    def state(self) -> Any:
+        return self.get_resource(path=self.state_path, none_if_undefined=True)
+
+    @staticmethod
+    def set_shared_state_pickle(value: Any, path: str = "state.pickle") -> None:
+        """
+        Set the state in the shared folder using pickle
+        """
+        import pickle
+
+        with open(f"/shared/{path}", "wb") as handle:
+            pickle.dump(value, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def get_shared_state_pickle(path: str = "state.pickle") -> Any:
+        """
+        Get the state in the shared folder using pickle
+        """
+        import pickle
+
+        with open(f"/shared/{path}", "rb") as handle:
+            return pickle.load(handle)
+
+    @staticmethod
+    def set_shared_state(value: Any, path: str = "state.json") -> None:
+        """
+        Set the state in the shared folder using pickle
+        """
+        import json
+
+        with open(f"/shared/{path}", "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False, indent=4)
+
+    @staticmethod
+    def get_shared_state(path: str = "state.json") -> None:
+        """
+        Set the state in the shared folder using pickle
+        """
+        import json
+
+        with open(f"/shared/{path}", "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def get_resume_urls(self, approver: str = None) -> dict:
+        nonce = random.randint(0, 1000000000)
+        return self.get(
+            f"/w/{self.workspace}/jobs_u/get_resume_urls/{self.path}/{nonce}",
+            params={"approver": approver},
+        ).json()
 
 
-def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> Union[str, None]:
+def init_global_client(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        global _client
+        if _client is None:
+            _client = Windmill()
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def deprecate(in_favor_of: str):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            warnings.warn(
+                (
+                    f"The '{f.__name__}' method is deprecated and may be removed in the future. "
+                    f"Consider {in_favor_of}"
+                ),
+                DeprecationWarning,
+            )
+            return f(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+@init_global_client
+@deprecate("Windmill().workspace")
+def get_workspace() -> str:
+    return _client.workspace
+
+
+@init_global_client
+@deprecate("Windmill().version")
+def get_version() -> str:
+    return _client.version
+
+
+@init_global_client
+@deprecate("Windmill().create_job(...)")
+def run_script_async(
+    hash: str,
+    args: Dict[str, Any] = None,
+    scheduled_in_secs: int = None,
+) -> str:
+    return _client.create_job(
+        hash_=hash,
+        args=args,
+        scheduled_in_secs=scheduled_in_secs,
+    )
+
+
+@init_global_client
+@deprecate("Windmill().run_script(...)")
+def run_script_sync(
+    hash: str,
+    args: Dict[str, Any] = None,
+    verbose: bool = False,
+    assert_result_is_not_none: bool = True,
+    cleanup: bool = True,
+    timeout: dt.timedelta = None,
+) -> Dict[str, Any]:
+    return _client.run_script(
+        hash_=hash,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+@deprecate("Windmill().create_job(...)")
+def run_script_by_path_async(
+    path: str,
+    args: Dict[str, Any] = None,
+    scheduled_in_secs: Union[None, int] = None,
+) -> str:
+    return _client.create_job(
+        path=path,
+        args=args,
+        scheduled_in_secs=scheduled_in_secs,
+    )
+
+
+@init_global_client
+@deprecate("Windmill().run_script(...)")
+def run_script_by_path_sync(
+    path: str,
+    args: Dict[str, Any] = {},
+    verbose: bool = False,
+    assert_result_is_not_none: bool = True,
+    cleanup: bool = True,
+    timeout: dt.timedelta = None,
+) -> Dict[str, Any]:
+    return _client.run_script(
+        path=path,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+@deprecate("Windmill().get_job_status(...)")
+def get_job_status(job_id: str) -> JobStatus:
+    return _client.get_job_status(job_id)
+
+
+@init_global_client
+@deprecate("Windmill().get_result(...)")
+def get_result(*args, **kwargs) -> Dict[str, Any]:
+    return _client.get_result(*args, **kwargs)
+
+
+@init_global_client
+@deprecate("Windmill().get_duckdb_connection_settings(...)")
+def duckdb_connection_settings(*args, **kwargs) -> Union[str, None]:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
     """
-    from windmill_api.api.helpers import duckdb_connection_settings
-    from windmill_api.models.s3_resource import S3Resource
-
-    parsed = duckdb_connection_settings.sync_detailed(
-        workspace=get_workspace(),
-        client=create_client(),
-        json_body={
-            "s3_resource": s3_resource,
-        },
-    )
-    try:
-        content = parsed.content.decode("utf-8")
-        parsed = json.loads(content)
-    except:
-        parsed = None
-
-    if parsed is None:
-        if none_if_undefined:
-            return None
-        else:
-            raise Exception(f"Could not generate DuckDB S3 connection settings from the provided resource")
-    return parsed
+    return _client.get_duckdb_connection_settings(*args, **kwargs)
 
 
-def polars_connection_settings(s3_resource: Any, none_if_undefined: bool = False) -> Any:
+@init_global_client
+@deprecate("Windmill().get_polars_connection_settings(...)")
+def polars_connection_settings(*args, **kwargs) -> Any:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from Polars
     """
-    from windmill_api.api.helpers import polars_connection_settings
-
-    parsed = polars_connection_settings.sync_detailed(
-        workspace=get_workspace(),
-        client=create_client(),
-        json_body={
-            "s3_resource": s3_resource,
-        },
-    )
-    try:
-        content = parsed.content.decode("utf-8")
-        parsed = json.loads(content)
-    except:
-        parsed = None
-
-    if parsed is None:
-        if none_if_undefined:
-            return None
-        else:
-            raise Exception(f"Could not generate Polars S3 connection settings from the provided resource")
-    return parsed
+    return _client.get_polars_connection_settings(*args, **kwargs)
 
 
-def whoami() -> Union[WhoamiResponse200, None]:
+@init_global_client
+@deprecate("Windmill().user")
+def whoami() -> dict:
     """
     Returns the current user
     """
-    from windmill_api.api.user import whoami
-
-    return whoami.sync(client=create_client(), workspace=get_workspace())
+    return _client.user
 
 
+@init_global_client
+@deprecate("Windmill().state")
 def get_state() -> Any:
     """
     Get the state
     """
-    return get_resource(None, True)
+    return _client.state
 
 
-def set_resource(value: Any, path: Union[str, None] = None, resource_type: str = "state") -> None:
+@init_global_client
+@deprecate("Windmill().set_resource(...)")
+def set_resource(**kwargs) -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
-    from windmill_api.models.create_resource_json_body import CreateResourceJsonBody
-    from windmill_api.models.update_resource_value_json_body import (
-        UpdateResourceValueJsonBody,
-    )
-    from windmill_api.api.resource import (
-        exists_resource,
-        update_resource_value,
-        create_resource,
-    )
-
-    path = path or get_state_path()
-    workspace = get_workspace()
-    client = create_client()
-    if not exists_resource.sync_detailed(workspace=workspace, path=path, client=client).parsed:
-        create_resource.sync_detailed(
-            workspace=workspace,
-            client=client,
-            json_body=CreateResourceJsonBody(path=path, value=value, resource_type=resource_type),
-        )
-    else:
-        update_resource_value.sync_detailed(
-            workspace=get_workspace(),
-            client=client,
-            path=path,
-            json_body=UpdateResourceValueJsonBody(value=value),
-        )
+    return _client.set_resource(**kwargs)
 
 
+@init_global_client
+@deprecate("Windmill().set_state(...)")
 def set_state(value: Any) -> None:
     """
     Set the state
     """
-    set_resource(value, None)
+    return _client.set_state(value)
 
 
-def set_shared_state_pickle(value: Any, path: str = "state.pickle") -> None:
+@deprecate("Windmill.set_shared_state_pickle(...)")
+def set_shared_state_pickle(**kwargs) -> None:
     """
     Set the state in the shared folder using pickle
     """
-    import pickle
-
-    with open(f"/shared/{path}", "wb") as handle:
-        pickle.dump(value, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return Windmill.set_shared_state_pickle(**kwargs)
 
 
-def get_shared_state_pickle(path: str = "state.pickle") -> Any:
+@deprecate("Windmill.get_shared_state_pickle(...)")
+def get_shared_state_pickle(**kwargs) -> Any:
     """
     Get the state in the shared folder using pickle
     """
-    import pickle
-
-    with open(f"/shared/{path}", "rb") as handle:
-        return pickle.load(handle)
+    return Windmill.get_shared_state_pickle(**kwargs)
 
 
-def set_shared_state(value: Any, path: str = "state.json") -> None:
+@deprecate("Windmill.set_shared_state(...)")
+def set_shared_state(**kwargs) -> None:
     """
     Set the state in the shared folder using pickle
     """
-    import json
-
-    with open(f"/shared/{path}", "w", encoding="utf-8") as f:
-        json.dump(value, f, ensure_ascii=False, indent=4)
+    return Windmill.set_shared_state(**kwargs)
 
 
-def get_shared_state(path: str = "state.json") -> None:
+@deprecate("Windmill.get_shared_state(...)")
+def get_shared_state(**kwargs) -> None:
     """
     Set the state in the shared folder using pickle
     """
-    import json
-
-    with open(f"/shared/{path}", "r", encoding="utf-8") as f:
-        return json.load(f)
+    return Windmill.get_shared_state(**kwargs)
 
 
+@init_global_client
+@deprecate("Windmill().get_variable(...)")
 def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
     """
-    from windmill_api.api.variable import get_variable_value as get_variable_api
-
-    res = get_variable_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client())
-    parsed = res.parsed
-    if parsed is None:
-        raise Exception(
-            f"Variable at path {path} does not exist or you do not have read permissions on it: {res.content.decode('utf-8')}"
-        )
-
-    return parsed
+    return _client.get_variable(path)
 
 
+@init_global_client
+@deprecate("Windmill().set_variable(...)")
 def set_variable(path: str, value: str) -> None:
     """
     Set the variable at a given path as a string, creating it if it does not exist
     """
-    from windmill_api.api.variable import (
-        exists_variable,
-        update_variable,
-        create_variable,
-    )
-
-    from windmill_api.models.update_variable_json_body import UpdateVariableJsonBody
-    from windmill_api.models.create_variable_json_body import CreateVariableJsonBody
-
-    workspace = get_workspace()
-    client = create_client()
-    if not exists_variable.sync_detailed(workspace=workspace, path=path, client=client).parsed:
-        create_variable.sync_detailed(
-            workspace=workspace,
-            client=client,
-            json_body=CreateVariableJsonBody(path=path, value=value, is_secret=False, description=""),
-        )
-    else:
-        update_variable.sync_detailed(
-            workspace=get_workspace(),
-            path=path,
-            client=client,
-            json_body=UpdateVariableJsonBody(value=value),
-        )
+    return _client.set_variable(path, value)
 
 
+@init_global_client
+@deprecate("Windmill().state_path")
 def get_state_path() -> str:
-    state_path = os.environ.get("WM_STATE_PATH_NEW") or os.environ.get("WM_STATE_PATH")
-    if state_path is None:
-        raise Exception("State path not found")
-    return state_path
+    return _client.state_path
 
 
-def get_resume_urls(approver: Union[str, None] = None) -> Dict:
-    from windmill_api.api.job import get_resume_urls as get_resume_urls_api
-
-    workspace = get_workspace()
-    client = create_client()
-    job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
-    import random
-
-    nonce = random.randint(0, 1000000000)
-    res = get_resume_urls_api.sync_detailed(workspace, job_id, nonce, client=client, approver=approver)
-    if res.parsed is not None:
-        return res.parsed.to_dict()
-    else:
-        raise Exception("Failed to get resume urls")
+@init_global_client
+@deprecate("Windmill().get_resume_urls(...)")
+def get_resume_urls(approver: str = None) -> dict:
+    return _client.get_resume_urls(approver)
