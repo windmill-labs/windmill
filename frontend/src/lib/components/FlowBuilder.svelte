@@ -221,6 +221,40 @@
 				}
 			} else {
 				localStorage.removeItem(`flow-${initialPath}`)
+
+				const scheduleExists = await ScheduleService.existsSchedule({
+					workspace: $workspaceStore ?? '',
+					path: initialPath
+				})
+
+				let createScheduleAfterFlow = false
+				if (scheduleExists) {
+					const schedule = await ScheduleService.getSchedule({
+						workspace: $workspaceStore ?? '',
+						path: initialPath
+					})
+					if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
+						await ScheduleService.updateSchedule({
+							workspace: $workspaceStore ?? '',
+							path: initialPath,
+							requestBody: {
+								schedule: formatCron(cron),
+								timezone,
+								args
+							}
+						})
+					}
+					if (enabled != schedule.enabled) {
+						await ScheduleService.setScheduleEnabled({
+							workspace: $workspaceStore ?? '',
+							path: initialPath,
+							requestBody: { enabled }
+						})
+					}
+				} else if (enabled) {
+					await createSchedule(initialPath)
+				}
+
 				await FlowService.updateFlow({
 					workspace: $workspaceStore!,
 					path: initialPath,
@@ -235,36 +269,6 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
-				const scheduleExists = await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: $pathStore
-				})
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: $pathStore
-					})
-					if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
-						await ScheduleService.updateSchedule({
-							workspace: $workspaceStore ?? '',
-							path: $pathStore,
-							requestBody: {
-								schedule: formatCron(cron),
-								timezone,
-								args
-							}
-						})
-					}
-					if (enabled != schedule.enabled) {
-						await ScheduleService.setScheduleEnabled({
-							workspace: $workspaceStore ?? '',
-							path: $pathStore,
-							requestBody: { enabled }
-						})
-					}
-				} else if (enabled) {
-					await createSchedule($pathStore)
-				}
 			}
 			savedFlow = {
 				...cloneDeep($flowStore),
