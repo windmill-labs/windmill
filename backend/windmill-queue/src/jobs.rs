@@ -489,6 +489,10 @@ pub async fn add_completed_job<
     }
 
     tx.commit().await?;
+    tracing::info!(
+        "Inserted completed job: {} (success: {success})",
+        queued_job.id
+    );
 
     #[cfg(feature = "enterprise")]
     if *CLOUD_HOSTED && !is_flow && _duration > 1000 {
@@ -516,6 +520,10 @@ pub async fn add_completed_job<
         && queued_job.parent_job.is_none()
         && !success
     {
+        tracing::info!(
+            "Sending error of job {} to error handlers (if any)",
+            queued_job.id
+        );
         if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, result).await {
             tracing::error!(
                 "Could not run global error handler for job {}: {}",
@@ -541,7 +549,6 @@ pub async fn add_completed_job<
         }
     }
 
-    tracing::debug!("Added completed job {}", queued_job.id);
     // tracing::error!("4 {:?}", start.elapsed());
 
     Ok(queued_job.id)
@@ -728,7 +735,9 @@ pub async fn send_error_to_workspace_handler<
             _ => None,
         };
 
-        if !ws_error_handler_muted.unwrap_or(false) {
+        let muted = ws_error_handler_muted.unwrap_or(false);
+        if !muted {
+            tracing::info!("workspace error handled for job {}", &queued_job.id);
             run_error_handler(
                 rsmq,
                 queued_job,
