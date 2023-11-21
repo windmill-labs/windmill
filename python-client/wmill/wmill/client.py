@@ -61,7 +61,7 @@ class Windmill:
             "label": f"refresh {time.time()}",
             "expiration": (dt.datetime.now() + duration).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
-        return self.post(endpoint, json=payload, refresh_client=False).text
+        return self.post(endpoint, json=payload).text
 
     def create_job(
         self,
