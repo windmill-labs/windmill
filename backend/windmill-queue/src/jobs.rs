@@ -520,11 +520,22 @@ pub async fn add_completed_job<
         && queued_job.parent_job.is_none()
         && !success
     {
+        let result = serde_json::from_str(
+            &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
+        )
+        .unwrap_or_else(|_| json!({}));
+        let result = if result.is_object() || result.is_null() {
+            result
+        } else {
+            json!({ "error": result })
+        };
         tracing::info!(
             "Sending error of job {} to error handlers (if any)",
             queued_job.id
         );
-        if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, result).await {
+        if let Err(e) =
+            send_error_to_global_handler(rsmq.clone(), &queued_job, db, Json(&result)).await
+        {
             tracing::error!(
                 "Could not run global error handler for job {}: {}",
                 &queued_job.id,
@@ -537,7 +548,7 @@ pub async fn add_completed_job<
             &queued_job,
             canceled_by.is_some(),
             db,
-            result,
+            Json(&result),
         )
         .await
         {
