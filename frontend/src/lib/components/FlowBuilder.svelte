@@ -227,7 +227,6 @@
 					path: initialPath
 				})
 
-				let createScheduleAfterFlow = false
 				if (scheduleExists) {
 					const schedule = await ScheduleService.getSchedule({
 						workspace: $workspaceStore ?? '',
