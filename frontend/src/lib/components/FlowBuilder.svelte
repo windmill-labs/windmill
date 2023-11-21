@@ -9,7 +9,8 @@
 		ScriptService,
 		Script,
 		type HubScriptKind,
-		type OpenFlow
+		type OpenFlow,
+		type RawScript
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -57,7 +58,7 @@
 	import FlowCopilotDrawer from './copilot/FlowCopilotDrawer.svelte'
 	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
 	import { fade } from 'svelte/transition'
-	import { loadFlowModuleState } from './flows/flowStateUtils'
+	import { loadFlowModuleState, pickScript } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 	import { snakeCase } from 'lodash'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
@@ -472,8 +473,7 @@
 				})
 			).map((s) => ({
 				...s,
-				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-				summary: `${s.summary} (${s.app})`
+				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
 			}))
 			if (ts < doneTs) return
 			doneTs = ts
@@ -544,7 +544,7 @@
 
 	function clearFlowInputsFromStep(id: string | undefined) {
 		const module: FlowModule | undefined = dfs(id, $flowStore)[0]
-		if (module?.value.type === 'rawscript') {
+		if (module?.value.type === 'rawscript' || module?.value.type === 'script') {
 			// clear step inputs that start with flow_input. but not flow_input.iter
 			for (const key in module.value.input_transforms) {
 				const input = module.value.input_transforms[key]
@@ -607,23 +607,9 @@
 				$scheduleStore.enabled = true
 			}
 
-			let hubScript:
-				| {
-						content: string
-						lockfile?: string | undefined
-						schema?: any
-						language: string
-						summary?: string | undefined
-				  }
-				| undefined = undefined
-
-			if (module.source === 'hub' && module.selectedCompletion) {
-				hubScript = await ScriptService.getHubScriptByPath({
-					path: module.selectedCompletion.path
-				})
-			}
-
-			const flowModule = {
+			const flowModule: FlowModule & {
+				value: RawScript | PathScript
+			} = {
 				id: module.id,
 				stop_after_if:
 					module.type === 'trigger'
@@ -635,13 +621,28 @@
 				value: {
 					input_transforms: {},
 					content: '',
-					language: (hubScript ? hubScript.language : module.lang ?? 'bun') as Script.language,
-					type: 'rawscript' as const
+					language: (module.lang ?? 'bun') as Script.language,
+					type: 'rawscript'
 				},
-				summary: module.selectedCompletion?.summary ?? module.description
+				summary: module.description
 			}
 
-			$flowStateStore[module.id] = emptyFlowModuleState()
+			let isHubStep = false
+			if (module.source === 'hub' && module.selectedCompletion) {
+				isHubStep = true
+				const [hubScriptModule, hubScriptState] = await pickScript(
+					module.selectedCompletion.path,
+					`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
+					module.id,
+					undefined
+				)
+				flowModule.value = hubScriptModule.value
+				flowModule.summary = hubScriptModule.summary
+				$flowStateStore[module.id] = hubScriptState
+			} else {
+				$flowStateStore[module.id] = emptyFlowModuleState()
+			}
+
 			if (stepOnly) {
 				flowModules.splice(idx, 0, flowModule)
 			} else if (idx === 1 && $copilotModulesStore[idx - 1].type === 'trigger') {
@@ -665,6 +666,7 @@
 			}
 
 			$copilotDrawerStore?.closeDrawer()
+			await tick()
 			select(module.id)
 			await tick()
 			await tick()
@@ -678,12 +680,14 @@
 			) {
 				isFirstInLoop = true
 			}
-			const prevNodeId = getPreviousIds(module.id, $flowStore, false)[0]
-			const pastModule: FlowModule | undefined = dfs(prevNodeId, $flowStore, false)[0]
+			const prevNodeId = getPreviousIds(module.id, $flowStore, false)[0] as string | undefined
+			const pastModule = dfs(prevNodeId, $flowStore, false)[0] as FlowModule | undefined
 
-			if (hubScript) {
-				module.editor?.setCode(hubScript.content)
-			} else if (module.source === 'custom') {
+			if (!module.source) {
+				throw new Error('Invalid copilot module source')
+			}
+
+			if (module.source === 'custom') {
 				const deltaStore = writable<string>('')
 				const unsubscribe = deltaStore.subscribe(async (delta) => {
 					module.editor?.append(delta)
@@ -693,35 +697,38 @@
 				await stepCopilot(
 					module,
 					deltaStore,
-					pastModule?.value.type === 'rawscript' ? pastModule.value.content : '',
-					pastModule?.value.type === 'rawscript' ? pastModule.value.language : undefined,
-					pastModule === undefined,
+					$workspaceStore!,
+					pastModule?.value.type === 'rawscript' || pastModule?.value.type === 'script'
+						? (pastModule as FlowModule & {
+								value: RawScript | PathScript
+						  })
+						: undefined,
 					isFirstInLoop,
 					abortController
 				)
 				unsubscribe()
-			} else {
-				throw new Error('Invalid copilot module source')
 			}
 
 			copilotStatus = "Generating inputs for step '" + module.id + "'..."
 			await sleep(500) // make sure code was parsed
 
 			try {
-				if (flowModule.value.type === 'rawscript') {
+				if (
+					(flowModule.value.type === 'rawscript' || flowModule.value.type === 'script') &&
+					(pastModule === undefined ||
+						pastModule.value.type === 'rawscript' ||
+						pastModule.value.type === 'script')
+				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (
-						module.source === 'hub' &&
-						pastModule !== undefined &&
-						$copilotInfo.exists_openai_resource_path
-					) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_openai_resource_path) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
-						const inputs = await glueCopilot(
-							Object.keys(flowModule.value.input_transforms),
-							pastModule.value.type === 'rawscript' ? pastModule.value.content : '',
-							pastModule.value.type === 'rawscript' ? pastModule.value.language : undefined,
-							prevNodeId,
+						const { inputs, allExprs } = await glueCopilot(
+							flowModule.value.input_transforms,
+							$workspaceStore!,
+							pastModule as FlowModule & {
+								value: RawScript | PathScript
+							},
 							isFirstInLoop,
 							abortController
 						)
@@ -729,20 +736,34 @@
 						// create flow inputs used by AI for autocompletion
 						copilotFlowInputs = {}
 						copilotFlowRequiredInputs = []
-						Object.entries(inputs).forEach(([key, expr]) => {
-							const snakeKey = snakeCase(key)
-							if (
-								key in stepSchema.properties &&
-								expr.includes('flow_input.') &&
-								!expr.includes('flow_input.iter') &&
-								(!$flowStore.schema || !(snakeKey in $flowStore.schema.properties)) // prevent overriding flow inputs
-							) {
-								copilotFlowInputs[snakeKey] = stepSchema.properties[snakeKey]
-								if (stepSchema.required.includes(snakeKey)) {
-									copilotFlowRequiredInputs.push(snakeKey)
+						Object.entries(allExprs).forEach(([key, expr]) => {
+							if (expr.includes('flow_input.') && !expr.includes('flow_input.iter.')) {
+								const flowInputKey = expr.match(/flow_input\.([A-Za-z0-9_]+)/)?.[1]
+								if (
+									flowInputKey !== undefined &&
+									(!$flowStore.schema || !(flowInputKey in $flowStore.schema.properties)) // prevent overriding flow inputs
+								) {
+									if (key in stepSchema.properties) {
+										copilotFlowInputs[flowInputKey] = stepSchema.properties[key]
+										if (stepSchema.required.includes(key)) {
+											copilotFlowRequiredInputs.push(flowInputKey)
+										}
+									} else {
+										// when the key is nested (e.g. body.content)
+										const [firstKey, ...rest] = key.split('.')
+										const restKey = rest.join('.')
+										const firstKeyProperties = stepSchema.properties[firstKey]?.properties
+										if (firstKeyProperties !== undefined && restKey in firstKeyProperties) {
+											copilotFlowInputs[flowInputKey] = firstKeyProperties[restKey]
+											if (firstKeyProperties[restKey].required?.includes(flowInputKey)) {
+												copilotFlowRequiredInputs.push(flowInputKey)
+											}
+										}
+									}
 								}
 							}
 						})
+
 						if (!stepOnly) {
 							applyCopilotFlowInputs()
 						}
@@ -751,13 +772,13 @@
 						Object.entries(inputs).forEach(([key, expr]) => {
 							flowModule.value.input_transforms[key] = {
 								type: 'javascript',
-								expr: expr.replaceAll(/flow_input\.([A-Za-z0-9_]+)/g, (_, p1) => 'flow_input.' + p1)
+								expr
 							}
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
 						if (
-							module.source === 'hub' &&
+							isHubStep &&
 							pastModule !== undefined &&
 							!$copilotInfo.exists_openai_resource_path
 						) {
@@ -811,6 +832,19 @@
 					}
 
 					$flowStore = $flowStore // force rerendering
+				} else {
+					if (
+						pastModule !== undefined &&
+						pastModule.value.type !== 'rawscript' &&
+						pastModule.value.type !== 'script'
+					) {
+						sendUserToast(
+							`Linking to previous step ${pastModule.id} of type ${pastModule.value.type} is not yet supported`,
+							true
+						)
+					} else {
+						sendUserToast('Something went wrong, could not generate step inputs', true)
+					}
 				}
 			} catch (err) {
 				console.error(err)
@@ -852,45 +886,6 @@
 		copilotLoading = true
 		select('Input')
 		$copilotCurrentStepStore = 'Input'
-		copilotStatus = 'Setting flow inputs...'
-
-		// filter out unused flow inputs
-		const flowInputs: Record<string, SchemaProperty> = {}
-		const required = new Set<string>()
-		function getFlowInputs(modules: FlowModule[]) {
-			for (const module of modules) {
-				if (module.value.type === 'rawscript') {
-					for (const moduleAttr of Object.keys(module.value.input_transforms)) {
-						const input = module.value.input_transforms[moduleAttr]
-						if (
-							input.type === 'javascript' &&
-							input.expr.includes('flow_input.') &&
-							!input.expr.includes('flow_input.iter')
-						) {
-							const flowAttr = input.expr.split('.')[1]
-							const schema = $flowStateStore[module.id].schema
-							const schemaProperty = Object.entries(schema.properties).find(
-								(x) => x[0] === moduleAttr
-							)?.[1]
-							if (schemaProperty) {
-								flowInputs[flowAttr] = schemaProperty
-								required.add(flowAttr)
-							}
-						}
-					}
-				} else if (module.value.type === 'forloopflow') {
-					getFlowInputs(module.value.modules)
-				}
-			}
-		}
-		getFlowInputs($flowStore.value.modules)
-
-		$flowStore.schema = {
-			$schema: 'https://json-schema.org/draft/2020-12/schema',
-			properties: flowInputs,
-			required: Array.from(required),
-			type: 'object'
-		}
 
 		copilotStatus = "Done! Just check the flow's inputs and you're good to go!"
 		$copilotCurrentStepStore = undefined
