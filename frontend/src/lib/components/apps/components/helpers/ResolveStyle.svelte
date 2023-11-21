@@ -51,7 +51,7 @@
 
 {#if customCss}
 	{@const property = customCss[key]}
-	{#if property.evalClass}
+	{#if property?.evalClass}
 		<InputValue
 			key={key + extraKey + 'css'}
 			{id}
