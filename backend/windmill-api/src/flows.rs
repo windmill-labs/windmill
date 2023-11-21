@@ -520,6 +520,7 @@ async fn update_flow(
     .await?;
 
     if let Some(schedule) = schedule {
+        clear_schedule(tx.transaction_mut(), &flow_path, &w_id).await?;
         schedulables.push(schedule);
     }
 
