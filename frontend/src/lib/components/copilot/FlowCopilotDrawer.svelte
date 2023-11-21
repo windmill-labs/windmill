@@ -119,7 +119,10 @@
 									<div class="w-full text-left font-normal">
 										<div class="text-primary flex-wrap text-sm font-medium">
 											{copilotModule.source === 'hub' && copilotModule.selectedCompletion
-												? copilotModule.selectedCompletion.summary
+												? copilotModule.selectedCompletion.summary +
+												  ' (' +
+												  copilotModule.selectedCompletion.app +
+												  ')'
 												: `Generate "${copilotModule.description}" in ${
 														copilotModule.lang === 'bun' ? 'TypeScript' : 'Python'
 												  }`}
@@ -248,7 +251,7 @@
 
 													<div class="text-left font-normal text-sm">
 														<div class="text-primary font-medium">
-															{item.summary ?? ''}
+															{(item.summary ?? '') + ' (' + item['app'] + ')'}
 														</div>
 													</div>
 												</div>
