@@ -6320,6 +6320,49 @@ paths:
                 properties:
                   connection_settings_str:
                     type: string
+  /w/{workspace}/job_helpers/polars_connection_settings:
+    post:
+      summary:
+        Converts an S3 resource to the set of arguments necessary to connect
+        Polars to an S3 bucket
+      operationId: polarsConnectionSettings
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: S3 resource to connect to
+        required: true
+        content:
+          application/json:
+            schema:
+              s3_resource:
+                $ref: "#/components/schemas/S3Resource"
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint_url:
+                    type: string
+                  key:
+                    type: string
+                  secret:
+                    type: string
+                  use_ssl:
+                    type: boolean
+                  cache_regions:
+                    type: boolean
+                  client_kwargs:
+                    $ref: "#/components/schemas/PolarsClientKwargs"
+                required:
+                  - endpoint_url
+                  - use_ssl
+                  - cache_regions
+                  - client_kwargs
 
   /w/{workspace}/job_helpers/test_connection:
     get:
@@ -8411,6 +8454,14 @@ components:
       schema:
         type: string
         enum: [script, failure, trigger, approval]
+
+    PolarsClientKwargs:
+      type: object
+      properties:
+        region_name:
+          type: string
+      required:
+        - region_name
 
     LargeFileStorage:
       type: object

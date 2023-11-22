@@ -398,17 +398,6 @@ async fn load_file_preview(
 
     let content_type: WindmillContentType;
     let content_preview = match s3_object_mime_type.as_deref() {
-        Some("application/json") | Some("application/x-yaml") => {
-            content_type = WindmillContentType::RawText;
-            read_s3_text_object_head(
-                &s3_client,
-                &s3_bucket,
-                &file_key,
-                query.read_bytes_from,
-                file_chunk_length,
-            )
-            .await
-        }
         Some("text/csv") => {
             content_type = WindmillContentType::Csv;
             read_s3_csv_object_head(
@@ -420,19 +409,11 @@ async fn load_file_preview(
             )
             .await
         }
-        Some("application/octet-stream") => {
-            if file_key.to_lowercase().ends_with(".parquet") {
-                content_type = WindmillContentType::Parquet;
-                read_s3_parquet_object_head(&s3_resource, &file_key).await
-            } else {
-                content_type = WindmillContentType::Unknown;
-                Err(error::Error::ExecutionErr(
-                    "Preview is not available for content of type application/octet-stream"
-                        .to_string(),
-                ))
-            }
-        }
-        Some(mt) if mt.starts_with("text/") => {
+        Some(mt)
+            if mt.starts_with("text/")
+                || mt == "application/json"
+                || mt == "application/x-yaml" =>
+        {
             content_type = WindmillContentType::RawText;
             read_s3_text_object_head(
                 &s3_client,
@@ -443,11 +424,32 @@ async fn load_file_preview(
             )
             .await
         }
-        _ => {
-            content_type = WindmillContentType::Unknown;
-            Err(error::Error::ExecutionErr(
-                "Preview is not available for content of type application/octet-stream".to_string(),
-            ))
+        mt_opt => {
+            // sometimes S3 doesn't infer the content type on upload. Guess it from the file extension
+            if file_key.to_lowercase().ends_with(".parquet") {
+                content_type = WindmillContentType::Parquet;
+                read_s3_parquet_object_head(&s3_resource, &file_key).await
+            } else if file_key.to_lowercase().ends_with(".csv") {
+                content_type = WindmillContentType::Csv;
+                read_s3_csv_object_head(
+                    &s3_client,
+                    &s3_bucket,
+                    &file_key,
+                    file_chunk_length,
+                    query.csv_separator,
+                )
+                .await
+            } else {
+                content_type = WindmillContentType::Unknown;
+                let msg = match mt_opt {
+                    Some(mt) => {
+                        format!("Preview is not available for content of type '{}'", mt).to_string()
+                    }
+                    None => "Preview is not available. Content type is unknown or not supported"
+                        .to_string(),
+                };
+                Err(error::Error::ExecutionErr(msg))
+            }
         }
     };
 
