@@ -45,6 +45,7 @@
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
+				dedicated_worker?: boolean
 		  }
 		| undefined = undefined
 
@@ -79,17 +80,12 @@
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
-						path: script.path,
-						summary: script.summary,
+						...script,
 						description: script.description ?? '',
-						content: script.content,
 						parent_hash: script.hash != '' ? script.hash : undefined,
-						schema: script.schema,
 						is_template: false,
-						language: script.language,
 						kind: script.kind as Script.kind | undefined,
-						envs: script.envs,
-						ws_error_handler_muted: script.ws_error_handler_muted
+						lock: undefined
 					}
 				})
 				savedScript = cloneDeep(script)
