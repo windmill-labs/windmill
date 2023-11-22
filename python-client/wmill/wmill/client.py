@@ -91,7 +91,7 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = True,
-    ):
+    ) -> Any:
         """Run script synchronously and return its result."""
         args = args or {}
 
@@ -455,7 +455,7 @@ def run_script_sync(
     assert_result_is_not_none: bool = True,
     cleanup: bool = True,
     timeout: dt.timedelta = None,
-) -> Dict[str, Any]:
+) -> Any:
     return _client.run_script(
         hash_=hash,
         args=args,
@@ -484,12 +484,12 @@ def run_script_by_path_async(
 @deprecate("Windmill().run_script(...)")
 def run_script_by_path_sync(
     path: str,
-    args: Dict[str, Any] = {},
+    args: Dict[str, Any] = None,
     verbose: bool = False,
     assert_result_is_not_none: bool = True,
     cleanup: bool = True,
     timeout: dt.timedelta = None,
-) -> Dict[str, Any]:
+) -> Any:
     return _client.run_script(
         path=path,
         args=args,
