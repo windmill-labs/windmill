@@ -56,7 +56,12 @@ class Windmill:
         endpoint = endpoint.lstrip("/")
         resp = self.client.post(f"/{endpoint}", **kwargs)
         if raise_for_status:
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as err:
+                error = f"{err.request.url}: {err.response.status_code}, {err.response.text}"
+                logger.error(error)
+                raise Exception(error)
         return resp
 
     def create_token(self, duration=dt.timedelta(days=1)) -> str:
