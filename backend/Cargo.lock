@@ -380,7 +380,7 @@ checksum = "beec3f8fb8f710b7be84ccd1716e17f38f2868168355cab5f2f168ae988e767e"
 dependencies = [
  "base64 0.21.5",
  "bytes",
- "http 0.2.11",
+ "http",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -578,7 +578,7 @@ dependencies = [
  "bytes",
  "fastrand 2.0.1",
  "hex",
- "http 0.2.11",
+ "http",
  "hyper",
  "ring 0.17.5",
  "time",
@@ -610,8 +610,8 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "pin-project-lite",
  "tracing",
 ]
@@ -632,7 +632,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "fastrand 2.0.1",
- "http 0.2.11",
+ "http",
  "percent-encoding",
  "tracing",
  "uuid 1.6.1",
@@ -659,8 +659,8 @@ dependencies = [
  "aws-smithy-xml",
  "aws-types",
  "bytes",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "once_cell",
  "percent-encoding",
  "regex",
@@ -685,7 +685,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http 0.2.11",
+ "http",
  "regex",
  "tracing",
 ]
@@ -707,7 +707,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http 0.2.11",
+ "http",
  "regex",
  "tracing",
 ]
@@ -730,7 +730,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-smithy-xml",
  "aws-types",
- "http 0.2.11",
+ "http",
  "regex",
  "tracing",
 ]
@@ -749,7 +749,7 @@ dependencies = [
  "form_urlencoded",
  "hex",
  "hmac",
- "http 0.2.11",
+ "http",
  "num-bigint",
  "once_cell",
  "p256",
@@ -785,8 +785,8 @@ dependencies = [
  "crc32c",
  "crc32fast",
  "hex",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "md-5 0.10.6",
  "pin-project-lite",
  "sha1",
@@ -817,8 +817,8 @@ dependencies = [
  "bytes",
  "bytes-utils",
  "futures-core",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -857,8 +857,8 @@ dependencies = [
  "aws-smithy-types",
  "bytes",
  "fastrand 2.0.1",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "hyper",
  "hyper-rustls",
  "once_cell",
@@ -878,7 +878,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-types",
  "bytes",
- "http 0.2.11",
+ "http",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -895,8 +895,8 @@ dependencies = [
  "bytes",
  "bytes-utils",
  "futures-core",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "itoa",
  "num-integer",
  "pin-project-lite",
@@ -927,7 +927,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
- "http 0.2.11",
+ "http",
  "rustc_version 0.4.0",
  "tracing",
 ]
@@ -944,8 +944,8 @@ dependencies = [
  "bytes",
  "futures-util",
  "headers",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "hyper",
  "itoa",
  "matchit",
@@ -974,8 +974,8 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "mime",
  "rustversion",
  "tower-layer",
@@ -2137,7 +2137,7 @@ dependencies = [
  "deno_core",
  "deno_tls",
  "dyn-clone",
- "http 0.2.11",
+ "http",
  "reqwest",
  "serde",
  "tokio",
@@ -3314,7 +3314,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.11",
+ "http",
  "indexmap 2.1.0",
  "slab",
  "tokio",
@@ -3383,7 +3383,7 @@ dependencies = [
  "base64 0.21.5",
  "bytes",
  "headers-core",
- "http 0.2.11",
+ "http",
  "httpdate",
  "mime",
  "sha1",
@@ -3395,7 +3395,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
- "http 0.2.11",
+ "http",
 ]
 
 [[package]]
@@ -3475,49 +3475,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "http"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b32afd38673a8016f7c9ae69e5af41a58f81b1d31689040f2f1959594ce194ea"
-dependencies = [
- "bytes",
- "fnv",
- "itoa",
-]
-
-[[package]]
 name = "http-body"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5f38f16d184e36f2408a55281cd658ecbd3ca05cce6d6510a176eca393e26d1"
 dependencies = [
  "bytes",
- "http 0.2.11",
+ "http",
  "pin-project-lite",
 ]
 
 [[package]]
-name = "http-body"
-version = "1.0.0"
+name = "http-range-header"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cac85db508abc24a2e48553ba12a996e87244a0395ce011e62b37158745d643"
-dependencies = [
- "bytes",
- "http 1.0.0",
-]
-
-[[package]]
-name = "http-body-util"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41cb79eb393015dadd30fc252023adb0b2400a0caee0fa2a077e6e21a551e840"
-dependencies = [
- "bytes",
- "futures-util",
- "http 1.0.0",
- "http-body 1.0.0",
- "pin-project-lite",
-]
+checksum = "add0ab9360ddbd88cfeb3bd9574a1d85cfdfa14db10b3e21d3700dbc4328758f"
 
 [[package]]
 name = "http-types"
@@ -3529,7 +3501,7 @@ dependencies = [
  "async-channel 1.9.0",
  "base64 0.13.1",
  "futures-lite 1.13.0",
- "http 0.2.11",
+ "http",
  "infer",
  "pin-project-lite",
  "rand 0.7.3",
@@ -3569,8 +3541,8 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "httparse",
  "httpdate",
  "itoa",
@@ -3589,7 +3561,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
 dependencies = [
  "futures-util",
- "http 0.2.11",
+ "http",
  "hyper",
  "log",
  "rustls 0.21.9",
@@ -5696,7 +5668,7 @@ source = "git+https://github.com/oxidecomputer/progenitor?rev=3d96016ae8d422e905
 dependencies = [
  "getopts",
  "heck",
- "http 0.2.11",
+ "http",
  "indexmap 1.9.3",
  "openapiv3",
  "proc-macro2",
@@ -6143,8 +6115,8 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http 0.2.11",
- "http-body 0.4.5",
+ "http",
+ "http-body",
  "hyper",
  "hyper-rustls",
  "hyper-tls",
@@ -8577,7 +8549,7 @@ dependencies = [
  "axum-core",
  "cookie",
  "futures-util",
- "http 0.2.11",
+ "http",
  "parking_lot 0.12.1",
  "pin-project-lite",
  "tower-layer",
@@ -8586,16 +8558,17 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.5.0"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09e12e6351354851911bdf8c2b8f2ab15050c567d70a8b9a37ae7b8301a4080d"
+checksum = "61c5bb1d698276a2443e5ecfabc1008bf15a36c12e6a7176e7bf089ea9131140"
 dependencies = [
  "bitflags 2.4.1",
  "bytes",
+ "futures-core",
  "futures-util",
- "http 1.0.0",
- "http-body 1.0.0",
- "http-body-util",
+ "http",
+ "http-body",
+ "http-range-header",
  "pin-project-lite",
  "tower-layer",
  "tower-service",
