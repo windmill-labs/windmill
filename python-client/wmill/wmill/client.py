@@ -394,8 +394,9 @@ class Windmill:
 
     def get_resume_urls(self, approver: str = None) -> dict:
         nonce = random.randint(0, 1000000000)
+        job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
         return self.get(
-            f"/w/{self.workspace}/jobs_u/get_resume_urls/{self.path}/{nonce}",
+            f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
             params={"approver": approver},
         ).json()
 
