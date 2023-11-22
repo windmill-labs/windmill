@@ -4,6 +4,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { ignoredTutorials } from './ignoredTutorials'
+	import SkipTutorials from './SkipTutorials.svelte'
+	import TutorialControls from './TutorialControls.svelte'
 
 	export let index: number = 0
 	export let name: string = 'action'
@@ -16,18 +18,9 @@
 
 	export let getSteps: (driver: Driver, options?: Options | undefined) => DriveStep[] = () => []
 
-	const dispatch = createEventDispatcher()
+	let totalSteps = 0
 
-	function createTutorialButton(text: string, onClick: () => void) {
-		const button = document.createElement('button')
-		button.innerHTML = text
-		button.addEventListener('click', onClick)
-		button.setAttribute(
-			'class',
-			'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
-		)
-		return button
-	}
+	const dispatch = createEventDispatcher()
 
 	export const runTutorial = (options?: Options | undefined) => {
 		if (tainted) {
@@ -36,34 +29,58 @@
 		}
 
 		const tutorial = driver({
-			showProgress: true,
 			allowClose: true,
 			disableActiveInteraction: true,
+			showButtons: ['close'],
+			showProgress: false,
+			overlayColor: 'rgba(0, 0, 0, 0.8)',
 			onPopoverRender: (popover, { config, state }) => {
+				const popoverDescription = document.querySelector('#driver-popover-description')
+
 				if (state.activeIndex == 0) {
-					const skipThisButton = createTutorialButton('Mark this tutorial as completed', () => {
+					const div = document.createElement('div')
+
+					const skipTutorials = new SkipTutorials({
+						target: div
+					})
+
+					skipTutorials.$on('skipAll', () => {
+						dispatch('skipAll')
+						tutorial.destroy()
+					})
+
+					skipTutorials.$on('skipThis', () => {
 						updateProgress(index)
 						tutorial.destroy()
 					})
 
-					const skipAllButton = createTutorialButton(
-						'Mark&nbsp;<b>all</b>&nbsp;tutorials as completed',
-						() => {
-							dispatch('skipAll')
-							tutorial.destroy()
-						}
-					)
-
-					const popoverDescription = document.querySelector('#driver-popover-description')
-					const div = document.createElement('div')
-
-					div.setAttribute('class', 'flex flex-row gap-2 justify-between w-full pt-2')
-
 					if (popoverDescription) {
-						div.appendChild(skipAllButton)
-						div.appendChild(skipThisButton)
 						popoverDescription.appendChild(div)
 					}
+				}
+
+				const controls = document.createElement('div')
+
+				console.log(state)
+
+				const tutorialControls = new TutorialControls({
+					target: controls,
+					props: {
+						activeIndex: state.activeIndex,
+						totalSteps
+					}
+				})
+
+				tutorialControls.$on('next', () => {
+					tutorial.moveNext()
+				})
+
+				tutorialControls.$on('previous', () => {
+					tutorial.movePrevious()
+				})
+
+				if (popoverDescription) {
+					popoverDescription.appendChild(controls)
 				}
 			},
 			onDestroyed: () => {
@@ -73,7 +90,21 @@
 			}
 		})
 
-		tutorial.setSteps(getSteps(tutorial, options))
+		const steps = getSteps(tutorial, options)
+
+		totalSteps = steps.length
+
+		tutorial.setSteps(steps)
 		tutorial.drive()
 	}
 </script>
+
+<style>
+	:global(.driver-popover) {
+		padding: 32px;
+	}
+	:global(.driver-popover-title) {
+		font-size: 1.2rem !important;
+		line-height: 2 !important;
+	}
+</style>
