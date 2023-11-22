@@ -13,6 +13,7 @@ from typing import Dict, Any, Union, Literal
 
 import httpx
 
+
 _client: "Windmill | None" = None
 
 
@@ -63,7 +64,7 @@ class Windmill:
         }
         return self.post(endpoint, json=payload).text
 
-    def start_execution(
+    def run_script_async(
         self,
         path: str = None,
         hash_: str = None,
@@ -211,7 +212,7 @@ class Windmill:
 
     def get_variable(self, path: str) -> str:
         """Get variable from Windmill"""
-        return self.get(f"/w/{self.workspace}/variables/get/{path}").json()["value"]
+        return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str) -> None:
         """Set variable from Windmill"""
@@ -242,11 +243,11 @@ class Windmill:
     ) -> str | None:
         """Get resource from Windmill"""
         try:
-            return self.get(f"/w/{self.workspace}/resources/get/{path}").json()["value"]
+            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
         except Exception as e:
-            logger.error(e)
             if none_if_undefined:
                 return None
+            logger.error(e)
             raise e
 
     def set_resource(
@@ -433,7 +434,6 @@ def get_version() -> str:
 
 
 @init_global_client
-@deprecate("Windmill().start_execution(...)")
 def run_script_async(
     hash: str,
     args: Dict[str, Any] = None,
@@ -447,7 +447,6 @@ def run_script_async(
 
 
 @init_global_client
-@deprecate("Windmill().run_script(...)")
 def run_script_sync(
     hash: str,
     args: Dict[str, Any] = None,
