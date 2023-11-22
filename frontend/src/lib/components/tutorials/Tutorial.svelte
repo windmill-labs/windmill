@@ -33,6 +33,7 @@
 			disableActiveInteraction: true,
 			showButtons: ['close'],
 			showProgress: false,
+			overlayColor: 'rgba(0, 0, 0, 0.8)',
 			onPopoverRender: (popover, { config, state }) => {
 				const popoverDescription = document.querySelector('#driver-popover-description')
 
@@ -101,5 +102,9 @@
 <style>
 	:global(.driver-popover) {
 		padding: 32px;
+	}
+	:global(.driver-popover-title) {
+		font-size: 1.2rem !important;
+		line-height: 2 !important;
 	}
 </style>

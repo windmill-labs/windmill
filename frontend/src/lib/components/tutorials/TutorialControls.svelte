@@ -10,7 +10,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-col gap-2 w-full pt-4">
+<div class="flex flex-col gap-4 w-full pt-4">
 	{#if activeIndex === 0}
 		<Alert size="xs" title="Help">
 			<li> UI is not interactive during tutorial, press next at every step </li>

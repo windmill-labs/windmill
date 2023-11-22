@@ -6,12 +6,13 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-row gap-2 justify-end w-full pt-2">
+<div class="flex flex-row gap-2 justify-end w-full pt-6 pb-2">
 	<Button
 		size="xs"
 		color="light"
 		startIcon={{ icon: CheckCircle }}
 		variant="border"
+		btnClasses="font-normal"
 		on:click={() => {
 			dispatch('skipThis')
 		}}
@@ -22,6 +23,7 @@
 		size="xs"
 		color="light"
 		startIcon={{ icon: CheckCircle }}
+		btnClasses="font-normal"
 		variant="border"
 		on:click={() => {
 			dispatch('skipThis')
