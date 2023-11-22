@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.214.0](https://github.com/windmill-labs/windmill/compare/v1.213.0...v1.214.0) (2023-11-22)
+
+
+### Features
+
+* hub path scripts + nested inputs glue ([#2668](https://github.com/windmill-labs/windmill/issues/2668)) ([ad199af](https://github.com/windmill-labs/windmill/commit/ad199afd06814540bb7d36669709902be56eeb8a))
+* **python:** Refactor Windmill Python client (remove `windmill-api`) ([#2665](https://github.com/windmill-labs/windmill/issues/2665)) ([37ffdae](https://github.com/windmill-labs/windmill/commit/37ffdaed60fb750f1466b440353e1d8409eaea90))
+
+
+### Bug Fixes
+
+* fix flow primary schedule clearing ([3ebe6d7](https://github.com/windmill-labs/windmill/commit/3ebe6d7a620e37fd6c81bcf4c8713a48eb081f81))
+
 ## [1.213.0](https://github.com/windmill-labs/windmill/compare/v1.212.0...v1.213.0) (2023-11-21)
 
 
