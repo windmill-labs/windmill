@@ -354,17 +354,19 @@
 												{:else if itemsType?.type == 'object'}
 													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 												{:else if Array.isArray(itemsType?.enum)}
-													<select
-														on:focus={(e) => {
+													<ArgEnum
+														on:focus={() => {
 															dispatch('focus')
 														}}
-														class="px-6"
+														{defaultValue}
+														{valid}
+														{customValue}
+														{disabled}
+														{autofocus}
 														bind:value={v}
-													>
-														{#each itemsType?.enum ?? [] as e}
-															<option>{e}</option>
-														{/each}
-													</select>
+														disableCustomValue={true}
+														enum_={itemsType?.enum ?? []}
+													/>
 												{:else}
 													<input type="text" bind:value={v} id="arg-input-array" />
 												{/if}
