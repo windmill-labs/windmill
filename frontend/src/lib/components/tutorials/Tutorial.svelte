@@ -38,6 +38,7 @@
 		const tutorial = driver({
 			showProgress: true,
 			allowClose: true,
+			disableActiveInteraction: true,
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
 					const skipThisButton = createTutorialButton('Mark this tutorial as completed', () => {
