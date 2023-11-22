@@ -228,23 +228,27 @@ impl EmbeddingsDb {
         self.db
             .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
 
-        let mut response = HTTP_CLIENT
+        let response = HTTP_CLIENT
             .get("https://bucket.windmillhub.com/embeddings/scripts_embeddings.json")
             .send()
-            .await?;
-        if response.error_for_status_ref().is_err() {
-            response = http_get_from_hub(
-                &HTTP_CLIENT,
-                "https://hub.windmill.dev/scripts/embeddings",
-                false,
-                None,
-                pg_db,
-            )
-            .await?;
-        }
+            .await;
+        let response =
+            if response.is_err() || response.as_ref().unwrap().error_for_status_ref().is_err() {
+                tracing::warn!("Failed to get scripts embeddings from bucket, trying hub...");
+                http_get_from_hub(
+                    &HTTP_CLIENT,
+                    "https://hub.windmill.dev/scripts/embeddings",
+                    false,
+                    None,
+                    pg_db,
+                )
+                .await?
+            } else {
+                response.unwrap()
+            };
         if response.error_for_status_ref().is_err() {
             return Err(anyhow!(
-                "Failed to get scripts embeddings with error code: {}",
+                "Failed to get scripts embeddings from hub with error code: {}",
                 response.status()
             ));
         }
@@ -270,23 +274,28 @@ impl EmbeddingsDb {
             self.db.insert_into_collection("scripts", embedding)?;
         }
 
-        let mut response = HTTP_CLIENT
+        let response = HTTP_CLIENT
             .get("https://bucket.windmillhub.com/embeddings/resource_types_embeddings.json")
             .send()
-            .await?;
-        if response.error_for_status_ref().is_err() {
-            response = http_get_from_hub(
+            .await;
+        let response = if response.is_err()
+            || response.as_ref().unwrap().error_for_status_ref().is_err()
+        {
+            tracing::warn!("Failed to get resource types embeddings from bucket, trying hub...");
+            http_get_from_hub(
                 &HTTP_CLIENT,
                 "https://hub.windmill.dev/resource_types/embeddings",
                 false,
                 None,
                 pg_db,
             )
-            .await?;
-        }
+            .await?
+        } else {
+            response.unwrap()
+        };
         if response.error_for_status_ref().is_err() {
             return Err(anyhow!(
-                "Failed to get resource types embeddings with error code: {}",
+                "Failed to get resource types embeddings from hub with error code: {}",
                 response.status()
             ));
         }
