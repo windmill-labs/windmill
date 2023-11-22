@@ -63,7 +63,7 @@ class Windmill:
         }
         return self.post(endpoint, json=payload).text
 
-    def create_job(
+    def start_execution(
         self,
         path: str = None,
         hash_: str = None,
@@ -103,7 +103,7 @@ class Windmill:
 
         start_time = time.time()
 
-        job_id = self.create_job(path=path, hash_=hash_, args=args)
+        job_id = self.start_execution(path=path, hash_=hash_, args=args)
 
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
@@ -433,13 +433,13 @@ def get_version() -> str:
 
 
 @init_global_client
-@deprecate("Windmill().create_job(...)")
+@deprecate("Windmill().start_execution(...)")
 def run_script_async(
     hash: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
-    return _client.create_job(
+    return _client.start_execution(
         hash_=hash,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -467,13 +467,13 @@ def run_script_sync(
 
 
 @init_global_client
-@deprecate("Windmill().create_job(...)")
+@deprecate("Windmill().start_execution(...)")
 def run_script_by_path_async(
     path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.create_job(
+    return _client.start_execution(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
