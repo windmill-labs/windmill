@@ -2,9 +2,6 @@
 
 The core client for the [Windmill](https://windmill.dev) platform.
 
-It is a convenient wrapper around the exhaustive, automatically generated from
-OpenApi but less user-friendly
-[windmill-api](https://pypi.org/project/windmill-api/).
 
 ## Quickstart
 
@@ -13,15 +10,15 @@ import wmill
 
 
 def main():
-    #os.environ.set("WM_TOKEN", "<mytoken>") OPTIONAL to set token used by the wmill client
-    version = wmill.get_version()
-    resource = wmill.get_resource("u/user/resource_path")
+    client = wmill.Windmill(
+        # token=...  <- this is optional. otherwise the client will look for the WM_TOKEN env var
+    )
 
-    # run synchronously, will return the result
-    res = wmill.run_script_sync(hash="000000000000002a", args={})
-    print(res)
+    print(client.version)
+    print(client.get("u/user/resource_path"))
 
-    for _ in range(3):
-        # run asynchrnously, will return immediately. Can be scheduled
-        wmill.run_script_async(hash="000000000000002a", args={}, scheduled_in_secs=10)
+    job_id = client.start_execution(path="path/to/script")
+    print(job_id)
+
+    return client.run_script(path="path/to/script", args={"arg1": "value1"})
 ```
