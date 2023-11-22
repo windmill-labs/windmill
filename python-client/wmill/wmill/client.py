@@ -13,9 +13,7 @@ from typing import Dict, Any, Union, Literal
 
 import httpx
 
-
 _client: "Windmill | None" = None
-
 
 logger = logging.getLogger("windmill_client")
 
@@ -46,7 +44,12 @@ class Windmill:
         endpoint = endpoint.lstrip("/")
         resp = self.client.get(f"/{endpoint}", **kwargs)
         if raise_for_status:
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as err:
+                error = f"{err.request.url}: {err.response.status_code}, {err.response.text}"
+                logger.error(error)
+                raise Exception(error)
         return resp
 
     def post(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
@@ -144,9 +147,9 @@ class Windmill:
                 return result
 
             if verbose:
-                logger.info(f"sleeping 3 seconds for {job_id = }")
+                logger.info(f"sleeping 0.5 seconds for {job_id = }")
 
-            time.sleep(3)
+            time.sleep(0.5)
 
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
@@ -422,7 +425,6 @@ def deprecate(in_favor_of: str):
 
 
 @init_global_client
-@deprecate("Windmill().workspace")
 def get_workspace() -> str:
     return _client.workspace
 
@@ -466,7 +468,6 @@ def run_script_sync(
 
 
 @init_global_client
-@deprecate("Windmill().start_execution(...)")
 def run_script_by_path_async(
     path: str,
     args: Dict[str, Any] = None,
@@ -480,7 +481,6 @@ def run_script_by_path_async(
 
 
 @init_global_client
-@deprecate("Windmill().run_script(...)")
 def run_script_by_path_sync(
     path: str,
     args: Dict[str, Any] = None,
@@ -500,19 +500,16 @@ def run_script_by_path_sync(
 
 
 @init_global_client
-@deprecate("Windmill().get_job_status(...)")
 def get_job_status(job_id: str) -> JobStatus:
     return _client.get_job_status(job_id)
 
 
 @init_global_client
-@deprecate("Windmill().get_result(...)")
 def get_result(*args, **kwargs) -> Dict[str, Any]:
     return _client.get_result(*args, **kwargs)
 
 
 @init_global_client
-@deprecate("Windmill().get_duckdb_connection_settings(...)")
 def duckdb_connection_settings(*args, **kwargs) -> Union[str, None]:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
@@ -522,7 +519,6 @@ def duckdb_connection_settings(*args, **kwargs) -> Union[str, None]:
 
 
 @init_global_client
-@deprecate("Windmill().get_polars_connection_settings(...)")
 def polars_connection_settings(*args, **kwargs) -> Any:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
@@ -532,7 +528,6 @@ def polars_connection_settings(*args, **kwargs) -> Any:
 
 
 @init_global_client
-@deprecate("Windmill().user")
 def whoami() -> dict:
     """
     Returns the current user
@@ -550,7 +545,14 @@ def get_state() -> Any:
 
 
 @init_global_client
-@deprecate("Windmill().set_resource(...)")
+def get_resource(
+    path: str,
+    none_if_undefined: bool = False,
+) -> str | None:
+    """Get resource from Windmill"""
+    return _client.get_resource(path, none_if_undefined)
+
+@init_global_client
 def set_resource(**kwargs) -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
@@ -559,7 +561,6 @@ def set_resource(**kwargs) -> None:
 
 
 @init_global_client
-@deprecate("Windmill().set_state(...)")
 def set_state(value: Any) -> None:
     """
     Set the state
@@ -567,7 +568,6 @@ def set_state(value: Any) -> None:
     return _client.set_state(value)
 
 
-@deprecate("Windmill.set_shared_state_pickle(...)")
 def set_shared_state_pickle(**kwargs) -> None:
     """
     Set the state in the shared folder using pickle
@@ -583,7 +583,6 @@ def get_shared_state_pickle(**kwargs) -> Any:
     return Windmill.get_shared_state_pickle(**kwargs)
 
 
-@deprecate("Windmill.set_shared_state(...)")
 def set_shared_state(**kwargs) -> None:
     """
     Set the state in the shared folder using pickle
@@ -591,7 +590,6 @@ def set_shared_state(**kwargs) -> None:
     return Windmill.set_shared_state(**kwargs)
 
 
-@deprecate("Windmill.get_shared_state(...)")
 def get_shared_state(**kwargs) -> None:
     """
     Set the state in the shared folder using pickle
@@ -600,7 +598,6 @@ def get_shared_state(**kwargs) -> None:
 
 
 @init_global_client
-@deprecate("Windmill().get_variable(...)")
 def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
@@ -609,7 +606,6 @@ def get_variable(path: str) -> str:
 
 
 @init_global_client
-@deprecate("Windmill().set_variable(...)")
 def set_variable(path: str, value: str) -> None:
     """
     Set the variable at a given path as a string, creating it if it does not exist
@@ -618,12 +614,10 @@ def set_variable(path: str, value: str) -> None:
 
 
 @init_global_client
-@deprecate("Windmill().state_path")
 def get_state_path() -> str:
     return _client.state_path
 
 
 @init_global_client
-@deprecate("Windmill().get_resume_urls(...)")
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
