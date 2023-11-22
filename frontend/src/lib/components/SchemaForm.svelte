@@ -114,6 +114,7 @@
 								bind:pickForField
 								bind:extra={schema.properties[argName]}
 								simpleTooltip={schemaFieldTooltip[argName]}
+								bind:options={schema.properties[argName].options}
 							/>
 						{:else}
 							<ArgInput
@@ -145,6 +146,7 @@
 								extra={schema.properties[argName]}
 								{showSchemaExplorer}
 								simpleTooltip={schemaFieldTooltip[argName]}
+								options={schema.properties[argName].options}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}

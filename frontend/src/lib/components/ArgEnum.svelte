@@ -1,6 +1,7 @@
 <script lang="ts">
+	import AutoComplete from 'simple-svelte-autocomplete'
 	import { Pen } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let customValue: boolean
@@ -11,38 +12,29 @@
 	export let defaultValue: string | undefined
 	export let valid: boolean
 
-	const dispatch = createEventDispatcher()
+	let autoCompleteItems = enum_ ?? []
+
+	onMount(() => {
+		autoCompleteItems = enum_ ?? []
+	})
 </script>
 
-{#if !customValue}
-	<select
-		on:focus={(e) => {
-			dispatch('focus')
-		}}
-		{disabled}
-		class="px-6"
-		bind:value
-	>
-		{#each enum_ ?? [] as e}
-			<option>{e}</option>
-		{/each}
-	</select>
-{:else}
-	<!-- svelte-ignore a11y-autofocus -->
-	<input
-		{autofocus}
-		on:focus
-		type="text"
-		class={twMerge(
-			'bg-surface-secondary',
-			valid
-				? ''
-				: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
-		)}
-		placeholder={defaultValue ?? ''}
-		bind:value
-	/>
-{/if}
+<AutoComplete
+	items={autoCompleteItems}
+	bind:selectedItem={value}
+	inputClassName={twMerge(
+		'bg-surface-secondary flex',
+		valid
+			? ''
+			: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+	)}
+	value={value ?? defaultValue}
+	hideArrow={true}
+	dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md"
+	className="w-full"
+	{disabled}
+	{autofocus}
+/>
 
 {#if !disabled}
 	<button

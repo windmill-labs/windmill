@@ -193,6 +193,7 @@
 						itemsType={property.items}
 						contentEncoding={property.contentEncoding}
 						format={property.format}
+						options={property.options}
 					/>
 					<Toggle
 						options={{ right: 'Required' }}
@@ -219,6 +220,7 @@
 							bind:pattern={property.pattern}
 							bind:enum_={property.enum_}
 							bind:contentEncoding={property.contentEncoding}
+							bind:options={property.options}
 						/>
 					{:else if property.selectedType == 'array'}
 						<ArrayTypeNarrowing bind:itemsType={property.items} />

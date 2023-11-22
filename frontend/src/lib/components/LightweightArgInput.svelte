@@ -350,6 +350,15 @@
 					placeholder={defaultValue ?? ''}
 					bind:value
 				/>
+			{:else if inputCat == 'currency'}
+				<input
+					type="number"
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+					placeholder={defaultValue ?? ''}
+					bind:value
+				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between">

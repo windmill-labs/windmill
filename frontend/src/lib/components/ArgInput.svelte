@@ -68,6 +68,7 @@
 	export let showSchemaExplorer = false
 	export let simpleTooltip: string | undefined = undefined
 	export let customErrorMessage: string | undefined = undefined
+	export let options: { currency: string } | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -261,6 +262,7 @@
 									bind:pattern
 									bind:enum_
 									bind:contentEncoding
+									bind:options
 								/>
 							{:else if type == 'number'}
 								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
@@ -509,6 +511,24 @@
 					placeholder={defaultValue ?? ''}
 					bind:value
 				/>
+			{:else if inputCat == 'currency'}
+				<div class="relative w-full">
+					<input
+						type="number"
+						class={twMerge(
+							valid
+								? ''
+								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+						)}
+						placeholder={defaultValue ?? ''}
+						bind:value
+					/>
+					<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+						<span class="text-gray-500 sm:text-sm" id="price-currency"
+							>{options?.currency ?? ''}</span
+						>
+					</div>
+				</div>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">

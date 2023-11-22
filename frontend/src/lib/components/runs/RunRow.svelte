@@ -123,7 +123,7 @@
 					<div class="whitespace-nowrap text-xs font-semibold">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
-								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-8/12">
+								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-30">
 									{job.script_path}
 								</a>
 								<Button

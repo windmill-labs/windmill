@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Label from './Label.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
@@ -10,6 +11,7 @@
 	export let format: string | undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined
 	export let customErrorMessage: string | undefined
+	export let options: { currency: string } | undefined = undefined
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
@@ -24,10 +26,11 @@
 		'yaml',
 		'sql',
 		// 'time',
-		'date-time'
+		'date-time',
 		// 'duration',
 		// 'ipv6',
-		// 'jsonpointer'
+		// 'jsonpointer',
+		'currency'
 	]
 
 	$: format =
@@ -40,6 +43,13 @@
 			pattern = '^[\\w-.]+@([\\w-]+\\.)+[\\w-]{2,4}$'
 		}
 	}
+
+	$: {
+		if (format === 'currency') {
+			options = options ?? { currency: 'CHF' }
+		}
+	}
+
 	function add() {
 		enum_ = enum_ ? enum_.concat('') : ['']
 	}
@@ -163,4 +173,15 @@
 			<option value={f}>{f}</option>
 		{/each}
 	</select>
+
+	{#if format == 'currency' && options != undefined}
+		<Label label="Currency">
+			<select class="mt-1" bind:value={options.currency}>
+				<option value={undefined} />
+				{#each ['CHF', 'EUR', 'USD'] as c}
+					<option value={c}>{c}</option>
+				{/each}
+			</select>
+		</Label>
+	{/if}
 {/if}
