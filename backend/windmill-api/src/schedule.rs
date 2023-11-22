@@ -42,6 +42,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_schedule))
         .route("/setenabled/*path", post(set_enabled))
         .route("/setdefaulthandler", post(set_default_error_handler))
+        .route("/catchup/*path", post(do_catchup).get(list_catchup))
 }
 
 pub fn global_service() -> Router {
@@ -455,6 +456,54 @@ pub async fn set_enabled(
     ))
 }
 
+pub async fn do_catchup(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(payload): Json<SetEnabled>,
+) -> Result<String> {
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+        (rsmq, user_db.begin(&authed).await?).into();
+    let path = path.to_path();
+    let schedule_o = sqlx::query_as!(
+        Schedule,
+        "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *",
+        &payload.enabled,
+        authed.email,
+        path,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+
+    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
+
+    clear_schedule(tx.transaction_mut(), path, &w_id).await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "schedule.setenabled",
+        ActionKind::Update,
+        &w_id,
+        Some(path),
+        Some([("enabled", payload.enabled.to_string().as_ref())].into()),
+    )
+    .await?;
+
+    if payload.enabled {
+        tx = push_scheduled_job(&db, tx, schedule).await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!(
+        "succesfully updated schedule at path {} to status {}",
+        path, payload.enabled
+    ))
+}
+
 async fn delete_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -641,4 +690,10 @@ pub async fn clear_schedule<'c>(
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
+}
+
+#[derive(Deserialize)]
+pub struct Catchup {
+    pub from: DateTime<Utc>,
+    pub to: Option<DateTime<Utc>>,
 }
