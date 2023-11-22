@@ -380,7 +380,7 @@ checksum = "beec3f8fb8f710b7be84ccd1716e17f38f2868168355cab5f2f168ae988e767e"
 dependencies = [
  "base64 0.21.5",
  "bytes",
- "http",
+ "http 0.2.11",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -578,7 +578,7 @@ dependencies = [
  "bytes",
  "fastrand 2.0.1",
  "hex",
- "http",
+ "http 0.2.11",
  "hyper",
  "ring 0.17.5",
  "time",
@@ -610,8 +610,8 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "pin-project-lite",
  "tracing",
 ]
@@ -632,7 +632,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "fastrand 2.0.1",
- "http",
+ "http 0.2.11",
  "percent-encoding",
  "tracing",
  "uuid 1.6.1",
@@ -659,8 +659,8 @@ dependencies = [
  "aws-smithy-xml",
  "aws-types",
  "bytes",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "once_cell",
  "percent-encoding",
  "regex",
@@ -685,7 +685,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "regex",
  "tracing",
 ]
@@ -707,7 +707,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "regex",
  "tracing",
 ]
@@ -730,7 +730,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-smithy-xml",
  "aws-types",
- "http",
+ "http 0.2.11",
  "regex",
  "tracing",
 ]
@@ -749,7 +749,7 @@ dependencies = [
  "form_urlencoded",
  "hex",
  "hmac",
- "http",
+ "http 0.2.11",
  "num-bigint",
  "once_cell",
  "p256",
@@ -785,8 +785,8 @@ dependencies = [
  "crc32c",
  "crc32fast",
  "hex",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "md-5 0.10.6",
  "pin-project-lite",
  "sha1",
@@ -817,8 +817,8 @@ dependencies = [
  "bytes",
  "bytes-utils",
  "futures-core",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -857,8 +857,8 @@ dependencies = [
  "aws-smithy-types",
  "bytes",
  "fastrand 2.0.1",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "hyper",
  "hyper-rustls",
  "once_cell",
@@ -878,7 +878,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -895,8 +895,8 @@ dependencies = [
  "bytes",
  "bytes-utils",
  "futures-core",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "itoa",
  "num-integer",
  "pin-project-lite",
@@ -927,7 +927,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
- "http",
+ "http 0.2.11",
  "rustc_version 0.4.0",
  "tracing",
 ]
@@ -944,8 +944,8 @@ dependencies = [
  "bytes",
  "futures-util",
  "headers",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "hyper",
  "itoa",
  "matchit",
@@ -974,8 +974,8 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "mime",
  "rustversion",
  "tower-layer",
@@ -2000,9 +2000,9 @@ dependencies = [
 
 [[package]]
 name = "data-encoding"
-version = "2.4.0"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2e66c9d817f1720209181c316d28635c050fa304f9c79e47a520882661b7308"
+checksum = "7e962a19be5cfc3f3bf6dd8f61eb50107f356ad6270fbb3ed41476571db78be5"
 
 [[package]]
 name = "data-url"
@@ -2137,7 +2137,7 @@ dependencies = [
  "deno_core",
  "deno_tls",
  "dyn-clone",
- "http",
+ "http 0.2.11",
  "reqwest",
  "serde",
  "tokio",
@@ -3314,7 +3314,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http",
+ "http 0.2.11",
  "indexmap 2.1.0",
  "slab",
  "tokio",
@@ -3383,7 +3383,7 @@ dependencies = [
  "base64 0.21.5",
  "bytes",
  "headers-core",
- "http",
+ "http 0.2.11",
  "httpdate",
  "mime",
  "sha1",
@@ -3395,7 +3395,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
- "http",
+ "http 0.2.11",
 ]
 
 [[package]]
@@ -3475,21 +3475,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "http"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b32afd38673a8016f7c9ae69e5af41a58f81b1d31689040f2f1959594ce194ea"
+dependencies = [
+ "bytes",
+ "fnv",
+ "itoa",
+]
+
+[[package]]
 name = "http-body"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5f38f16d184e36f2408a55281cd658ecbd3ca05cce6d6510a176eca393e26d1"
 dependencies = [
  "bytes",
- "http",
+ "http 0.2.11",
  "pin-project-lite",
 ]
 
 [[package]]
-name = "http-range-header"
-version = "0.3.1"
+name = "http-body"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "add0ab9360ddbd88cfeb3bd9574a1d85cfdfa14db10b3e21d3700dbc4328758f"
+checksum = "1cac85db508abc24a2e48553ba12a996e87244a0395ce011e62b37158745d643"
+dependencies = [
+ "bytes",
+ "http 1.0.0",
+]
+
+[[package]]
+name = "http-body-util"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41cb79eb393015dadd30fc252023adb0b2400a0caee0fa2a077e6e21a551e840"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http 1.0.0",
+ "http-body 1.0.0",
+ "pin-project-lite",
+]
 
 [[package]]
 name = "http-types"
@@ -3501,7 +3529,7 @@ dependencies = [
  "async-channel 1.9.0",
  "base64 0.13.1",
  "futures-lite 1.13.0",
- "http",
+ "http 0.2.11",
  "infer",
  "pin-project-lite",
  "rand 0.7.3",
@@ -3541,8 +3569,8 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "httparse",
  "httpdate",
  "itoa",
@@ -3561,7 +3589,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
 dependencies = [
  "futures-util",
- "http",
+ "http 0.2.11",
  "hyper",
  "log",
  "rustls 0.21.9",
@@ -4003,9 +4031,9 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1efa59af2ddfad1854ae27d75009d538d0998b4b2fd47083e743ac1a10e46c60"
+checksum = "2994eeba8ed550fd9b47a0b38f0242bc3344e496483c6180b69139cc2fa5d1d7"
 dependencies = [
  "hashbrown 0.14.2",
 ]
@@ -5668,7 +5696,7 @@ source = "git+https://github.com/oxidecomputer/progenitor?rev=3d96016ae8d422e905
 dependencies = [
  "getopts",
  "heck",
- "http",
+ "http 0.2.11",
  "indexmap 1.9.3",
  "openapiv3",
  "proc-macro2",
@@ -6115,8 +6143,8 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http",
- "http-body",
+ "http 0.2.11",
+ "http-body 0.4.5",
  "hyper",
  "hyper-rustls",
  "hyper-tls",
@@ -8549,7 +8577,7 @@ dependencies = [
  "axum-core",
  "cookie",
  "futures-util",
- "http",
+ "http 0.2.11",
  "parking_lot 0.12.1",
  "pin-project-lite",
  "tower-layer",
@@ -8558,17 +8586,16 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.4.4"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c5bb1d698276a2443e5ecfabc1008bf15a36c12e6a7176e7bf089ea9131140"
+checksum = "09e12e6351354851911bdf8c2b8f2ab15050c567d70a8b9a37ae7b8301a4080d"
 dependencies = [
  "bitflags 2.4.1",
  "bytes",
- "futures-core",
  "futures-util",
- "http",
- "http-body",
- "http-range-header",
+ "http 1.0.0",
+ "http-body 1.0.0",
+ "http-body-util",
  "pin-project-lite",
  "tower-layer",
  "tower-service",
@@ -9331,7 +9358,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9366,7 +9393,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9438,7 +9465,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -9456,7 +9483,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9469,7 +9496,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9500,7 +9527,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9508,7 +9535,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9519,7 +9546,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9531,7 +9558,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9542,7 +9569,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -9553,7 +9580,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9570,7 +9597,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9581,7 +9608,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9598,7 +9625,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.11",
@@ -9616,7 +9643,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9647,7 +9674,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.213.0"
+version = "1.214.0"
 dependencies = [
  "anyhow",
  "async-recursion",
