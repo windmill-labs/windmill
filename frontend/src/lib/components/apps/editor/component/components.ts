@@ -313,7 +313,13 @@ export const selectOptions = {
 		'scatter'
 	] as ChartType[],
 	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'],
-	prose: ['sm', 'Default', 'lg', 'xl', '2xl']
+	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
+	imageSourceKind: [
+		'url',
+		'png encoded as base64',
+		'jpeg encoded as base64',
+		'svg encoded as base64'
+	]
 }
 const labels = {
 	none: 'Do nothing',
@@ -2304,6 +2310,12 @@ This is a paragraph.
 						accept: 'image/*',
 						convertTo: 'base64'
 					}
+				},
+				sourceKind: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.imageSourceKind,
+					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
 				},
 				imageFit: {
 					fieldType: 'select',
