@@ -321,7 +321,6 @@
 					{itemPicker}
 					bind:pickForField
 					showSchemaExplorer
-					bind:options={schema.properties[argName].options}
 				/>
 			{:else if arg.expr != undefined}
 				<div class="border rounded mt-2 border-gray-300">

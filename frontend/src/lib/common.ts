@@ -28,11 +28,6 @@ export interface SchemaProperty {
 		contentEncoding?: 'base64'
 		enum?: string[]
 	}
-	options?:
-		| {
-				currency: string
-		  }
-		| undefined
 	customErrorMessage?: string
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
@@ -51,11 +46,6 @@ export interface ModalSchemaProperty {
 	contentEncoding?: 'base64' | 'binary'
 	schema?: Schema
 	customErrorMessage?: string
-	options?:
-		| {
-				currency: string
-		  }
-		| undefined
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {

@@ -89,7 +89,6 @@
 							bind:valid={inputCheck[argName]}
 							defaultValue={schema.properties[argName].default}
 							enum_={schema.properties[argName].enum}
-							options={schema.properties[argName].options}
 							format={schema.properties[argName].format}
 							contentEncoding={schema.properties[argName].contentEncoding}
 							properties={schema.properties[argName].properties}
