@@ -240,13 +240,22 @@
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
 
-	function updateSchema(lang, args) {
-		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (typeof schemaRes === 'string') {
-			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
+	let oldSchemaRes = ''
+	function updateSchema() {
+		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
+		if (typeof newSchemaRes === 'string') {
+			const newSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+			if (newSchema && newSchemaRes !== oldSchemaRes) {
+				oldSchemaRes = newSchemaRes
+				dbSchema = newSchema
+				return
+			}
 		}
+		dbSchema = undefined
+		oldSchemaRes = ''
 	}
-	$: args && updateSchema(lang, args)
+
+	$: lang && args && $dbSchemas && updateSchema()
 	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
 	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
