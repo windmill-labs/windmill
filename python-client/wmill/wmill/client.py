@@ -112,7 +112,7 @@ class Windmill:
 
         start_time = time.time()
 
-        job_id = self.start_execution(path=path, hash_=hash_, args=args)
+        job_id = self.run_script_async(path=path, hash_=hash_, args=args)
 
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
@@ -190,7 +190,10 @@ class Windmill:
         return result
 
     def get_job_status(self, job_id: str) -> JobStatus:
-        resp = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}", raise_for_status=False)
+        resp = self.get(
+            f"/w/{self.workspace}/jobs_u/get/{job_id}",
+            raise_for_status=False,
+        )
         assert not resp.status_code == 404, f"{job_id} not found"
         resp_json = resp.json()
         job_type = resp_json.get("type", "")
@@ -447,7 +450,7 @@ def run_script_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
-    return _client.start_execution(
+    return _client.run_script_async(
         hash_=hash,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -479,7 +482,7 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.start_execution(
+    return _client.run_script_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -557,6 +560,7 @@ def get_resource(
 ) -> str | None:
     """Get resource from Windmill"""
     return _client.get_resource(path, none_if_undefined)
+
 
 @init_global_client
 def set_resource(**kwargs) -> None:
