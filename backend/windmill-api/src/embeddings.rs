@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use anyhow::{self, Error, Result};
+use anyhow::{anyhow, Error, Result};
 use axum::{
     extract::{Path, Query},
     routing::get,
@@ -228,14 +228,31 @@ impl EmbeddingsDb {
         self.db
             .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
 
-        let response = http_get_from_hub(
-            &HTTP_CLIENT,
-            "https://hub.windmill.dev/scripts/embeddings",
-            false,
-            None,
-            pg_db,
-        )
-        .await?;
+        let response = HTTP_CLIENT
+            .get("https://bucket.windmillhub.com/embeddings/scripts_embeddings.json")
+            .send()
+            .await;
+        let response =
+            if response.is_err() || response.as_ref().unwrap().error_for_status_ref().is_err() {
+                tracing::warn!("Failed to get scripts embeddings from bucket, trying hub...");
+                http_get_from_hub(
+                    &HTTP_CLIENT,
+                    "https://hub.windmill.dev/scripts/embeddings",
+                    false,
+                    None,
+                    pg_db,
+                )
+                .await?
+            } else {
+                response.unwrap()
+            };
+        if response.error_for_status_ref().is_err() {
+            return Err(anyhow!(
+                "Failed to get scripts embeddings from hub with error code: {}",
+                response.status()
+            ));
+        }
+
         let hub_scripts = response.json::<Vec<HubScript>>().await?;
 
         for script in &hub_scripts {
@@ -257,14 +274,31 @@ impl EmbeddingsDb {
             self.db.insert_into_collection("scripts", embedding)?;
         }
 
-        let response = http_get_from_hub(
-            &HTTP_CLIENT,
-            "https://hub.windmill.dev/resource_types/embeddings",
-            false,
-            None,
-            pg_db,
-        )
-        .await?;
+        let response = HTTP_CLIENT
+            .get("https://bucket.windmillhub.com/embeddings/resource_types_embeddings.json")
+            .send()
+            .await;
+        let response = if response.is_err()
+            || response.as_ref().unwrap().error_for_status_ref().is_err()
+        {
+            tracing::warn!("Failed to get resource types embeddings from bucket, trying hub...");
+            http_get_from_hub(
+                &HTTP_CLIENT,
+                "https://hub.windmill.dev/resource_types/embeddings",
+                false,
+                None,
+                pg_db,
+            )
+            .await?
+        } else {
+            response.unwrap()
+        };
+        if response.error_for_status_ref().is_err() {
+            return Err(anyhow!(
+                "Failed to get resource types embeddings from hub with error code: {}",
+                response.status()
+            ));
+        }
         let hub_resource_types = response.json::<Vec<HubResourceType>>().await?;
 
         let resource_types: Vec<ResourceType> =
