@@ -228,7 +228,9 @@ class Windmill:
     def set_variable(self, path: str, value: str) -> None:
         """Set variable from Windmill"""
         # check if variable exists
-        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create variable
             self.post(
@@ -254,7 +256,9 @@ class Windmill:
     ) -> str | None:
         """Get resource from Windmill"""
         try:
-            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
+            return self.get(
+                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+            ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -268,7 +272,9 @@ class Windmill:
         resource_type: str,
     ):
         # check if resource exists
-        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create resource
             self.post(
@@ -354,6 +360,10 @@ class Windmill:
     @property
     def state(self) -> Any:
         return self.get_resource(path=self.state_path, none_if_undefined=True)
+
+    @state.setter
+    def state(self, value: Any) -> None:
+        self.set_state(value)
 
     @staticmethod
     def set_shared_state_pickle(value: Any, path: str = "state.pickle") -> None:
@@ -631,3 +641,31 @@ def get_state_path() -> str:
 @init_global_client
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
+
+
+@init_global_client
+def cancel_running() -> dict:
+    """Cancel currently running executions of the same script."""
+    return _client.cancel_running()
+
+
+@init_global_client
+def run_script(
+    path: str = None,
+    hash_: str = None,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script synchronously and return its result."""
+    return _client.run_script(
+        path=path,
+        hash_=hash_,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
