@@ -1,6 +1,38 @@
 # Changelog
 
 
+## [1.214.1](https://github.com/windmill-labs/windmill/compare/v1.214.0...v1.214.1) (2023-11-23)
+
+
+### Features
+
+* **python:** Quality of Life improvements to Python client ([#2686](https://github.com/windmill-labs/windmill/issues/2686)) ([1c2abcd](https://github.com/windmill-labs/windmill/commit/1c2abcda231b2d10e7a358a4e4b7973785cb6199))
+
+
+### Bug Fixes
+
+* add image base64 source kinds ([7ae84fc](https://github.com/windmill-labs/windmill/commit/7ae84fce5014d97bf17803e2ccefafee009b28bb))
+* fix backend build ([45ee1d7](https://github.com/windmill-labs/windmill/commit/45ee1d770345f03c03cc48a3ddcc130ca3655a4c))
+* **frontend:** disable active interaction to avoid broken state ([#2675](https://github.com/windmill-labs/windmill/issues/2675)) ([bfdb559](https://github.com/windmill-labs/windmill/commit/bfdb559b47786e37f135ca345c55828cc70e49e9))
+* **frontend:** improve tutorial ux ([#2677](https://github.com/windmill-labs/windmill/issues/2677)) ([7fe3bca](https://github.com/windmill-labs/windmill/commit/7fe3bca624fa3b434e3fbe9b33b213449044accc))
+* **frontend:** use popover for schedule for later on the runs page ([#2678](https://github.com/windmill-labs/windmill/issues/2678)) ([31fbc58](https://github.com/windmill-labs/windmill/commit/31fbc5867cc72befea5733811148126289ce8bb9))
+* graphql variables ([#2682](https://github.com/windmill-labs/windmill/issues/2682)) ([217e694](https://github.com/windmill-labs/windmill/commit/217e69498fa5958e83c595003b2a086528e51388))
+* relax tags constraints ([8f8ea22](https://github.com/windmill-labs/windmill/commit/8f8ea227c850f9d01f913660547b6a6394c6e142))
+* Various fixes and improvements for Windmill S3 capabilities ([#2674](https://github.com/windmill-labs/windmill/issues/2674)) ([c42c54e](https://github.com/windmill-labs/windmill/commit/c42c54e69b5acdcbe44a0c26ae7fbaa2189e6b5f))
+
+## [1.214.0](https://github.com/windmill-labs/windmill/compare/v1.213.0...v1.214.0) (2023-11-22)
+
+
+### Features
+
+* hub path scripts + nested inputs glue ([#2668](https://github.com/windmill-labs/windmill/issues/2668)) ([ad199af](https://github.com/windmill-labs/windmill/commit/ad199afd06814540bb7d36669709902be56eeb8a))
+* **python:** Refactor Windmill Python client (remove `windmill-api`) ([#2665](https://github.com/windmill-labs/windmill/issues/2665)) ([37ffdae](https://github.com/windmill-labs/windmill/commit/37ffdaed60fb750f1466b440353e1d8409eaea90))
+
+
+### Bug Fixes
+
+* fix flow primary schedule clearing ([3ebe6d7](https://github.com/windmill-labs/windmill/commit/3ebe6d7a620e37fd6c81bcf4c8713a48eb081f81))
+
 ## [1.213.0](https://github.com/windmill-labs/windmill/compare/v1.212.0...v1.213.0) (2023-11-21)
 
 

@@ -4,6 +4,7 @@ use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use windmill_common::error::Error;
 use windmill_common::jobs::QueuedJob;
+use windmill_parser_graphql::parse_graphql_sig;
 use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
@@ -48,9 +49,26 @@ pub async fn do_graphql(
         return Err(Error::BadRequest("Missing api argument".to_string()));
     };
 
+    // variables is job_args except for api
+    let mut variables = HashMap::new();
+    let sig = parse_graphql_sig(&query)
+        .map_err(|x| Error::ExecutionErr(x.to_string()))?
+        .args;
+    if let Some(job_args) = job_args {
+        for arg in &sig {
+            variables.insert(
+                arg.name.clone(),
+                job_args
+                    .get(&arg.name)
+                    .map(|x| x.to_owned())
+                    .unwrap_or_default(),
+            );
+        }
+    }
+
     let mut request = HTTP_CLIENT.post(api.base_url).json(&json!({
         "query": query,
-        "variables": job_args
+        "variables": variables
     }));
 
     if let Some(token) = &api.bearer_token {
