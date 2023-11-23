@@ -112,7 +112,7 @@ class Windmill:
 
         start_time = time.time()
 
-        job_id = self.start_execution(path=path, hash_=hash_, args=args)
+        job_id = self.run_script_async(path=path, hash_=hash_, args=args)
 
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
@@ -190,7 +190,10 @@ class Windmill:
         return result
 
     def get_job_status(self, job_id: str) -> JobStatus:
-        resp = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}", raise_for_status=False)
+        resp = self.get(
+            f"/w/{self.workspace}/jobs_u/get/{job_id}",
+            raise_for_status=False,
+        )
         assert not resp.status_code == 404, f"{job_id} not found"
         resp_json = resp.json()
         job_type = resp_json.get("type", "")
@@ -225,7 +228,9 @@ class Windmill:
     def set_variable(self, path: str, value: str) -> None:
         """Set variable from Windmill"""
         # check if variable exists
-        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create variable
             self.post(
@@ -251,7 +256,9 @@ class Windmill:
     ) -> str | None:
         """Get resource from Windmill"""
         try:
-            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
+            return self.get(
+                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+            ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -265,7 +272,9 @@ class Windmill:
         resource_type: str,
     ):
         # check if resource exists
-        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create resource
             self.post(
@@ -351,6 +360,10 @@ class Windmill:
     @property
     def state(self) -> Any:
         return self.get_resource(path=self.state_path, none_if_undefined=True)
+
+    @state.setter
+    def state(self, value: Any) -> None:
+        self.set_state(value)
 
     @staticmethod
     def set_shared_state_pickle(value: Any, path: str = "state.pickle") -> None:
@@ -447,7 +460,7 @@ def run_script_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
-    return _client.start_execution(
+    return _client.run_script_async(
         hash_=hash,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -479,7 +492,7 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.start_execution(
+    return _client.run_script_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -558,6 +571,7 @@ def get_resource(
     """Get resource from Windmill"""
     return _client.get_resource(path, none_if_undefined)
 
+
 @init_global_client
 def set_resource(**kwargs) -> None:
     """
@@ -627,3 +641,31 @@ def get_state_path() -> str:
 @init_global_client
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
+
+
+@init_global_client
+def cancel_running() -> dict:
+    """Cancel currently running executions of the same script."""
+    return _client.cancel_running()
+
+
+@init_global_client
+def run_script(
+    path: str = None,
+    hash_: str = None,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script synchronously and return its result."""
+    return _client.run_script(
+        path=path,
+        hash_=hash_,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )

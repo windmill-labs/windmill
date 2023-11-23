@@ -551,6 +551,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atomic-write-file"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c232177ba50b16fe7a4588495bd474a62a9e45a8e4ca6fd7d0b7ac29d164631e"
+dependencies = [
+ "nix 0.26.4",
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1842,7 +1852,7 @@ dependencies = [
  "autocfg",
  "cfg-if",
  "crossbeam-utils",
- "memoffset",
+ "memoffset 0.9.0",
  "scopeguard",
 ]
 
@@ -2012,9 +2022,9 @@ checksum = "8d7439c3735f405729d52c3fbbe4de140eaf938a1fe47d227c27f8254d4302a5"
 
 [[package]]
 name = "data-url"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41b319d1b62ffbd002e057f36bebd1f42b9f97927c9577461d855f3513c4289f"
+checksum = "5c297a1c74b71ae29df00c3e22dd9534821d60eb9af5a0192823fa2acea70c2a"
 
 [[package]]
 name = "debug-helper"
@@ -2150,7 +2160,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a798670c20308e5770cc0775de821424ff9e85665b602928509c8c70430b3ee0"
 dependencies = [
- "data-url 0.3.0",
+ "data-url 0.3.1",
  "serde",
  "url",
 ]
@@ -2801,9 +2811,9 @@ checksum = "ee1b05cbd864bcaecbd3455d6d967862d446e4ebfc3c2e5e5b9841e53cba6673"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a62bc1cf6f830c2ec14a513a9fb124d0a213a629668a4186f329db21fe045652"
+checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
 ]
@@ -3614,9 +3624,9 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "idna"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d20d6b07bfbc108882d88ed8e37d39636dcc260e15e30c45e6ba089610b917c"
+checksum = "634d9b1461af396cad843f47fdba5597a4f9e6ddd4bfb6ff5d85028c25cb12f6"
 dependencies = [
  "unicode-bidi",
  "unicode-normalization",
@@ -3924,9 +3934,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afc22eff61b133b115c6e8c74e818c628d6d5e7a502afea6f64dee076dd94326"
+checksum = "cf4e226dcd58b4be396f7bd3c20da8fdee2911400705297ba7d2d7cc2c30f716"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4102,7 +4112,7 @@ dependencies = [
  "smtp-proto",
  "tokio",
  "tokio-rustls 0.24.1",
- "webpki-roots 0.25.2",
+ "webpki-roots 0.25.3",
 ]
 
 [[package]]
@@ -4217,6 +4227,15 @@ checksum = "f49388d20533534cd19360ad3d6a7dadc885944aa802ba3995040c5ec11288c6"
 dependencies = [
  "libc",
  "stable_deref_trait",
+]
+
+[[package]]
+name = "memoffset"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]
@@ -4428,6 +4447,19 @@ name = "new_debug_unreachable"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4a24736216ec316047a1fc4252e27dabb04218aa4a3f37c6e7ddbf1f9782b54"
+
+[[package]]
+name = "nix"
+version = "0.26.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "598beaf3cc6fdd9a5dfb1630c2800c7acd31df7aaf0f565796fba2b53ca1af1b"
+dependencies = [
+ "bitflags 1.3.2",
+ "cfg-if",
+ "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
+]
 
 [[package]]
 name = "nix"
@@ -4650,9 +4682,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.59"
+version = "0.10.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a257ad03cd8fb16ad4172fedf8094451e1af1c4b70097636ef2eac9a5f0cc33"
+checksum = "79a4c6c3a2b158f7f8f2a2fc5a969fa3a068df6fc9dbb4a43845436e3af7c800"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if",
@@ -4682,9 +4714,9 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.95"
+version = "0.9.96"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40a4130519a360279579c2053038317e40eff64d13fd3f004f9e1b72b8a6aaf9"
+checksum = "3812c071ba60da8b5677cc12bcb1d42989a65553772897a7e0355545a819838f"
 dependencies = [
  "cc",
  "libc",
@@ -4885,9 +4917,9 @@ dependencies = [
 
 [[package]]
 name = "percent-encoding"
-version = "2.3.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b2a4787296e9989611394c33f193f676704af1686e70b8f8033ab5ba9a35a94"
+checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "pg-embed"
@@ -6153,7 +6185,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 0.25.2",
+ "webpki-roots 0.25.3",
  "winreg",
 ]
 
@@ -7216,12 +7248,12 @@ dependencies = [
 
 [[package]]
 name = "sqlx"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e50c216e3624ec8e7ecd14c6a6a6370aad6ee5d8cfc3ab30b5162eeeef2ed33"
+checksum = "dba03c279da73694ef99763320dea58b51095dfe87d001b1d4b5fe78ba8763cf"
 dependencies = [
- "sqlx-core 0.7.2",
- "sqlx-macros 0.7.2",
+ "sqlx-core 0.7.3",
+ "sqlx-macros 0.7.3",
  "sqlx-mysql",
  "sqlx-postgres",
  "sqlx-sqlite",
@@ -7282,9 +7314,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-core"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d6753e460c998bbd4cd8c6f0ed9a64346fcca0723d6e75e52fdc351c5d2169d"
+checksum = "d84b0a3c3739e220d94b3239fd69fb1f74bc36e16643423bd99de3b43c21bfbd"
 dependencies = [
  "ahash 0.8.6",
  "atoi 2.0.0",
@@ -7323,7 +7355,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid 1.6.1",
- "webpki-roots 0.24.0",
+ "webpki-roots 0.25.3",
 ]
 
 [[package]]
@@ -7347,23 +7379,24 @@ dependencies = [
 
 [[package]]
 name = "sqlx-macros"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a793bb3ba331ec8359c1853bd39eed32cdd7baaf22c35ccf5c92a7e8d1189ec"
+checksum = "89961c00dc4d7dffb7aee214964b065072bff69e36ddb9e2c107541f75e4f2a5"
 dependencies = [
  "proc-macro2",
  "quote",
- "sqlx-core 0.7.2",
+ "sqlx-core 0.7.3",
  "sqlx-macros-core",
  "syn 1.0.109",
 ]
 
 [[package]]
 name = "sqlx-macros-core"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a4ee1e104e00dedb6aa5ffdd1343107b0a4702e862a84320ee7cc74782d96fc"
+checksum = "d0bd4519486723648186a08785143599760f7cc81c52334a55d6a83ea1e20841"
 dependencies = [
+ "atomic-write-file",
  "dotenvy",
  "either",
  "heck",
@@ -7374,7 +7407,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "sqlx-core 0.7.2",
+ "sqlx-core 0.7.3",
  "sqlx-mysql",
  "sqlx-postgres",
  "sqlx-sqlite",
@@ -7386,9 +7419,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-mysql"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "864b869fdf56263f4c95c45483191ea0af340f9f3e3e7b4d57a61c7c87a970db"
+checksum = "e37195395df71fd068f6e2082247891bc11e3289624bbc776a0cdfa1ca7f1ea4"
 dependencies = [
  "atoi 2.0.0",
  "base64 0.21.5",
@@ -7421,7 +7454,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.8",
  "smallvec",
- "sqlx-core 0.7.2",
+ "sqlx-core 0.7.3",
  "stringprep",
  "thiserror",
  "tracing",
@@ -7431,9 +7464,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-postgres"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7ae0e6a97fb3ba33b23ac2671a5ce6e3cabe003f451abd5a56e7951d975624"
+checksum = "d6ac0ac3b7ccd10cc96c7ab29791a7dd236bd94021f31eec7ba3d46a74aa1c24"
 dependencies = [
  "atoi 2.0.0",
  "base64 0.21.5",
@@ -7464,7 +7497,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.8",
  "smallvec",
- "sqlx-core 0.7.2",
+ "sqlx-core 0.7.3",
  "stringprep",
  "thiserror",
  "tracing",
@@ -7485,9 +7518,9 @@ dependencies = [
 
 [[package]]
 name = "sqlx-sqlite"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59dc83cf45d89c555a577694534fcd1b55c545a816c816ce51f20bbe56a4f3f"
+checksum = "210976b7d948c7ba9fced8ca835b11cbb2d677c59c79de41ac0d397e14547490"
 dependencies = [
  "atoi 2.0.0",
  "chrono",
@@ -7501,9 +7534,10 @@ dependencies = [
  "log",
  "percent-encoding",
  "serde",
- "sqlx-core 0.7.2",
+ "sqlx-core 0.7.3",
  "tracing",
  "url",
+ "urlencoding",
  "uuid 1.6.1",
 ]
 
@@ -8989,14 +9023,14 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "webpki-roots 0.25.2",
+ "webpki-roots 0.25.3",
 ]
 
 [[package]]
 name = "url"
-version = "2.4.1"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "143b538f18257fac9cad154828a57c6bf5157e1aa604d4816b5995bf6de87ae5"
+checksum = "31e6302e3bb753d46e83516cae55ae196fc0c309407cf11ab35cc51a4c2a4633"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -9271,18 +9305,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.24.0"
+version = "0.25.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b291546d5d9d1eab74f069c77749f2cb8504a12caa20f0f2de93ddbf6f411888"
-dependencies = [
- "rustls-webpki",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14247bb57be4f377dfb94c72830b8ce8fc6beac03cf4bf7b9732eadd414123fc"
+checksum = "1778a42e8b3b90bff8d0f5032bf22250792889a5cdc752aa0020c84abe3aaf10"
 
 [[package]]
 name = "which"
@@ -9339,7 +9364,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -9359,7 +9384,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "tokio",
  "tokio-metrics",
  "tracing",
@@ -9374,7 +9399,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9422,7 +9447,7 @@ dependencies = [
  "serde_urlencoded",
  "sha2 0.10.8",
  "sql-builder",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "tempfile",
  "time",
  "tinyvector",
@@ -9446,7 +9471,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -9464,20 +9489,20 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "chrono",
  "serde",
  "serde_json",
  "sql-builder",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "tracing",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-common"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -9496,7 +9521,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "thiserror",
  "tokio",
  "tracing",
@@ -9508,7 +9533,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -9516,7 +9541,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9527,7 +9552,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9539,7 +9564,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9550,7 +9575,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -9561,7 +9586,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9571,14 +9596,14 @@ dependencies = [
  "regex",
  "rustpython-parser",
  "serde_json",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "windmill-common",
  "windmill-parser",
 ]
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9589,7 +9614,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9606,7 +9631,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.11",
@@ -9624,7 +9649,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9644,7 +9669,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sql-builder",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "tokio",
  "tracing",
  "ulid",
@@ -9655,7 +9680,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.214.0"
+version = "1.214.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9681,7 +9706,7 @@ dependencies = [
  "lazy_static",
  "mysql_async",
  "native-tls",
- "nix",
+ "nix 0.27.1",
  "once_cell",
  "pem 3.0.2",
  "postgres-native-tls",
@@ -9694,7 +9719,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "sqlx 0.7.2",
+ "sqlx 0.7.3",
  "tiberius",
  "tokio",
  "tokio-postgres",
