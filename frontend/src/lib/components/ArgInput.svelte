@@ -26,6 +26,7 @@
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -267,6 +268,7 @@
 									bind:min={extra['min']}
 									bind:max={extra['max']}
 									bind:currency={extra['currency']}
+									bind:currencyLocale={extra['currencyLocale']}
 								/>
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
@@ -297,6 +299,17 @@
 					</div>
 				{:else if extra['seconds'] !== undefined}
 					<SecondsInput bind:seconds={value} on:focus />
+				{:else if extra?.currency}
+					<CurrencyInput
+						inputClasses={{
+							formatted: twMerge('px-2 w-full py-1.5 text-black'),
+							wrapper: 'w-full windmillapp',
+							formattedZero: twMerge('text-black')
+						}}
+						bind:value
+						currency={extra?.currency}
+						locale={extra?.currencyLocale ?? 'en-US'}
+					/>
 				{:else}
 					<div class="relative w-full">
 						<input
@@ -312,15 +325,6 @@
 							min={extra['min']}
 							max={extra['max']}
 						/>
-						{#if extra?.currency}
-							<div
-								class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 border-l px-2"
-							>
-								<span class="text-gray-500 sm:text-sm">
-									{extra?.currency ?? ''}
-								</span>
-							</div>
-						{/if}
 					</div>
 				{/if}
 			{:else if inputCat == 'boolean'}

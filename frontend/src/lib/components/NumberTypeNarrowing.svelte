@@ -1,10 +1,12 @@
 <script lang="ts">
 	import Label from './Label.svelte'
 	import Toggle from './Toggle.svelte'
+	import { selectOptions } from './apps/editor/component'
 
 	export let min: number | undefined
 	export let max: number | undefined
 	export let currency: string | undefined
+	export let currencyLocale: string | undefined
 
 	let minChecked: boolean = min != undefined
 	let maxChecked: boolean = max != undefined
@@ -24,7 +26,15 @@
 	<Label label="Currency">
 		<select class="mt-1" bind:value={currency}>
 			<option value={undefined}> No currency </option>
-			{#each ['CHF', 'EUR', 'USD'] as c}
+			{#each selectOptions.currencyOptions as c}
+				<option value={c}>{c}</option>
+			{/each}
+		</select>
+	</Label>
+	<Label label="Currency locale">
+		<select class="mt-1" bind:value={currencyLocale}>
+			<option value={undefined}> No locale </option>
+			{#each selectOptions.localeOptions as c}
 				<option value={c}>{c}</option>
 			{/each}
 		</select>
