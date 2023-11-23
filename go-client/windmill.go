@@ -69,19 +69,17 @@ func GetResource(path string) (interface{}, error) {
 
 func SetResource(path string, value interface{}) error {
 	client, err := GetClient()
-	if err != nil {
-		return err
-	}
-	res, err := client.Client.UpdateResourceValueWithResponse(
-		context.Background(),
-		client.Workspace, path,
-		api.UpdateResourceValueJSONRequestBody{Value: &value})
+	res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, &api.CreateResourceParams{
+		UpdateIfExists: newBool(true),
+	}, api.CreateResource{Value: &value, Path: path})
+
 	if err != nil {
 		return err
 	}
 	if res.StatusCode()/100 != 2 {
 		return errors.New(string(res.Body))
 	}
+
 	return nil
 }
 
@@ -93,20 +91,34 @@ func SetVariable(path string, value string) error {
 	f := false
 	res, err := client.Client.UpdateVariableWithResponse(context.Background(), client.Workspace, path, &api.UpdateVariableParams{AlreadyEncrypted: &f}, api.EditVariable{Value: &value})
 	if err != nil {
-		return err
+		f = true
 	}
 	if res.StatusCode()/100 != 2 {
-		return errors.New(string(res.Body))
+		f = true
 	}
+  if f == true {
+    res, err := client.Client.CreateVariableWithResponse(context.Background(), client.Workspace, &api.CreateVariableParams{}, 
+      api.CreateVariableJSONRequestBody{
+        Path: path,
+        Value: value,
+    })
+
+    if err != nil {
+      return err
+    }
+    if res.StatusCode()/100 != 2 {
+      return errors.New(string(res.Body))
+    }
+  }
 	return nil
 }
 
 func GetStatePath() string {
 	value := os.Getenv("WM_STATE_PATH_NEW")
 	if len(value) == 0 {
-        return os.Getenv("WM_STATE_PATH")
-    }
-    return value
+		return os.Getenv("WM_STATE_PATH")
+	}
+	return value
 }
 
 func GetState() (interface{}, error) {
@@ -116,20 +128,7 @@ func GetState() (interface{}, error) {
 func SetState(state interface{}) error {
 	err := SetResource(GetStatePath(), state)
 	if err != nil {
-		client, err := GetClient()
-		if err != nil {
-			return err
-		}
-		res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, &api.CreateResourceParams{
-			UpdateIfExists: newBool(true),
-		}, api.CreateResource{Value: &state})
-		if err != nil {
-			return err
-		}
-		if res.StatusCode()/100 != 2 {
-			return errors.New(string(res.Body))
-		}
-		return nil
+		return err
 	}
 	return nil
 }
