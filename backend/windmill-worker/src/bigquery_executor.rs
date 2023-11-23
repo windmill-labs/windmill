@@ -220,7 +220,7 @@ fn convert_val(arg_t: String, arg_v: Value) -> Value {
 
             match arg_t.as_str() {
                 "timestamp" | "datetime" => {
-                    v = v + ":00";
+                    v = v.trim_end_matches("Z").to_string();
                 }
                 "date" => {
                     let arr = v.split("T").collect::<Vec<&str>>();
@@ -235,7 +235,7 @@ fn convert_val(arg_t: String, arg_v: Value) -> Value {
                     let arr = v.split("T").collect::<Vec<&str>>();
                     match arr.as_slice() {
                         [_, time] => {
-                            v = time.to_string() + ":00";
+                            v = time.trim_end_matches("Z").to_string();
                         }
                         _ => {}
                     }
