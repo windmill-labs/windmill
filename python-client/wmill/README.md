@@ -13,6 +13,7 @@ The following are some common examples:
 
 ```python
 import time
+
 import wmill
 
 
@@ -39,6 +40,7 @@ The `wmill` package also exposes the `Windmill` class, which is the core client 
 
 ```python
 import time
+
 from wmill import Windmill
 
 def main():
