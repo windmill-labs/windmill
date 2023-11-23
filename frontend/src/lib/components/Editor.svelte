@@ -256,7 +256,7 @@
 	}
 
 	$: lang && args && $dbSchemas && updateSchema()
-	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
+	$: initialized && dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
 	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
 
