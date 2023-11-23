@@ -374,6 +374,19 @@
 		try {
 			await computeTriggerables()
 			let path = $page.params.path
+			if (savedApp.draft_only) {
+				await AppService.updateApp({
+					workspace: $workspaceStore!,
+					path: appPath,
+					requestBody: {
+						value: $app!,
+						summary: $summary,
+						policy,
+						path: path,
+						draft_only: true
+					}
+				})
+			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -384,7 +397,14 @@
 			})
 
 			savedApp = {
-				...savedApp,
+				...(savedApp?.draft_only
+					? {
+							summary: $summary,
+							value: cloneDeep($app),
+							path: newPath,
+							policy
+					  }
+					: savedApp),
 				draft: {
 					summary: $summary,
 					value: cloneDeep($app),

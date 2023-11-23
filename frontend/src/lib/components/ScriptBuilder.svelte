@@ -255,7 +255,7 @@
 				)
 			}
 
-			if (initialPath == '') {
+			if (initialPath == '' || savedScript?.draft_only) {
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -269,6 +269,7 @@
 						kind: script.kind,
 						tag: script.tag,
 						draft_only: true,
+						parent_hash: script.parent_hash, // if it's a draft only, we need the parent hash
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
@@ -281,14 +282,23 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: initialPath == '' ? script.path : initialPath,
+					path: script.path,
 					typ: 'script',
 					value: script
 				}
 			})
+			if (initialPath !== '' && script.path !== initialPath) {
+				await DraftService.deleteDraft({
+					workspace: $workspaceStore!,
+					kind: 'script',
+					path: initialPath
+				})
+			}
 
 			savedScript = {
-				...(initialPath == '' ? { ...cloneDeep(script), draft_only: true } : savedScript),
+				...(initialPath == '' || savedScript?.draft_only
+					? { ...cloneDeep(script), draft_only: true }
+					: savedScript),
 				draft: cloneDeep(script)
 			} as NewScriptWithDraft
 

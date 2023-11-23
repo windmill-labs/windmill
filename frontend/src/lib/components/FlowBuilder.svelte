@@ -115,7 +115,7 @@
 		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties($flowStore)
+			const current = cleanValueProperties({ ...$flowStore, path: $pathStore })
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -148,18 +148,40 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
+			} else if (savedFlow?.draft_only) {
+				await FlowService.updateFlow({
+					workspace: $workspaceStore!,
+					path: initialPath,
+					requestBody: {
+						path: $pathStore,
+						summary: flow.summary,
+						description: flow.description ?? '',
+						value: flow.value,
+						schema: flow.schema,
+						tag: flow.tag,
+						draft_only: true,
+						ws_error_handler_muted: flow.ws_error_handler_muted
+					}
+				})
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: newFlow ? $pathStore : initialPath,
+					path: $pathStore,
 					typ: 'flow',
 					value: flow
 				}
 			})
+			if (!newFlow && $pathStore !== initialPath) {
+				await DraftService.deleteDraft({
+					workspace: $workspaceStore!,
+					kind: 'flow',
+					path: initialPath
+				})
+			}
 
 			savedFlow = {
-				...(newFlow
+				...(newFlow || savedFlow?.draft_only
 					? {
 							...cloneDeep($flowStore),
 							path: $pathStore,
@@ -168,7 +190,7 @@
 					: savedFlow),
 				draft: {
 					...cloneDeep($flowStore),
-					path: newFlow ? $pathStore : initialPath
+					path: $pathStore
 				}
 			} as Flow & {
 				draft?: Flow
@@ -1058,7 +1080,7 @@
 								mode: 'normal',
 								deployed: savedFlow,
 								draft: savedFlow['draft'],
-								current: $flowStore
+								current: { ...$flowStore, path: $pathStore }
 							})
 						}}
 						disabled={!savedFlow}

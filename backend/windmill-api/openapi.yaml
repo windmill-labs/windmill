@@ -3730,7 +3730,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OpenFlowWPath"
+              allOf:
+                - $ref: "#/components/schemas/OpenFlowWPath"
+                - type: object
+                  properties:
+                    draft_only:
+                      type: boolean
 
       responses:
         "200":
@@ -4222,6 +4227,8 @@ paths:
                 value: {}
                 policy:
                   $ref: "#/components/schemas/Policy"
+                draft_only:
+                  type: boolean
       responses:
         "200":
           description: app updated

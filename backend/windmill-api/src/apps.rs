@@ -161,6 +161,7 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<serde_json::Value>,
     pub policy: Option<Policy>,
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -650,7 +651,12 @@ async fn update_app(
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
-        sqlb.set("draft_only", "NULL");
+        sqlb.set(
+            "draft_only",
+            ns.draft_only
+                .map(|x| x.to_string())
+                .unwrap_or("NULL".to_string()),
+        );
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;
@@ -734,13 +740,15 @@ async fn update_app(
         None
     };
 
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        path,
-        &w_id
-    )
-    .execute(&mut tx)
-    .await?;
+    if !ns.draft_only.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            path,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
 
     audit_log(
         &mut tx,
