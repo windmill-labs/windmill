@@ -27,6 +27,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
+	import Label from './Label.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -235,6 +236,9 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
+				<Label label="Display using multiselect">
+					<Toggle bind:checked={extra.multiselect} />
+				</Label>
 			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
 					<div class="w-min">
@@ -349,6 +353,15 @@
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
+					{:else if extra.multiselect}
+						<div class="items-start">
+							<Multiselect
+								{disabled}
+								bind:selected={value}
+								options={itemsType?.enum ?? []}
 								selectedOptionsDraggable={true}
 							/>
 						</div>
