@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.215.0](https://github.com/windmill-labs/windmill/compare/v1.214.1...v1.215.0) (2023-11-23)
+
+
+### Features
+
+* query embeddings from s3 ([#2683](https://github.com/windmill-labs/windmill/issues/2683)) ([e3f2b43](https://github.com/windmill-labs/windmill/commit/e3f2b43748e8e0853dd0dbae87cba37b950dc76e))
+
+
+### Bug Fixes
+
+* bigquery schema and date inputs ([#2688](https://github.com/windmill-labs/windmill/issues/2688)) ([f5e098d](https://github.com/windmill-labs/windmill/commit/f5e098d03b467002a8deab4d2c519945c01458d4))
+* improve wmill go client ([cfd3da4](https://github.com/windmill-labs/windmill/commit/cfd3da41efe4e89e5d8672c08433442b05d11f37))
+
 ## [1.214.1](https://github.com/windmill-labs/windmill/compare/v1.214.0...v1.214.1) (2023-11-23)
 
 
