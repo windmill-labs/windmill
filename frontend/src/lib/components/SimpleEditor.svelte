@@ -204,7 +204,7 @@
 		})
 	}
 
-	$: lang == 'css' && addCSSClassCompletions()
+	$: lang == 'css' && initialized && addCSSClassCompletions()
 
 	function addCSSClassCompletions() {
 		languages.registerCompletionItemProvider('css', {
