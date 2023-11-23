@@ -189,6 +189,7 @@
 							wrapper: 'w-full windmillapp',
 							formattedZero: twMerge('text-black')
 						}}
+						style="color:black;"
 						bind:value
 						currency={extra?.currency}
 						locale={extra?.currencyLocale ?? 'en-US'}
