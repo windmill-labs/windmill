@@ -49,9 +49,11 @@
 	import autosize from 'svelte-autosize'
 	import Portal from 'svelte-portal'
 
-	type ResourceW = ListableResource & { canWrite: boolean }
+	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
+	let cacheResources: ResourceW[] | undefined
+	let stateResources: ResourceW[] | undefined
 	let resources: ResourceW[] | undefined
 	let resourceTypes: ResourceTypeW[] | undefined
 
@@ -132,9 +134,29 @@
 			  )
 
 	async function loadResources(): Promise<void> {
-		resources = (
+		resources = await loadResourceInternal(undefined, 'cache,state')
+		loading.resources = false
+	}
+
+	async function loadCache(): Promise<void> {
+		cacheResources = await loadResourceInternal('cache', undefined)
+		loading.resources = false
+	}
+
+	async function loadState(): Promise<void> {
+		stateResources = await loadResourceInternal('state', undefined)
+		loading.resources = false
+	}
+
+	async function loadResourceInternal(
+		resourceType: string | undefined,
+		resourceTypeExclude: string | undefined
+	): Promise<ResourceW[]> {
+		return (
 			await ResourceService.listResource({
-				workspace: $workspaceStore!
+				workspace: $workspaceStore!,
+				resourceTypeExclude,
+				resourceType
 			})
 		).map((x) => {
 			return {
@@ -143,8 +165,6 @@
 				...x
 			}
 		})
-
-		loading.resources = false
 	}
 
 	async function loadResourceTypes(): Promise<void> {
@@ -450,7 +470,19 @@
 		</div>
 	</PageHeader>
 	<div class="flex justify-between">
-		<Tabs class="w-full" bind:selected={tab}>
+		<Tabs
+			class="w-full"
+			bind:selected={tab}
+			on:selected={(e) => {
+				if (e.detail == 'cache') {
+					loading.resources = true
+					loadCache()
+				} else if (e.detail == 'states') {
+					loading.resources = true
+					loadState()
+				}
+			}}
+		>
 			<Tab size="md" value="workspace">
 				<div class="flex gap-2 items-center my-1">
 					<Building size={18} />
@@ -506,7 +538,13 @@
 						resources: true,
 						types: true
 					}
-					await loadResources()
+					if (tab == 'cache') {
+						await loadCache()
+					} else if (tab == 'states') {
+						await loadState()
+					} else {
+						await loadResources()
+					}
 					await loadResourceTypes()
 					loading = {
 						resources: false,
@@ -553,8 +591,10 @@
 						<th />
 					</tr>
 					<tbody slot="body">
-						{#if filteredItems}
-							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
+						{@const items =
+							tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : filteredItems}
+						{#if items}
+							{#each items as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
 								<tr>
 									<td class="!px-0 text-center">
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
