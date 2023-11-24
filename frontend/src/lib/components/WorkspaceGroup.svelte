@@ -45,6 +45,9 @@
 			: {
 					worker_tags: []
 			  }
+		if (nconfig.priority_tags === undefined) {
+			nconfig.priority_tags = new Map<string, number>()
+		}
 	}
 
 	let selectedPriorityTags: string[] = []
