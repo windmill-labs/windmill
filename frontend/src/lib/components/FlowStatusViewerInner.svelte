@@ -51,6 +51,8 @@
 
 	export let selectedNode: string | undefined = undefined
 
+	export let nestedFlow: string | undefined = undefined
+
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
 
@@ -65,9 +67,12 @@
 		}
 	}
 
+	function prefixNF(s: string | undefined) {
+		return nestedFlow ? `${nestedFlow}-${s ?? ''}` : s ?? ''
+	}
 	if (flowJobIds) {
-		$durationStatuses[flowJobIds?.moduleId ?? ''] = {
-			...($durationStatuses[flowJobIds?.moduleId ?? ''] ?? {}),
+		$durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')] = {
+			...($durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')] ?? {}),
 			iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
 			iteration_total: flowJobIds?.length,
 			byJob: {}
@@ -194,8 +199,8 @@
 					previewArgs: job.args
 				}
 			}
-			if ($durationStatuses[mod.id] == undefined) {
-				$durationStatuses[mod.id] = { byJob: {} }
+			if ($durationStatuses[prefixNF(mod.id)] == undefined) {
+				$durationStatuses[prefixNF(mod.id)] = { byJob: {} }
 			}
 			let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
 			if (job.type == 'QueuedJob') {
@@ -207,7 +212,7 @@
 					started_at,
 					parent_module: mod['parent_module']
 				}
-				$durationStatuses[mod.id].byJob[job.id] = {
+				$durationStatuses[prefixNF(mod.id)].byJob[job.id] = {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at
 				}
@@ -225,7 +230,7 @@
 					iteration_total: mod.iterator?.itered?.length
 					// retries: $flowStateStore?.raw_flow
 				}
-				$durationStatuses[mod.id].byJob[job.id] = {
+				$durationStatuses[prefixNF(mod.id)].byJob[job.id] = {
 					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
 					started_at,
 					duration_ms: job['duration_ms']
@@ -262,8 +267,8 @@
 			let created_at = jobLoaded.created_at ? new Date(jobLoaded.created_at).getTime() : undefined
 
 			let job_id = jobLoaded.id
-			if ($durationStatuses[modId] == undefined) {
-				$durationStatuses[modId] = { byJob: {} }
+			if ($durationStatuses[prefixNF(modId)] == undefined) {
+				$durationStatuses[prefixNF(modId)] = { byJob: {} }
 			}
 			if (jobLoaded.type == 'QueuedJob') {
 				$flowModuleStates[modId] = {
@@ -277,7 +282,7 @@
 					duration_ms: undefined
 				}
 
-				$durationStatuses[modId].byJob[job_id] = {
+				$durationStatuses[prefixNF(modId)].byJob[job_id] = {
 					created_at,
 					started_at
 				}
@@ -294,7 +299,7 @@
 					duration_ms: undefined,
 					isListJob: true
 				}
-				$durationStatuses[modId].byJob[job_id] = {
+				$durationStatuses[prefixNF(modId)].byJob[job_id] = {
 					created_at,
 					started_at,
 					duration_ms: jobLoaded.duration_ms
@@ -313,10 +318,11 @@
 						isListJob: false,
 						iteration_total: undefined
 					}
-					if ($durationStatuses[id] == undefined) {
-						$durationStatuses[id] = { byJob: {} }
+					if ($durationStatuses[prefixNF(id)] == undefined) {
+						$durationStatuses[prefixNF(id)] = { byJob: {} }
 					}
-					$durationStatuses[id].byJob[job_id] = $durationStatuses[modId].byJob[job_id]
+					$durationStatuses[prefixNF(id)].byJob[job_id] =
+						$durationStatuses[prefixNF(modId)].byJob[job_id]
 				}
 			}
 		}
@@ -337,7 +343,7 @@
 		{#if isListJob}
 			{@const lenToAdd = Math.min(
 				20,
-				$durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
+				$durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')]?.iteration_from ?? 0
 			)}
 
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
@@ -345,7 +351,7 @@
 					For performance reasons, only the last 20 items are shown by default <button
 						class="text-primary underline ml-4"
 						on:click={() => {
-							let r = $durationStatuses[flowJobIds?.moduleId ?? '']
+							let r = $durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')]
 							if (r.iteration_from) {
 								r.iteration_from -= lenToAdd
 								$durationStatuses = $durationStatuses
@@ -423,7 +429,7 @@
 			{#if isListJob}
 				{@const lenToAdd = Math.min(
 					20,
-					$durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
+					$durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')]?.iteration_from ?? 0
 				)}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
@@ -433,7 +439,7 @@
 						For performance reasons, only the last 20 items are shown by default <button
 							class="text-primary underline ml-4"
 							on:click={() => {
-								let r = $durationStatuses[flowJobIds?.moduleId ?? '']
+								let r = $durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')]
 								if (r.iteration_from) {
 									r.iteration_from -= lenToAdd
 									$durationStatuses = $durationStatuses
@@ -443,7 +449,7 @@
 						</button>
 					</p>
 				{/if}
-				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice($durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
+				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice($durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')]?.iteration_from ?? 0) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 					{#if render}
 						<Button
 							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
@@ -466,7 +472,9 @@
 							}}
 						>
 							<span class="truncate font-mono">
-								#{($durationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) + j + 1}: {loopJobId}
+								#{($durationStatuses[prefixNF(flowJobIds?.moduleId ?? '')]?.iteration_from ?? 0) +
+									j +
+									1}: {loopJobId}
 							</span>
 						</Button>
 					{/if}
@@ -515,6 +523,7 @@
 										{workspaceId}
 										jobId={mod.job}
 										on:jobsLoaded={(e) => onJobsLoaded(mod, e.detail)}
+										nestedFlow={nestedFlow ? `${nestedFlow}-${mod.id}` : mod.id}
 									/>
 								{:else}
 									<svelte:self
@@ -595,6 +604,7 @@
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								{nestedFlow}
 								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
 								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}
