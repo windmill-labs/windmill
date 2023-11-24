@@ -102,7 +102,7 @@
 				draft: flowWithDraft.draft
 					? {
 							...cloneDeep(flowWithDraft.draft),
-							path: flowWithDraft.path
+							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 					  }
 					: undefined
 			} as Flow & {

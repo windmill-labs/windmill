@@ -1087,6 +1087,14 @@ async fn delete_script_by_path(
     .await
     .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e}")))?;
 
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed.username,

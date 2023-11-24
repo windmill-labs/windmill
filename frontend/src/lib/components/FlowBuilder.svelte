@@ -68,6 +68,7 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { cloneDeep } from 'lodash'
+	import { goto } from '$app/navigation'
 
 	export let initialPath: string = ''
 	export let newFlow: boolean
@@ -134,24 +135,15 @@
 			localStorage.removeItem('flow')
 			localStorage.removeItem(`flow-${$pathStore}`)
 
-			if (newFlow) {
+			if (newFlow || savedFlow?.draft_only) {
+				if (savedFlow?.draft_only) {
+					await FlowService.deleteFlowByPath({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+				}
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
-					requestBody: {
-						path: $pathStore,
-						summary: flow.summary,
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema,
-						tag: flow.tag,
-						draft_only: true,
-						ws_error_handler_muted: flow.ws_error_handler_muted
-					}
-				})
-			} else if (savedFlow?.draft_only) {
-				await FlowService.updateFlow({
-					workspace: $workspaceStore!,
-					path: initialPath,
 					requestBody: {
 						path: $pathStore,
 						summary: flow.summary,
@@ -167,18 +159,14 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: $pathStore,
+					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
 					typ: 'flow',
-					value: flow
+					value: {
+						...flow,
+						path: $pathStore
+					}
 				}
 			})
-			if (!newFlow && $pathStore !== initialPath) {
-				await DraftService.deleteDraft({
-					workspace: $workspaceStore!,
-					kind: 'flow',
-					path: initialPath
-				})
-			}
 
 			savedFlow = {
 				...(newFlow || savedFlow?.draft_only
@@ -198,6 +186,8 @@
 
 			if (newFlow) {
 				dispatch('saveInitial', $pathStore)
+			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
+				goto(`/flows/edit/${$pathStore}?selected=${getSelectedId()}`)
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {

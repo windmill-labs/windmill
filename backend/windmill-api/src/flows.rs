@@ -476,7 +476,7 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = $11, tag = $9, dedicated_worker = $10
+         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9, dedicated_worker = $10
         WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
@@ -487,8 +487,7 @@ async fn update_flow(
         flow_path,
         w_id,
         nf.tag,
-        nf.dedicated_worker,
-        nf.draft_only,
+        nf.dedicated_worker
     )
     .execute(&mut tx)
     .await?;
@@ -533,15 +532,13 @@ async fn update_flow(
         }
     }
 
-    if !nf.draft_only.unwrap_or(false) {
-        sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
-            flow_path,
-            &w_id
-        )
-        .execute(&mut tx)
-        .await?;
-    }
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+        flow_path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
 
     audit_log(
         &mut tx,
