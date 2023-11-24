@@ -3730,7 +3730,7 @@ paths:
         content:
           application/json:
             schema:
-              ref: "#/components/schemas/OpenFlowWPath"
+              $ref: "#/components/schemas/OpenFlowWPath"
 
       responses:
         "200":
