@@ -142,7 +142,7 @@ async fn polars_connection_settings(
     let s3_resource = query.s3_resource;
 
     let response = PolarsConnectionSettingsResponse {
-        endpoint_url: s3_resource.endpoint,
+        endpoint_url: render_endpoint(&s3_resource),
         key: s3_resource.access_key,
         secret: s3_resource.secret_key,
         use_ssl: s3_resource.use_ssl,
@@ -245,7 +245,13 @@ async fn list_stored_files(
     }
 
     let next_marker = if bucket_objects.is_truncated() {
-        bucket_objects.next_marker().map(|v| v.to_owned())
+        if bucket_objects.next_marker().is_some() {
+            // some S3 providers returns the next marker for us. If that's the case just re-use it
+            bucket_objects.next_marker().map(|v| v.to_owned())
+        } else {
+            // others, like AWS, doesn't and implicitly expect users to return the last key of the current page
+            stored_datasets.last().map(|v| v.s3.clone())
+        }
     } else {
         None
     };
