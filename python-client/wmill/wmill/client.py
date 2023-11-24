@@ -253,7 +253,7 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
-    ) -> str | None:
+    ) -> str | dict | None:
         """Get resource from Windmill"""
         try:
             return self.get(
@@ -567,7 +567,7 @@ def get_state() -> Any:
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
-) -> str | None:
+) -> str | dict | None:
     """Get resource from Windmill"""
     return _client.get_resource(path, none_if_undefined)
 
