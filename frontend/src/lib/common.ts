@@ -28,6 +28,11 @@ export interface SchemaProperty {
 		contentEncoding?: 'base64'
 		enum?: string[]
 	}
+	min?: number
+	max?: number
+	currency?: string
+	currencyLocale?: string
+	multiselect?: boolean
 	customErrorMessage?: string
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
@@ -38,6 +43,11 @@ export interface ModalSchemaProperty {
 	description: string
 	name: string
 	required: boolean
+	min?: number
+	max?: number
+	currency?: string
+	currencyLocale?: string
+	multiselect?: boolean
 	format?: string
 	pattern?: string
 	enum_?: string[]
@@ -60,7 +70,12 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		format: schema.format,
 		customErrorMessage: schema.customErrorMessage,
 		properties: schema.schema?.properties,
-		required: schema.schema?.required
+		required: schema.schema?.required,
+		min: schema.min,
+		max: schema.max,
+		currency: schema.currency,
+		currencyLocale: schema.currencyLocale,
+		multiselect: schema.multiselect
 	}
 }
 export type Schema = {
