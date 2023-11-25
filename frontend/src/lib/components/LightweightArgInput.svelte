@@ -15,6 +15,7 @@
 	import LightweightResourcePicker from './LightweightResourcePicker.svelte'
 	import LightweightObjectResourceInput from './LightweightObjectResourceInput.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -181,6 +182,18 @@
 						<span>{extra['max']}</span>
 						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
 					</div>
+				{:else if extra?.currency}
+					<CurrencyInput
+						inputClasses={{
+							formatted: twMerge('px-2 w-full py-1.5 text-black'),
+							wrapper: 'w-full windmillapp',
+							formattedZero: twMerge('text-black')
+						}}
+						style="color:black;"
+						bind:value
+						currency={extra?.currency}
+						locale={extra?.currencyLocale ?? 'en-US'}
+					/>
 				{:else}
 					<input
 						on:focus={(e) => {
@@ -344,6 +357,15 @@
 				<input
 					on:focus
 					type="email"
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+					placeholder={defaultValue ?? ''}
+					bind:value
+				/>
+			{:else if inputCat == 'currency'}
+				<input
+					type="number"
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
