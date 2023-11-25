@@ -27,7 +27,7 @@
 		'date-time'
 		// 'duration',
 		// 'ipv6',
-		// 'jsonpointer'
+		// 'jsonpointer',
 	]
 
 	$: format =
@@ -40,6 +40,7 @@
 			pattern = '^[\\w-.]+@([\\w-]+\\.)+[\\w-]{2,4}$'
 		}
 	}
+
 	function add() {
 		enum_ = enum_ ? enum_.concat('') : ['']
 	}

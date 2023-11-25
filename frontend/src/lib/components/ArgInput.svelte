@@ -26,6 +26,8 @@
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
+	import Label from './Label.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -234,6 +236,9 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
+				<Label label="Display using multiselect">
+					<Toggle bind:checked={extra.multiselect} />
+				</Label>
 			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
 					<div class="w-min">
@@ -263,7 +268,12 @@
 									bind:contentEncoding
 								/>
 							{:else if type == 'number'}
-								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
+								<NumberTypeNarrowing
+									bind:min={extra['min']}
+									bind:max={extra['max']}
+									bind:currency={extra['currency']}
+									bind:currencyLocale={extra['currencyLocale']}
+								/>
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
 							{/if}
@@ -293,20 +303,34 @@
 					</div>
 				{:else if extra['seconds'] !== undefined}
 					<SecondsInput bind:seconds={value} on:focus />
-				{:else}
-					<input
-						{autofocus}
-						on:focus
-						{disabled}
-						type="number"
-						class={valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-						placeholder={defaultValue ?? ''}
+				{:else if extra?.currency}
+					<CurrencyInput
+						inputClasses={{
+							formatted: twMerge('px-2 w-full py-1.5 text-black'),
+							wrapper: 'w-full windmillapp',
+							formattedZero: twMerge('text-black')
+						}}
+						style="color:black;"
 						bind:value
-						min={extra['min']}
-						max={extra['max']}
+						currency={extra?.currency}
+						locale={extra?.currencyLocale ?? 'en-US'}
 					/>
+				{:else}
+					<div class="relative w-full">
+						<input
+							{autofocus}
+							on:focus
+							{disabled}
+							type="number"
+							class={valid
+								? ''
+								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+							placeholder={defaultValue ?? ''}
+							bind:value
+							min={extra['min']}
+							max={extra['max']}
+						/>
+					</div>
 				{/if}
 			{:else if inputCat == 'boolean'}
 				<Toggle
@@ -333,6 +357,15 @@
 								selectedOptionsDraggable={true}
 							/>
 						</div>
+					{:else if extra.multiselect}
+						<div class="items-start">
+							<Multiselect
+								{disabled}
+								bind:selected={value}
+								options={itemsType?.enum ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
 					{:else}
 						<div class="w-full">
 							{#key redraw}
@@ -352,17 +385,19 @@
 												{:else if itemsType?.type == 'object'}
 													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 												{:else if Array.isArray(itemsType?.enum)}
-													<select
-														on:focus={(e) => {
+													<ArgEnum
+														on:focus={() => {
 															dispatch('focus')
 														}}
-														class="px-6"
+														{defaultValue}
+														{valid}
+														{customValue}
+														{disabled}
+														{autofocus}
 														bind:value={v}
-													>
-														{#each itemsType?.enum ?? [] as e}
-															<option>{e}</option>
-														{/each}
-													</select>
+														disableCustomValue={true}
+														enum_={itemsType?.enum ?? []}
+													/>
 												{:else}
 													<input type="text" bind:value={v} id="arg-input-array" />
 												{/if}
