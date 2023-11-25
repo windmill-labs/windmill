@@ -27,6 +27,9 @@
 			currency: schema.currency,
 			currencyLocale: schema.currencyLocale,
 			multiselect: schema.multiselect,
+			items: schema.items?.type
+				? { type: schema.items.type as 'string' | 'number' | undefined, enum: schema.items.enum }
+				: undefined,
 			required,
 			schema:
 				schema.type == 'object'
@@ -105,6 +108,7 @@
 		property.currency = undefined
 		property.currencyLocale = undefined
 		property.multiselect = undefined
+		property.items = undefined
 
 		drawer.closeDrawer()
 	}
@@ -242,7 +246,10 @@
 						<ArrayTypeNarrowing bind:itemsType={property.items} />
 						<div class="mt-4" />
 						<Label label="Display using multiselect">
-							<Toggle bind:checked={property.multiselect} />
+							<Toggle
+								disabled={property?.items?.enum == undefined}
+								bind:checked={property.multiselect}
+							/>
 						</Label>
 					{:else if property.selectedType == 'number' || property.selectedType == 'integer'}
 						<NumberTypeNarrowing
