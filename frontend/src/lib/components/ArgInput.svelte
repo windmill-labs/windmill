@@ -237,7 +237,7 @@
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
 				<Label label="Display using multiselect">
-					<Toggle bind:checked={extra.multiselect} />
+					<Toggle disabled={itemsType?.enum == undefined} bind:checked={extra.multiselect} />
 				</Label>
 			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">

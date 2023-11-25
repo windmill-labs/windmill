@@ -52,7 +52,7 @@ export interface ModalSchemaProperty {
 	pattern?: string
 	enum_?: string[]
 	default?: any
-	items?: { type?: 'string' | 'number' }
+	items?: { type?: 'string' | 'number'; enum?: string[] }
 	contentEncoding?: 'base64' | 'binary'
 	schema?: Schema
 	customErrorMessage?: string
