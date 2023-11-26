@@ -36,7 +36,7 @@ use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::worker::{CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
+use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -50,8 +50,8 @@ use windmill_common::{
 };
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    add_completed_job_error, empty_args, get_queued_job, get_result_by_id_from_running_flow,
-    job_is_complete, push, CanceledBy, PushArgs, PushIsolationLevel,
+    add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
+    push, CanceledBy, PushArgs, PushIsolationLevel,
 };
 
 pub fn workspaced_service() -> Router {
@@ -1564,6 +1564,53 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
     serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
 
+#[derive(Deserialize)]
+pub struct DecodeQuery {
+    pub include_query: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct IncludeQuery {
+    pub include_query: Option<String>,
+}
+
+pub struct DecodeQueries(pub HashMap<String, Box<RawValue>>);
+
+#[axum::async_trait]
+impl<S> FromRequest<S, axum::body::Body> for DecodeQueries
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(
+        req: Request<axum::body::Body>,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let query = req.uri().query().unwrap_or("");
+        let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
+            .map(|x| x.include_query)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let parse_query_args = include_query
+            .split(",")
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let mut args = HashMap::new();
+        if !parse_query_args.is_empty() {
+            let queries =
+                serde_urlencoded::from_str::<HashMap<String, String>>(query).unwrap_or_default();
+            parse_query_args.iter().for_each(|h| {
+                if let Some(v) = queries.get(h) {
+                    args.insert(h.to_string(), to_raw_value(v));
+                }
+            });
+        }
+        Ok(DecodeQueries(args))
+    }
+}
+
 pub fn add_raw_string(
     raw_string: Option<String>,
     mut args: serde_json::Map<String, serde_json::Value>,
@@ -1949,6 +1996,7 @@ pub async fn run_wait_result_job_by_path_get(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    DecodeQueries(queries): DecodeQueries,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -1961,13 +2009,17 @@ pub async fn run_wait_result_job_by_path_get(
         .map(decode_payload)
         .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
 
-    let payload_args = if let Some(payload) = payload_r {
+    let mut payload_args = if let Some(payload) = payload_r {
         payload?
     } else {
         HashMap::new()
     };
+    queries.iter().for_each(|(k, v)| {
+        payload_args.insert(k.to_string(), v.clone());
+    });
 
-    let args = PushArgs { extra: payload_args, args: sqlx::types::Json(empty_args()) };
+    let inner_args: HashMap<String, Box<RawValue>> = HashMap::new();
+    let args = PushArgs { extra: payload_args, args: sqlx::types::Json(inner_args) };
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -2013,8 +2065,8 @@ pub async fn run_wait_result_flow_by_path_get(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
-
     Query(run_query): Query<RunJobQuery>,
+    DecodeQueries(queries): DecodeQueries,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2028,11 +2080,15 @@ pub async fn run_wait_result_flow_by_path_get(
         .map(decode_payload)
         .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
 
-    let payload_args = if let Some(payload) = payload_r {
+    let mut payload_args = if let Some(payload) = payload_r {
         payload?
     } else {
         HashMap::new()
     };
+
+    queries.iter().for_each(|(k, v)| {
+        payload_args.insert(k.to_string(), v.clone());
+    });
 
     let args = PushArgs { extra: payload_args, args: sqlx::types::Json(HashMap::new()) };
 
