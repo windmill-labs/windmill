@@ -50,8 +50,8 @@ use windmill_common::{
 };
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    add_completed_job_error, empty_args, get_queued_job, job_is_complete, push, CanceledBy,
-    PushArgs, PushIsolationLevel,
+    add_completed_job_error, empty_args, get_queued_job, get_result_by_id_from_running_flow,
+    job_is_complete, push, CanceledBy, PushArgs, PushIsolationLevel,
 };
 
 pub fn workspaced_service() -> Router {
@@ -1802,33 +1802,25 @@ struct Guard {
     done: bool,
     id: Uuid,
     w_id: String,
-    db: UserDB,
-    authed: ApiAuthed,
+    db: DB,
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
         if !&self.done {
             let id = self.id;
-            let username = self.authed.username.clone();
             let w_id = self.w_id.clone();
             let db = self.db.clone();
-            let authed = self.authed.clone();
 
             tracing::info!("http connection broke, marking job {id} as canceled");
             tokio::spawn(async move {
-                let tx = db.begin(&authed).await.ok();
-                if let Some(mut tx) = tx {
-                    let _ = sqlx::query!(
-                "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = $1 WHERE id = $2 AND workspace_id = $3",
-                username,
+                let _ = sqlx::query!(
+                "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = queue.created_by WHERE id = $1 AND workspace_id = $2",
                 id,
                 w_id
             )
-            .execute(&mut *tx)
+            .execute(&db)
             .await;
-                    let _ = tx.commit().await;
-                }
             });
         }
     }
@@ -1840,10 +1832,10 @@ pub struct WindmillStatusCode {
     result: Option<Box<RawValue>>,
 }
 async fn run_wait_result<T>(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
+    db: &DB,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
+    node_id: Option<String>,
 ) -> error::Result<Response> {
     let mut result;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
@@ -1853,27 +1845,29 @@ async fn run_wait_result<T>(
         (timeout * 1000) as u64
     };
 
-    let mut g = Guard {
-        done: false,
-        id: uuid,
-        w_id: w_id.clone(),
-        db: user_db.clone(),
-        authed: authed.clone(),
-    };
+    let mut g = Guard { done: false, id: uuid, w_id: w_id.clone(), db: db.clone() };
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
     let mut accumulated_delay = 0 as u64;
 
     loop {
-        let mut tx = user_db.clone().begin(&authed).await?;
-        result =
-            sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
-                .bind(uuid)
-                .bind(&w_id)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-        drop(tx);
+        if let Some(node_id) = node_id.as_ref() {
+            result = get_result_by_id_from_running_flow(&db, &w_id, &uuid, node_id, None)
+                .await
+                .ok();
+        } else {
+            let row =
+                sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
+                    .bind(uuid)
+                    .bind(&w_id)
+                    .fetch_optional(db)
+                    .await?;
+            if let Some(row) = row {
+                result = Some(RawResult::from_row(&row)?.result.to_owned());
+            } else {
+                result = None;
+            }
+        }
 
         if result.is_some() {
             break;
@@ -1892,7 +1886,6 @@ async fn run_wait_result<T>(
     }
     if let Some(result) = result {
         g.done = true;
-        let result = RawResult::from_row(&result)?.result;
 
         let status_code = serde_json::from_str::<WindmillStatusCode>(result.get());
         match status_code {
@@ -2010,7 +2003,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
+    run_wait_result(&db, uuid, Path((w_id, script_path)), None).await
 }
 
 pub async fn run_wait_result_flow_by_path_get(
@@ -2119,7 +2112,7 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
+    run_wait_result(&db, uuid, Path((w_id, script_path)), None).await
 }
 
 pub async fn run_wait_result_script_by_hash(
@@ -2187,7 +2180,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_hash))).await
+    run_wait_result(&db, uuid, Path((w_id, script_hash)), None).await
 }
 
 pub async fn run_wait_result_flow_by_path(
@@ -2225,15 +2218,15 @@ async fn run_wait_result_flow_by_path_internal(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
-    let (tag, dedicated_worker) = sqlx::query!(
-        "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
+    let (tag, dedicated_worker, early_return) = sqlx::query!(
+        "SELECT tag, dedicated_worker, value->>'early_return' as early_return from flow WHERE path = $1 and workspace_id = $2",
         flow_path,
         w_id
     )
     .fetch_optional(&db)
     .await?
-    .map(|x| (x.tag, x.dedicated_worker))
-    .unwrap_or_else(|| (None, None));
+    .map(|x| (x.tag, x.dedicated_worker, x.early_return))
+    .unwrap_or_else(|| (None, None, None));
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
@@ -2264,7 +2257,7 @@ async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, flow_path))).await
+    run_wait_result(&db, uuid, Path((w_id, flow_path)), early_return).await
 }
 
 async fn run_preview_job(

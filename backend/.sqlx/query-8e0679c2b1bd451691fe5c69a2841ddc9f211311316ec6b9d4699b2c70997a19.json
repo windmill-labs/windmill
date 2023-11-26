@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT tag, dedicated_worker, value->>'early_return' as early_return from flow WHERE path = $1 and workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "dedicated_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "early_return",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "8e0679c2b1bd451691fe5c69a2841ddc9f211311316ec6b9d4699b2c70997a19"
+}
