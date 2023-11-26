@@ -9701,6 +9701,7 @@ dependencies = [
  "rsmq_async",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sql-builder",
  "sqlx 0.7.3",
  "tokio",

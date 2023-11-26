@@ -466,7 +466,7 @@
 									}
 								}}
 								options={{
-									right: 'Early return sync endpoint at a node'
+									right: 'Early return sync endpoint at a top-level step'
 								}}
 							/>
 
