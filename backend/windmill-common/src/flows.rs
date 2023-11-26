@@ -95,7 +95,7 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
+    pub early_return: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     // Priority at the flow level
     pub priority: Option<i16>,
