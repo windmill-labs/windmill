@@ -449,13 +449,13 @@
 						</Section>
 					</TabContent>
 					<TabContent value="settings-early-return" class="p-4">
-						<Section label="Early stop">
-							<svelte:fragment slot="header">
-								<Tooltip>
+						<Section label="Early Return">
+							<div class="py-2">
+								<Alert type="info" title="Return sync endpoints early">
 									If defined, sync endpoints will return early at the node defined here while the
 									rest of the flow continue asynchronously.
-								</Tooltip>
-							</svelte:fragment>
+								</Alert>
+							</div>
 							<Toggle
 								checked={Boolean($flowStore.value.early_return)}
 								on:change={() => {
