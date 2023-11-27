@@ -3,7 +3,7 @@ use std::cmp;
 use crate::{
     db::DB, resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage,
 };
-use aws_sdk_s3::config::{Credentials, Region};
+use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -538,6 +538,7 @@ fn build_s3_client(s3_resource_ref: &S3Resource) -> aws_sdk_s3::Client {
     let endpoint = render_endpoint(&s3_resource);
     let mut s3_config_builder = aws_sdk_s3::Config::builder()
         .endpoint_url(endpoint)
+        .behavior_version(BehaviorVersion::latest())
         .region(Region::new(s3_resource.region));
     if s3_resource.access_key.is_some() {
         s3_config_builder = s3_config_builder.credentials_provider(Credentials::new(
