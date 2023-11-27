@@ -1,0 +1,47 @@
+version: "3.7"
+
+services:
+  npm_registry:
+    image: verdaccio/verdaccio
+    ports:
+      - 4873:4873
+    environment:
+      - VERDACCIO_PROTOCOL=https
+      - VERDACCIO_PUBLIC_URL=https://npm_registry:4873
+    volumes:
+      - ./verdaccio_conf:/verdaccio/conf
+      - ./certs:/verdaccio/certs
+      - npm_registry_data:/verdaccio/storage
+
+  db:
+    image: postgres:14
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill_server:
+    image: ghcr.io/windmill-labs/windmill:main
+    ports:
+      - 8000:8000
+    environment:
+      - WHITELIST_ENVS='DENO_CERT'
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
+      - NPM_CONFIG_REGISTRY=https://npm_registry:4873
+      - DENO_CERT=/custom-certs/windmill-root.crt # this will make deno trust this RootCA for all sessions
+      # - DENO_TLS_CA_STORE=system # alternatively, you can use this but you'll need to manually trust the RootCA at the host level, see README.md
+    volumes:
+      - ./certs:/custom-certs
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  npm_registry_data: null
+  db_data: null
