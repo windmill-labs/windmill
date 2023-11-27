@@ -2777,18 +2777,7 @@ This is a paragraph.
 							}
 						}
 					}
-				} as const,
-
-				size: {
-					type: 'static',
-					value: 'md',
-					fieldType: 'select',
-					selectOptions: [
-						{ value: 'sm', label: 'Small' },
-						{ value: 'md', label: 'Medium' },
-						{ value: 'lg', label: 'Large' }
-					]
-				}
+				} as const
 			}
 		}
 	}
