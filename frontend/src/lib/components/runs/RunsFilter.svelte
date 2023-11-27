@@ -19,6 +19,7 @@
 	export let jobKindsCat: string
 	export let user: string | null = null
 	export let folder: string | null = null
+	export let hideSchedules: boolean | undefined = undefined
 
 	// Autocomplete data
 	export let paths: string[] = []
@@ -198,6 +199,13 @@
 			<div class="flex flex-row gap-1 items-center">
 				<Toggle size="xs" bind:checked={isSkipped} />
 				<Tooltip>Skipped flows are flows that did an early break</Tooltip>
+			</div>
+		</div>
+		<div class="relative w-32">
+			<span class="text-xs absolute -top-4"> Hide Scheduled Jobs </span>
+
+			<div class="flex flex-row gap-1 items-center">
+				<Toggle size="xs" bind:checked={hideSchedules} />
 			</div>
 		</div>
 	</div>

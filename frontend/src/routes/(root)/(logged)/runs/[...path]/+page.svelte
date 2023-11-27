@@ -50,6 +50,11 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
+	let hideSchedules: boolean | undefined =
+		$page.url.searchParams.get('hide_scheduled') != undefined
+			? $page.url.searchParams.get('hide_scheduled') == 'true'
+			: false
+
 	let argFilter: any = $page.url.searchParams.get('arg')
 		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
 		: undefined
@@ -77,6 +82,10 @@
 
 		if (isSkipped) {
 			searchParams.set('is_skipped', isSkipped.toString())
+		}
+
+		if (hideSchedules) {
+			searchParams.set('show_scheduled', hideSchedules.toString())
 		}
 
 		// ArgFilter is an object. Encode it to a string
@@ -112,7 +121,7 @@
 	}
 
 	$: ($workspaceStore && loadJobs()) ||
-		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs)
+		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs && hideSchedules)
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -122,7 +131,7 @@
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
-			schedulePath,
+			schedulePath: hideSchedules ? undefined : schedulePath,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
@@ -146,7 +155,12 @@
 		getCount()
 		try {
 			jobs = await fetchJobs(maxTs, minTs)
+
 			computeCompletedJobs()
+
+			if (hideSchedules) {
+				jobs = jobs.filter((x) => x.schedule_path === undefined)
+			}
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
 			console.error(JSON.stringify(err))
@@ -217,6 +231,11 @@
 		isSkipped =
 			$page.url.searchParams.get('is_skipped') != undefined
 				? $page.url.searchParams.get('is_skipped') == 'true'
+				: false
+
+		hideSchedules =
+			$page.url.searchParams.get('hide_scheduled') != undefined
+				? $page.url.searchParams.get('hide_scheduled') == 'true'
 				: false
 
 		argFilter = $page.url.searchParams.get('arg')
@@ -401,7 +420,7 @@
 
 <svelte:window bind:innerWidth />
 
-{#if innerWidth > 768}
+{#if innerWidth > 1280}
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
@@ -415,47 +434,23 @@
 						your own runs or runs of groups you belong to unless you are an admin.
 					</Tooltip>
 				</div>
-				<div class="hidden xl:block">
-					<RunsFilter
-						bind:isSkipped
-						bind:user
-						bind:folder
-						bind:path
-						bind:success
-						bind:argFilter
-						bind:resultFilter
-						bind:argError
-						bind:resultError
-						bind:jobKindsCat
-						on:change={reloadLogsWithoutFilterError}
-						{usernames}
-						{folders}
-						{paths}
-					/>
-				</div>
-				<div class="xl:hidden">
-					<MobileFilters>
-						<svelte:fragment slot="filters">
-							<span class="text-xs font-semibold leading-6">Filters</span>
-							<RunsFilter
-								bind:isSkipped
-								{paths}
-								{usernames}
-								{folders}
-								bind:jobKindsCat
-								bind:folder
-								bind:path
-								bind:user
-								bind:success
-								bind:argFilter
-								bind:resultFilter
-								bind:argError
-								bind:resultError
-								on:change={reloadLogsWithoutFilterError}
-							/>
-						</svelte:fragment>
-					</MobileFilters>
-				</div>
+				<RunsFilter
+					bind:isSkipped
+					bind:user
+					bind:folder
+					bind:path
+					bind:success
+					bind:argFilter
+					bind:resultFilter
+					bind:argError
+					bind:resultError
+					bind:jobKindsCat
+					bind:hideSchedules
+					on:change={reloadLogsWithoutFilterError}
+					{usernames}
+					{folders}
+					{paths}
+				/>
 			</div>
 		</div>
 
@@ -626,47 +621,29 @@
 						your own runs or runs of groups you belong to unless you are an admin.
 					</Tooltip>
 				</div>
-				<div class="hidden 2xl:block">
-					<RunsFilter
-						bind:isSkipped
-						bind:user
-						bind:folder
-						bind:path
-						bind:success
-						bind:argFilter
-						bind:resultFilter
-						bind:argError
-						bind:resultError
-						bind:jobKindsCat
-						on:change={reloadLogsWithoutFilterError}
-						{usernames}
-						{folders}
-						{paths}
-					/>
-				</div>
-				<div class="block 2xl:hidden">
-					<MobileFilters>
-						<svelte:fragment slot="filters">
-							<span class="text-xs font-semibold leading-6">Filters</span>
-							<RunsFilter
-								bind:isSkipped
-								{paths}
-								{usernames}
-								{folders}
-								bind:jobKindsCat
-								bind:folder
-								bind:path
-								bind:user
-								bind:success
-								bind:argFilter
-								bind:resultFilter
-								bind:argError
-								bind:resultError
-								on:change={reloadLogsWithoutFilterError}
-							/>
-						</svelte:fragment>
-					</MobileFilters>
-				</div>
+
+				<MobileFilters>
+					<svelte:fragment slot="filters">
+						<span class="text-xs font-semibold leading-6">Filters</span>
+						<RunsFilter
+							bind:isSkipped
+							{paths}
+							{usernames}
+							{folders}
+							bind:jobKindsCat
+							bind:folder
+							bind:path
+							bind:user
+							bind:success
+							bind:argFilter
+							bind:resultFilter
+							bind:argError
+							bind:resultError
+							bind:hideSchedules
+							on:change={reloadLogsWithoutFilterError}
+						/>
+					</svelte:fragment>
+				</MobileFilters>
 			</div>
 		</div>
 		<div class="p-2 w-full">
