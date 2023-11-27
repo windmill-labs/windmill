@@ -2,13 +2,14 @@
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { initCss } from '../../utils'
+	import { getImageDataURL, initCss } from '../../utils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { ArrowDown } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { loadIcon } from '../icon'
+	import Loader from '../helpers/Loader.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -28,13 +29,15 @@
 
 	let iconComponent: any
 
-	$: resolvedConfig.icon && handleIcon()
+	$: isIcon && resolvedConfig?.media?.configuration?.icon.icon && handleIcon()
 
 	async function handleIcon() {
-		if (resolvedConfig.icon) {
-			iconComponent = await loadIcon(resolvedConfig.icon)
+		if (resolvedConfig?.media?.configuration?.icon.icon) {
+			iconComponent = await loadIcon(resolvedConfig.media.configuration.icon.icon)
 		}
 	}
+
+	$: isIcon = resolvedConfig.media?.selected == 'icon'
 </script>
 
 {#each Object.keys(components['statcomponent'].initialData.configuration) as key (key)}
@@ -57,16 +60,63 @@
 {/each}
 
 {#if render}
-	<div class="p-6 border rounded-md h-full flex flex-row gap-6 w-full items-center">
-		{#if resolvedConfig.icon && iconComponent}
-			<div class="bg-blue-500 rounded-md p-2">
-				<svelte:component this={iconComponent} size={24} color="white" />
-			</div>
-		{/if}
+	<div
+		class={twMerge(
+			'flex flex-row gap-4 items-center p-4 rounded-md shadow-md h-full',
+			css?.container?.class,
+			'wm-statistic-card-container'
+		)}
+		style={css?.container?.style}
+	>
+		<div
+			class={twMerge(
+				'flex items-center justify-center',
+				css?.media?.class,
+				'wm-statistic-card-media'
+			)}
+			style={css?.media?.style}
+		>
+			{#if isIcon}
+				{#if resolvedConfig.media && iconComponent}
+					<div class="bg-blue-500 rounded-md p-2">
+						<svelte:component this={iconComponent} size={24} color="white" />
+					</div>
+				{/if}
+			{:else}
+				<Loader loading={resolvedConfig.media.configuration.image.source == undefined}>
+					<img
+						on:pointerdown|preventDefault
+						src={getImageDataURL(
+							resolvedConfig?.media?.configuration?.image?.sourceKind,
+							resolvedConfig?.media?.configuration?.image?.source
+						)}
+						alt={resolvedConfig.title}
+						class="border rounded-md p-2 w-12 h-12"
+					/>
+				</Loader>
+			{/if}
+		</div>
+
 		<div class="w-full">
-			<div class="text-base font-normal text-primary">{resolvedConfig.title}</div>
+			<div
+				class={twMerge(
+					'text-base font-normal text-primary',
+					css?.title?.class,
+					'wm-statistic-card-title'
+				)}
+				style={css?.title?.style}
+			>
+				{resolvedConfig.title}
+			</div>
 			<div class="mt-1 flex items-baseline justify-between">
-				<div class="flex items-baseline text-2xl font-semibold text-blue-600 dark:text-blue-200">
+				<div
+					class={twMerge(
+						'flex items-baseline text-2xl font-semibold text-blue-600 dark:text-blue-200',
+						css?.value?.class,
+						'wm-statistic-card-value'
+					)}
+					style={css?.value?.style}
+				>
 					{resolvedConfig?.value}
 				</div>
 

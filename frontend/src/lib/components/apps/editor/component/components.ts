@@ -2721,7 +2721,12 @@ This is a paragraph.
 		icon: FileBarChart,
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
-		customCss: {},
+		customCss: {
+			title: { class: '', style: '' },
+			container: { class: '', style: '' },
+			value: { class: '', style: '' },
+			media: { class: '', style: '' }
+		},
 		initialData: {
 			configuration: {
 				title: {
@@ -2739,10 +2744,50 @@ This is a paragraph.
 					value: 0,
 					fieldType: 'number'
 				},
-				icon: {
+				media: {
+					type: 'oneOf',
+					selected: 'icon',
+					labels: {
+						icon: 'Icon',
+						image: 'Image'
+					},
+					configuration: {
+						icon: {
+							icon: {
+								type: 'static',
+								value: undefined,
+								fieldType: 'icon-select'
+							}
+						},
+						image: {
+							source: {
+								type: 'static',
+								value: '/logo.svg',
+								fieldType: 'text',
+								fileUpload: {
+									accept: 'image/*',
+									convertTo: 'base64'
+								}
+							},
+							sourceKind: {
+								fieldType: 'select',
+								type: 'static',
+								selectOptions: selectOptions.imageSourceKind,
+								value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+							}
+						}
+					}
+				} as const,
+
+				size: {
 					type: 'static',
-					value: undefined,
-					fieldType: 'icon-select'
+					value: 'md',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'sm', label: 'Small' },
+						{ value: 'md', label: 'Medium' },
+						{ value: 'lg', label: 'Large' }
+					]
 				}
 			}
 		}
