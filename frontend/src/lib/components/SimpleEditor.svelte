@@ -30,11 +30,8 @@
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
-	import {
-		configureMonacoTailwindcss,
-		tailwindcssData,
-		type TailwindConfig
-	} from 'monaco-tailwindcss'
+	import { configureMonacoTailwindcss, tailwindcssData } from 'monaco-tailwindcss'
+	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -130,37 +127,7 @@
 			noLib: true
 		})
 
-		const tailwindConfig: TailwindConfig = {
-			theme: {
-				extend: {
-					screens: {
-						television: '90000px'
-					},
-					spacing: {
-						'128': '32rem'
-					},
-					colors: {
-						// https://icolorpalette.com/color/molten-lava
-						lava: '#b5332e',
-						// Taken from https://icolorpalette.com/color/ocean-blue
-						ocean: {
-							50: '#f2fcff',
-							100: '#c1f2fe',
-							200: '#90e9ff',
-							300: '#5fdfff',
-							400: '#2ed5ff',
-							500: '#00cafc',
-							600: '#00a3cc',
-							700: '#007c9b',
-							800: '#00546a',
-							900: '#002d39'
-						}
-					}
-				}
-			}
-		}
-
-		configureMonacoTailwindcss(monaco, { tailwindConfig })
+		configureMonacoTailwindcss(monaco, {})
 
 		monaco.languages.css.cssDefaults.setOptions({
 			data: {
@@ -249,8 +216,39 @@
 		})
 	}
 
-	//$: lang == 'css' && initialized && addCSSClassCompletions()
+	$: lang == 'css' && initialized && addCSSClassCompletions()
 
+	function addCSSClassCompletions() {
+		languages.registerCompletionItemProvider('css', {
+			provideCompletionItems: function (model, position, context, token) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endLineNumber: position.lineNumber,
+					endColumn: word.endColumn
+				}
+
+				if (word && word.word) {
+					const currentWord = word.word
+
+					const suggestions = allClasses
+						.filter((className) => className.includes(currentWord))
+						.map((className) => ({
+							label: className,
+							kind: languages.CompletionItemKind.Class,
+							insertText: className,
+							documentation: 'Custom CSS class',
+							range: range
+						}))
+
+					return { suggestions }
+				}
+
+				return { suggestions: [] }
+			}
+		})
+	}
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
