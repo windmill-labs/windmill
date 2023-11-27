@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { Pen } from 'lucide-svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let customValue: boolean
@@ -13,16 +13,11 @@
 	export let valid: boolean
 	export let disableCustomValue: boolean = false
 
-	let autoCompleteItems = enum_ ?? []
 	const dispatch = createEventDispatcher()
-
-	onMount(() => {
-		autoCompleteItems = enum_ ?? []
-	})
 </script>
 
 <AutoComplete
-	items={autoCompleteItems}
+	items={enum_ ?? []}
 	bind:selectedItem={value}
 	inputClassName={twMerge(
 		'bg-surface-secondary flex',
