@@ -50,8 +50,7 @@ use windmill_common::{
     },
     flows::{add_virtual_items_if_necessary, FlowModuleValue, FlowValue},
     jobs::{
-        get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
-        JobPayload, QueuedJob, RawCode,
+        get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
