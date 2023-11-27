@@ -337,6 +337,7 @@ export type InputCat =
 	| 'object'
 	| 'sql'
 	| 'yaml'
+	| 'currency'
 
 export function setInputCat(
 	type: string | undefined,
@@ -367,6 +368,8 @@ export function setInputCat(
 		return 'base64'
 	} else if (type == 'string' && format == 'email') {
 		return 'email'
+	} else if (type == 'string' && format == 'currency') {
+		return 'currency'
 	} else {
 		return 'string'
 	}

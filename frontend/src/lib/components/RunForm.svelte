@@ -19,6 +19,11 @@
 	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI, SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
 	import TimeAgo from './TimeAgo.svelte'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
+	import Popup from './common/popup/Popup.svelte'
+	import { autoPlacement } from '@floating-ui/core'
+	import { Calendar } from 'lucide-svelte'
+	import CloseButton from './common/CloseButton.svelte'
+	import Label from './Label.svelte'
 
 	export let runnable:
 		| {
@@ -54,6 +59,7 @@
 	export let args: Record<string, any> = {}
 
 	let reloadArgs = 0
+	let blockPopupOpen = false
 
 	export async function setArgs(nargs: Record<string, any>) {
 		args = nargs
@@ -165,12 +171,38 @@
 					</div>
 				</Button>
 				<div>
-					<CollapseLink small text="Advanced" class="justify-end">
-						<div class="flex flex-col gap-4 mt-2 border p-2">
+					<Popup
+						floatingConfig={{
+							middleware: [
+								autoPlacement({
+									allowedPlacements: [
+										'bottom-start',
+										'bottom-end',
+										'top-start',
+										'top-end',
+										'top',
+										'bottom'
+									]
+								})
+							]
+						}}
+						let:close
+						blockOpen={blockPopupOpen}
+					>
+						<svelte:fragment slot="button">
+							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light"
+								>Advanced</Button
+							>
+						</svelte:fragment>
+						<div class="flex flex-col gap-4 p-2">
 							<div class="flex flex-col gap-2">
 								{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
-									<div class="border rounded-md p-3 pt-4">
-										<div class="px-2 font-semibold text-sm">Schedule to run later</div>
+									<div class="">
+										<Label label="Schedule to run later">
+											<svelte:fragment slot="action">
+												<CloseButton on:close={() => close(null)} noBg />
+											</svelte:fragment>
+										</Label>
 
 										<div class="flex flex-row items-end">
 											<div class="w-max md:w-2/3 mt-2 mb-1">
@@ -186,7 +218,7 @@
 											</div>
 											<Button
 												variant="border"
-												color="blue"
+												color="light"
 												size="sm"
 												btnClasses="mx-2 mb-1"
 												on:click={() => {
@@ -214,7 +246,7 @@
 								</div>
 							{/if}
 						</div>
-					</CollapseLink>
+					</Popup>
 				</div>
 			</div>
 		</div>

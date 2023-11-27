@@ -41,7 +41,6 @@
 			connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
 		}}
 	/>
-
 	<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
 	<TableActionsOutput {gridItem} />
 </OutputHeader>

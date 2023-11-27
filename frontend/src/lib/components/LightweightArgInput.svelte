@@ -15,6 +15,8 @@
 	import LightweightResourcePicker from './LightweightResourcePicker.svelte'
 	import LightweightObjectResourceInput from './LightweightObjectResourceInput.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
+	import Multiselect from 'svelte-multiselect'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -36,6 +38,7 @@
 				type?: 'string' | 'number' | 'bytes' | 'object'
 				contentEncoding?: 'base64'
 				enum?: string[]
+				multiselect?: string[]
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -181,6 +184,18 @@
 						<span>{extra['max']}</span>
 						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
 					</div>
+				{:else if extra?.currency}
+					<CurrencyInput
+						inputClasses={{
+							formatted: twMerge('px-2 w-full py-1.5 text-black'),
+							wrapper: 'w-full windmillapp',
+							formattedZero: twMerge('text-black')
+						}}
+						style="color:black;"
+						bind:value
+						currency={extra?.currency}
+						locale={extra?.currencyLocale ?? 'en-US'}
+					/>
 				{:else}
 					<input
 						on:focus={(e) => {
@@ -213,73 +228,91 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					<div class="w-full">
-						{#if Array.isArray(value)}
-							{#each value ?? [] as v, i}
-								<div class="flex flex-row max-w-md mt-1 w-full">
-									{#if itemsType?.type == 'number'}
-										<input type="number" bind:value={v} />
-									{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-										<input
-											type="file"
-											class="my-6"
-											on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-											multiple={false}
-										/>
-									{:else if Array.isArray(itemsType?.enum)}
-										<select
-											on:focus={(e) => {
-												dispatch('focus')
+					{#if Array.isArray(itemsType?.multiselect)}
+						<div class="items-start">
+							<Multiselect
+								bind:selected={value}
+								options={itemsType?.multiselect ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
+					{:else if extra.multiselect}
+						<div class="items-start">
+							<Multiselect
+								bind:selected={value}
+								options={itemsType?.enum ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
+					{:else}
+						<div class="w-full">
+							{#if Array.isArray(value)}
+								{#each value ?? [] as v, i}
+									<div class="flex flex-row max-w-md mt-1 w-full">
+										{#if itemsType?.type == 'number'}
+											<input type="number" bind:value={v} />
+										{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+											<input
+												type="file"
+												class="my-6"
+												on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+												multiple={false}
+											/>
+										{:else if Array.isArray(itemsType?.enum)}
+											<select
+												on:focus={(e) => {
+													dispatch('focus')
+												}}
+												class="px-6"
+												bind:value={v}
+											>
+												{#each itemsType?.enum ?? [] as e}
+													<option>{e}</option>
+												{/each}
+											</select>
+										{:else}
+											<input type="text" bind:value={v} />
+										{/if}
+										<button
+											transition:fade|local={{ duration: 100 }}
+											class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+											aria-label="Clear"
+											on:click={() => {
+												value = value.filter((el) => el != v)
+												if (value.length == 0) {
+													value = undefined
+												}
 											}}
-											class="px-6"
-											bind:value={v}
 										>
-											{#each itemsType?.enum ?? [] as e}
-												<option>{e}</option>
-											{/each}
-										</select>
-									{:else}
-										<input type="text" bind:value={v} />
-									{/if}
-									<button
-										transition:fade|local={{ duration: 100 }}
-										class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-										aria-label="Clear"
-										on:click={() => {
-											value = value.filter((el) => el != v)
-											if (value.length == 0) {
-												value = undefined
-											}
-										}}
-									>
-										<X size={14} />
-									</button>
-								</div>
-							{/each}
-						{:else}
-							List is not an array
-						{/if}
-					</div>
-					<div class="flex my-2">
-						<Button
-							variant="border"
-							color="light"
-							size="sm"
-							btnClasses="mt-1"
-							on:click={() => {
-								if (value == undefined || !Array.isArray(value)) {
-									value = []
-								}
-								value = value.concat('')
-							}}
-							startIcon={{ icon: Plus }}
-						>
-							Add
-						</Button>
-					</div>
-					<span class="ml-2">
-						{(value ?? []).length} item{(value ?? []).length != 1 ? 's' : ''}
-					</span>
+											<X size={14} />
+										</button>
+									</div>
+								{/each}
+							{:else}
+								List is not an array
+							{/if}
+						</div>
+						<div class="flex my-2">
+							<Button
+								variant="border"
+								color="light"
+								size="sm"
+								btnClasses="mt-1"
+								on:click={() => {
+									if (value == undefined || !Array.isArray(value)) {
+										value = []
+									}
+									value = value.concat('')
+								}}
+								startIcon={{ icon: Plus }}
+							>
+								Add
+							</Button>
+						</div>
+						<span class="ml-2">
+							{(value ?? []).length} item{(value ?? []).length != 1 ? 's' : ''}
+						</span>
+					{/if}
 				</div>
 			{:else if inputCat == 'resource-object'}
 				<LightweightObjectResourceInput {format} bind:value />
@@ -344,6 +377,15 @@
 				<input
 					on:focus
 					type="email"
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+					placeholder={defaultValue ?? ''}
+					bind:value
+				/>
+			{:else if inputCat == 'currency'}
+				<input
+					type="number"
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}

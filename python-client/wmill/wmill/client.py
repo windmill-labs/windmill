@@ -112,7 +112,7 @@ class Windmill:
 
         start_time = time.time()
 
-        job_id = self.start_execution(path=path, hash_=hash_, args=args)
+        job_id = self.run_script_async(path=path, hash_=hash_, args=args)
 
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
@@ -125,7 +125,7 @@ class Windmill:
             atexit.register(cancel_job)
 
         while True:
-            job = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
+            job = self.get_job(job_id)
 
             if timeout and ((time.time() - start_time) > timeout):
                 msg = "reached timeout"
@@ -139,17 +139,23 @@ class Windmill:
             result = job.get("result")
             canceled, canceled_reason = job.get("canceled"), job.get("canceled_reason")
             success = job.get("success")
+            job_type = job.get("type", "")
+            completed = job_type.lower() == "completedjob"
 
-            if cleanup and (canceled or success):
+            if cleanup and completed:
                 atexit.unregister(cancel_job)
 
-            if canceled:
-                raise Exception(f"job canceled: {canceled_reason}")
-
-            if success:
-                if assert_result_is_not_none and result is None:
-                    raise Exception(f"result is None for {job_id = }")
-                return result
+            if completed:
+                if success:
+                    if assert_result_is_not_none and result is None:
+                        raise Exception(f"result is None for {job_id = }")
+                    return result
+                else:
+                    if canceled:
+                        raise Exception(f"job canceled: {canceled_reason}")
+                    else:
+                        error = result.get("error")
+                        raise Exception(f"job failed: {error}")
 
             if verbose:
                 logger.info(f"sleeping 0.5 seconds for {job_id = }")
@@ -189,15 +195,16 @@ class Windmill:
 
         return result
 
+    def get_job(self, job_id: str) -> dict:
+        return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
+
     def get_job_status(self, job_id: str) -> JobStatus:
-        resp = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}", raise_for_status=False)
-        assert not resp.status_code == 404, f"{job_id} not found"
-        resp_json = resp.json()
-        job_type = resp_json.get("type", "")
-        assert job_type, f"{resp_json} is not a valid job"
+        job = self.get_job(job_id)
+        job_type = job.get("type", "")
+        assert job_type, f"{job} is not a valid job"
         if job_type.lower() == "completedjob":
             return "COMPLETED"
-        additional_properties = resp_json.get("additional_properties", {})
+        additional_properties = job.get("additional_properties", {})
         if "running" not in additional_properties:
             raise Exception(f"{job_id} is not running")
         if additional_properties.get("running"):
@@ -225,7 +232,9 @@ class Windmill:
     def set_variable(self, path: str, value: str) -> None:
         """Set variable from Windmill"""
         # check if variable exists
-        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create variable
             self.post(
@@ -248,10 +257,12 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
-    ) -> str | None:
+    ) -> str | dict | None:
         """Get resource from Windmill"""
         try:
-            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
+            return self.get(
+                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+            ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -265,7 +276,9 @@ class Windmill:
         resource_type: str,
     ):
         # check if resource exists
-        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create resource
             self.post(
@@ -351,6 +364,10 @@ class Windmill:
     @property
     def state(self) -> Any:
         return self.get_resource(path=self.state_path, none_if_undefined=True)
+
+    @state.setter
+    def state(self, value: Any) -> None:
+        self.set_state(value)
 
     @staticmethod
     def set_shared_state_pickle(value: Any, path: str = "state.pickle") -> None:
@@ -447,7 +464,7 @@ def run_script_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
-    return _client.start_execution(
+    return _client.run_script_async(
         hash_=hash,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -479,7 +496,7 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.start_execution(
+    return _client.run_script_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
@@ -554,9 +571,10 @@ def get_state() -> Any:
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
-) -> str | None:
+) -> str | dict | None:
     """Get resource from Windmill"""
     return _client.get_resource(path, none_if_undefined)
+
 
 @init_global_client
 def set_resource(**kwargs) -> None:
@@ -627,3 +645,31 @@ def get_state_path() -> str:
 @init_global_client
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
+
+
+@init_global_client
+def cancel_running() -> dict:
+    """Cancel currently running executions of the same script."""
+    return _client.cancel_running()
+
+
+@init_global_client
+def run_script(
+    path: str = None,
+    hash_: str = None,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script synchronously and return its result."""
+    return _client.run_script(
+        path=path,
+        hash_=hash_,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )

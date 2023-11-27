@@ -6,7 +6,14 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
-	import { JobService, Script, ScriptService, WorkspaceService } from '$lib/gen'
+	import {
+		FlowService,
+		JobService,
+		Script,
+		ScriptService,
+		WorkspaceService,
+		type Flow
+	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
@@ -86,6 +93,7 @@
 	}
 
 	async function loadHandlerScriptArgs(p: string, defaultArgs: string[] = []) {
+		console.log(p)
 		try {
 			let schema: Schema | undefined = emptySchema()
 			if (p.startsWith('hub/')) {
@@ -99,8 +107,11 @@
 					await inferArgs(hubScript.language as SupportedLanguage, hubScript.content ?? '', schema)
 				}
 			} else {
-				const script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
-				schema = script.schema as Schema
+				let scriptOrFlow: Script | Flow =
+					customHandlerKind === 'script'
+						? await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+						: await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+				schema = scriptOrFlow.schema as Schema
 			}
 			if (schema && schema.properties) {
 				for (let key in schema.properties) {
