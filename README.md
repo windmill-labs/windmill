@@ -56,7 +56,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
   - [Architecture](#architecture)
   - [How to self-host](#how-to-self-host)
     - [Docker compose](#docker-compose)
-    - [Kubernetes (k8s) and Helm chartss](#kubernetes-k8s-and-helm-chartss)
+    - [Kubernetes (k8s) and Helm charts](#kubernetes-k8s-and-helm-charts)
     - [Run from binaries](#run-from-binaries)
     - [OAuth, SSO \& SMTP](#oauth-sso--smtp)
     - [Commercial license](#commercial-license)
@@ -240,7 +240,7 @@ From there, you can follow the setup app and create other users.
 
 More details in [Self-Host Documention](https://www.windmill.dev/docs/advanced/self_host#docker).
 
-### Kubernetes (k8s) and Helm chartss
+### Kubernetes (k8s) and Helm charts
 
 We publish helm charts at:
 <https://github.com/windmill-labs/windmill-helm-charts>.
