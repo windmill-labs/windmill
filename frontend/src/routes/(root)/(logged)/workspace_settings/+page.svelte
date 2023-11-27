@@ -194,6 +194,7 @@
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 		openaiResourceInitialPath = settings.openai_resource_path
+		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel

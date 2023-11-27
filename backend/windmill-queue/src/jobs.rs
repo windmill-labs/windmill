@@ -579,12 +579,13 @@ pub async fn run_error_handler<
     is_global: bool,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
-    let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
+    let handler_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
-    let (job_payload, tag) = script_path_to_payload(&error_handler_path, db, script_w_id).await?;
+    let (job_payload, tag) =
+        get_payload_tag_from_prefixed_path(&error_handler_path, db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
-    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("workspace_id".to_string(), to_raw_value(&handler_w_id));
     extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&queued_job.script_path));
     extra.insert(
@@ -604,7 +605,7 @@ pub async fn run_error_handler<
     // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
     if error_handler_path
         .to_string()
-        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
@@ -628,7 +629,7 @@ pub async fn run_error_handler<
     let (uuid, tx) = push(
         &db,
         tx,
-        script_w_id,
+        handler_w_id,
         job_payload,
         PushArgs { extra, args: result.to_owned() },
         if is_global {
@@ -682,12 +683,19 @@ pub async fn send_error_to_global_handler<
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
+        let prefixed_global_error_handler_path = if global_error_handler.starts_with("script/")
+            || global_error_handler.starts_with("flow/")
+        {
+            global_error_handler.clone()
+        } else {
+            format!("script/{}", global_error_handler)
+        };
         run_error_handler(
             rsmq,
             queued_job,
             db,
             result,
-            global_error_handler,
+            &prefixed_global_error_handler_path,
             None,
             true,
         )
@@ -754,7 +762,7 @@ pub async fn send_error_to_workspace_handler<
                 queued_job,
                 db,
                 result,
-                &error_handler.strip_prefix("script/").unwrap(),
+                &error_handler,
                 error_handler_extra_args,
                 false,
             )
