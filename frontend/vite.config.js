@@ -42,6 +42,10 @@ const config = {
 				{
 					label: 'graphql',
 					entry: 'monaco-graphql/esm/graphql.worker'
+				},
+				{
+					label: 'tailwindcss',
+					entry: 'monaco-tailwindcss/tailwindcss.worker'
 				}
 			]
 		}),

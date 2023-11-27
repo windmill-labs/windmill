@@ -10,6 +10,7 @@
 		languages,
 		type IRange
 	} from 'monaco-editor'
+	import * as monaco from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
@@ -20,8 +21,6 @@
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
 
-	import { allClasses, authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
-
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
@@ -30,6 +29,12 @@
 	import EditorTheme from './EditorTheme.svelte'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
+
+	import {
+		configureMonacoTailwindcss,
+		tailwindcssData,
+		type TailwindConfig
+	} from 'monaco-tailwindcss'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -125,6 +130,46 @@
 			noLib: true
 		})
 
+		const tailwindConfig: TailwindConfig = {
+			theme: {
+				extend: {
+					screens: {
+						television: '90000px'
+					},
+					spacing: {
+						'128': '32rem'
+					},
+					colors: {
+						// https://icolorpalette.com/color/molten-lava
+						lava: '#b5332e',
+						// Taken from https://icolorpalette.com/color/ocean-blue
+						ocean: {
+							50: '#f2fcff',
+							100: '#c1f2fe',
+							200: '#90e9ff',
+							300: '#5fdfff',
+							400: '#2ed5ff',
+							500: '#00cafc',
+							600: '#00a3cc',
+							700: '#007c9b',
+							800: '#00546a',
+							900: '#002d39'
+						}
+					}
+				}
+			}
+		}
+
+		configureMonacoTailwindcss(monaco, { tailwindConfig })
+
+		monaco.languages.css.cssDefaults.setOptions({
+			data: {
+				dataProviders: {
+					tailwindcssData
+				}
+			}
+		})
+
 		languages.json.jsonDefaults.setDiagnosticsOptions({
 			validate: true,
 			allowComments: false,
@@ -204,39 +249,7 @@
 		})
 	}
 
-	$: lang == 'css' && initialized && addCSSClassCompletions()
-
-	function addCSSClassCompletions() {
-		languages.registerCompletionItemProvider('css', {
-			provideCompletionItems: function (model, position, context, token) {
-				const word = model.getWordUntilPosition(position)
-				const range = {
-					startLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
-					endLineNumber: position.lineNumber,
-					endColumn: word.endColumn
-				}
-
-				if (word && word.word) {
-					const currentWord = word.word
-
-					const suggestions = allClasses
-						.filter((className) => className.includes(currentWord))
-						.map((className) => ({
-							label: className,
-							kind: languages.CompletionItemKind.Class,
-							insertText: className,
-							documentation: 'Custom CSS class',
-							range: range
-						}))
-
-					return { suggestions }
-				}
-
-				return { suggestions: [] }
-			}
-		})
-	}
+	//$: lang == 'css' && initialized && addCSSClassCompletions()
 
 	function loadExtraLib() {
 		if (lang == 'javascript') {
@@ -252,38 +265,6 @@
 			} else {
 				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
-		} else if (lang === 'css') {
-			const cssClasses = authorizedClassnames.map((className) => '.' + className)
-
-			languages.registerCompletionItemProvider('css', {
-				provideCompletionItems: function (model, position, context, token) {
-					const word = model.getWordUntilPosition(position)
-					const range = {
-						startLineNumber: position.lineNumber,
-						startColumn: word.startColumn,
-						endLineNumber: position.lineNumber,
-						endColumn: word.endColumn
-					}
-
-					if (word && word.word) {
-						const currentWord = word.word
-
-						const suggestions = cssClasses
-							.filter((className) => className.includes(currentWord))
-							.map((className) => ({
-								label: className,
-								kind: languages.CompletionItemKind.Class,
-								insertText: className,
-								documentation: 'Custom CSS class',
-								range: range
-							}))
-
-						return { suggestions }
-					}
-
-					return { suggestions: [] }
-				}
-			})
 		}
 	}
 

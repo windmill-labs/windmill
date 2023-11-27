@@ -51,6 +51,7 @@ export function buildWorkerDefinition(
 			case 'html':
 			case 'handlebars':
 			case 'razor':
+				console.log('getWorker: html')
 				return new htmlWorker()
 			case 'css':
 			case 'scss':
@@ -58,13 +59,23 @@ export function buildWorkerDefinition(
 				return new cssWorker()
 			case 'json':
 				return new jsonWorker()
-			case 'graphql':
+			case 'graphql': {
 				const workerFilename = `graphql.worker.bundle.js`
 				const workerPathLocal = `${workerOverrideGlobals.workerPath}/${workerFilename}`
 				const workerUrl = new URL(workerPathLocal, workerOverrideGlobals.basePath)
 				return new Worker(workerUrl.href, {
 					name: label
 				})
+			}
+			case 'tailwindcss': {
+				const workerFilename = `tailwindcss.worker.bundle.js`
+				const workerPathLocal = `${workerOverrideGlobals.workerPath}/${workerFilename}`
+				const workerUrl = new URL(workerPathLocal, workerOverrideGlobals.basePath)
+				return new Worker(workerUrl.href, {
+					name: label
+				})
+			}
+
 			default:
 				return new editorWorker()
 		}

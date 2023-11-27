@@ -14,6 +14,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import CssEval from './CssEval.svelte'
 	import parse from 'style-to-object'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -177,11 +178,14 @@
 					</Tooltip>
 				</div>
 				<div class="relative">
-					<ClearableInput
-						bind:value={value.class}
-						type="textarea"
-						wrapperClass="h-full"
-						inputClass="h-full !text-xs  !rounded-none !p-2 min-h-[72px]"
+					<SimpleEditor
+						class="h-24"
+						lang="css"
+						bind:code={value.class}
+						fixedOverflowWidgets={true}
+						small
+						automaticLayout
+						deno={false}
 					/>
 				</div>
 			</label>
