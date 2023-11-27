@@ -45,7 +45,6 @@
 		$workerTags = undefined
 		loadWorkerGroups()
 	}
-	$: isStopAfterIfEnabled = Boolean($flowStore.value.skip_expr)
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -64,6 +63,7 @@
 				{/if}
 				<Tab value="settings-same-worker">Shared Directory</Tab>
 				<Tab value="settings-early-stop">Early Stop</Tab>
+				<Tab value="settings-early-return">Early Return</Tab>
 				<Tab value="settings-worker-group">Worker Group</Tab>
 				<Tab value="settings-concurrency">Concurrency</Tab>
 				<Tab value="settings-cache">Cache</Tab>
@@ -413,9 +413,9 @@
 								</Tooltip>
 							</svelte:fragment>
 							<Toggle
-								checked={isStopAfterIfEnabled}
+								checked={Boolean($flowStore.value.skip_expr)}
 								on:change={() => {
-									if (isStopAfterIfEnabled && $flowStore.value.skip_expr) {
+									if (Boolean($flowStore.value.skip_expr) && $flowStore.value.skip_expr) {
 										$flowStore.value.skip_expr = undefined
 									} else {
 										$flowStore.value.skip_expr = 'flow_input.foo == undefined'
@@ -445,6 +445,45 @@
 								{:else}
 									<textarea disabled rows="3" class="min-h-[80px]" />
 								{/if}
+							</div>
+						</Section>
+					</TabContent>
+					<TabContent value="settings-early-return" class="p-4">
+						<Section label="Early Return">
+							<div class="py-2">
+								<Alert type="info" title="Return sync endpoints early">
+									If defined, sync endpoints will return early at the node defined here while the
+									rest of the flow continue asynchronously.
+								</Alert>
+							</div>
+							<Toggle
+								checked={Boolean($flowStore.value.early_return)}
+								on:change={() => {
+									if (Boolean($flowStore.value.early_return) && $flowStore.value.early_return) {
+										$flowStore.value.early_return = undefined
+									} else {
+										$flowStore.value.early_return = $flowStore.value.modules?.[0]?.id ?? 'a'
+									}
+								}}
+								options={{
+									right: 'Early return sync endpoint at a top-level step'
+								}}
+							/>
+
+							<div
+								class="border max-w-[120px] mt-2 p-2 flex flex-col {$flowStore.value.early_return
+									? ''
+									: 'bg-surface-secondary'}"
+							>
+								<select
+									name="oauth_name"
+									id="oauth_name"
+									bind:value={$flowStore.value.early_return}
+								>
+									{#each $flowStore.value?.modules?.map((x) => x.id) as name}
+										<option value={name}>{name}</option>
+									{/each}
+								</select>
 							</div>
 						</Section>
 					</TabContent>

@@ -7,6 +7,8 @@
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import SupabaseIcon from './icons/SupabaseIcon.svelte'
+	import Popup from './common/popup/Popup.svelte'
+	import Button from './common/button/Button.svelte'
 
 	export let resource_type: string
 	export let args: Record<string, any> | any = {}
@@ -67,6 +69,38 @@
 	}
 
 	$: resource_type == 'postgresql' && isSupabaseAvailable()
+
+	let connectionString = ''
+	let validConnectionString = true
+	function parseConnectionString(close: (_: any) => void) {
+		// parse postgres connection string
+		const regex =
+			/postgres:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
+		const match = connectionString.match(regex)
+		if (match) {
+			validConnectionString = true
+			const { user, password, host, port, dbname, sslmode } = match.groups!
+			rawCode = JSON.stringify(
+				{
+					...args,
+					user,
+					password: password || args?.password,
+					host,
+					port: port || args?.port,
+					dbname: dbname || args?.dbname,
+					sslmode: sslmode || args?.sslmode
+				},
+				null,
+				2
+			)
+			rawCodeEditor?.setCode(rawCode)
+			close(null)
+		} else {
+			validConnectionString = false
+		}
+	}
+
+	let rawCodeEditor: SimpleEditor | undefined = undefined
 </script>
 
 {#if !notFound}
@@ -78,6 +112,52 @@
 			}}
 		/>
 		<TestConnection {resource_type} {args} />
+		{#if resource_type == 'postgresql'}
+			<Popup
+				let:close
+				floatingConfig={{
+					placement: 'bottom'
+				}}
+			>
+				<svelte:fragment slot="button">
+					<Button
+						spacingSize="sm"
+						size="xs"
+						btnClasses="h-8"
+						color="light"
+						variant="border"
+						nonCaptureEvent
+					>
+						From connection string
+					</Button>
+				</svelte:fragment>
+				<div class="block text-primary">
+					<div class="w-[550px] flex flex-col items-start gap-1">
+						<div class="flex flex-row gap-1 w-full">
+							<input
+								type="text"
+								bind:value={connectionString}
+								placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
+							/>
+							<Button
+								size="xs"
+								color="blue"
+								buttonType="button"
+								on:click={() => {
+									parseConnectionString(close)
+								}}
+								disabled={connectionString.length <= 0}
+							>
+								Apply
+							</Button>
+						</div>
+						{#if !validConnectionString}
+							<p class="text-red-500 text-xs">Could not parse connection string</p>
+						{/if}
+					</div>
+				</div>
+			</Popup>
+		{/if}
 		{#if resource_type == 'postgresql' && supabaseWizard}
 			<a
 				target="_blank"
@@ -99,7 +179,13 @@
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2" />{/if}
-	<SimpleEditor autoHeight lang="json" bind:code={rawCode} fixedOverflowWidgets={false} />
+	<SimpleEditor
+		bind:this={rawCodeEditor}
+		autoHeight
+		lang="json"
+		bind:code={rawCode}
+		fixedOverflowWidgets={false}
+	/>
 {:else}
 	<SchemaForm noDelete {linkedSecretCandidates} bind:linkedSecret isValid {schema} bind:args />
 {/if}

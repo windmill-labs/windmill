@@ -60,9 +60,10 @@
 	async function loadFiles() {
 		let availableFiles = await HelpersService.listStoredFiles({
 			workspace: $workspaceStore!,
-			maxKeys: 500, // fixed pages of 500 files for now
+			maxKeys: 1000, // fixed pages of 1000 files for now
 			marker: paginationMarker
 		})
+
 		for (let file_path of availableFiles.windmill_large_files) {
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
@@ -70,8 +71,11 @@
 			let nestingLevel = 0
 			for (let i = 0; i < split_path.length; i++) {
 				parent_path = current_path
-				current_path =
-					current_path === undefined ? split_path[i] : current_path + '/' + split_path[i]
+				current_path = current_path === undefined ? split_path[i] : current_path + split_path[i]
+
+				if (i < split_path.length - 1) {
+					current_path += '/'
+				}
 
 				nestingLevel = i * 2
 				if (allFilesByKey[current_path] !== undefined) {
@@ -81,16 +85,34 @@
 					type: i === split_path.length - 1 ? 'leaf' : 'folder',
 					full_key: current_path,
 					display_name: split_path[i],
-					collapsed: false,
+					collapsed: true, // folders collapsed by default
 					parentPath: parent_path,
 					nestingLevel: nestingLevel
 				}
-				displayedFileKeys.push(current_path)
+				if (i == 0) {
+					displayedFileKeys.push(current_path)
+				}
 			}
 		}
 		displayedFileKeys = displayedFileKeys.sort()
 		if (availableFiles.next_marker !== undefined) {
 			paginationMarker = availableFiles.next_marker
+		}
+
+		// before returning, un-collapse the folders containing the selected file (if any)
+		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
+			let split_path = selectedFileKey.s3.split('/')
+			let current_path: string | undefined = undefined
+			for (let i = 0; i < split_path.length; i++) {
+				current_path = current_path === undefined ? split_path[i] : current_path + split_path[i]
+				if (i < split_path.length - 1) {
+					current_path += '/'
+				}
+				let indexOf = displayedFileKeys.indexOf(current_path)
+				if (indexOf >= 0) {
+					selectItem(indexOf, true)
+				}
+			}
 		}
 	}
 
@@ -185,7 +207,7 @@
 				let elt_to_remove = 0
 				for (let i = index + 1; i < displayedFileKeys.length; i++) {
 					let file_key = displayedFileKeys[i]
-					if (file_key.startsWith(item_key + '/')) {
+					if (file_key.startsWith(item_key)) {
 						elt_to_remove += 1
 					} else {
 						break

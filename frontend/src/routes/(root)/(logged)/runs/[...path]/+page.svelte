@@ -626,7 +626,7 @@
 						your own runs or runs of groups you belong to unless you are an admin.
 					</Tooltip>
 				</div>
-				<div class="hidden xl:block">
+				<div class="hidden 2xl:block">
 					<RunsFilter
 						bind:isSkipped
 						bind:user
@@ -644,7 +644,7 @@
 						{paths}
 					/>
 				</div>
-				<div class="xl:hidden">
+				<div class="block 2xl:hidden">
 					<MobileFilters>
 						<svelte:fragment slot="filters">
 							<span class="text-xs font-semibold leading-6">Filters</span>

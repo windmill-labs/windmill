@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.215.0",
+	"version": "1.216.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -39,7 +39,6 @@
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.33.1",
-		"monaco-editor-workers": "~0.44.0",
 		"ol": "^7.4.0",
 		"openapi-typescript-codegen": "^0.25.0",
 		"path-browserify": "^1.0.1",

@@ -814,6 +814,8 @@ async fn raw_script_by_path(
     }
     let path = path
         .trim_end_matches(".py")
+        .trim_end_matches(".bun.ts")
+        .trim_end_matches(".deno.ts")
         .trim_end_matches(".ts")
         .trim_end_matches(".go")
         .trim_end_matches(".sh");

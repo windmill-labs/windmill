@@ -125,7 +125,7 @@ class Windmill:
             atexit.register(cancel_job)
 
         while True:
-            job = self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
+            job = self.get_job(job_id)
 
             if timeout and ((time.time() - start_time) > timeout):
                 msg = "reached timeout"
@@ -139,17 +139,23 @@ class Windmill:
             result = job.get("result")
             canceled, canceled_reason = job.get("canceled"), job.get("canceled_reason")
             success = job.get("success")
+            job_type = job.get("type", "")
+            completed = job_type.lower() == "completedjob"
 
-            if cleanup and (canceled or success):
+            if cleanup and completed:
                 atexit.unregister(cancel_job)
 
-            if canceled:
-                raise Exception(f"job canceled: {canceled_reason}")
-
-            if success:
-                if assert_result_is_not_none and result is None:
-                    raise Exception(f"result is None for {job_id = }")
-                return result
+            if completed:
+                if success:
+                    if assert_result_is_not_none and result is None:
+                        raise Exception(f"result is None for {job_id = }")
+                    return result
+                else:
+                    if canceled:
+                        raise Exception(f"job canceled: {canceled_reason}")
+                    else:
+                        error = result.get("error")
+                        raise Exception(f"job failed: {error}")
 
             if verbose:
                 logger.info(f"sleeping 0.5 seconds for {job_id = }")
@@ -189,18 +195,16 @@ class Windmill:
 
         return result
 
+    def get_job(self, job_id: str) -> dict:
+        return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
+
     def get_job_status(self, job_id: str) -> JobStatus:
-        resp = self.get(
-            f"/w/{self.workspace}/jobs_u/get/{job_id}",
-            raise_for_status=False,
-        )
-        assert not resp.status_code == 404, f"{job_id} not found"
-        resp_json = resp.json()
-        job_type = resp_json.get("type", "")
-        assert job_type, f"{resp_json} is not a valid job"
+        job = self.get_job(job_id)
+        job_type = job.get("type", "")
+        assert job_type, f"{job} is not a valid job"
         if job_type.lower() == "completedjob":
             return "COMPLETED"
-        additional_properties = resp_json.get("additional_properties", {})
+        additional_properties = job.get("additional_properties", {})
         if "running" not in additional_properties:
             raise Exception(f"{job_id} is not running")
         if additional_properties.get("running"):
@@ -253,7 +257,7 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
-    ) -> str | None:
+    ) -> str | dict | None:
         """Get resource from Windmill"""
         try:
             return self.get(
@@ -567,7 +571,7 @@ def get_state() -> Any:
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
-) -> str | None:
+) -> str | dict | None:
     """Get resource from Windmill"""
     return _client.get_resource(path, none_if_undefined)
 

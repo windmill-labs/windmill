@@ -40,7 +40,7 @@ use windmill_common::{
     DB, IS_READY, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::{
-    canceled_job_to_result, empty_args, get_queued_job, pull, push, register_metric, CanceledBy,
+    canceled_job_to_result, empty_result, get_queued_job, pull, push, register_metric, CanceledBy,
     PushArgs, PushIsolationLevel, WrappedError, HTTP_CLIENT,
 };
 
@@ -1466,7 +1466,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .send(JobCompleted {
                             job: Arc::new(job),
                             success: true,
-                            result: empty_args(),
+                            result: empty_result(),
                             logs: String::new(),
                             mem_peak: 0,
                             cached_res_path: None,

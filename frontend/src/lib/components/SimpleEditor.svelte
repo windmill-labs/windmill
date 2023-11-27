@@ -25,7 +25,7 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	// import { createConfiguredEditor } from 'vscode/monaco'
@@ -204,7 +204,7 @@
 		})
 	}
 
-	$: lang == 'css' && addCSSClassCompletions()
+	$: lang == 'css' && initialized && addCSSClassCompletions()
 
 	function addCSSClassCompletions() {
 		languages.registerCompletionItemProvider('css', {
