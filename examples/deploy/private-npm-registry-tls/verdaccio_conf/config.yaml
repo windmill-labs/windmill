@@ -1,0 +1,21 @@
+storage: /verdaccio/storage/data
+plugins: /verdaccio/plugins
+auth:
+  htpasswd:
+    file: /verdaccio/storage/htpasswd
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+packages:
+  '@*/*':
+    access: $all
+    publish: $authenticated
+  '**':
+    proxy: npmjs
+listen:
+- https://npm_registry:4873
+https:
+  key: /verdaccio/certs/npm_registry.key
+  cert: /verdaccio/certs/npm_registry.crt
+  ca: /verdaccio/certs/windmill-root.crt
+log: { type: stdout, format: pretty, level: http }
