@@ -1,6 +1,60 @@
 # Changelog
 
 
+## [1.216.0](https://github.com/windmill-labs/windmill/compare/v1.215.0...v1.216.0) (2023-11-26)
+
+
+### Features
+
+* add early return for flows ([dbaef0a](https://github.com/windmill-labs/windmill/commit/dbaef0aa5f22c55b691f6205ae053c155a0e025c))
+* fill pg resource from string ([#2699](https://github.com/windmill-labs/windmill/issues/2699)) ([f1cabb4](https://github.com/windmill-labs/windmill/commit/f1cabb40f6cbec05b105563dad58da048d9187ec))
+* **frontend:** add currency format + add enum autocomplete + fix run… ([#2670](https://github.com/windmill-labs/windmill/issues/2670)) ([0c0f43d](https://github.com/windmill-labs/windmill/commit/0c0f43dd3ac0541d889046c0c6df8dbf78650b9c))
+* **frontend:** add stat card ([#2687](https://github.com/windmill-labs/windmill/issues/2687)) ([81ef24b](https://github.com/windmill-labs/windmill/commit/81ef24b3cec18f86e407b343b4d72ac566d268e1))
+* **python:** Update return type for 'get_resource' function ([#2695](https://github.com/windmill-labs/windmill/issues/2695)) ([603e7ff](https://github.com/windmill-labs/windmill/commit/603e7ff67f5f68d291db37173b89325d5de911a1))
+
+
+### Bug Fixes
+
+* expand enum type narrowing to forms ([94e9b80](https://github.com/windmill-labs/windmill/commit/94e9b80e1993a217415118bf48b8575cd8363746))
+* **frontend:** correctly handle when result is undefined ([#2693](https://github.com/windmill-labs/windmill/issues/2693)) ([f4aa768](https://github.com/windmill-labs/windmill/commit/f4aa76897ea0f261c1e47976f517058601c479f9))
+* improve multiselect from form ([5fa653d](https://github.com/windmill-labs/windmill/commit/5fa653d154c6e8697119796a025bdc380f68de9a))
+* improve resource pages ([16be230](https://github.com/windmill-labs/windmill/commit/16be2300ff66cad8b740856a6435d1c1e53bce99))
+* lighten monaco editor workers ([#2690](https://github.com/windmill-labs/windmill/issues/2690)) ([4c42836](https://github.com/windmill-labs/windmill/commit/4c42836cfcad63da023a658213f03b45c925efb2))
+* Priority tags FE buggy when missing from config ([#2702](https://github.com/windmill-labs/windmill/issues/2702)) ([e8b1f22](https://github.com/windmill-labs/windmill/commit/e8b1f220dd299922a32b04451756f2b7fa735d5d))
+* S3 bucket browser small improvements and fixes ([#2700](https://github.com/windmill-labs/windmill/issues/2700)) ([55e34d8](https://github.com/windmill-labs/windmill/commit/55e34d8cdd64362615f2c1bc2698c0538c287784))
+
+## [1.215.0](https://github.com/windmill-labs/windmill/compare/v1.214.1...v1.215.0) (2023-11-23)
+
+
+### Features
+
+* query embeddings from s3 ([#2683](https://github.com/windmill-labs/windmill/issues/2683)) ([e3f2b43](https://github.com/windmill-labs/windmill/commit/e3f2b43748e8e0853dd0dbae87cba37b950dc76e))
+
+
+### Bug Fixes
+
+* bigquery schema and date inputs ([#2688](https://github.com/windmill-labs/windmill/issues/2688)) ([f5e098d](https://github.com/windmill-labs/windmill/commit/f5e098d03b467002a8deab4d2c519945c01458d4))
+* improve wmill go client ([cfd3da4](https://github.com/windmill-labs/windmill/commit/cfd3da41efe4e89e5d8672c08433442b05d11f37))
+
+## [1.214.1](https://github.com/windmill-labs/windmill/compare/v1.214.0...v1.214.1) (2023-11-23)
+
+
+### Features
+
+* **python:** Quality of Life improvements to Python client ([#2686](https://github.com/windmill-labs/windmill/issues/2686)) ([1c2abcd](https://github.com/windmill-labs/windmill/commit/1c2abcda231b2d10e7a358a4e4b7973785cb6199))
+
+
+### Bug Fixes
+
+* add image base64 source kinds ([7ae84fc](https://github.com/windmill-labs/windmill/commit/7ae84fce5014d97bf17803e2ccefafee009b28bb))
+* fix backend build ([45ee1d7](https://github.com/windmill-labs/windmill/commit/45ee1d770345f03c03cc48a3ddcc130ca3655a4c))
+* **frontend:** disable active interaction to avoid broken state ([#2675](https://github.com/windmill-labs/windmill/issues/2675)) ([bfdb559](https://github.com/windmill-labs/windmill/commit/bfdb559b47786e37f135ca345c55828cc70e49e9))
+* **frontend:** improve tutorial ux ([#2677](https://github.com/windmill-labs/windmill/issues/2677)) ([7fe3bca](https://github.com/windmill-labs/windmill/commit/7fe3bca624fa3b434e3fbe9b33b213449044accc))
+* **frontend:** use popover for schedule for later on the runs page ([#2678](https://github.com/windmill-labs/windmill/issues/2678)) ([31fbc58](https://github.com/windmill-labs/windmill/commit/31fbc5867cc72befea5733811148126289ce8bb9))
+* graphql variables ([#2682](https://github.com/windmill-labs/windmill/issues/2682)) ([217e694](https://github.com/windmill-labs/windmill/commit/217e69498fa5958e83c595003b2a086528e51388))
+* relax tags constraints ([8f8ea22](https://github.com/windmill-labs/windmill/commit/8f8ea227c850f9d01f913660547b6a6394c6e142))
+* Various fixes and improvements for Windmill S3 capabilities ([#2674](https://github.com/windmill-labs/windmill/issues/2674)) ([c42c54e](https://github.com/windmill-labs/windmill/commit/c42c54e69b5acdcbe44a0c26ae7fbaa2189e6b5f))
+
 ## [1.214.0](https://github.com/windmill-labs/windmill/compare/v1.213.0...v1.214.0) (2023-11-22)
 
 

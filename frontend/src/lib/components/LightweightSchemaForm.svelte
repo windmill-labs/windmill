@@ -57,9 +57,7 @@
 	}
 </script>
 
-<div
-	class={twMerge('w-full flex flex-col overflow-auto px-0.5 pb-2', largeGap ? 'gap-8' : 'gap-2')}
->
+<div class={twMerge('w-full flex flex-col px-0.5 pb-2', largeGap ? 'gap-8' : 'gap-2')}>
 	{#each Object.keys(schema.properties ?? {}) as argName (argName)}
 		{#if typeof args == 'object' && schema?.properties[argName] && args}
 			<LightweightArgInput

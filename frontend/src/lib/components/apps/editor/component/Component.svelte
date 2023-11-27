@@ -63,6 +63,7 @@
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
 	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
+	import AppStatCard from '../../components/display/AppStatCard.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -676,6 +677,13 @@
 				{componentContainerHeight}
 				{render}
 				bind:initializing
+			/>
+		{:else if component.type === 'statcomponent'}
+			<AppStatCard
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
 			/>
 		{/if}
 	</div>

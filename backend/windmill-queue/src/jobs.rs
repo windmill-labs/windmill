@@ -490,7 +490,7 @@ pub async fn add_completed_job<
 
     tx.commit().await?;
     tracing::info!(
-        "Inserted completed job: {} (success: {success})",
+        "inserted completed job: {} (success: {success})",
         queued_job.id
     );
 
@@ -1564,7 +1564,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 }
 
 #[derive(FromRow)]
-struct ResultR {
+pub struct ResultR {
     result: Option<Json<Box<RawValue>>>,
 }
 
@@ -1616,7 +1616,7 @@ pub async fn get_result_by_id(
 }
 
 #[async_recursion]
-async fn get_result_by_id_from_running_flow(
+pub async fn get_result_by_id_from_running_flow(
     db: &Pool<Postgres>,
     w_id: &str,
     flow_id: &Uuid,
@@ -1979,12 +1979,9 @@ where
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
             let query = Query::<RequestQuery>::try_from_uri(req.uri()).unwrap().0;
+            let extra = build_extra(&headers_map, query.include_header);
             let raw = query.raw.as_ref().is_some_and(|x| *x);
-            (
-                content_type,
-                build_extra(&headers_map, query.include_header),
-                raw,
-            )
+            (content_type, extra, raw)
         };
 
         if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
@@ -2067,7 +2064,7 @@ impl PushArgs<HashMap<String, Box<RawValue>>> {
     }
 }
 
-pub fn empty_args() -> Box<RawValue> {
+pub fn empty_result() -> Box<RawValue> {
     return JsonRawValue::from_string("{}".to_string()).unwrap();
 }
 

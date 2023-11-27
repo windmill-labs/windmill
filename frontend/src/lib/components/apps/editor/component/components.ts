@@ -40,7 +40,8 @@ import {
 	PanelLeft,
 	PanelTopInactive,
 	ListIcon,
-	Heading1
+	Heading1,
+	FileBarChart
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -162,6 +163,7 @@ export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
+export type StatisticCardComponent = BaseComponent<'statcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -223,6 +225,7 @@ export type TypedComponent =
 	| CarouselListComponent
 	| PlotlyComponentV2
 	| ChartJsComponentV2
+	| StatisticCardComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2711,6 +2714,37 @@ This is a paragraph.
 					fieldType: 'boolean'
 				}
 			] as AppInputSpec<'boolean', boolean>[]
+		}
+	},
+	statcomponent: {
+		name: 'Statistic card',
+		icon: FileBarChart,
+		documentationLink: `${documentationBaseUrl}/statistic_card`,
+		dims: '2:4-3:4' as AppComponentDimensions,
+		customCss: {},
+		initialData: {
+			configuration: {
+				title: {
+					type: 'static',
+					value: 'Title',
+					fieldType: 'text'
+				},
+				value: {
+					type: 'static',
+					value: 'Value',
+					fieldType: 'text'
+				},
+				progress: {
+					type: 'static',
+					value: 0,
+					fieldType: 'number'
+				},
+				icon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				}
+			}
 		}
 	}
 } as const

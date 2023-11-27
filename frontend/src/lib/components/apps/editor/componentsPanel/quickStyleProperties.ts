@@ -744,5 +744,6 @@ export const quickStyleProperties: Record<
 		allTabs: [typographyGrouping, sizeGrouping],
 		selectedTab: [typographyGrouping, sizeGrouping]
 	},
-	selectstepcomponent: {}
+	selectstepcomponent: {},
+	statcomponent: {}
 }

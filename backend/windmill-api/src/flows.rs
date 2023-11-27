@@ -897,8 +897,8 @@ mod tests {
             concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
-            ws_error_handler_muted: None,
             priority: None,
+            early_return: None,
         };
         let expect = serde_json::json!({
           "modules": [
