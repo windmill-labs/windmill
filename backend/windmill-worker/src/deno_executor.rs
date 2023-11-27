@@ -41,6 +41,8 @@ lazy_static::lazy_static! {
         .map(|x| format!(";{x}"))
         .unwrap_or_else(|| String::new());
 
+    static ref DENO_CERT: String = std::env::var("DENO_CERT").ok().unwrap_or_else(|| String::new());
+    static ref DENO_TLS_CA_STORE: String = std::env::var("DENO_TLS_CA_STORE").ok().unwrap_or_else(|| String::new());
 
 }
 async fn get_common_deno_proc_envs(
@@ -69,6 +71,12 @@ async fn get_common_deno_proc_envs(
 
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
         deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+    }
+    if DENO_CERT.len() > 0 {
+        deno_envs.insert(String::from("DENO_CERT"), DENO_CERT.clone());
+    }
+    if DENO_TLS_CA_STORE.len() > 0 {
+        deno_envs.insert(String::from("DENO_TLS_CA_STORE"), DENO_TLS_CA_STORE.clone());
     }
     return deno_envs;
 }
