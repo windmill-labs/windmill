@@ -1,3 +1,7 @@
+<script context="module">
+	let classCompletionLoaded = writable(false)
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
@@ -20,7 +24,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
 
-	import { allClasses, authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
+	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
@@ -28,6 +32,8 @@
 	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
+	import { writable } from 'svelte/store'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -46,6 +52,8 @@
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
+	// only for css
+	export let subType: 'tailwind' | 'css' = 'css'
 
 	const dispatch = createEventDispatcher()
 
@@ -116,6 +124,7 @@
 
 	let width = 0
 	let initialized = false
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
@@ -202,9 +211,12 @@
 		editor.onDidBlurEditorText(() => {
 			code = getCode()
 		})
-	}
 
-	$: lang == 'css' && initialized && addCSSClassCompletions()
+		if (lang === 'css' && !$classCompletionLoaded) {
+			$classCompletionLoaded = true
+			addCSSClassCompletions()
+		}
+	}
 
 	function addCSSClassCompletions() {
 		languages.registerCompletionItemProvider('css', {
@@ -220,7 +232,9 @@
 				if (word && word.word) {
 					const currentWord = word.word
 
-					const suggestions = allClasses
+					const classes = subType === 'tailwind' ? tailwindClasses : allClasses
+
+					const suggestions = classes
 						.filter((className) => className.includes(currentWord))
 						.map((className) => ({
 							label: className,
@@ -252,38 +266,6 @@
 			} else {
 				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
-		} else if (lang === 'css') {
-			const cssClasses = authorizedClassnames.map((className) => '.' + className)
-
-			languages.registerCompletionItemProvider('css', {
-				provideCompletionItems: function (model, position, context, token) {
-					const word = model.getWordUntilPosition(position)
-					const range = {
-						startLineNumber: position.lineNumber,
-						startColumn: word.startColumn,
-						endLineNumber: position.lineNumber,
-						endColumn: word.endColumn
-					}
-
-					if (word && word.word) {
-						const currentWord = word.word
-
-						const suggestions = cssClasses
-							.filter((className) => className.includes(currentWord))
-							.map((className) => ({
-								label: className,
-								kind: languages.CompletionItemKind.Class,
-								insertText: className,
-								documentation: 'Custom CSS class',
-								range: range
-							}))
-
-						return { suggestions }
-					}
-
-					return { suggestions: [] }
-				}
-			})
 		}
 	}
 

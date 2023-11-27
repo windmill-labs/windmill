@@ -14,7 +14,7 @@
 		"generate-backend-client-mac": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"test": "playwright test --config=tests-out/playwright.config.js",
-		"delele-orphan-components": "sh scripts/delete-orphan-components.sh"
+		"filter-classes": "node filterTailwindClasses.js"
 	},
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",
