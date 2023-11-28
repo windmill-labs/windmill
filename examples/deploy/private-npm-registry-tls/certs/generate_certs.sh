@@ -8,14 +8,14 @@ STATE='Paris'
 CITY='Paris'
 ORGANIZATION='WindmillLabs'
 ROOT_CA_CN='WindmillRootCA'
-SERVER_CA_CN='npm_registry' # IMPORTANT: set this to the FQDN of the npm registry server. Here in the docker compose stack, it will be npm_registry
+SERVER_CA_CN='caddy' # IMPORTANT: set this to the FQDN of the caddy server. Here in the docker compose stack, it will be caddy
 
 echo "Generating RootCA key"
 openssl genrsa -aes256 -out $CANAME.key 4096
 echo "Generating RootCA certificate"
 openssl req -x509 -new -nodes -key $CANAME.key -sha256 -days 1826 -out $CANAME.crt -subj "/CN=${ROOT_CA_CN}/C=${COUNTRY}/ST=${STATE}/L=${CITY}/O=${ORGANIZATION}"
 
-CERTNAME=npm_registry
+CERTNAME=caddy
 echo "Generating server certificate private key and cert signing request"
 openssl req -new -nodes -out $CERTNAME.csr -newkey rsa:4096 -keyout $CERTNAME.key -subj "/CN=${SERVER_CA_CN}/C=${COUNTRY}/ST=${STATE}/L=${CITY}/O=${ORGANIZATION}"
 
@@ -27,7 +27,7 @@ basicConstraints=CA:FALSE
 keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
 subjectAltName = @alt_names
 [alt_names]
-DNS.1 = npm_registry
+DNS.1 = caddy
 DNS.2 = localhost
 EOF
 # ^ HERE ^ in the above alt_names, feel free to add any alternate CN

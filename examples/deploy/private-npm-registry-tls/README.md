@@ -1,7 +1,7 @@
 Private NPM registry with self-signed certificates
 ==================================================
 
-Setup a private NPM registry with self-signed certificates.
+Setup a private NPM registry and Pypi server behind a revers proxy (Caddy) exposing an HTTPS endpoint with self signed certificates
 
 ### Setup
 
@@ -15,8 +15,8 @@ cd certs
 At the end of the script, you should have multiple files in the `certs/` folder. The most important ones are:
 - `windmill-root.key` (Root CA private key)
 - `windmill-root.crt` (Root CA certificate)
-- `npm_registry.key` (NPM registry server private key)
-- `npm_registry.crt` (NPM registry server certificate)
+- `caddy.key` (caddy server private key)
+- `caddy.crt` (caddy registry server certificate)
 
 2. Start the docker compose stack
 
@@ -24,17 +24,17 @@ At the end of the script, you should have multiple files in the `certs/` folder.
 docker compose up -d
 ```
 
-This will start the private NPM registry, as well as a minimal Windmill stack composed of just one Windmill server/worker and the associated database. 
+This will start the private NPM registry, the private Pypi server and Caddy as a reverse proxy sitting in front of the two. Separately, for the purpose of proving an end to end setup, it will also start minimal Windmill stack composed of just one Windmill server/worker and the associated database. 
 
-For the latter, we invite you to refer to the latest [docker compose](/docker-compose.yml) at the root of this repository to setup a more evolved Windmill stack.
+For a more complete Windmill setup, we invite you to refer to the latest [docker compose](/docker-compose.yml) at the root of this repository to setup a more evolved Windmill stack.
 
-For the former, it's using [Verdaccio](https://verdaccio.org/) as an easy-to-deploy NPM registry. We bring you attention to the fact that in addition to the config 
-file in `./verdaccio_conf/config.yaml`, we had to set both `VERDACCIO_PROTOCOL` and `VERDACCIO_PUBLIC_URL` in docker compose. See the official Verdaccio 
-documentation for more info on this.
+For the private registries/repositories, it's using [Verdaccio](https://verdaccio.org/) as an easy-to-deploy NPM registry and [pypiserver](https://pypi.org/project/pypiserver/) for Python.
 
-3. Upload the custom `helloworld` package to the private NPM registry
+## Deno pulling package from private NPM registry
 
-```
+Upload the custom `helloworld_package` package to the private NPM registry and use it in a Windmill script
+
+```bash
 cd helloworld_package
 # you need to first create a registry user
 # you might need to run `npm config set strict-ssl false` if the below fails. If you do, then change it back to `true` after running the 2 commands
@@ -42,9 +42,7 @@ npm adduser --registry https://0.0.0.0:4873/
 npm publish --registry https://0.0.0.0:4873/
 ```
 
-4. Pull the custom NPM package from a deno script in Windmill
-
-Go to Windmill at `http://localhost:8000`. Create a simple deno script:
+Go to Windmill at `http://localhost:8000`. Create a simple Deno script:
 ```ts
 import * as testpackage from "npm:@windmill/helloworld@0.0.1"
 
@@ -57,8 +55,32 @@ and execute it. It should return successfully with:
 Hello Windmill
 ```
 
+## Python pulling package from private NPM registry
 
-### Remarks
+Upload the custom `helloworld_python_module` python module to the private Pypi server
+
+```bash
+cd helloworld_python_module
+python setup.py sdist
+# using twine to upload the module here, get it with `pip install twine`
+twine upload --repository-url https://localhost/ dist/* --cert ../certs/windmill-root.crt
+# no username and password, just press enter. For the purpose of the demo we're running pypiserver completely unauthenticated
+```
+You can check that the package is uploaded by visiting [https://localhost/simple](https://localhost/pypi/simple).
+
+Go to Windmill at `http://localhost:8000`. Create a simple Python script:
+```python
+import windmill_helloworld
+
+def main():
+  print(windmill_helloworld.say_hello("Windmill"))
+```
+and execute it. It should return successfully with:
+```
+Hello Windmill
+```
+
+### MISC
 
 1. `DENO_TLS_CA_STORE` VS `DENO_CERT`
 Both works. `DENO_CERT` is better b/c you just have to set it to the path of the trusted Root CA certificate, and deno will trust this certificate.
@@ -91,4 +113,18 @@ testpackage.sayHello("Windmill")
 # potentially inspect the env var available to DENO. Is you used DENO_CERT in the docker compose, check its value:
 console.log(Deno.env.get("DENO_CERT"))
 > /custom-certs/windmill-root.crt
+```
+
+3. Manually testing Pypi private server integration
+Can be useful to debug as well:
+
+```bash
+# install the package
+pip3 install --cert ../certs/windmill-root.crt -i https://localhost/simple/ windmill-helloworld
+
+# go to python CLI and try to import it and use it
+python
+>>> import windmill_helloworld
+>>> windmill_helloworld.say_hello("world")
+'Hello world'
 ```
