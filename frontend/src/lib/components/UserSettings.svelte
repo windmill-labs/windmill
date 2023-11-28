@@ -76,7 +76,7 @@
 	}
 
 	async function listTokens(): Promise<void> {
-		tokens = await UserService.listTokens()
+		tokens = await UserService.listTokens({ excludeEphemeral: true })
 	}
 
 	async function deleteToken(tokenPrefix: string) {
