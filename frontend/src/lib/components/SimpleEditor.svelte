@@ -1,3 +1,8 @@
+<script context="module">
+	let cssClassesLoaded = writable(false)
+	let tailwindClassesLoaded = writable(false)
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
@@ -20,7 +25,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
 
-	import { allClasses, authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
+	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
@@ -28,6 +33,8 @@
 	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
+	import { writable } from 'svelte/store'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -116,6 +123,7 @@
 
 	let width = 0
 	let initialized = false
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
@@ -202,9 +210,18 @@
 		editor.onDidBlurEditorText(() => {
 			code = getCode()
 		})
-	}
 
-	$: lang == 'css' && initialized && addCSSClassCompletions()
+		if (lang === 'css' && !$cssClassesLoaded) {
+			$cssClassesLoaded = true
+			addCSSClassCompletions()
+		}
+
+		if (lang === 'tailwindcss' && !$tailwindClassesLoaded) {
+			languages.register({ id: 'tailwindcss' })
+			$tailwindClassesLoaded = true
+			addTailwindClassCompletions()
+		}
+	}
 
 	function addCSSClassCompletions() {
 		languages.registerCompletionItemProvider('css', {
@@ -238,6 +255,38 @@
 		})
 	}
 
+	function addTailwindClassCompletions() {
+		languages.registerCompletionItemProvider('tailwindcss', {
+			provideCompletionItems: function (model, position, context, token) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endLineNumber: position.lineNumber,
+					endColumn: word.endColumn
+				}
+
+				if (word && word.word) {
+					const currentWord = word.word
+
+					const suggestions = tailwindClasses
+						.filter((className) => className.includes(currentWord))
+						.map((className) => ({
+							label: className,
+							kind: languages.CompletionItemKind.Class,
+							insertText: className,
+							documentation: 'Custom CSS class',
+							range: range
+						}))
+
+					return { suggestions }
+				}
+
+				return { suggestions: [] }
+			}
+		})
+	}
+
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
@@ -252,38 +301,6 @@
 			} else {
 				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
-		} else if (lang === 'css') {
-			const cssClasses = authorizedClassnames.map((className) => '.' + className)
-
-			languages.registerCompletionItemProvider('css', {
-				provideCompletionItems: function (model, position, context, token) {
-					const word = model.getWordUntilPosition(position)
-					const range = {
-						startLineNumber: position.lineNumber,
-						startColumn: word.startColumn,
-						endLineNumber: position.lineNumber,
-						endColumn: word.endColumn
-					}
-
-					if (word && word.word) {
-						const currentWord = word.word
-
-						const suggestions = cssClasses
-							.filter((className) => className.includes(currentWord))
-							.map((className) => ({
-								label: className,
-								kind: languages.CompletionItemKind.Class,
-								insertText: className,
-								documentation: 'Custom CSS class',
-								range: range
-							}))
-
-						return { suggestions }
-					}
-
-					return { suggestions: [] }
-				}
-			})
 		}
 	}
 
