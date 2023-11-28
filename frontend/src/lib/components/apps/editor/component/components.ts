@@ -2729,7 +2729,12 @@ This is a paragraph.
 				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
 			},
 			container: { class: '', style: '' },
-			value: { class: '', style: '' },
+			value: {
+				class: '',
+				style: '',
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			},
 			media: { class: '', style: '' }
 		},
 		initialData: {

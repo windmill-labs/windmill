@@ -96,7 +96,11 @@
 
 		<div class="w-full">
 			<div
-				class={twMerge('font-normal text-primary', css?.title?.class, 'wm-statistic-card-title')}
+				class={twMerge(
+					'font-normal text-primary leading-none',
+					css?.title?.class,
+					'wm-statistic-card-title'
+				)}
 				style={css?.title?.style}
 			>
 				{resolvedConfig.title}
@@ -104,7 +108,7 @@
 			<div class="mt-1 flex items-baseline justify-between">
 				<div
 					class={twMerge(
-						'flex items-baseline text-2xl font-semibold text-blue-600 dark:text-blue-200',
+						'flex items-baseline text-2xl leading-none font-semibold text-blue-600 dark:text-blue-200',
 						css?.value?.class,
 						'wm-statistic-card-value'
 					)}
