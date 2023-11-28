@@ -301,11 +301,17 @@
 										} gap-2 h-full items-center`}
 									>
 										{#if file_info.type === 'folder'}
-											{#if file_info.collapsed}<FolderClosed />{:else}<FolderOpen />{/if}
-											{file_info.display_name}
+											{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+													size={16}
+												/>{/if}
+											<div class="truncate text-ellipsis w-56">
+												{file_info.display_name}
+											</div>
 										{:else}
-											<File />
-											{file_info.display_name}
+											<File size={16} />
+											<div class="truncate text-ellipsis w-56">
+												{file_info.display_name}
+											</div>
 										{/if}
 									</div>
 								</div>
@@ -366,7 +372,7 @@
 								{/if}
 							</div>
 							<pre class="grow whitespace-no-wrap break-words"
-								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible. If it's a CSV file, you can try changing the separator{/if}</pre
+								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
 							>
 						{:else if filePreviewLoading}
 							<div class="flex h-6 items-center text-tertiary mb-4">
