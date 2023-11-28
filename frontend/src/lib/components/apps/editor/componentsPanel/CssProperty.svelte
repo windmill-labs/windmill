@@ -174,7 +174,7 @@
 									small
 									baseClass="cursor-pointer"
 									on:click={() => {
-										value.style += ` ${v};`
+										value.style = value.style === '' ? `${v};` : `${value.style} ${v};`
 									}}
 								>
 									{v}
@@ -213,7 +213,7 @@
 									baseClass="cursor-pointer"
 									small
 									on:click={() => {
-										value.class = `${value.class} ${cls}`
+										value.class = value.class === '' ? cls : `${value.class} ${cls}`
 										render++
 									}}
 								>
