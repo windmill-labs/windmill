@@ -34,7 +34,6 @@
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
 	}
 	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = 'custom'
-	let defaultCustomPath: string | undefined = undefined
 	let customPath: string | undefined = undefined
 	let customPathSchema: Record<string, any> = {}
 	let args: Record<string, any> = {}
@@ -67,7 +66,7 @@
 		const settings = await WorkspaceService.getSettings({
 			workspace: $workspaceStore!
 		})
-		if (!settings.slack_name) {
+		if (settings.slack_name) {
 			args['slack'] = '$res:f/slack_bot/bot_token'
 			rerenderingSlackArgs = true // force rerendering of schema form for resource picker to take into account args
 		}
@@ -113,8 +112,6 @@
 					? flow.value.modules[1]?.value.path
 					: undefined
 
-			defaultCustomPath = customPath
-
 			appReportingEnabled = true
 		} catch (err) {}
 	}
@@ -144,9 +141,9 @@ export async function main(app_path: string, startup_duration = 5) {
   await page.setCookie({
     "name": "token",
     "value": Bun.env["WM_TOKEN"],
-    "domain": "host.docker.internal"
+    "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, \'\')
   })
-  await page.goto(\'http://host.docker.internal/apps/get/\' + app_path + \'?workspace=\' + Bun.env["WM_WORKSPACE"]);
+  await page.goto(Bun.env["WM_BASE_URL"] + \'/apps/get/\' + app_path + \'?workspace=\' + Bun.env["WM_WORKSPACE"]);
   await new Promise((resolve, _) => {
       setTimeout(resolve, startup_duration * 1000)
   })
