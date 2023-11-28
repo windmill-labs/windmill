@@ -106,7 +106,7 @@ async fn proxy(
     .await?
     .ok_or_else(|| {
         create_openai_json_error(format!(
-            "Could not find an OpenAI resource at path {openai_resource_path}, update the resource path in the workspace settings"
+            "Could not find the OpenAI resource at path {openai_resource_path}, update the resource path in the workspace settings"
         ))
     })?;
 
