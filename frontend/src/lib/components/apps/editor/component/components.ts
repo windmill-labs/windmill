@@ -2722,7 +2722,12 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
 		customCss: {
-			title: { class: '', style: '' },
+			title: {
+				class: '',
+				style: '',
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			},
 			container: { class: '', style: '' },
 			value: { class: '', style: '' },
 			media: { class: '', style: '' }
@@ -2746,7 +2751,7 @@ This is a paragraph.
 				},
 				media: {
 					type: 'oneOf',
-					selected: 'icon',
+					selected: 'image',
 					labels: {
 						icon: 'Icon',
 						image: 'Image'

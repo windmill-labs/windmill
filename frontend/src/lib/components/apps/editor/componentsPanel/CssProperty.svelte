@@ -105,7 +105,7 @@
 </div>
 
 {#if value}
-	<div class="p-2">
+	<div class="p-2 flex flex-col">
 		{#if tooltip}
 			<div class="text-tertiary text-2xs py-2">{tooltip}</div>
 		{/if}
@@ -164,6 +164,21 @@
 						/>
 					</div>
 				{/if}
+				{#if value.quickCss}
+					<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
+						{#each value.quickCss as v}
+							<Badge
+								small
+								baseClass="cursor-pointer"
+								on:click={() => {
+									value.style += ` ${v};`
+								}}
+							>
+								{v}
+							</Badge>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -184,6 +199,21 @@
 						inputClass="h-full !text-xs  !rounded-none !p-2 min-h-[72px]"
 					/>
 				</div>
+				{#if value.quickTailwindClasses}
+					<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
+						{#each value.quickTailwindClasses as v}
+							<Badge
+								baseClass="cursor-pointer"
+								small
+								on:click={() => {
+									value.class = `${value.class} ${v}`
+								}}
+							>
+								{v}
+							</Badge>
+						{/each}
+					</div>
+				{/if}
 			</label>
 		{/if}
 
