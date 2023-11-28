@@ -1,4 +1,4 @@
-Private NPM registry with self-signed certificates
+Private package registry with self-signed certificates
 ==================================================
 
 Setup a private NPM registry and Pypi server behind a revers proxy (Caddy) exposing an HTTPS endpoint with self signed certificates
@@ -55,6 +55,20 @@ and execute it. It should return successfully with:
 Hello Windmill
 ```
 
+Note: Native fetches to HTTPS endpoints with self signed certificates also takes into account the DENO_CERT environment variable
+
+Go to Windmill and create a new script of type "REST" with the following content:
+```ts
+export async function main() {
+  const res = await fetch("https://localhost/static/helloworld.json", {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+```
+
+It will fetch a static json file from Caddy exposed behind its HTTPS endpoint with self signed certificate.
+
 ## Python pulling package from private NPM registry
 
 Upload the custom `helloworld_python_module` python module to the private Pypi server
@@ -92,7 +106,7 @@ update-ca-certificates # as root
 # the output should tell (among other things): " ... 1 added, 0 removed; done. ..."
 ```
 
-2. Running deno scripts manually in the Windmill container
+2. Running Deno scripts manually in the Windmill container
 This could be useful for debugging purposes.
 
 ```bash
