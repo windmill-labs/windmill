@@ -70,7 +70,7 @@
 	>
 		<div
 			class={twMerge(
-				'flex items-center justify-center',
+				'flex items-center justify-center w-12 h-12 border rounded-md p-2 text-black',
 				css?.media?.class,
 				'wm-statistic-card-media'
 			)}
@@ -78,9 +78,7 @@
 		>
 			{#if isIcon}
 				{#if resolvedConfig.media && iconComponent}
-					<div class="bg-blue-500 rounded-md p-2">
-						<svelte:component this={iconComponent} size={24} color="white" />
-					</div>
+					<svelte:component this={iconComponent} size={24} />
 				{/if}
 			{:else}
 				<Loader loading={resolvedConfig.media.configuration.image.source == undefined}>
@@ -91,7 +89,6 @@
 							resolvedConfig?.media?.configuration?.image?.source
 						)}
 						alt={resolvedConfig.title}
-						class="border rounded-md p-2 w-12 h-12"
 					/>
 				</Loader>
 			{/if}
@@ -99,11 +96,7 @@
 
 		<div class="w-full">
 			<div
-				class={twMerge(
-					'text-base font-normal text-primary',
-					css?.title?.class,
-					'wm-statistic-card-title'
-				)}
+				class={twMerge('font-normal text-primary', css?.title?.class, 'wm-statistic-card-title')}
 				style={css?.title?.style}
 			>
 				{resolvedConfig.title}
