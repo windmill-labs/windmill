@@ -13,6 +13,7 @@
 		RawScript,
 		ScheduleService,
 		ScriptService,
+		SettingService,
 		WorkspaceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -21,6 +22,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Save } from 'lucide-svelte'
+	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
 	export let appPath: string
 	export let open = false
 
@@ -305,6 +307,19 @@ export async function main(
 
 	async function enableAppReporting(skipToast = false) {
 		const flowPath = appPath + '_reports'
+
+		const customTags = ((await SettingService.getGlobal({
+			key: CUSTOM_TAGS_SETTING
+		})) ?? []) as string[]
+
+		if (!customTags.includes('chromium')) {
+			await SettingService.setGlobal({
+				key: CUSTOM_TAGS_SETTING,
+				requestBody: {
+					value: [...customTags, 'chromium']
+				}
+			})
+		}
 
 		const inputTransforms: {
 			[key: string]: {
