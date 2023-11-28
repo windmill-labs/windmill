@@ -160,6 +160,39 @@
 				</div>
 			{/key}
 		{/if}
+		<div class="relative">
+			<span class="text-xs absolute -top-4">Kind</span>
+			<ToggleButtonGroup bind:selected={jobKindsCat}>
+				<ToggleButton value="all" label="All" />
+				<ToggleButton
+					value="runs"
+					label="Runs"
+					showTooltipIcon
+					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+				/>
+				<ToggleButton
+					value="previews"
+					label="Previews"
+					showTooltipIcon
+					tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+				/>
+				<ToggleButton
+					value="dependencies"
+					label="Deps"
+					showTooltipIcon
+					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+				/>
+			</ToggleButtonGroup>
+		</div>
+		<div class="relative">
+			<span class="text-xs absolute -top-4">Status</span>
+			<ToggleButtonGroup bind:selected={success}>
+				<ToggleButton value={undefined} label="All" />
+				<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
+				<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
+				<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />
+			</ToggleButtonGroup>
+		</div>
 	{/if}
 
 	<Popup
@@ -287,40 +320,40 @@
 							</Label>
 						{/key}
 					{/if}
+
+					<Label label="Kind">
+						<ToggleButtonGroup bind:selected={jobKindsCat}>
+							<ToggleButton value="all" label="All" />
+							<ToggleButton
+								value="runs"
+								label="Runs"
+								showTooltipIcon
+								tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+							/>
+							<ToggleButton
+								value="previews"
+								label="Previews"
+								showTooltipIcon
+								tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+							/>
+							<ToggleButton
+								value="dependencies"
+								label="Deps"
+								showTooltipIcon
+								tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+							/>
+						</ToggleButtonGroup>
+					</Label>
+
+					<Label label="Status">
+						<ToggleButtonGroup bind:selected={success}>
+							<ToggleButton value={undefined} label="All" />
+							<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
+							<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
+							<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />
+						</ToggleButtonGroup>
+					</Label>
 				{/if}
-
-				<Label label="Kind">
-					<ToggleButtonGroup bind:selected={jobKindsCat}>
-						<ToggleButton value="all" label="All" />
-						<ToggleButton
-							value="runs"
-							label="Runs"
-							showTooltipIcon
-							tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
-						/>
-						<ToggleButton
-							value="previews"
-							label="Previews"
-							showTooltipIcon
-							tooltip="Previews are jobs that have been started in the editor as 'Tests'"
-						/>
-						<ToggleButton
-							value="dependencies"
-							label="Deps"
-							showTooltipIcon
-							tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
-						/>
-					</ToggleButtonGroup>
-				</Label>
-
-				<Label label="Status">
-					<ToggleButtonGroup bind:selected={success}>
-						<ToggleButton value={undefined} label="All" />
-						<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
-						<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
-						<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />
-					</ToggleButtonGroup>
-				</Label>
 
 				<Label label="Show Skipped Flows">
 					<div class="flex flex-row gap-1 items-center">

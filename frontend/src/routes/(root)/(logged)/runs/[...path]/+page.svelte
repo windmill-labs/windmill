@@ -30,6 +30,7 @@
 	import { tweened, type Tweened } from 'svelte/motion'
 	import { goto } from '$app/navigation'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
+	import { forLater } from '$lib/forLater'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timeout | undefined
@@ -84,7 +85,7 @@
 		}
 
 		if (hideSchedules) {
-			searchParams.set('show_scheduled', hideSchedules.toString())
+			searchParams.set('hide_scheduled', hideSchedules.toString())
 		}
 
 		// ArgFilter is an object. Encode it to a string
@@ -130,7 +131,7 @@
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
-			schedulePath: hideSchedules ? undefined : schedulePath,
+			schedulePath,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
@@ -157,8 +158,10 @@
 
 			computeCompletedJobs()
 
-			if (hideSchedules) {
-				jobs = jobs.filter((x) => x.schedule_path === undefined)
+			if (hideSchedules && !schedulePath) {
+				jobs = jobs.filter(
+					(job) => !(job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for))
+				)
 			}
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
