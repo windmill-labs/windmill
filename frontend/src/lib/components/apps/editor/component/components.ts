@@ -41,7 +41,8 @@ import {
 	PanelTopInactive,
 	ListIcon,
 	Heading1,
-	FileBarChart
+	FileBarChart,
+	Menu
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -164,6 +165,7 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
 export type StatisticCardComponent = BaseComponent<'statcomponent'>
+export type MenuComponent = BaseComponent<'menucomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -226,6 +228,7 @@ export type TypedComponent =
 	| PlotlyComponentV2
 	| ChartJsComponentV2
 	| StatisticCardComponent
+	| MenuComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2740,6 +2743,64 @@ This is a paragraph.
 					fieldType: 'number'
 				},
 				icon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				}
+			}
+		}
+	},
+	menucomponent: {
+		name: 'Menu',
+		icon: Menu,
+		documentationLink: `${documentationBaseUrl}/menu`,
+		dims: '1:1-2:1' as AppComponentDimensions,
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: [
+					{
+						displayName: 'Windmill',
+						href: 'https://windmill.dev'
+					}
+				]
+			},
+			configuration: {
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.buttonColorOptions,
+					value: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+
+					value: false
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				},
+				afterIcon: {
 					type: 'static',
 					value: undefined,
 					fieldType: 'icon-select'
