@@ -1,5 +1,6 @@
 <script context="module">
-	let classCompletionLoaded = writable(false)
+	let cssClassesLoaded = writable(false)
+	let tailwindClassesLoaded = writable(false)
 </script>
 
 <script lang="ts">
@@ -52,8 +53,6 @@
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
-	// only for css
-	export let subType: 'tailwind' | 'css' = 'css'
 
 	const dispatch = createEventDispatcher()
 
@@ -212,9 +211,15 @@
 			code = getCode()
 		})
 
-		if (lang === 'css' && !$classCompletionLoaded) {
-			$classCompletionLoaded = true
+		if (lang === 'css' && !$cssClassesLoaded) {
+			$cssClassesLoaded = true
 			addCSSClassCompletions()
+		}
+
+		if (lang === 'tailwindcss' && !$tailwindClassesLoaded) {
+			languages.register({ id: 'tailwindcss' })
+			$tailwindClassesLoaded = true
+			addTailwindClassCompletions()
 		}
 	}
 
@@ -232,9 +237,39 @@
 				if (word && word.word) {
 					const currentWord = word.word
 
-					const classes = subType === 'tailwind' ? tailwindClasses : allClasses
+					const suggestions = allClasses
+						.filter((className) => className.includes(currentWord))
+						.map((className) => ({
+							label: className,
+							kind: languages.CompletionItemKind.Class,
+							insertText: className,
+							documentation: 'Custom CSS class',
+							range: range
+						}))
 
-					const suggestions = classes
+					return { suggestions }
+				}
+
+				return { suggestions: [] }
+			}
+		})
+	}
+
+	function addTailwindClassCompletions() {
+		languages.registerCompletionItemProvider('tailwindcss', {
+			provideCompletionItems: function (model, position, context, token) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endLineNumber: position.lineNumber,
+					endColumn: word.endColumn
+				}
+
+				if (word && word.word) {
+					const currentWord = word.word
+
+					const suggestions = tailwindClasses
 						.filter((className) => className.includes(currentWord))
 						.map((className) => ({
 							label: className,

@@ -180,7 +180,7 @@
 				<div class="relative">
 					<SimpleEditor
 						class="h-24"
-						lang="css"
+						lang="tailwindcss"
 						bind:code={value.class}
 						fixedOverflowWidgets={true}
 						small
