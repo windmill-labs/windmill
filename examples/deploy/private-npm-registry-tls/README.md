@@ -3,20 +3,6 @@ Private NPM registry with self-signed certificates
 
 Setup a private NPM registry with self-signed certificates.
 
-## Setup
-
-```bash
-# spin up the registry. You can go to http://localhost:4873 to verify it's up and running
-docker compose up -d
-
-# create your own user to be able to publish a package
-npm adduser --registry http://localhost:4873
-
-# publish a package
-cd helloworld
-npm publish --registry http://localhost:4873
-```
-
 ### Setup
 
 1. Generate self signed certificates (or bring your own)
@@ -101,4 +87,8 @@ import * as testpackage from "npm:@windmill/helloworld@0.0.1"
 # if the above returns undefined, there's a good chance it's working. If you want to double check:
 testpackage.sayHello("Windmill")
 > Hello Windmill
+
+# potentially inspect the env var available to DENO. Is you used DENO_CERT in the docker compose, check its value:
+console.log(Deno.env.get("DENO_CERT"))
+> /custom-certs/windmill-root.crt
 ```
