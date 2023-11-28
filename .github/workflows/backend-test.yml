@@ -15,7 +15,7 @@ on:
 
 jobs:
   cargo_test:
-    runs-on: [self-hosted, new]
+    runs-on: ubicloud
     container:
       image: ghcr.io/windmill-labs/backend-tests
     services:
@@ -41,5 +41,6 @@ jobs:
         run:
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml &&
-          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill DISABLE_EMBEDDING=true cargo
-          test --features enterprise --all -- --nocapture 
+          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
+          DISABLE_EMBEDDING=true cargo test --features enterprise --all --
+          --nocapture
