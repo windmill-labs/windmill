@@ -2721,7 +2721,22 @@ This is a paragraph.
 		icon: FileBarChart,
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
-		customCss: {},
+		customCss: {
+			title: {
+				class: '',
+				style: '',
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			},
+			container: { class: '', style: '' },
+			value: {
+				class: '',
+				style: '',
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			},
+			media: { class: '', style: '' }
+		},
 		initialData: {
 			configuration: {
 				title: {
@@ -2739,11 +2754,40 @@ This is a paragraph.
 					value: 0,
 					fieldType: 'number'
 				},
-				icon: {
-					type: 'static',
-					value: undefined,
-					fieldType: 'icon-select'
-				}
+				media: {
+					type: 'oneOf',
+					selected: 'image',
+					labels: {
+						icon: 'Icon',
+						image: 'Image'
+					},
+					configuration: {
+						icon: {
+							icon: {
+								type: 'static',
+								value: undefined,
+								fieldType: 'icon-select'
+							}
+						},
+						image: {
+							source: {
+								type: 'static',
+								value: '/logo.svg',
+								fieldType: 'text',
+								fileUpload: {
+									accept: 'image/*',
+									convertTo: 'base64'
+								}
+							},
+							sourceKind: {
+								fieldType: 'select',
+								type: 'static',
+								selectOptions: selectOptions.imageSourceKind,
+								value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+							}
+						}
+					}
+				} as const
 			}
 		}
 	}

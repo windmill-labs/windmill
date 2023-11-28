@@ -44,6 +44,8 @@ export type ComponentCssProperty = {
 	class?: string
 	style?: string
 	evalClass?: RichConfiguration
+	quickCss?: readonly string[] | undefined
+	quickTailwindClasses?: readonly string[] | undefined
 }
 
 export type ComponentCustomCSS<T extends keyof typeof components> = Partial<
@@ -173,7 +175,7 @@ export type ListContext = Writable<{
 	disabled: boolean
 }>
 
-export type ListInputs = {set: (id: string, value: any) => void, remove: (id: string) => void}
+export type ListInputs = { set: (id: string, value: any) => void; remove: (id: string) => void }
 
 export type GroupContext = Writable<Record<string, any>>
 
