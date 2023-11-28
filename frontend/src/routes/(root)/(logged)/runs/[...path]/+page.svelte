@@ -25,7 +25,6 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
-	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { tweened, type Tweened } from 'svelte/motion'
@@ -621,29 +620,24 @@
 						your own runs or runs of groups you belong to unless you are an admin.
 					</Tooltip>
 				</div>
-
-				<MobileFilters>
-					<svelte:fragment slot="filters">
-						<span class="text-xs font-semibold leading-6">Filters</span>
-						<RunsFilter
-							bind:isSkipped
-							{paths}
-							{usernames}
-							{folders}
-							bind:jobKindsCat
-							bind:folder
-							bind:path
-							bind:user
-							bind:success
-							bind:argFilter
-							bind:resultFilter
-							bind:argError
-							bind:resultError
-							bind:hideSchedules
-							on:change={reloadLogsWithoutFilterError}
-						/>
-					</svelte:fragment>
-				</MobileFilters>
+				<RunsFilter
+					bind:isSkipped
+					{paths}
+					{usernames}
+					{folders}
+					bind:jobKindsCat
+					bind:folder
+					bind:path
+					bind:user
+					bind:success
+					bind:argFilter
+					bind:resultFilter
+					bind:argError
+					bind:resultError
+					bind:hideSchedules
+					mobile={true}
+					on:change={reloadLogsWithoutFilterError}
+				/>
 			</div>
 		</div>
 		<div class="p-2 w-full">
