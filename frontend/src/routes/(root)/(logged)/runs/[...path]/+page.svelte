@@ -212,6 +212,13 @@
 						.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
 					jobs = jobs
 					computeCompletedJobs()
+
+					if (hideSchedules && !schedulePath) {
+						jobs = jobs.filter(
+							(job) =>
+								!(job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for))
+						)
+					}
 				}
 				loading = false
 			}

@@ -4,7 +4,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import { ChevronDown, Filter, X } from 'lucide-svelte'
+	import { AlertCircle, CheckCircle2, ChevronDown, Filter, PlayCircle, X } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Label from '../Label.svelte'
@@ -51,115 +51,117 @@
 	}
 </script>
 
-<div class="flex gap-2">
+<div class="flex gap-4">
 	{#if !mobile}
-		<div class="relative">
-			<span class="text-xs absolute -top-4">Filter by</span>
-			<ToggleButtonGroup
-				bind:selected={filterBy}
-				on:selected={() => {
-					if (!manuallySet) {
-						path = null
-						user = null
-						folder = null
-					} else {
-						manuallySet = false
-					}
-				}}
-			>
-				<ToggleButton value="path" label="Path" />
-				<ToggleButton value="user" label="User" />
-				<ToggleButton value="folder" label="Folder" />
-			</ToggleButtonGroup>
+		<div class="flex gap-2">
+			<div class="relative">
+				<span class="text-xs absolute -top-4">Filter by</span>
+				<ToggleButtonGroup
+					bind:selected={filterBy}
+					on:selected={() => {
+						if (!manuallySet) {
+							path = null
+							user = null
+							folder = null
+						} else {
+							manuallySet = false
+						}
+					}}
+				>
+					<ToggleButton value="path" label="Path" />
+					<ToggleButton value="user" label="User" />
+					<ToggleButton value="folder" label="Folder" />
+				</ToggleButtonGroup>
+			</div>
+
+			{#if filterBy == 'user'}
+				{#key user}
+					<div class="relative">
+						{#if user}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									user = null
+								}}
+							>
+								<X size={14} />
+							</button>
+						{:else}
+							<ChevronDown class="absolute top-2 right-2" size={14} />
+						{/if}
+
+						<span class="text-xs absolute -top-4">User</span>
+						<AutoComplete
+							items={usernames}
+							value={user}
+							bind:selectedItem={user}
+							inputClassName="!h-[32px] py-1 !text-xs !w-64"
+							hideArrow
+							className={user ? '!font-bold' : ''}
+							dropdownClassName="!font-normal !w-64 !max-w-64"
+						/>
+					</div>
+				{/key}
+			{:else if filterBy == 'folder'}
+				{#key folder}
+					<div class="relative">
+						{#if folder}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									folder = null
+								}}
+							>
+								<X size={14} />
+							</button>
+						{:else}
+							<ChevronDown class="absolute top-2 right-2" size={14} />
+						{/if}
+
+						<span class="text-xs absolute -top-4">Folder</span>
+
+						<AutoComplete
+							items={folders}
+							value={folder}
+							bind:selectedItem={folder}
+							inputClassName="!h-[32px] py-1 !text-xs !w-64"
+							hideArrow
+							className={folder ? '!font-bold' : ''}
+							dropdownClassName="!font-normal !w-64 !max-w-64"
+						/>
+					</div>
+				{/key}
+			{:else if filterBy === 'path'}
+				{#key path}
+					<div class="relative">
+						{#if path}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									path = null
+								}}
+							>
+								<X size={14} />
+							</button>
+						{:else}
+							<ChevronDown class="absolute top-2 right-2" size={14} />
+						{/if}
+
+						<span class="text-xs absolute -top-4">Path</span>
+
+						<AutoComplete
+							items={paths}
+							value={path}
+							bind:selectedItem={path}
+							inputClassName="!h-[32px] py-1 !text-xs !w-64"
+							hideArrow
+							className={path ? '!font-bold' : ''}
+							dropdownClassName="!font-normal !w-64 !max-w-64"
+						/>
+					</div>
+				{/key}
+			{/if}
 		</div>
-
-		{#if filterBy == 'user'}
-			{#key user}
-				<div class="relative">
-					{#if user}
-						<button
-							class="absolute top-2 right-2 z-50"
-							on:click={() => {
-								user = null
-							}}
-						>
-							<X size={14} />
-						</button>
-					{:else}
-						<ChevronDown class="absolute top-2 right-2" size={14} />
-					{/if}
-
-					<span class="text-xs absolute -top-4">User</span>
-					<AutoComplete
-						items={usernames}
-						value={user}
-						bind:selectedItem={user}
-						inputClassName="!h-[30px] py-1 !text-xs !w-64"
-						hideArrow
-						className={user ? '!font-bold' : ''}
-						dropdownClassName="!font-normal !w-64 !max-w-64"
-					/>
-				</div>
-			{/key}
-		{:else if filterBy == 'folder'}
-			{#key folder}
-				<div class="relative">
-					{#if folder}
-						<button
-							class="absolute top-2 right-2 z-50"
-							on:click={() => {
-								folder = null
-							}}
-						>
-							<X size={14} />
-						</button>
-					{:else}
-						<ChevronDown class="absolute top-2 right-2" size={14} />
-					{/if}
-
-					<span class="text-xs absolute -top-4">Folder</span>
-
-					<AutoComplete
-						items={folders}
-						value={folder}
-						bind:selectedItem={folder}
-						inputClassName="!h-[30px] py-1 !text-xs !w-64"
-						hideArrow
-						className={folder ? '!font-bold' : ''}
-						dropdownClassName="!font-normal !w-64 !max-w-64"
-					/>
-				</div>
-			{/key}
-		{:else if filterBy === 'path'}
-			{#key path}
-				<div class="relative">
-					{#if path}
-						<button
-							class="absolute top-2 right-2 z-50"
-							on:click={() => {
-								path = null
-							}}
-						>
-							<X size={14} />
-						</button>
-					{:else}
-						<ChevronDown class="absolute top-2 right-2" size={14} />
-					{/if}
-
-					<span class="text-xs absolute -top-4">Path</span>
-
-					<AutoComplete
-						items={paths}
-						value={path}
-						bind:selectedItem={path}
-						inputClassName="!h-[30px] py-1 !text-xs !w-64"
-						hideArrow
-						className={path ? '!font-bold' : ''}
-						dropdownClassName="!font-normal !w-64 !max-w-64"
-					/>
-				</div>
-			{/key}
-		{/if}
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Kind</span>
 			<ToggleButtonGroup bind:selected={jobKindsCat}>
@@ -188,9 +190,27 @@
 			<span class="text-xs absolute -top-4">Status</span>
 			<ToggleButtonGroup bind:selected={success}>
 				<ToggleButton value={undefined} label="All" />
-				<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
-				<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
-				<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />
+				<ToggleButton
+					value={'running'}
+					label="Running"
+					class="whitespace-nowrap"
+					icon={PlayCircle}
+					iconProps={{ color: success === 'running' ? 'blue' : 'gray' }}
+				/>
+				<ToggleButton
+					value={'success'}
+					label="Success"
+					class="whitespace-nowrap"
+					icon={CheckCircle2}
+					iconProps={{ color: success === 'success' ? 'green' : 'gray' }}
+				/>
+				<ToggleButton
+					value={'failure'}
+					label="Failure"
+					class="whitespace-nowrap"
+					icon={AlertCircle}
+					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
+				/>
 			</ToggleButtonGroup>
 		</div>
 	{/if}
@@ -202,7 +222,7 @@
 	>
 		<svelte:fragment slot="button">
 			<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
-				Filters
+				More filters
 			</Button>
 		</svelte:fragment>
 
@@ -253,7 +273,7 @@
 										items={usernames}
 										value={user}
 										bind:selectedItem={user}
-										inputClassName="!h-[30px] py-1 !text-xs !w-64"
+										inputClassName="!h-[32px] py-1 !text-xs !w-64"
 										hideArrow
 										className={user ? '!font-bold' : ''}
 										dropdownClassName="!font-normal !w-64 !max-w-64"
@@ -282,7 +302,7 @@
 										items={folders}
 										value={folder}
 										bind:selectedItem={folder}
-										inputClassName="!h-[30px] py-1 !text-xs !w-64"
+										inputClassName="!h-[32px] py-1 !text-xs !w-64"
 										hideArrow
 										className={folder ? '!font-bold' : ''}
 										dropdownClassName="!font-normal !w-64 !max-w-64"
@@ -311,7 +331,7 @@
 										items={paths}
 										value={path}
 										bind:selectedItem={path}
-										inputClassName="!h-[30px] py-1 !text-xs !w-80"
+										inputClassName="!h-[32px] py-1 !text-xs !w-80"
 										hideArrow
 										className={path ? '!font-bold' : ''}
 										dropdownClassName="!font-normal !w-80 !max-w-80"
@@ -362,7 +382,7 @@
 					</div>
 				</Label>
 
-				<Label label="Hide Scheduled Jobs">
+				<Label label="Hide future scheduled jobs from schedules">
 					<Toggle size="xs" bind:checked={hideSchedules} />
 				</Label>
 
