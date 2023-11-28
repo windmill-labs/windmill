@@ -20,15 +20,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import {
-		AppService,
-		DraftService,
-		FlowService,
-		Job,
-		Policy,
-		RawScript,
-		ScheduleService
-	} from '$lib/gen'
+	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
@@ -48,7 +40,7 @@
 		RefreshCw,
 		Save,
 		Smartphone,
-		FileScan
+		FileClock
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -57,9 +49,7 @@
 		cleanValueProperties,
 		copyToClipboard,
 		truncateRev,
-		orderedJsonStringify,
-		formatCron,
-		emptyString
+		orderedJsonStringify
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -92,9 +82,7 @@
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
-	import CronInput from '$lib/components/CronInput.svelte'
-	import Section from '$lib/components/Section.svelte'
-	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import AppReportsDrawer from './AppReportsDrawer.svelte'
 
 	async function hash(message) {
 		try {
@@ -526,8 +514,8 @@
 			}
 		},
 		{
-			displayName: 'App Report',
-			icon: FileScan,
+			displayName: 'Schedule Reports',
+			icon: FileClock,
 			action: () => {
 				appReportingDrawerOpen = true
 			}
@@ -567,149 +555,7 @@
 
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
 
-	let appReportingEnabled = false
 	let appReportingDrawerOpen = false
-	let appReportingStartupDuration = 5
-	let appReportingSchedule: {
-		cron: string
-		timezone: string
-	} = {
-		cron: '0 0 12 * *',
-		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-	}
-	let appReportingResource = ''
-
-	async function getAppReporting() {
-		const flowPath = appPath + '_report_flow'
-		try {
-			await FlowService.getFlowByPath({
-				workspace: $workspaceStore!,
-				path: flowPath
-			})
-			const schedule = await ScheduleService.getSchedule({
-				workspace: $workspaceStore!,
-				path: flowPath
-			})
-			appReportingSchedule = {
-				cron: schedule.schedule,
-				timezone: schedule.timezone
-			}
-			appReportingStartupDuration ??= schedule.args?.startup_duration
-			appReportingResource ??= schedule.args?.notification_resource
-			appReportingEnabled = true
-		} catch (err) {}
-	}
-
-	getAppReporting()
-
-	async function disableAppReporting() {
-		const flowPath = appPath + '_report_flow'
-		await ScheduleService.deleteSchedule({
-			workspace: $workspaceStore!,
-			path: flowPath
-		})
-		await FlowService.deleteFlowByPath({
-			workspace: $workspaceStore!,
-			path: flowPath
-		})
-		appReportingEnabled = false
-	}
-
-	async function enableAppReporting() {
-		const flowPath = appPath + '_report_flow'
-		await FlowService.createFlow({
-			workspace: $workspaceStore!,
-			requestBody: {
-				summary: (savedApp?.summary || appPath) + ' - Report flow',
-				value: {
-					modules: [
-						{
-							id: 'a',
-							value: {
-								type: 'rawscript',
-								content:
-									'import puppeteer from \'puppeteer-core\';\nexport async function main(app_path: string, startup_duration = 5) {\n  const browser = await puppeteer.launch({ headless: \'new\', executablePath: \'/usr/bin/chromium\', args: [\'--no-sandbox\'] });\n  const page = await browser.newPage();\n  await page.setCookie({\n    "name": "token",\n    "value": Bun.env["WM_TOKEN"],\n    "domain": "host.docker.internal"\n  })\n  await page.goto(\'http://host.docker.internal/apps/get/\' + app_path + \'?workspace=\' + Bun.env["WM_WORKSPACE"]);\n  await new Promise((resolve, _) => {\n    setTimeout(resolve, startup_duration * 1000)\n  })\n  await page.$eval("#sidebar", el => el.remove())\n  await page.$eval("#content", el => el.classList.remove("md:pl-12"))\n  const elem = await page.$(\'#app-content\');\n  const { height } = await elem.boundingBox();\n  await page.setViewport({ width: 1200, height });\n  await new Promise((resolve, _) => {\n    setTimeout(resolve, 200)\n  })\n  const pdf = await page.pdf({\n    printBackground: true,\n    width: 1200,\n    height\n  });\n  await browser.close();\n  return Buffer.from(pdf).toString(\'base64\');\n}\n',
-								language: RawScript.language.BUN,
-								input_transforms: {
-									app_path: {
-										expr: 'flow_input.app_path',
-										type: 'javascript'
-									},
-									startup_duration: {
-										expr: 'flow_input.startup_duration',
-										type: 'javascript'
-									}
-								}
-							}
-						},
-						{
-							id: 'c',
-							value: {
-								type: 'rawscript',
-								content:
-									'type DiscordWebhook = {\n  webhook_url: string;\n};\nexport async function main(discord_webhook: DiscordWebhook, pdf: string) {\n  const formData = new FormData();\n  formData.append(\'files[0]\', new Blob([Buffer.from(pdf, \'base64\')], {\n    type: "application/pdf"\n  }), "preview.pdf")\n  formData.append(\'payload_json\', JSON.stringify({"content": "App report of " + Bun.env["WM_FLOW_PATH"]?.replace("_report_flow", "")}))\n  const response = await fetch(discord_webhook.webhook_url, {\n    method: \'POST\',\n    body: formData\n  })\n  return response.text()\n}\n',
-								language: RawScript.language.BUN,
-								input_transforms: {
-									discord_webhook: {
-										type: 'javascript',
-										expr: 'flow_input.notification_resource'
-									},
-									pdf: {
-										type: 'javascript',
-										expr: 'results.a'
-									}
-								}
-							}
-						}
-					]
-				},
-				schema: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {
-						app_path: {
-							description: '',
-							type: 'string',
-							default: null,
-							format: ''
-						},
-						startup_duration: {
-							description: '',
-							type: 'integer',
-							default: 5,
-							format: ''
-						},
-						notification_resource: {
-							type: 'object',
-							description: '',
-							format: 'resource-discord_webhook',
-							properties: {},
-							required: []
-						}
-					},
-					required: ['app_path', 'startup_duration', 'notification_resource'],
-					type: 'object'
-				},
-				path: flowPath
-			}
-		})
-
-		await ScheduleService.createSchedule({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path: flowPath,
-				schedule: formatCron(appReportingSchedule.cron),
-				timezone: appReportingSchedule.timezone,
-				script_path: flowPath,
-				is_flow: true,
-				args: {
-					app_path: appPath,
-					startup_duration: appReportingStartupDuration,
-					notification_resource: '$res:' + appReportingResource
-				},
-				enabled: true
-			}
-		})
-	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1176,58 +1022,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={appReportingDrawerOpen}>
-	<DrawerContent title="App Report" on:close={() => (appReportingDrawerOpen = false)}>
-		<div class="flex flex-col gap-8">
-			<Alert type="info" title="Automatic app report"
-				>Receive a PDF preview of the app by email or message on slack/discord at a given schedule.
-				Enabling this feature will create a flow and a schedule in your workspace.
-			</Alert>
-
-			<Section label="Report schedule">
-				<CronInput
-					bind:schedule={appReportingSchedule.cron}
-					bind:timezone={appReportingSchedule.timezone}
-				/>
-			</Section>
-
-			<Section
-				label="Startup duration in seconds"
-				tooltip="The number of seconds to wait before capturing a preview to ensure that all startup scripts
-		have been executed."
-			>
-				<div class="w-full pt-2">
-					<input
-						type="number"
-						class="text-sm w-full font-semibold"
-						bind:value={appReportingStartupDuration}
-					/>
-				</div>
-			</Section>
-
-			<Section label="Discord resource">
-				<div class="w-full pt-2">
-					<ResourcePicker bind:value={appReportingResource} resourceType="discord_webhook" />
-				</div>
-			</Section>
-
-			<Toggle
-				disabled={emptyString(appReportingSchedule.cron) || emptyString(appReportingResource)}
-				checked={appReportingEnabled}
-				on:change={() => {
-					if (appReportingEnabled) {
-						disableAppReporting()
-					} else {
-						enableAppReporting()
-					}
-				}}
-				options={{
-					right: 'Report enabled'
-				}}
-			/>
-		</div>
-	</DrawerContent>
-</Drawer>
+<AppReportsDrawer bind:open={appReportingDrawerOpen} {appPath} />
 
 <div
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
