@@ -75,14 +75,6 @@
 					},
 					name: 'New dataset'
 				})
-			} else if (subFieldType === 'menu-items') {
-				value.push({
-					label: {
-						type: 'static',
-						fieldType: 'text',
-						value: 'Lorem'
-					}
-				})
 			}
 		} else {
 			value.push('')

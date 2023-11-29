@@ -17,7 +17,6 @@
 	import TableColumnWizard from '$lib/components/wizards/TableColumnWizard.svelte'
 	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
 	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
-	import MenuItemWizard from '$lib/components/wizards/MenuItemWizard.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -118,27 +117,6 @@
 		{/if}
 	{:else if fieldType === 'array'}
 		<ArrayStaticInputEditor {subFieldType} bind:componentInput on:deleteArrayItem />
-	{:else if fieldType === 'menu-items'}
-		<div class="flex flex-row rounded-md bg-surface items-center h-full">
-			<div class="relative w-full">
-				<input
-					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
-					bind:value={componentInput.value.field}
-					placeholder="Field"
-				/>
-				<div class="absolute top-1 right-1">
-					<MenuItemWizard bind:value={componentInput.value}>
-						<svelte:fragment slot="trigger">
-							<Button color="light" size="xs2" nonCaptureEvent={true}>
-								<div class="flex flex-row items-center gap-2 text-xs font-normal">
-									<Settings size={16} />
-								</div>
-							</Button>
-						</svelte:fragment>
-					</MenuItemWizard>
-				</div>
-			</div>
-		</div>
 	{:else if fieldType === 'schema'}
 		<div class="w-full">
 			<SchemaEditor bind:schema={componentInput.value} lightMode />

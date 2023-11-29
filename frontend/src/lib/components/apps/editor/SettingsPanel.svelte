@@ -17,6 +17,7 @@
 
 	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
 	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
+	$: menuItemsSettings = findMenuItemsSettings($app, $selectedComponent?.[0])
 
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItems(app.grid, app.subgrids)
@@ -26,6 +27,21 @@
 						const tableAction = x.data.actionButtons.find((x) => x.id === id)
 						if (tableAction) {
 							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
+						}
+					}
+				}
+			})
+			.find((x) => x)
+	}
+
+	function findMenuItemsSettings(app: App, id: string | undefined) {
+		return allItems(app.grid, app.subgrids)
+			.map((x) => {
+				if (x?.data?.type === 'menucomponent') {
+					if (x?.data?.menuItems) {
+						const menuItem = x.data.menuItems.find((x) => x.id === id)
+						if (menuItem) {
+							return { item: { data: menuItem, id: menuItem.id }, parent: x.data.id }
 						}
 					}
 				}
@@ -59,6 +75,26 @@
 					if (parent.data.type === 'tablecomponent') {
 						parent.data.actionButtons = parent.data.actionButtons.filter(
 							(x) => x.id !== tableActionSettings?.item.id
+						)
+					}
+				}
+			}}
+		/>
+	{/key}
+{:else if menuItemsSettings}
+	{#key menuItemsSettings?.item?.id}
+		<ComponentPanel
+			noGrid
+			bind:componentSettings={menuItemsSettings}
+			duplicateMoveAllowed={false}
+			onDelete={() => {
+				if (menuItemsSettings) {
+					const parent = findGridItem($app, menuItemsSettings.parent)
+					if (!parent) return
+
+					if (parent.data.type === 'menucomponent') {
+						parent.data.menuItems = parent.data.menuItems.filter(
+							(x) => x.id !== menuItemsSettings?.item.id
 						)
 					}
 				}

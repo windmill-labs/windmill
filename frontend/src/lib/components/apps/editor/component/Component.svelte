@@ -693,9 +693,7 @@
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
-				componentInput={component.componentInput}
 				menuItems={component.menuItems}
-				{initializing}
 				{render}
 			/>
 		{/if}

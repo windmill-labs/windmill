@@ -2,11 +2,11 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import { components } from '../../editor/component'
+	import { components, type ButtonComponent } from '../../editor/component'
 	import type {
 		AppViewerContext,
+		BaseAppComponent,
 		ComponentCustomCSS,
-		RichConfiguration,
 		RichConfigurations
 	} from '../../types'
 	import { initCss } from '../../utils'
@@ -16,7 +16,8 @@
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import Dropdown from '$lib/components/DropdownV2.svelte'
+	import Menu from '$lib/components/common/menu/MenuV2.svelte'
+	import { AppButton } from '../buttons'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -24,26 +25,12 @@
 	export let render: boolean
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let menuItems: RichConfiguration | undefined
+	export let menuItems: (BaseAppComponent & ButtonComponent)[]
 
 	const resolvedConfig = initConfig(
 		components['menucomponent'].initialData.configuration,
 		configuration
 	)
-
-	type MenuItems = {
-		label: RichConfiguration
-	}
-
-	type ResolvedMenuItems = {
-		label: string
-	}
-
-	let resolvedMenuItems: MenuItems[]
-
-	let resolvedMenuItemsValues: ResolvedMenuItems[]
-
-	let result: any | undefined = undefined
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -57,6 +44,7 @@
 
 	let beforeIconComponent: any
 	let afterIconComponent: any
+	let css = initCss($app.css?.menucomponent, customCss)
 
 	$: resolvedConfig.beforeIcon && handleBeforeIcon()
 	$: resolvedConfig.afterIcon && handleAfterIcon()
@@ -72,29 +60,7 @@
 			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
 		}
 	}
-
-	let css = initCss($app.css?.menucomponent, customCss)
 </script>
-
-{#if menuItems}
-	<ResolveConfig
-		{id}
-		key={'datasets'}
-		bind:resolvedConfig={resolvedMenuItems}
-		configuration={menuItems}
-	/>
-{/if}
-
-{#if resolvedMenuItems}
-	{#each resolvedMenuItems as resolvedMenuItem, index}
-		<ResolveConfig
-			{id}
-			key={'menu-items' + index}
-			bind:resolvedConfig={resolvedMenuItemsValues[index].label}
-			configuration={resolvedMenuItem.label}
-		/>
-	{/each}
-{/if}
 
 <InitializeComponent {id} />
 
@@ -118,10 +84,9 @@
 {/each}
 
 {#if render}
-	{JSON.stringify(resolvedMenuItems)}
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-		<Dropdown justifyEnd={false} items={result ?? []}>
-			<svelte:fragment slot="buttonReplacement">
+		<Menu placement="bottom-end" justifyEnd={false} on:close on:open>
+			<div slot="trigger">
 				<Button
 					on:pointerdown={(e) => e.stopPropagation()}
 					btnClasses={twMerge(
@@ -152,7 +117,30 @@
 						{/if}
 					</span>
 				</Button>
-			</svelte:fragment>
-		</Dropdown>
+			</div>
+
+			<div class="flex flex-col w-full p-1">
+				{#if menuItems.length > 0}
+					{#each menuItems as actionButton, actionIndex (actionButton?.id)}
+						{#if actionButton.type == 'buttoncomponent'}
+							<AppButton
+								extraKey={'idx' + actionIndex}
+								{render}
+								preclickAction={async () => {
+									//toggleRow(row)
+								}}
+								id={actionButton.id}
+								customCss={actionButton.customCss}
+								configuration={actionButton.configuration}
+								recomputeIds={actionButton.recomputeIds}
+								componentInput={actionButton.componentInput}
+								noWFull={false}
+								isMenuItem={true}
+							/>
+						{/if}
+					{/each}
+				{/if}
+			</div>
+		</Menu>
 	</AlignWrapper>
 {/if}

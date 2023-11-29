@@ -36,6 +36,7 @@
 	import ComponentControl from './ComponentControl.svelte'
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
+	import MenuItems from './MenuItems.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -342,6 +343,8 @@
 			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
+		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}
+			<MenuItems id={component.id} bind:components={componentSettings.item.data.menuItems} />
 		{/if}
 
 		{#if Object.values(initialConfiguration).length > 0}

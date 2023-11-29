@@ -302,6 +302,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
+			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,

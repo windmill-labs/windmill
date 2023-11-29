@@ -166,7 +166,7 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
 export type StatisticCardComponent = BaseComponent<'statcomponent'>
 export type MenuComponent = BaseComponent<'menucomponent'> & {
-	menuItems: RichConfiguration | undefined
+	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
 export type TypedComponent =
@@ -280,6 +280,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	numberOfSubgrids?: number
 	recomputeIds?: boolean
 	actionButtons?: boolean
+	menuItems?: boolean
 	tabs?: string[]
 	panes?: number[]
 	conditions?: AppInputSpec<'boolean', boolean>[]
@@ -2808,12 +2809,6 @@ This is a paragraph.
 			...defaultAlignement,
 			componentInput: undefined,
 			configuration: {
-				menuItems: {
-					type: 'static',
-					fieldType: 'array',
-					subFieldType: 'menu-items',
-					value: []
-				} as StaticAppInput,
 				label: {
 					type: 'static',
 					fieldType: 'text',
@@ -2848,7 +2843,8 @@ This is a paragraph.
 					value: undefined,
 					fieldType: 'icon-select'
 				}
-			}
+			},
+			menuItems: true
 		}
 	}
 } as const
