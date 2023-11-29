@@ -261,6 +261,7 @@
 						workspace: $workspaceStore!,
 						path: initialPath
 					})
+					script.parent_hash = undefined
 				}
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,

@@ -97,9 +97,7 @@
 		} else if (app_w_draft.draft) {
 			app = (
 				app_w_draft.draft.summary !== undefined // backward compatibility for old drafts missing metadata
-					? {
-							...app_w_draft.draft
-					  }
+					? app_w_draft.draft
 					: {
 							summary: app_w_draft.summary,
 							value: app_w_draft.draft,
@@ -148,11 +146,12 @@
 	}
 
 	async function restoreDraft() {
-		if (!savedApp) {
+		if (!savedApp || !savedApp.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
 		diffDrawer.closeDrawer()
+		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
 	}
@@ -170,6 +169,7 @@
 				path: savedApp.path
 			})
 		}
+		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
 	}
