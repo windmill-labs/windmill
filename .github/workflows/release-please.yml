@@ -6,7 +6,7 @@ name: release-please
 jobs:
   release-please:
     name: "Release please"
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: GoogleCloudPlatform/release-please-action@v3
         with:
