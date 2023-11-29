@@ -191,7 +191,7 @@ export async function main(app_path: string, startup_duration = 5) {
 						default: ''
 					}
 				},
-				required: ['slack', 'channel']
+				required: ['channel']
 			}
 		},
 		email: {
