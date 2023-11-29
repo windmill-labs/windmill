@@ -15,7 +15,7 @@ on:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud
+    runs-on: [self-hosted, new]
     container:
       image: ghcr.io/windmill-labs/backend-tests
     services:
