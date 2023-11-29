@@ -256,6 +256,7 @@
 		</div>
 
 		<div
+			id="sidebar"
 			class={classNames(
 				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
 				isCollapsed ? 'md:w-12' : 'md:w-40',
@@ -307,6 +308,7 @@
 			</div>
 		</div>
 		<div
+			id="content"
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
 				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',

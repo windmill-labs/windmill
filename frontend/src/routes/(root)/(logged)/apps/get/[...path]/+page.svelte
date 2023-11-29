@@ -54,7 +54,7 @@
 				noBackend={false}
 			/>
 			{#if can_write}
-				<div class="absolute bottom-4 z-50 right-4">
+				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
 					<Button size="sm" startIcon={{ icon: Pen }} variant="border" href="/apps/edit/{app.path}"
 						>Edit</Button
 					>

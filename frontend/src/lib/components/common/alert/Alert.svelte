@@ -60,7 +60,7 @@
 			<svelte:component this={icons[type]} class={classes[type].iconClass} size={16} />
 		</div>
 
-		<div class="ml-2 w-full">
+		<div class="ml-2 pt-[0.15rem] w-full">
 			<span
 				class={classNames(
 					size === 'sm' ? 'text-sm' : 'text-xs ',
@@ -72,15 +72,17 @@
 					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
 				{/if}
 			</span>
-			<div
-				class={classNames(
-					size === 'sm' ? 'text-sm' : 'text-xs ',
-					'mt-2',
-					classes[type].descriptionClass
-				)}
-			>
-				<slot />
-			</div>
+			{#if $$slots.default}
+				<div
+					class={classNames(
+						size === 'sm' ? 'text-sm' : 'text-xs ',
+						'mt-2',
+						classes[type].descriptionClass
+					)}
+				>
+					<slot />
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>
