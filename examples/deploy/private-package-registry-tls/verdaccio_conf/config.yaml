@@ -11,6 +11,7 @@ packages:
     access: $all
     publish: $authenticated
   "**":
+    access: $all
     proxy: npmjs
 listen:
   - http://localhost:4873
