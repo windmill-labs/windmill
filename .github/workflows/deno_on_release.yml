@@ -10,7 +10,7 @@ jobs:
   build_deno_and_push_to_repo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: generate_deno
         run: |
           cd deno-client
@@ -33,7 +33,7 @@ jobs:
     needs: [build_deno_and_push_to_repo]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/${{ env.repo }}
           token: ${{ secrets.DENO_PAT }}

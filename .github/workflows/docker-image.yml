@@ -22,7 +22,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -65,7 +65,7 @@ jobs:
   build_ee:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       # - name: Set up Docker Buildx
@@ -127,7 +127,7 @@ jobs:
   #         --health-timeout 5s
   #         --health-retries 5
   #   steps:
-  #     - uses: actions/checkout@v3
+  #     - uses: actions/checkout@v4
   #     - name: "Docker"
   #       run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
   #       id: docker-container
@@ -149,7 +149,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v3
         with:
           node-version: 18
@@ -261,7 +261,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 

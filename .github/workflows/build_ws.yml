@@ -17,7 +17,7 @@ jobs:
   publish_multiplayer:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: depot/setup-action@v1
@@ -58,7 +58,7 @@ jobs:
     needs: [publish_multiplayer]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Set up Docker Buildx

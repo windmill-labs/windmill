@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     container: node:18
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: git config --system --add safe.directory /__w/windmill/windmill
       - name: Change versions
         run: ./.github/change-versions.sh "$(cat version.txt)"
