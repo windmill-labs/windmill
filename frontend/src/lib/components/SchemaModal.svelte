@@ -22,6 +22,14 @@
 			contentEncoding: schema.contentEncoding,
 			format: schema.format,
 			enum_: schema.enum,
+			min: schema.min,
+			max: schema.max,
+			currency: schema.currency,
+			currencyLocale: schema.currencyLocale,
+			multiselect: schema.multiselect,
+			items: schema.items?.type
+				? { type: schema.items.type as 'string' | 'number' | undefined, enum: schema.items.enum }
+				: undefined,
 			required,
 			schema:
 				schema.type == 'object'
@@ -55,6 +63,8 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
+	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
+	import Label from './Label.svelte'
 
 	export let error = ''
 	export let editing = false
@@ -93,6 +103,12 @@
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
 		property.schema = undefined
+		property.min = undefined
+		property.max = undefined
+		property.currency = undefined
+		property.currencyLocale = undefined
+		property.multiselect = undefined
+		property.items = undefined
 
 		drawer.closeDrawer()
 	}
@@ -157,6 +173,11 @@
 								property.enum_ = undefined
 								property.pattern = undefined
 								property.default = undefined
+								property.min = undefined
+								property.max = undefined
+								property.currency = undefined
+								property.currencyLocale = undefined
+								property.multiselect = undefined
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {
@@ -193,6 +214,7 @@
 						itemsType={property.items}
 						contentEncoding={property.contentEncoding}
 						format={property.format}
+						extra={property}
 					/>
 					<Toggle
 						options={{ right: 'Required' }}
@@ -222,6 +244,20 @@
 						/>
 					{:else if property.selectedType == 'array'}
 						<ArrayTypeNarrowing bind:itemsType={property.items} />
+						<div class="mt-4" />
+						<Label label="Display using multiselect">
+							<Toggle
+								disabled={property?.items?.enum == undefined}
+								bind:checked={property.multiselect}
+							/>
+						</Label>
+					{:else if property.selectedType == 'number' || property.selectedType == 'integer'}
+						<NumberTypeNarrowing
+							bind:min={property.min}
+							bind:max={property.max}
+							bind:currency={property.currency}
+							bind:currencyLocale={property.currencyLocale}
+						/>
 					{:else if property.selectedType == 'object'}
 						<Tabs selected="custom-object">
 							<Tab value="custom-object">Custom Object</Tab>

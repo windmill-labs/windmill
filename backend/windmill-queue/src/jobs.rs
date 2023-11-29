@@ -50,13 +50,12 @@ use windmill_common::{
     },
     flows::{add_virtual_items_if_necessary, FlowModuleValue, FlowValue},
     jobs::{
-        get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
-        JobPayload, QueuedJob, RawCode,
+        get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
-    users::SUPERADMIN_SECRET_EMAIL,
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     worker::{to_raw_value, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
@@ -490,7 +489,7 @@ pub async fn add_completed_job<
 
     tx.commit().await?;
     tracing::info!(
-        "Inserted completed job: {} (success: {success})",
+        "inserted completed job: {} (success: {success})",
         queued_job.id
     );
 
@@ -579,12 +578,13 @@ pub async fn run_error_handler<
     is_global: bool,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
-    let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
+    let handler_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
-    let (job_payload, tag) = script_path_to_payload(&error_handler_path, db, script_w_id).await?;
+    let (job_payload, tag) =
+        get_payload_tag_from_prefixed_path(&error_handler_path, db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
-    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("workspace_id".to_string(), to_raw_value(&handler_w_id));
     extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&queued_job.script_path));
     extra.insert(
@@ -604,7 +604,7 @@ pub async fn run_error_handler<
     // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
     if error_handler_path
         .to_string()
-        .eq("hub/5792/workspace-or-schedule-error-handler-slack")
+        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
@@ -628,7 +628,7 @@ pub async fn run_error_handler<
     let (uuid, tx) = push(
         &db,
         tx,
-        script_w_id,
+        handler_w_id,
         job_payload,
         PushArgs { extra, args: result.to_owned() },
         if is_global {
@@ -682,12 +682,19 @@ pub async fn send_error_to_global_handler<
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
+        let prefixed_global_error_handler_path = if global_error_handler.starts_with("script/")
+            || global_error_handler.starts_with("flow/")
+        {
+            global_error_handler.clone()
+        } else {
+            format!("script/{}", global_error_handler)
+        };
         run_error_handler(
             rsmq,
             queued_job,
             db,
             result,
-            global_error_handler,
+            &prefixed_global_error_handler_path,
             None,
             true,
         )
@@ -754,7 +761,7 @@ pub async fn send_error_to_workspace_handler<
                 queued_job,
                 db,
                 result,
-                &error_handler.strip_prefix("script/").unwrap(),
+                &error_handler,
                 error_handler_extra_args,
                 false,
             )
@@ -1564,7 +1571,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 }
 
 #[derive(FromRow)]
-struct ResultR {
+pub struct ResultR {
     result: Option<Json<Box<RawValue>>>,
 }
 
@@ -1616,7 +1623,7 @@ pub async fn get_result_by_id(
 }
 
 #[async_recursion]
-async fn get_result_by_id_from_running_flow(
+pub async fn get_result_by_id_from_running_flow(
     db: &Pool<Postgres>,
     w_id: &str,
     flow_id: &Uuid,
@@ -1979,12 +1986,9 @@ where
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
             let query = Query::<RequestQuery>::try_from_uri(req.uri()).unwrap().0;
+            let extra = build_extra(&headers_map, query.include_header);
             let raw = query.raw.as_ref().is_some_and(|x| *x);
-            (
-                content_type,
-                build_extra(&headers_map, query.include_header),
-                raw,
-            )
+            (content_type, extra, raw)
         };
 
         if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
@@ -2067,7 +2071,7 @@ impl PushArgs<HashMap<String, Box<RawValue>>> {
     }
 }
 
-pub fn empty_args() -> Box<RawValue> {
+pub fn empty_result() -> Box<RawValue> {
     return JsonRawValue::from_string("{}".to_string()).unwrap();
 }
 
@@ -2091,8 +2095,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     job_payload: JobPayload,
     args: T,
     user: &str,
-    email: &str,
-    permissioned_as: String,
+    mut email: &str,
+    mut permissioned_as: String,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
@@ -2245,6 +2249,10 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             priority,
         ),
         JobPayload::ScriptHub { path } => {
+            if path == "hub/7771/slack" {
+                permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
+                email = SUPERADMIN_NOTIFICATION_EMAIL;
+            }
             (
                 None,
                 Some(path),

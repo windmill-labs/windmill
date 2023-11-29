@@ -561,8 +561,8 @@ async function pull(
       }
     }
     log.info(
-      colors.green.underline(
-        `Done! All ${changes.length} changes applied locally.`
+      colors.bold.green.underline(
+        `\nDone! All ${changes.length} changes applied locally.`
       )
     );
   }
@@ -831,8 +831,8 @@ async function push(
       }
     }
     log.info(
-      colors.green.underline(
-        `Done! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
+      colors.bold.green.underline(
+        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
       )
     );
   }

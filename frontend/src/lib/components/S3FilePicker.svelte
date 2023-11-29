@@ -60,9 +60,10 @@
 	async function loadFiles() {
 		let availableFiles = await HelpersService.listStoredFiles({
 			workspace: $workspaceStore!,
-			maxKeys: 500, // fixed pages of 500 files for now
+			maxKeys: 1000, // fixed pages of 1000 files for now
 			marker: paginationMarker
 		})
+
 		for (let file_path of availableFiles.windmill_large_files) {
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
@@ -70,8 +71,11 @@
 			let nestingLevel = 0
 			for (let i = 0; i < split_path.length; i++) {
 				parent_path = current_path
-				current_path =
-					current_path === undefined ? split_path[i] : current_path + '/' + split_path[i]
+				current_path = current_path === undefined ? split_path[i] : current_path + split_path[i]
+
+				if (i < split_path.length - 1) {
+					current_path += '/'
+				}
 
 				nestingLevel = i * 2
 				if (allFilesByKey[current_path] !== undefined) {
@@ -81,16 +85,34 @@
 					type: i === split_path.length - 1 ? 'leaf' : 'folder',
 					full_key: current_path,
 					display_name: split_path[i],
-					collapsed: false,
+					collapsed: true, // folders collapsed by default
 					parentPath: parent_path,
 					nestingLevel: nestingLevel
 				}
-				displayedFileKeys.push(current_path)
+				if (i == 0) {
+					displayedFileKeys.push(current_path)
+				}
 			}
 		}
 		displayedFileKeys = displayedFileKeys.sort()
 		if (availableFiles.next_marker !== undefined) {
 			paginationMarker = availableFiles.next_marker
+		}
+
+		// before returning, un-collapse the folders containing the selected file (if any)
+		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
+			let split_path = selectedFileKey.s3.split('/')
+			let current_path: string | undefined = undefined
+			for (let i = 0; i < split_path.length; i++) {
+				current_path = current_path === undefined ? split_path[i] : current_path + split_path[i]
+				if (i < split_path.length - 1) {
+					current_path += '/'
+				}
+				let indexOf = displayedFileKeys.indexOf(current_path)
+				if (indexOf >= 0) {
+					selectItem(indexOf, true)
+				}
+			}
 		}
 	}
 
@@ -185,7 +207,7 @@
 				let elt_to_remove = 0
 				for (let i = index + 1; i < displayedFileKeys.length; i++) {
 					let file_key = displayedFileKeys[i]
-					if (file_key.startsWith(item_key + '/')) {
+					if (file_key.startsWith(item_key)) {
 						elt_to_remove += 1
 					} else {
 						break
@@ -279,11 +301,17 @@
 										} gap-2 h-full items-center`}
 									>
 										{#if file_info.type === 'folder'}
-											{#if file_info.collapsed}<FolderClosed />{:else}<FolderOpen />{/if}
-											{file_info.display_name}
+											{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+													size={16}
+												/>{/if}
+											<div class="truncate text-ellipsis w-56">
+												{file_info.display_name}
+											</div>
 										{:else}
-											<File />
-											{file_info.display_name}
+											<File size={16} />
+											<div class="truncate text-ellipsis w-56">
+												{file_info.display_name}
+											</div>
 										{/if}
 									</div>
 								</div>
@@ -344,7 +372,7 @@
 								{/if}
 							</div>
 							<pre class="grow whitespace-no-wrap break-words"
-								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible. If it's a CSV file, you can try changing the separator{/if}</pre
+								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
 							>
 						{:else if filePreviewLoading}
 							<div class="flex h-6 items-center text-tertiary mb-4">

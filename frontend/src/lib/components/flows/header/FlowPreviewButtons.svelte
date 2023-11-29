@@ -38,6 +38,7 @@
 			'settings-cache',
 			'settings-concurrency',
 			'settings-early-stop',
+			'settings-early-return',
 			'inputs',
 			'schedules',
 			'failure',

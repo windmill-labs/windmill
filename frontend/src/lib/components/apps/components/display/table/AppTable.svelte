@@ -285,7 +285,7 @@
 		}
 	}
 
-	$: updateTable(resolvedConfig, searchValue)
+	$: $table && updateTable(resolvedConfig, searchValue)
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}

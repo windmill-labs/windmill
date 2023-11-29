@@ -142,7 +142,7 @@ async fn polars_connection_settings(
     let s3_resource = query.s3_resource;
 
     let response = PolarsConnectionSettingsResponse {
-        endpoint_url: s3_resource.endpoint,
+        endpoint_url: render_endpoint(&s3_resource),
         key: s3_resource.access_key,
         secret: s3_resource.secret_key,
         use_ssl: s3_resource.use_ssl,
@@ -237,15 +237,21 @@ async fn list_stored_files(
         .collect::<Vec<WindmillLargeFile>>();
 
     #[cfg(not(feature = "enterprise"))]
-    if stored_datasets.len() > 10 {
+    if stored_datasets.len() > 20 {
         return Err(error::Error::ExecutionErr(
-            "The workspace s3 bucket contains more than 10 files. Consider upgrading to Windmill Enterprise Edition to continue to use this feature, "
+            "The workspace s3 bucket contains more than 20 files. Consider upgrading to Windmill Enterprise Edition to continue to use this feature."
                 .to_string(),
         ));
     }
 
     let next_marker = if bucket_objects.is_truncated() {
-        bucket_objects.next_marker().map(|v| v.to_owned())
+        if bucket_objects.next_marker().is_some() {
+            // some S3 providers returns the next marker for us. If that's the case just re-use it
+            bucket_objects.next_marker().map(|v| v.to_owned())
+        } else {
+            // others, like AWS, doesn't and implicitly expect users to return the last key of the current page
+            stored_datasets.last().map(|v| v.s3.clone())
+        }
     } else {
         None
     };

@@ -149,14 +149,7 @@
 				floatingConfig={{
 					middleware: [
 						autoPlacement({
-							allowedPlacements: [
-								'bottom-start',
-								'bottom-end',
-								'top-start',
-								'top-end',
-								'top',
-								'bottom'
-							]
+							allowedPlacements: ['bottom-end', 'top-end']
 						})
 					]
 				}}

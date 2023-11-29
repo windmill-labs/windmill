@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes FROM token WHERE email = $1\n         ORDER BY created_at DESC",
+  "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes FROM token WHERE email = $1\n            ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       true
     ]
   },
-  "hash": "773c145013623e4eb29a8df70e46d805dc5b15942a36a0d988521abb0cb34e41"
+  "hash": "9ce6eecfa10c2f71cc536957ead498ad829ea8023ce449eab27225ec66738525"
 }

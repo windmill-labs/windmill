@@ -68,7 +68,7 @@ export async function pushFlow(
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
-      log.info(colors.bold.green("Flow is up to date"));
+      log.info(colors.green(`Flow ${remotePath} is up to date`));
       return;
     }
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));

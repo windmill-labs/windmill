@@ -124,14 +124,18 @@ export async function handleFile(
             typed.is_template === remote.is_template &&
             typed.kind == remote.kind &&
             !remote.archived &&
-            remote?.lock == typed.lock?.join("\n") &&
-            JSON.stringify(typed.schema) == JSON.stringify(remote.schema))
+            (remote?.lock ?? "") == (typed.lock?.join("\n") ?? "") &&
+            JSON.stringify(typed.schema) == JSON.stringify(remote.schema) &&
+            typed.tag == remote.tag &&
+            (typed.ws_error_handler_muted ?? false) ==
+              remote.ws_error_handler_muted &&
+            typed.dedicated_worker == remote.dedicated_worker &&
+            typed.cache_ttl == remote.cache_ttl &&
+            typed.concurrency_time_window_s ==
+              remote.concurrency_time_window_s &&
+            typed.concurrent_limit == remote.concurrent_limit)
         ) {
-          log.info(
-            colors.yellow(
-              `No change to push for script ${remotePath}, skipping`
-            )
-          );
+          log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
         }
       }

@@ -719,7 +719,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             &db,
             &job.workspace_id,
             &job.permissioned_as,
-            "ephemeral-zombie-jobs",
+            "ephemeral-script",
             *SCRIPT_TOKEN_EXPIRY,
             &job.email,
         )

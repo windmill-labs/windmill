@@ -38,3 +38,8 @@ export const SCRIPT_VIEW_WEBHOOK_INFO_LINK = 'https://www.windmill.dev/docs/core
 export const SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS = true
 
 export const SCRIPT_CUSTOMISE_SHOW_KIND = true
+
+export const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
+export const CUSTOM_TAGS_SETTING = 'custom_tags'
+
+export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'

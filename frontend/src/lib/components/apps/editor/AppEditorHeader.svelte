@@ -39,7 +39,8 @@
 		MoreVertical,
 		RefreshCw,
 		Save,
-		Smartphone
+		Smartphone,
+		FileClock
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -81,6 +82,7 @@
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
+	import AppReportsDrawer from './AppReportsDrawer.svelte'
 
 	async function hash(message) {
 		try {
@@ -547,7 +549,13 @@
 				inputsDrawerOpen = true
 			}
 		},
-
+		{
+			displayName: 'Schedule Reports',
+			icon: FileClock,
+			action: () => {
+				appReportingDrawerOpen = true
+			}
+		},
 		...(savedApp
 			? [
 					{
@@ -582,6 +590,8 @@
 	}
 
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
+
+	let appReportingDrawerOpen = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1047,6 +1057,8 @@
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
+
+<AppReportsDrawer bind:open={appReportingDrawerOpen} {appPath} />
 
 <div
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"

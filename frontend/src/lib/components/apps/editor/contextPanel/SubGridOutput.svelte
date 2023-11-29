@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import { connectInput } from '../appUtils'
@@ -63,7 +62,7 @@
 		{/if}
 
 		{#if selected === index || name !== 'Tabs'}
-			<div transition:slide|local class="border-l">
+			<div class="border-l">
 				{#if items.length > 0}
 					{#each items as subGridItem, index (subGridItem.id)}
 						<ComponentOutput

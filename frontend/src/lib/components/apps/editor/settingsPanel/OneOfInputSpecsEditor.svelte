@@ -89,6 +89,7 @@
 					placeholder={config?.['placeholder']}
 					customTitle={config?.['customTitle']}
 					tooltip={config?.['tooltip']}
+					fileUpload={config?.['fileUpload']}
 				/>
 			{/if}
 		{/each}
