@@ -279,9 +279,9 @@
 				}
 			})
 
-			const arr = resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
-
-			$table.setColumnOrder(arr)
+			$table.setColumnOrder(() =>
+				resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
+			)
 		}
 	}
 
