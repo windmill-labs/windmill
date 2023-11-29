@@ -32,14 +32,14 @@ For the private registries/repositories, it's using [Verdaccio](https://verdacci
 
 ## Deno pulling package from private NPM registry
 
-Upload the custom `helloworld_package` package to the private NPM registry and use it in a Windmill script
+Upload the custom `helloworld_npm_package` package to the private NPM registry and use it in a Windmill script
 
 ```bash
-cd helloworld_package
+cd helloworld_npm_package
 # you need to first create a registry user
 # you might need to run `npm config set strict-ssl false` if the below fails. If you do, then change it back to `true` after running the 2 commands
-npm adduser --registry https://0.0.0.0:4873/
-npm publish --registry https://0.0.0.0:4873/
+npm adduser --registry https://localhost/npm/
+npm publish --registry https://localhost/npm/
 ```
 
 Go to Windmill at `http://localhost:8000`. Create a simple Deno script:
@@ -60,7 +60,7 @@ Note: Native fetches to HTTPS endpoints with self signed certificates also takes
 Go to Windmill and create a new script of type "REST" with the following content:
 ```ts
 export async function main() {
-  const res = await fetch("https://localhost/static/helloworld.json", {
+  const res = await fetch("https://caddy/static/helloworld.json", {
     headers: { "Content-Type": "application/json" },
   });
   return res.json();
