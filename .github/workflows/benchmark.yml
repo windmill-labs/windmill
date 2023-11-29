@@ -14,7 +14,6 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
-
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
@@ -40,7 +39,7 @@ jobs:
           DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         options: >-
-          --pull always
+          --pull always --restart unless-stopped
     steps:
       - uses: denoland/setup-deno@v1
         with:
