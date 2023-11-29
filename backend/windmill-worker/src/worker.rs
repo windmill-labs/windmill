@@ -958,6 +958,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_flow_transition_duration2 = worker_flow_transition_duration.clone();
 
     let worker_name2 = worker_name.clone();
+    let killpill_tx2 = killpill_tx.clone();
     let send_result = tokio::spawn(async move {
         while let Some(jc) = job_completed_rx.recv().await {
             if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
@@ -969,7 +970,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let same_worker_tx2 = same_worker_tx2.clone();
             let rsmq2 = rsmq2.clone();
             let worker_name = worker_name2.clone();
-
             if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
                 thread_count.fetch_add(1, Ordering::SeqCst);
                 let thread_count = thread_count.clone();
@@ -993,7 +993,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 let worker_save_completed_job_duration2 =
                     worker_save_completed_job_duration.clone();
                 let worker_flow_transition_duration2 = worker_flow_transition_duration.clone();
-
+                let killpill_tx = killpill_tx2.clone();
                 tokio::spawn(async move {
                     #[cfg(feature = "benchmark")]
                     let process_start = Instant::now();
@@ -1056,6 +1056,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             .execute(&db2)
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
+                        killpill_tx.send(()).unwrap_or_default();
                     }
                 });
             } else {
