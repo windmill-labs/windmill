@@ -210,12 +210,12 @@ function argSigToJsonSchemaType(
 export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
-		if (language == 'deno' || language == 'nativets') {
-			const newSchema = emptySchema()
-			await inferArgs('deno' as SupportedLanguage, content ?? '', newSchema)
-			return newSchema
+		if (schema && 'properties' in schema) {
+			return schema
 		} else {
-			return schema ?? emptySchema()
+			const newSchema = emptySchema()
+			await inferArgs(language as SupportedLanguage, content ?? '', newSchema)
+			return newSchema
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
