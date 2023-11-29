@@ -279,13 +279,13 @@
 				}
 			})
 
-			$table.setColumnOrder(() =>
-				resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
-			)
+			const arr = resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
+
+			$table.setColumnOrder(arr)
 		}
 	}
 
-	$: updateTable(resolvedConfig, searchValue)
+	$: $table && updateTable(resolvedConfig, searchValue)
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
