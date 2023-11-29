@@ -6331,8 +6331,10 @@ paths:
         content:
           application/json:
             schema:
-              s3_resource:
-                $ref: "#/components/schemas/S3Resource"
+              type: object
+              properties:
+                s3_resource:
+                  $ref: "#/components/schemas/S3Resource"
       responses:
         "200":
           description: Connection settings
@@ -6359,8 +6361,10 @@ paths:
         content:
           application/json:
             schema:
-              s3_resource:
-                $ref: "#/components/schemas/S3Resource"
+              type: object
+              properties:
+                s3_resource:
+                  $ref: "#/components/schemas/S3Resource"
       responses:
         "200":
           description: Connection settings
