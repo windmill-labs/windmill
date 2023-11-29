@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build_ee:
-    runs-on: ubuntu-22.04
+    runs-on: ubicloud
     steps:
       - uses: actions/checkout@v3
         with:
