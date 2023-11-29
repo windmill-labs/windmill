@@ -80,14 +80,16 @@ python setup.py sdist
 twine upload --repository-url https://localhost/ dist/* --cert ../certs/windmill-root.crt
 # no username and password, just press enter. For the purpose of the demo we're running pypiserver completely unauthenticated
 ```
-You can check that the package is uploaded by visiting [https://localhost/simple](https://localhost/pypi/simple).
+You can check that the package is uploaded by visiting [https://localhost/simple](https://localhost/simple).
 
 Go to Windmill at `http://localhost:8000`. Create a simple Python script:
 ```python
+#requirements:
+#windmill-helloworld==0.0.1
 import windmill_helloworld
 
 def main():
-  print(windmill_helloworld.say_hello("Windmill"))
+    print(windmill_helloworld.say_hello("Windmill"))
 ```
 and execute it. It should return successfully with:
 ```

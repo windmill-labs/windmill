@@ -48,11 +48,15 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
       - WORKER_TAGS=deno,go,python3,bash,flow,hub,dependency,nativets
-      - NPM_CONFIG_REGISTRY=https://caddy/npm/
+
+      # For DENO and REST scripts:
+      - NPM_CONFIG_REGISTRY=http://caddy/npm/
       - DENO_CERT=/custom-certs/windmill-root.crt # this will make deno trust this RootCA for all sessions
       # - DENO_TLS_CA_STORE=system # alternatively, you can use this but you'll need to manually trust the RootCA at the host level, see README.md
+
+      # For Python scripts:
+      - PIP_INDEX_URL=https://caddy/simple/
       - PIP_INDEX_CERT=/custom-certs/windmill-root.crt # this will make pip trust this RootCA for all sessions
-      - BUN_TLS_REJECT_UNAUTHORIZED=0 # this will make bun ignore TLS errors. Bun does not support trusting an additional RootCA yet
     volumes:
       - ./certs:/custom-certs
     depends_on:
