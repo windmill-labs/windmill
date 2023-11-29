@@ -6,16 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc, env, io::{BufReader, self}};
 
 use deno_ast::{ParseParams, SourceTextInfo};
 use deno_core::{
     op, serde_v8,
     v8::IsolateHandle,
     v8::{self},
-    Extension, JsRuntime, Op, OpState, RuntimeOptions, Snapshot,
+    Extension, JsRuntime, Op, OpState, RuntimeOptions, Snapshot, error::AnyError,
 };
 use deno_fetch::FetchPermissions;
+use deno_tls::{rustls::RootCertStore, rustls_pemfile};
 use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -36,6 +37,33 @@ pub struct IdContext {
     pub flow_job: Uuid,
     pub steps_results: HashMap<String, JobResult>,
     pub previous_id: String,
+}
+
+pub struct ContainerRootCertStoreProvider {
+    root_cert_store: RootCertStore,
+}
+
+impl ContainerRootCertStoreProvider {
+    fn new() -> ContainerRootCertStoreProvider {
+        return ContainerRootCertStoreProvider {
+            root_cert_store: deno_tls::create_default_root_cert_store(),
+        }
+    }
+
+    fn add_certificate(&mut self, cert_path: String) -> io::Result<()> {
+        let cert_file = std::fs::File::open(cert_path)?;
+        let mut reader = BufReader::new(cert_file);
+        let pem_file = rustls_pemfile::certs(&mut reader)?;
+
+        self.root_cert_store.add_parsable_certificates(&pem_file);
+        Ok(())
+    }
+}
+
+impl deno_tls::RootCertStoreProvider for ContainerRootCertStoreProvider {
+    fn get_or_try_init(&self) -> Result<&RootCertStore, AnyError> {
+        Ok(&self.root_cert_store)
+    }
 }
 
 pub struct PermissionsContainer;
@@ -532,6 +560,18 @@ pub async fn eval_fetch_timeout(
                   ..Default::default()
                 };
 
+            let deno_fetch_options = if let Some(cert_path) = env::var("DENO_CERT").ok() {
+                let mut cert_store_provider = ContainerRootCertStoreProvider::new();
+                cert_store_provider.add_certificate(cert_path)?;
+
+                deno_fetch::Options {
+                    root_cert_store_provider: Some(Arc::new(cert_store_provider)),
+                    ..Default::default()
+                }
+            } else {
+                Default::default()
+            };
+
             let exts: Vec<Extension> = vec![
                 deno_webidl::deno_webidl::init_ops(),
                 deno_url::deno_url::init_ops(),
@@ -540,9 +580,7 @@ pub async fn eval_fetch_timeout(
                     Arc::new(BlobStore::default()),
                     None,
                 ),
-                deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
-                    Default::default(),
-                ),
+                deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(deno_fetch_options),
                 ext
             ];
 

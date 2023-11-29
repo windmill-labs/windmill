@@ -49,6 +49,8 @@ pub const EMPTY_FILE: &str = "<empty>";
 
 lazy_static::lazy_static! {
     pub static ref TRUSTED_DEP: Regex = Regex::new(r"//\s?trustedDependencies:(.*)\n").unwrap();
+
+    static ref BUN_TLS_REJECT_UNAUTHORIZED: String = std::env::var("NODE_TLS_REJECT_UNAUTHORIZED").ok().unwrap_or_else(|| String::new());
 }
 
 pub async fn gen_lockfile(
@@ -532,6 +534,12 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
 
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
         bun_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+    }
+    if BUN_TLS_REJECT_UNAUTHORIZED.len() > 0 {
+        bun_envs.insert(
+            String::from("NODE_TLS_REJECT_UNAUTHORIZED"),
+            BUN_TLS_REJECT_UNAUTHORIZED.clone(),
+        );
     }
     return bun_envs;
 }
