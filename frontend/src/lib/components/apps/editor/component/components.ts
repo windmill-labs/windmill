@@ -165,7 +165,9 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
 export type StatisticCardComponent = BaseComponent<'statcomponent'>
-export type MenuComponent = BaseComponent<'menucomponent'>
+export type MenuComponent = BaseComponent<'menucomponent'> & {
+	menuItems: RichConfiguration | undefined
+}
 
 export type TypedComponent =
 	| DisplayComponent
@@ -2804,17 +2806,14 @@ This is a paragraph.
 		},
 		initialData: {
 			...defaultAlignement,
-			componentInput: {
-				type: 'static',
-				fieldType: 'object',
-				value: [
-					{
-						displayName: 'Windmill',
-						href: 'https://windmill.dev'
-					}
-				]
-			},
+			componentInput: undefined,
 			configuration: {
+				menuItems: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'menu-items',
+					value: []
+				} as StaticAppInput,
 				label: {
 					type: 'static',
 					fieldType: 'text',
