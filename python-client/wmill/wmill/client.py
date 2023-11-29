@@ -577,11 +577,11 @@ def get_resource(
 
 
 @init_global_client
-def set_resource(**kwargs) -> None:
+def set_resource(*args, **kwargs) -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
-    return _client.set_resource(**kwargs)
+    return _client.set_resource(*args, **kwargs)
 
 
 @init_global_client
@@ -592,33 +592,33 @@ def set_state(value: Any) -> None:
     return _client.set_state(value)
 
 
-def set_shared_state_pickle(**kwargs) -> None:
+def set_shared_state_pickle(*args, **kwargs) -> None:
     """
     Set the state in the shared folder using pickle
     """
-    return Windmill.set_shared_state_pickle(**kwargs)
+    return Windmill.set_shared_state_pickle(args, **kwargs)
 
 
 @deprecate("Windmill.get_shared_state_pickle(...)")
-def get_shared_state_pickle(**kwargs) -> Any:
+def get_shared_state_pickle(*args, **kwargs) -> Any:
     """
     Get the state in the shared folder using pickle
     """
-    return Windmill.get_shared_state_pickle(**kwargs)
+    return Windmill.get_shared_state_pickle(*args, **kwargs)
 
 
-def set_shared_state(**kwargs) -> None:
+def set_shared_state(*args, **kwargs) -> None:
     """
     Set the state in the shared folder using pickle
     """
-    return Windmill.set_shared_state(**kwargs)
+    return Windmill.set_shared_state(*args, **kwargs)
 
 
-def get_shared_state(**kwargs) -> None:
+def get_shared_state(*args, **kwargs) -> None:
     """
     Set the state in the shared folder using pickle
     """
-    return Windmill.get_shared_state(**kwargs)
+    return Windmill.get_shared_state(*args, **kwargs)
 
 
 @init_global_client
