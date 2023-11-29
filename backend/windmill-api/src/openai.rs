@@ -102,9 +102,13 @@ async fn proxy(
         &openai_resource_path,
         &w_id
     )
-    .fetch_one(&mut *tx)
-    .await?;
-    tx.commit().await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        create_openai_json_error(format!(
+            "Could not find the OpenAI resource at path {openai_resource_path}, update the resource path in the workspace settings"
+        ))
+    })?;
 
     if resource.is_none() {
         return Err(create_openai_json_error(
