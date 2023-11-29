@@ -9,6 +9,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
+	import { CUSTOM_TAGS_SETTING, WORKER_S3_BUCKET_SYNC_SETTING } from '$lib/consts'
 	import { WorkerService, type WorkerPing, SettingService, ConfigService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -35,9 +36,6 @@
 		(x) => x[0]?.split(splitter)?.[1],
 		(x) => x[0]?.split(splitter)?.[0]
 	)
-
-	const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
-	const CUSTOM_TAGS_SETTING = 'custom_tags'
 
 	let timeSinceLastPing = 0
 
