@@ -12,7 +12,6 @@
 		FlowService,
 		RawScript,
 		ScheduleService,
-		ScriptService,
 		SettingService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -21,8 +20,9 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Save } from 'lucide-svelte'
-	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
+	import { RotateCw, Save } from 'lucide-svelte'
+	import { CUSTOM_TAGS_SETTING, WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
+	import { loadSchemaFromPath } from '$lib/infer'
 	export let appPath: string
 	export let open = false
 
@@ -39,17 +39,15 @@
 	let customPath: string | undefined = undefined
 	let customPathSchema: Record<string, any> = {}
 	let args: Record<string, any> = {}
+	let areArgsValid = true
 
 	$: customPath
-		? ScriptService.getScriptByPath({
-				path: customPath,
-				workspace: $workspaceStore!
-		  }).then((script) => {
-				customPathSchema = script.schema
+		? loadSchemaFromPath(customPath).then((schema) => {
+				customPathSchema = schema
 					? {
-							...script.schema,
+							...schema,
 							properties: Object.fromEntries(
-								Object.entries(script.schema.properties ?? {}).filter(
+								Object.entries(schema.properties ?? {}).filter(
 									([key, _]) => key !== 'pdf' && key !== 'app_path'
 								)
 							)
@@ -58,21 +56,18 @@
 		  })
 		: (customPathSchema = {})
 
-	$: selectedTab === 'slack' &&
-		$enterpriseLicense &&
-		!appReportingEnabled &&
-		setWorkspaceSlackResource()
-
-	let rerenderingSlackArgs = false
-	async function setWorkspaceSlackResource() {
+	let isSlackConnectedWorkspace = false
+	async function getWorspaceSlackSetting() {
 		const settings = await WorkspaceService.getSettings({
 			workspace: $workspaceStore!
 		})
 		if (settings.slack_name) {
-			args['slack'] = '$res:f/slack_bot/bot_token'
-			rerenderingSlackArgs = true // force rerendering of schema form for resource picker to take into account args
+			isSlackConnectedWorkspace = true
+		} else {
+			isSlackConnectedWorkspace = false
 		}
 	}
+	getWorspaceSlackSetting()
 
 	async function getAppReportingInfo() {
 		const flowPath = appPath + '_reports'
@@ -100,25 +95,27 @@
 
 			selectedTab =
 				flow.value.modules[1]?.value.type === 'script'
-					? 'custom'
-					: schedule.args?.smtp
-					? 'email'
-					: schedule.args?.discord_webhook
-					? 'discord'
-					: schedule.args?.slack
-					? 'slack'
+					? flow.value.modules[1].value.path === notificationScripts.email.path
+						? 'email'
+						: flow.value.modules[1].value.path === notificationScripts.slack.path
+						? 'slack'
+						: flow.value.modules[1].value.path === notificationScripts.discord.path
+						? 'discord'
+						: 'custom'
 					: 'custom'
 
 			customPath =
-				flow.value.modules[1]?.value.type === 'script'
-					? flow.value.modules[1]?.value.path
+				selectedTab === 'custom' &&
+				flow.value.modules[1]?.value.type === 'script' &&
+				!flow.value.modules[1].value.path.startsWith('hub/')
+					? flow.value.modules[1].value.path
 					: undefined
 
 			appReportingEnabled = true
 		} catch (err) {}
 	}
 
-	getAppReportingInfo()
+	$: appPath && getAppReportingInfo()
 
 	async function disableAppReporting(skipToast = false) {
 		const flowPath = appPath + '_reports'
@@ -169,21 +166,7 @@ export async function main(app_path: string, startup_duration = 5) {
 
 	const notificationScripts = {
 		discord: {
-			script: `type DiscordWebhook = {
-  webhook_url: string;
-};
-export async function main(discord_webhook: DiscordWebhook, pdf: string, app_path: string) {
-    const formData = new FormData();
-    formData.append(\'files[0]\', new Blob([Buffer.from(pdf, \'base64\')], {
-      type: "application/pdf"
-}), "report.pdf")
-  formData.append(\'payload_json\', JSON.stringify({"content": "App report of " + app_path}))
-  const response = await fetch(discord_webhook.webhook_url, {
-      method: \'POST\',
-    body: formData
-  })
-  return response.text()
-}`,
+			path: 'hub/7772/discord',
 			schema: {
 				type: 'object',
 				properties: {
@@ -191,43 +174,18 @@ export async function main(discord_webhook: DiscordWebhook, pdf: string, app_pat
 						type: 'object',
 						format: 'resource-discord_webhook',
 						properties: {},
-						required: []
+						required: [],
+						description: ''
 					}
 				},
 				required: ['discord_webhook']
 			}
 		},
 		slack: {
-			script: `type Slack = {
-  token: string;
-};
-export async function main(
-  slack: Slack,
-  channel: string,
-  pdf: string,
-  app_path: string,
-) {
-  const formData = new FormData();
-  formData.append("token", slack.token);
-  formData.append("file", new Blob([Buffer.from(pdf, 'base64')]), "report.pdf");
-  formData.append("channels", channel);
-  formData.append("initial_comment", "App report of " + app_path)
-  return await (
-    await fetch("https://slack.com/api/files.upload", {
-      method: "POST",
-      body: formData,
-    })
-  ).json();
-}`,
+			path: 'hub/7771/slack', // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
 			schema: {
 				type: 'object',
 				properties: {
-					slack: {
-						type: 'object',
-						format: 'resource-slack',
-						properties: {},
-						required: []
-					},
 					channel: {
 						type: 'string',
 						default: ''
@@ -237,45 +195,7 @@ export async function main(
 			}
 		},
 		email: {
-			script: `import nodemailer from 'nodemailer'
-type Smtp = {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-};
-export async function main(
-  smtp: Smtp,
-  pdf: string,
-  to_email: string,
-  from_email: string,
-  app_path: string,
-) {
-
-  const transporter = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: true,
-    auth: {
-      user: smtp.user,
-      pass: smtp.password,
-    },
-  });
-
-  return await transporter.sendMail({
-    from: from_email,
-    to: to_email,
-    subject: "App report of " + app_path,
-    text: "App report of " + app_path + "\\n\\n",
-    attachments: [
-      {
-        filename: 'report.pdf',
-        content: Buffer.from(pdf, 'base64')
-      },
-    ]
-  });
-}`,
-
+			path: 'hub/7774/smtp',
 			schema: {
 				type: 'object',
 				properties: {
@@ -283,7 +203,8 @@ export async function main(
 						type: 'object',
 						format: 'resource-smtp',
 						properties: {},
-						required: []
+						required: [],
+						description: ''
 					},
 					from_email: {
 						type: 'string',
@@ -308,18 +229,21 @@ export async function main(
 	async function enableAppReporting(skipToast = false) {
 		const flowPath = appPath + '_reports'
 
-		const customTags = ((await SettingService.getGlobal({
-			key: CUSTOM_TAGS_SETTING
-		})) ?? []) as string[]
+		try {
+			// will only work if the user is super admin
+			const customTags = ((await SettingService.getGlobal({
+				key: CUSTOM_TAGS_SETTING
+			})) ?? []) as string[]
 
-		if (!customTags.includes('chromium')) {
-			await SettingService.setGlobal({
-				key: CUSTOM_TAGS_SETTING,
-				requestBody: {
-					value: [...customTags, 'chromium']
-				}
-			})
-		}
+			if (!customTags.includes('chromium')) {
+				await SettingService.setGlobal({
+					key: CUSTOM_TAGS_SETTING,
+					requestBody: {
+						value: [...customTags, 'chromium']
+					}
+				})
+			}
+		} catch (err) {}
 
 		const inputTransforms: {
 			[key: string]: {
@@ -343,7 +267,15 @@ export async function main(
 						expr: `flow_input.${key}`
 					}
 				])
-			)
+			),
+			...(selectedTab === 'slack'
+				? {
+						slack: {
+							type: 'javascript',
+							expr: 'flow_input.slack'
+						}
+				  }
+				: {})
 		}
 		await FlowService.createFlow({
 			workspace: $workspaceStore!,
@@ -372,19 +304,14 @@ export async function main(
 						},
 						{
 							id: 'b',
-							value:
-								selectedTab === 'custom'
-									? {
-											type: 'script',
-											path: customPath || '',
-											input_transforms: inputTransforms
-									  }
-									: {
-											type: 'rawscript',
-											content: notificationScripts[selectedTab].script,
-											language: RawScript.language.BUN,
-											input_transforms: inputTransforms
-									  }
+							value: {
+								type: 'script',
+								path:
+									selectedTab === 'custom'
+										? customPath || ''
+										: notificationScripts[selectedTab].path,
+								input_transforms: inputTransforms
+							}
 						}
 					]
 				},
@@ -405,14 +332,26 @@ export async function main(
 						},
 						...(selectedTab === 'custom'
 							? customPathSchema.properties
-							: notificationScripts[selectedTab].schema.properties)
+							: notificationScripts[selectedTab].schema.properties),
+						...(selectedTab === 'slack'
+							? {
+									slack: {
+										description: '',
+										type: 'object',
+										format: 'resource-slack',
+										properties: {},
+										required: []
+									}
+							  }
+							: {})
 					},
 					required: [
 						'app_path',
 						'startup_duration',
 						...(selectedTab === 'custom'
 							? customPathSchema.required
-							: notificationScripts[selectedTab].schema.required)
+							: notificationScripts[selectedTab].schema.required),
+						...(selectedTab === 'slack' ? ['slack'] : [])
 					],
 					type: 'object'
 				},
@@ -431,7 +370,12 @@ export async function main(
 				args: {
 					app_path: appPath,
 					startup_duration: appReportingStartupDuration,
-					...args
+					...args,
+					...(selectedTab === 'slack'
+						? {
+								slack: '$res:' + WORKSPACE_SLACK_BOT_TOKEN_PATH
+						  }
+						: {})
 				},
 				enabled: true
 			}
@@ -441,6 +385,13 @@ export async function main(
 			sendUserToast('App reporting enabled')
 		}
 	}
+
+	let disabled = true
+	$: disabled =
+		emptyString(appReportingSchedule.cron) ||
+		(selectedTab === 'custom' && emptyString(customPath)) ||
+		(selectedTab === 'slack' && !isSlackConnectedWorkspace) ||
+		!areArgsValid
 </script>
 
 <Drawer bind:open>
@@ -457,12 +408,7 @@ export async function main(
 							enableAppReporting()
 						}
 					}}
-					disabled={emptyString(appReportingSchedule.cron) ||
-						(selectedTab === 'custom' && emptyString(customPath)) ||
-						(selectedTab !== 'custom' &&
-							Object.keys(notificationScripts[selectedTab].schema.properties).some((key) =>
-								emptyString(args[key])
-							))}
+					{disabled}
 				/>
 			</div>
 			<Button
@@ -473,12 +419,7 @@ export async function main(
 					appReportingEnabled ? await updateAppReporting() : await enableAppReporting()
 					open = false
 				}}
-				disabled={emptyString(appReportingSchedule.cron) ||
-					(selectedTab === 'custom' && emptyString(customPath)) ||
-					(selectedTab !== 'custom' &&
-						Object.keys(notificationScripts[selectedTab].schema.properties).some((key) =>
-							emptyString(args[key])
-						))}
+				{disabled}
 			>
 				{appReportingEnabled ? 'Update' : 'Save and enable'}
 			</Button>
@@ -548,15 +489,42 @@ export async function main(
 						reported.
 					</div>
 				{/if}
+				{#if selectedTab === 'slack'}
+					<div class="pt-4">
+						{#if isSlackConnectedWorkspace}
+							<Alert type="info" title="Will use the Slack resource linked to the workspace" />
+						{:else}
+							<Alert type="error" title="Workspace not connected to Slack">
+								<div class="flex flex-row gap-x-1 w-full items-center">
+									<p class="text-clip grow min-w-0">
+										The workspace needs to be connected to Slack to use this feature. You can <a
+											target="_blank"
+											href="/workspace_settings?tab=slack">configure it here</a
+										>.
+									</p>
+									<Button
+										variant="border"
+										color="light"
+										on:click={getWorspaceSlackSetting}
+										startIcon={{ icon: RotateCw }}
+									/>
+								</div>
+							</Alert>
+						{/if}
+					</div>
+				{/if}
 				<div class="w-full pt-4">
-					{#key rerenderingSlackArgs}
-						<SchemaForm
-							bind:args
-							schema={selectedTab !== 'custom'
-								? notificationScripts[selectedTab].schema
-								: customPathSchema}
-						/>
-					{/key}
+					{#if selectedTab !== 'custom' || customPath !== undefined}
+						{#key selectedTab + JSON.stringify(customPathSchema ?? {})}
+							<SchemaForm
+								bind:isValid={areArgsValid}
+								bind:args
+								schema={selectedTab !== 'custom'
+									? notificationScripts[selectedTab].schema
+									: customPathSchema}
+							/>
+						{/key}
+					{/if}
 				</div>
 			</Section>
 		</div>

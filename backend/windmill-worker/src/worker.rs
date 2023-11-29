@@ -32,7 +32,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    users::SUPERADMIN_SECRET_EMAIL,
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
         to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG, WORKER_GROUP,
@@ -142,7 +142,8 @@ pub async fn create_token_for_owner(
             .fetch_optional(db)
             .await?
             .unwrap_or(false)
-            || email == SUPERADMIN_SECRET_EMAIL;
+            || email == SUPERADMIN_SECRET_EMAIL
+            || email == SUPERADMIN_NOTIFICATION_EMAIL;
 
     sqlx::query_scalar!(
         "INSERT INTO token
