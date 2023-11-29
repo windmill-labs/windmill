@@ -122,8 +122,8 @@ pub async fn pip_compile(
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
-    if let Some(host) = PIP_INDEX_CERT.as_ref() {
-        args.extend(["--cert", host]);
+    if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        args.extend(["--cert", cert_path]);
     }
 
     let mut child_cmd = Command::new("pip-compile");
@@ -609,6 +609,9 @@ pub async fn handle_python_reqs(
         if let Some(url) = PIP_INDEX_URL.as_ref() {
             vars.push(("INDEX_URL", url));
         }
+        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+            vars.push(("PIP_INDEX_CERT", cert_path));
+        }
         if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
         }
@@ -707,6 +710,9 @@ pub async fn handle_python_reqs(
             }
             if let Some(url) = PIP_INDEX_URL.as_ref() {
                 command_args.extend(["--index-url", url]);
+            }
+            if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+                command_args.extend(["--cert", cert_path]);
             }
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 command_args.extend(["--trusted-host", &host]);
