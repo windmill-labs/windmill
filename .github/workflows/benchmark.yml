@@ -34,7 +34,7 @@ jobs:
         image: ghcr.io/windmill-labs/windmill-ee:main
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
-          DISABLE_SERVER: true
+          MODE: worker
           WORKER_GROUP: dedicated
           DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
