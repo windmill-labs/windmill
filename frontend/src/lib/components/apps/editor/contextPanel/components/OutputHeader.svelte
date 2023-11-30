@@ -90,6 +90,14 @@
 			}
 		}
 
+		if (item?.data.type === 'menucomponent') {
+			for (let c of item.data.menuItems) {
+				let old = c.id
+				c.id = c.id.replace(id + '_', newId + '_')
+				propagateRename(old, c.id)
+			}
+		}
+
 		$app = $app
 		$selectedComponent = [newId]
 
@@ -102,6 +110,13 @@
 				renameComponent(from, to, c)
 			}
 		}
+
+		if (data.type === 'menucomponent') {
+			for (let c of data.menuItems) {
+				renameComponent(from, to, c)
+			}
+		}
+
 		let componentInput = data.componentInput
 		if (componentInput?.type == 'connected') {
 			if (componentInput.connection?.componentId === from) {
@@ -234,8 +249,10 @@
 		</div>
 	</div>
 	<div
-		class="border-b {open ? 'h-full' : 'h-0 overflow-hidden invisible'} {$connectingInput.hoveredComponent ===
-			id && !$selectedComponent?.includes(id)
+		class="border-b {open
+			? 'h-full'
+			: 'h-0 overflow-hidden invisible'} {$connectingInput.hoveredComponent === id &&
+		!$selectedComponent?.includes(id)
 			? '  bg-orange-100/40'
 			: ''}"
 	>
