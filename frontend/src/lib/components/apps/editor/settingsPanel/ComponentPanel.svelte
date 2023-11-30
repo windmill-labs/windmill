@@ -121,11 +121,11 @@
 	}
 
 	const initialConfiguration = componentSettings?.item?.data?.type
-		? ccomponents[componentSettings.item.data.type].initialData.configuration
+		? ccomponents[componentSettings.item.data.type]?.initialData?.configuration
 		: {}
 
 	const componentInput: RichConfiguration | undefined = componentSettings?.item?.data?.type
-		? ccomponents[componentSettings?.item?.data?.type].initialData.componentInput
+		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
 
 	$: componentSettings?.item?.data && ($app = $app)
@@ -170,10 +170,10 @@
 	{@const component = componentSettings.item.data}
 	<div class="flex justify-between items-center px-3 py-2 bg-surface-selected">
 		<div class="text-xs text-primary font-semibold"
-			>{components[componentSettings.item.data.type].name}</div
+			>{components[componentSettings.item.data.type]?.name ?? 'Unknown'}</div
 		>
 		<a
-			href={components[componentSettings.item.data.type].documentationLink}
+			href={components[componentSettings.item.data.type]?.documentationLink}
 			target="_blank"
 			class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
 		>
@@ -371,7 +371,7 @@
 
 		<div class="grow shrink" />
 
-		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
+		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">
 				<div slot="action" class="flex justify-end flex-wrap gap-1">
 					<Button
@@ -387,7 +387,7 @@
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">
-						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
+						{#each Object.keys(ccomponents[component.type]?.customCss ?? {}) as name}
 							{#if componentSettings.item.data?.customCss != undefined}
 								<div class="w-full mb-2">
 									<CssProperty

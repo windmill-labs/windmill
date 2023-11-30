@@ -21,7 +21,7 @@
 
 	function getComponentNameById(componentId: string) {
 		if (gridItem?.data?.type) {
-			return components[gridItem?.data.type].name
+			return components?.[gridItem?.data.type]?.name ?? 'Unknown'
 		} else if (componentId == 'ctx') {
 			return 'Context'
 		} else if (componentId.startsWith(BG_PREFIX)) {
