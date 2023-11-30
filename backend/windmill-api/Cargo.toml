@@ -82,7 +82,7 @@ tokenizers.workspace = true
 candle-core.workspace = true
 candle-transformers.workspace = true
 candle-nn.workspace = true
-aws-sdk-s3 = "0.36.0"
+aws-sdk-s3 = "0.39.1"
 aws-config = "1.0.0"
 polars = { version = "0.35.2", features = ["lazy", "parquet", "aws", "csv", "dtype-full"] }
 polars-io = { version = "0.35.2", features = ["csv"] }
