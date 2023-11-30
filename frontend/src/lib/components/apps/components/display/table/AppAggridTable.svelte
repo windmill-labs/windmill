@@ -17,6 +17,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
+	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -136,6 +137,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.tablecomponent}
 	/>
 {/each}
 
