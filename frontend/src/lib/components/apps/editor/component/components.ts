@@ -2801,7 +2801,7 @@ This is a paragraph.
 		name: 'Menu',
 		icon: Menu,
 		documentationLink: `${documentationBaseUrl}/menu`,
-		dims: '1:1-2:1' as AppComponentDimensions,
+		dims: '1:1-1:2' as AppComponentDimensions,
 		customCss: {
 			button: { style: '', class: '' }
 		},
@@ -2812,13 +2812,13 @@ This is a paragraph.
 				label: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Press me'
+					value: '' as string
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
 					selectOptions: selectOptions.buttonColorOptions,
-					value: 'blue'
+					value: 'light'
 				},
 				size: {
 					fieldType: 'select',
@@ -2835,7 +2835,7 @@ This is a paragraph.
 				},
 				beforeIcon: {
 					type: 'static',
-					value: undefined,
+					value: 'Menu',
 					fieldType: 'icon-select'
 				},
 				afterIcon: {
