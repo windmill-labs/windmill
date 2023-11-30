@@ -3324,8 +3324,7 @@ dependencies = [
 [[package]]
 name = "gosyn"
 version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c003b8c167a1abb8b170baacf075dcdac2aaf5732bc94fead3d6ce429df7aa8"
+source = "git+https://github.com/gbouv/gosyn.git?branch=gbouv/parser-from-no-panic#3c18a4b8657463e579f283dbce21abec58b0cc0e"
 dependencies = [
  "anyhow",
  "strum",
