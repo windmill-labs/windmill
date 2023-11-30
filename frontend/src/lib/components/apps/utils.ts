@@ -276,6 +276,16 @@ export function getAllScriptNames(app: App): string[] {
 			})
 		}
 
+		if (gridItem.data.type === 'menucomponent') {
+			gridItem.data.menuItems.forEach((menuItem) => {
+				if (menuItem.componentInput?.type === 'runnable') {
+					if (menuItem.componentInput.runnable?.type === 'runnableByName') {
+						acc.push(menuItem.componentInput.runnable.name)
+					}
+				}
+			})
+		}
+
 		return acc
 	}, [] as string[])
 
@@ -363,5 +373,22 @@ export function transformBareBase64IfNecessary(source: string | undefined) {
 		return source
 	} else {
 		return `data:application/octet-stream;base64,${source}`
+	}
+}
+
+export function getImageDataURL(imageKind: string | undefined, image: string | undefined) {
+	if (!imageKind || !image) {
+		return null
+	}
+
+	switch (imageKind) {
+		case 'png encoded as base64':
+			return 'data:image/png;base64,' + image
+		case 'jpeg encoded as base64':
+			return 'data:image/jpeg;base64,' + image
+		case 'svg encoded as base64':
+			return 'data:image/svg+xml;base64,' + image
+		default:
+			return image
 	}
 }

@@ -528,26 +528,26 @@ def get_job_status(job_id: str) -> JobStatus:
 
 
 @init_global_client
-def get_result(*args, **kwargs) -> Dict[str, Any]:
-    return _client.get_result(*args, **kwargs)
+def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
+    return _client.get_result(job_id=job_id, assert_result_is_not_none=assert_result_is_not_none)
 
 
 @init_global_client
-def duckdb_connection_settings(*args, **kwargs) -> Union[str, None]:
+def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool=False) -> Union[str, None]:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
     """
-    return _client.get_duckdb_connection_settings(*args, **kwargs)
+    return _client.get_duckdb_connection_settings(s3_resource=s3_resource, none_if_undefined=none_if_undefined)
 
 
 @init_global_client
-def polars_connection_settings(*args, **kwargs) -> Any:
+def polars_connection_settings(s3_resource: Any, none_if_undefined: bool=False) -> Any:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from Polars
     """
-    return _client.get_polars_connection_settings(*args, **kwargs)
+    return _client.get_polars_connection_settings(s3_resource, none_if_undefined)
 
 
 @init_global_client
@@ -577,11 +577,14 @@ def get_resource(
 
 
 @init_global_client
-def set_resource(**kwargs) -> None:
+def set_resource(   
+        path: str,     
+        value: Any,
+        resource_type: str = "any") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
-    return _client.set_resource(**kwargs)
+    return _client.set_resource(value=value, path=path, resource_type=resource_type)
 
 
 @init_global_client
@@ -592,33 +595,33 @@ def set_state(value: Any) -> None:
     return _client.set_state(value)
 
 
-def set_shared_state_pickle(**kwargs) -> None:
+def set_shared_state_pickle(value: Any, path="state.pickle") -> None:
     """
     Set the state in the shared folder using pickle
     """
-    return Windmill.set_shared_state_pickle(**kwargs)
+    return Windmill.set_shared_state_pickle(value=value, path=path)
 
 
 @deprecate("Windmill.get_shared_state_pickle(...)")
-def get_shared_state_pickle(**kwargs) -> Any:
+def get_shared_state_pickle(path="state.pickle") -> Any:
     """
     Get the state in the shared folder using pickle
     """
-    return Windmill.get_shared_state_pickle(**kwargs)
+    return Windmill.get_shared_state_pickle(path=path)
 
 
-def set_shared_state(**kwargs) -> None:
+def set_shared_state(value: Any, path="state.json") -> None:
     """
     Set the state in the shared folder using pickle
     """
-    return Windmill.set_shared_state(**kwargs)
+    return Windmill.set_shared_state(value=value, path=path)
 
 
-def get_shared_state(**kwargs) -> None:
+def get_shared_state(path="state.json") -> None:
     """
     Set the state in the shared folder using pickle
     """
-    return Windmill.get_shared_state(**kwargs)
+    return Windmill.get_shared_state(path=path)
 
 
 @init_global_client

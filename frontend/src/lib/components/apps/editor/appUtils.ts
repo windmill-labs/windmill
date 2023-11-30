@@ -64,6 +64,8 @@ export function dfs(
 			item.data.actionButtons.find((x) => id == x.id)
 		) {
 			return [item.id, id]
+		} else if (item.data.type == 'menucomponent' && item.data.menuItems.find((x) => id == x.id)) {
+			return [item.id, id]
 		} else {
 			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
 				const res = dfs(subgrids[`${item.id}-${i}`], id, subgrids)
@@ -157,6 +159,9 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (item.data.type === 'tablecomponent') {
 				subIds.push(...item.data.actionButtons?.map((x) => x.id))
 			}
+			if (item.data.type === 'menucomponent') {
+				subIds.push(...item.data.menuItems?.map((x) => x.id))
+			}
 		}
 		return subIds
 	}
@@ -171,6 +176,8 @@ export function getNextGridItemId(app: App): string {
 	const allIds = allItems(app.grid, app.subgrids).flatMap((x) => {
 		if (x.data.type === 'tablecomponent') {
 			return [x.id, ...x.data.actionButtons.map((x) => x.id)]
+		} else if (x.data.type === 'menucomponent') {
+			return [x.id, ...x.data.menuItems.map((x) => x.id)]
 		} else {
 			return [x.id]
 		}
@@ -302,6 +309,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
+			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,
@@ -377,6 +385,16 @@ export function copyComponent(
 							id: x.id.replace(`${item.id}_`, `${id}_`)
 						})) ?? []
 				}
+			} else if (item.data.type === 'menucomponent') {
+				return {
+					...item.data,
+					id,
+					menuItems:
+						item.data.menuItems.map((x) => ({
+							...x,
+							id: x.id.replace(`${item.id}_`, `${id}_`)
+						})) ?? []
+				}
 			} else {
 				return { ...item.data, id }
 			}
@@ -409,6 +427,11 @@ export function getAllSubgridsAndComponentIds(
 	if (component.type === 'tablecomponent') {
 		components.push(...component.actionButtons?.map((x) => x.id))
 	}
+
+	if (component.type === 'menucomponent') {
+		components.push(...component.menuItems?.map((x) => x.id))
+	}
+
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
 			const key = `${component.id}-${i}`

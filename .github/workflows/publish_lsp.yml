@@ -16,14 +16,17 @@ permissions:
   packages: write
 
 jobs:
-  publish_lsp:
-    runs-on: ubuntu-latest
+  sleep:
+    runs-on: ubicloud
     steps:
       - name: Sleep for 900 seconds waiting for pypi to update index
         if: startsWith(github.ref, 'refs/tags/v')
         run: sleep 900
         shell: bash
-
+  publish_lsp:
+    needs: [sleep]
+    runs-on: ubicloud
+    steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -62,7 +65,7 @@ jobs:
 
   publish_lsp_private:
     needs: [publish_lsp]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v3
         with:

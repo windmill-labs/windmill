@@ -33,6 +33,7 @@
 	export let render: boolean
 	export let errorHandledByComponent: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
+	export let isMenuItem: boolean = false
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -178,11 +179,18 @@
 		{#key css}
 			<Button
 				on:pointerdown={(e) => e.stopPropagation()}
-				btnClasses={twMerge(css?.button?.class ?? '', 'wm-button')}
+				btnClasses={twMerge(
+					css?.button?.class ?? '',
+					isMenuItem ? 'flex items-center justify-start' : '',
+					isMenuItem ? '!border-0' : '',
+					'wm-button'
+				)}
+				variant={isMenuItem ? 'border' : 'contained'}
 				style={css?.button?.style}
 				wrapperClasses={twMerge(
 					css?.container?.class ?? '',
 					resolvedConfig.fillContainer ? 'w-full h-full' : '',
+					isMenuItem ? 'w-full' : '',
 					'wm-button-container'
 				)}
 				wrapperStyle={css?.container?.style}
