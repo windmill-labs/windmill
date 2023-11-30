@@ -1,4 +1,8 @@
-FROM debian:bookworm-slim as nsjail
+ARG DEBIAN_IMAGE=debian:bookworm-slim
+ARG RUST_IMAGE=rust:slim-bookworm
+ARG PYTHON_IMAGE=python:3.11.4-slim-bookworm
+
+FROM ${DEBIAN_IMAGE} as nsjail
 
 WORKDIR /nsjail
 
@@ -22,7 +26,7 @@ RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
 RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
 
-FROM rust:slim-bookworm AS rust_base
+FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
@@ -87,7 +91,7 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM debian:bookworm-slim as downloader
+FROM ${DEBIAN_IMAGE} as downloader
 
 ARG TARGETPLATFORM
 
@@ -101,29 +105,44 @@ RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denol
 
 RUN unzip deno.zip && rm deno.zip
 
-FROM python:3.11.4-slim-bookworm
+FROM ${PYTHON_IMAGE}
 
 ARG TARGETPLATFORM
-
+ARG POWERSHELL_VERSION=7.3.5
+ARG POWERSHELL_DEB_VERSION=7.3.5-1
+ARG RCLONE_VERSION=1.60.1
+ARG KUBECTL_VERSION=1.27.2
+ARG HELM_VERSION=3.12.0
 ARG APP=/usr/src/app
+ARG WITH_POWERSHELL=true
+ARG WITH_RCLONE=true
+ARG WITH_KUBECTL=true
+ARG WITH_HELM=true
+
 
 RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' 'https://github.com/PowerShell/PowerShell/releases/download/v7.3.5/powershell_7.3.5-1.deb_amd64.deb' && \
-    dpkg --install 'pwsh.deb' && \
-    rm 'pwsh.deb'; else echo 'pwshell not on amd64'; fi
+RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
+         if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
+         dpkg --install 'pwsh.deb' && \
+         rm 'pwsh.deb'; else echo 'pwshell not on amd64'; fi;  \
+     else echo 'Building the image without powershell'; fi
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
-    tar -zxvf helm-v3.12.0-linux-$arch.tar.gz  && \
-    mv linux-$arch/helm /usr/local/bin/helm &&\
-    chmod +x /usr/local/bin/helm
+RUN if [ "$WITH_HELM" = "true" ]; then \
+        arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+        wget "https://get.helm.sh/helm-v${HELM_VERSION}-linux-$arch.tar.gz" && \
+        tar -zxvf "helm-v${HELM_VERSION}-linux-$arch.tar.gz"  && \
+        mv linux-$arch/helm /usr/local/bin/helm &&\
+        chmod +x /usr/local/bin/helm; \
+    else echo 'Building the image without helm'; fi
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+RUN if [ "$WITH_KUBECTL" = "true" ]; then \
+        arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+        curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/$arch/kubectl" && \
+        install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
+    else echo 'Building the image without kubectl'; fi
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -140,10 +159,13 @@ RUN set -eux; \
     unzip awscliv2.zip && \
     ./aws/install && rm awscliv2.zip
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
-    unzip -p rclone.zip rclone-v1.60.1-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
-    chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone
+RUN if [ "$WITH_RCLONE" = "true" ]; then \
+        arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+        curl -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-$arch.zip"; \
+        unzip -p rclone.zip rclone-v${RCLONE_VERSION}-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
+        chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone; \
+    else echo 'Building the image without rclone'; fi
+
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
