@@ -255,7 +255,14 @@
 				)
 			}
 
-			if (initialPath == '') {
+			if (initialPath == '' || savedScript?.draft_only) {
+				if (savedScript?.draft_only) {
+					await ScriptService.deleteScriptByPath({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+					script.parent_hash = undefined
+				}
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -281,18 +288,20 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: initialPath == '' ? script.path : initialPath,
+					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
 					typ: 'script',
 					value: script
 				}
 			})
 
 			savedScript = {
-				...(initialPath == '' ? { ...cloneDeep(script), draft_only: true } : savedScript),
+				...(initialPath == '' || savedScript?.draft_only
+					? { ...cloneDeep(script), draft_only: true }
+					: savedScript),
 				draft: cloneDeep(script)
 			} as NewScriptWithDraft
 
-			if (initialPath == '') {
+			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				goto(`/scripts/edit/${script.path}`)
 			}
 			sendUserToast('Saved as draft')

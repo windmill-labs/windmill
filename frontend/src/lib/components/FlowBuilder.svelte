@@ -68,6 +68,7 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { cloneDeep } from 'lodash'
+	import { goto } from '$app/navigation'
 
 	export let initialPath: string = ''
 	export let newFlow: boolean
@@ -115,7 +116,7 @@
 		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties($flowStore)
+			const current = cleanValueProperties({ ...$flowStore, path: $pathStore })
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -134,7 +135,13 @@
 			localStorage.removeItem('flow')
 			localStorage.removeItem(`flow-${$pathStore}`)
 
-			if (newFlow) {
+			if (newFlow || savedFlow?.draft_only) {
+				if (savedFlow?.draft_only) {
+					await FlowService.deleteFlowByPath({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+				}
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -152,14 +159,17 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: newFlow ? $pathStore : initialPath,
+					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
 					typ: 'flow',
-					value: flow
+					value: {
+						...flow,
+						path: $pathStore
+					}
 				}
 			})
 
 			savedFlow = {
-				...(newFlow
+				...(newFlow || savedFlow?.draft_only
 					? {
 							...cloneDeep($flowStore),
 							path: $pathStore,
@@ -168,7 +178,7 @@
 					: savedFlow),
 				draft: {
 					...cloneDeep($flowStore),
-					path: newFlow ? $pathStore : initialPath
+					path: $pathStore
 				}
 			} as Flow & {
 				draft?: Flow
@@ -176,6 +186,8 @@
 
 			if (newFlow) {
 				dispatch('saveInitial', $pathStore)
+			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
+				goto(`/flows/edit/${$pathStore}?selected=${getSelectedId()}`)
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -1058,7 +1070,7 @@
 								mode: 'normal',
 								deployed: savedFlow,
 								draft: savedFlow['draft'],
-								current: $flowStore
+								current: { ...$flowStore, path: $pathStore }
 							})
 						}}
 						disabled={!savedFlow}
