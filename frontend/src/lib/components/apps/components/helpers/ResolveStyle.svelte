@@ -53,6 +53,7 @@
 	{@const property = customCss[key]}
 	{#if property?.evalClass}
 		<InputValue
+			field={key}
 			key={key + extraKey + 'css'}
 			{id}
 			bind:value={evalClassValue}
@@ -65,6 +66,7 @@
 	{@const property = componentStyle[key]}
 	{#if property?.evalClass}
 		<InputValue
+			field={key}
 			key={key + extraKey + 'cssGlobal'}
 			{id}
 			bind:value={evalClassValueGlobal}

@@ -263,6 +263,7 @@
 								/>
 							{:else if componentSettings.item.data.componentInput.type === 'evalv2' && component.componentInput !== undefined}
 								<EvalV2InputEditor
+									field="nonrunnable"
 									bind:this={evalV2editor}
 									id={component.id}
 									bind:componentInput={componentSettings.item.data.componentInput}

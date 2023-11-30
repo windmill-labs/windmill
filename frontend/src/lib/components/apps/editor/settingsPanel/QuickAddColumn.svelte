@@ -33,7 +33,7 @@
 	}
 
 	function updateRemainingColumns(result: any[], columns: string[]) {
-		if (result?.length > 0) {
+		if (Array.isArray(result) && result?.length > 0) {
 			const allKeysSet: Set<string> = result.reduce((acc, obj) => {
 				Object.keys(obj).forEach((key) => acc.add(key))
 				return acc

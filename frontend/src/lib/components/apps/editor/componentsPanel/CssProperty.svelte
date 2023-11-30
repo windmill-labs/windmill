@@ -246,7 +246,7 @@
 			/>
 
 			{#if value?.evalClass && dynamicClass}
-				<CssEval bind:evalClass={value.evalClass} />
+				<CssEval key={name} bind:evalClass={value.evalClass} />
 			{/if}
 		</div>
 	{/if}

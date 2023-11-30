@@ -259,6 +259,7 @@ export type AppViewerContext = {
 
 export type AppEditorContext = {
 	yTop: Writable<number>
+	evalPreview: Writable<Record<string, any>>
 	componentActive: Writable<boolean>
 	dndItem: Writable<Record<string, (x: number, y: number, topY: number) => void>>
 	refreshComponents: Writable<(() => void) | undefined>
