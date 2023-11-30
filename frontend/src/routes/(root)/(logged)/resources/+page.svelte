@@ -579,12 +579,19 @@
 			<div class="h-4" />
 		{/if}
 
-		<div class="overflow-x-auto pb-40">
+		<div class="overflow-x-auto pb-40 mt-4">
 			{#if loading.resources}
 				<Skeleton layout={[0.5, [2], 1]} />
 				{#each new Array(6) as _}
 					<Skeleton layout={[[4], 0.7]} />
 				{/each}
+			{:else if items?.length == 0}
+				<div class="flex flex-col items-center justify-center h-full">
+					<div class="text-md font-medium">No resources found</div>
+					<div class="text-sm text-secondary">
+						Try changing the filters or creating a new resource
+					</div>
+				</div>
 			{:else}
 				<DataTable>
 					<Head>
