@@ -2798,9 +2798,9 @@ This is a paragraph.
 		}
 	},
 	menucomponent: {
-		name: 'Menu',
+		name: 'Dropdown Menu',
 		icon: Menu,
-		documentationLink: `${documentationBaseUrl}/menu`,
+		documentationLink: `${documentationBaseUrl}/dropdown_menu`,
 		dims: '1:1-1:2' as AppComponentDimensions,
 		customCss: {
 			button: { style: '', class: '' }
