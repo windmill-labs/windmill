@@ -206,3 +206,6 @@ candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
 tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono"] }
+
+[patch.crates-io]
+gosyn = { git = 'https://github.com/gbouv/gosyn.git', branch = 'gbouv/parser-from-no-panic' }
