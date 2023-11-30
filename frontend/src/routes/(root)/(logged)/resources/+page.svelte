@@ -772,10 +772,6 @@
 									</Cell>
 								</Row>
 							{/each}
-						{:else if resources}
-							<tr> No resources to display</tr>
-						{:else}
-							<tr>Loading...</tr>
 						{/if}
 					</tbody>
 				</DataTable>
@@ -864,10 +860,6 @@
 									</Cell>
 								</Row>
 							{/each}
-						{:else if resources}
-							<Row>No resources types to display</Row>
-						{:else}
-							<Row>Loading...</Row>
 						{/if}
 					</tbody>
 				</DataTable>
