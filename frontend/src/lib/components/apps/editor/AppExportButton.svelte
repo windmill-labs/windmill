@@ -18,7 +18,7 @@
 
 	let app: App | undefined = undefined
 
-	let rawType: 'json' | 'yaml' = 'json'
+	let rawType: 'json' | 'yaml' = 'yaml'
 
 	export function open(app_l: App) {
 		app = app_l
