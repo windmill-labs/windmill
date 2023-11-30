@@ -698,7 +698,7 @@ async fn run_workspace_repo_git_callback<'c, R: rsmq_async::RsmqConnection + Sen
         &db,
         tx,
         &w_id,
-        JobPayload::DeploymentCallback { path: workspace_git_repo.script_path },
+        JobPayload::DeploymentCallback { path: workspace_git_repo.script_path.clone() },
         args,
         &authed.username,
         &authed.email,
@@ -720,11 +720,8 @@ async fn run_workspace_repo_git_callback<'c, R: rsmq_async::RsmqConnection + Sen
     .await?;
 
     sqlx::query!(
-        "UPDATE script SET deployment_msg = $1, deployment_callbacks = $2 WHERE hash = $3 AND workspace_id = $4",
-        commit_msg,
-        &[job_uuid],
-        script_hash.0,
-        w_id,
+        "INSERT INTO deployment_callback_runs (workspace_id, deployed_script_hash, callback_script_path, job_id, deployment_msg) VALUES ($1, $2, $3, $4, $5)",
+        w_id, script_hash.0, workspace_git_repo.script_path, job_uuid, commit_msg
     )
     .execute(&mut new_tx)
     .await?;

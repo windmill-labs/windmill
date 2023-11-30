@@ -189,7 +189,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						script_path: 'u/admin/git_sync', // TODO: update with a Hub script
+						script_path: 'u/admin/git_sync_script_deno', // TODO: update with a Hub script
 						git_repo_resource_path: resourcePathWithPrefix
 					}
 				}
