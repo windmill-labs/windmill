@@ -14,6 +14,7 @@
 	}
 
 	export let items: Item[] | (() => Item[]) = []
+	export let justifyEnd: boolean = true
 
 	function computeItems(): Item[] {
 		if (typeof items === 'function') {
@@ -24,7 +25,7 @@
 	}
 </script>
 
-<Menu placement="bottom-end" justifyEnd on:close on:open>
+<Menu placement="bottom-end" {justifyEnd} on:close on:open>
 	<div slot="trigger">
 		{#if $$slots.buttonReplacement}
 			<slot name="buttonReplacement" />

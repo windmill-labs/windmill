@@ -276,6 +276,16 @@ export function getAllScriptNames(app: App): string[] {
 			})
 		}
 
+		if (gridItem.data.type === 'menucomponent') {
+			gridItem.data.menuItems.forEach((menuItem) => {
+				if (menuItem.componentInput?.type === 'runnable') {
+					if (menuItem.componentInput.runnable?.type === 'runnableByName') {
+						acc.push(menuItem.componentInput.runnable.name)
+					}
+				}
+			})
+		}
+
 		return acc
 	}, [] as string[])
 
