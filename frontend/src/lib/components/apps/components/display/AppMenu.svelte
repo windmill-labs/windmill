@@ -119,16 +119,13 @@
 				</Button>
 			</div>
 
-			<div class="flex flex-col w-full p-1">
+			<div class="flex flex-col w-full p-1 gap-2">
 				{#if menuItems.length > 0}
 					{#each menuItems as actionButton, actionIndex (actionButton?.id)}
 						{#if actionButton.type == 'buttoncomponent'}
 							<AppButton
 								extraKey={'idx' + actionIndex}
 								{render}
-								preclickAction={async () => {
-									//toggleRow(row)
-								}}
 								id={actionButton.id}
 								customCss={actionButton.customCss}
 								configuration={actionButton.configuration}

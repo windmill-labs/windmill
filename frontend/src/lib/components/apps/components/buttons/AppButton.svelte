@@ -182,8 +182,10 @@
 				btnClasses={twMerge(
 					css?.button?.class ?? '',
 					isMenuItem ? 'flex items-center justify-start' : '',
+					isMenuItem ? '!border-0' : '',
 					'wm-button'
 				)}
+				variant={isMenuItem ? 'border' : 'contained'}
 				style={css?.button?.style}
 				wrapperClasses={twMerge(
 					css?.container?.class ?? '',
