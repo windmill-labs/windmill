@@ -137,7 +137,7 @@
 	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
-		return JSON.stringify(result, null, 4)
+		return JSON.stringify(result ?? null, null, 4) ?? 'null'
 	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string }) {
