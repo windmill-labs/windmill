@@ -54,6 +54,7 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let s3ResourceInitialPath: string | undefined = undefined
+	let gitSyncResourceInitialPath: string | undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -180,6 +181,31 @@
 		}
 	}
 
+	async function editWindmillGitSyncSettings(gitRepoResourcePath: string): Promise<void> {
+		gitSyncResourceInitialPath = gitRepoResourcePath
+		if (gitRepoResourcePath) {
+			let resourcePathWithPrefix = `$res:${gitRepoResourcePath}`
+			await WorkspaceService.editWorkspaceGitSyncConfig({
+				workspace: $workspaceStore!,
+				requestBody: {
+					git_sync_settings: {
+						script_path: 'u/admin/git_sync', // TODO: update with a Hub script
+						git_repo_resource_path: resourcePathWithPrefix
+					}
+				}
+			})
+			sendUserToast(`Workspace Git sync settings updated`)
+		} else {
+			await WorkspaceService.editWorkspaceGitSyncConfig({
+				workspace: $workspaceStore!,
+				requestBody: {
+					git_sync_settings: undefined
+				}
+			})
+			sendUserToast(`Workspace Git sync settings reset`)
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -214,6 +240,7 @@
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
 				: undefined
+		gitSyncResourceInitialPath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
 	}
 
 	$: {
@@ -308,6 +335,9 @@
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
+				</Tab>
+				<Tab size="xs" value="git_sync">
+					<div class="flex gap-2 items-center my-1"> Git sync </div>
 				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
@@ -624,6 +654,24 @@
 						}
 					}}>Test Connection</Button
 				>
+			</div>
+		{:else if tab == 'git_sync'}
+			<PageHeader title="Git sync" primary={false} />
+			{#if !$enterpriseLicense}
+				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
+					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
+				</Alert>
+			{/if}
+			<div class="mt-5 flex gap-1">
+				{#key s3ResourceInitialPath}
+					<ResourcePicker
+						resourceType="authed_git_repo_url"
+						initialValue={gitSyncResourceInitialPath}
+						on:change={(ev) => {
+							editWindmillGitSyncSettings(ev.detail)
+						}}
+					/>
+				{/key}
 			</div>
 		{/if}
 	{:else}

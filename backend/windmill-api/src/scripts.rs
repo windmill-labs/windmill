@@ -11,6 +11,7 @@ use crate::{
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
+    workspaces::{WorkspaceGitRepo, WorkspaceSettings},
     HTTP_CLIENT,
 };
 use axum::{
@@ -27,7 +28,7 @@ use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -310,6 +311,7 @@ async fn create_script(
         ));
     }
 
+    let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -636,6 +638,8 @@ async fn create_script(
         tx = PushIsolationLevel::Transaction(new_tx);
     }
 
+    tx = run_workspace_repo_git_callback(tx, &authed, &db, &w_id, &hash, &script_path).await?;
+
     match tx {
         PushIsolationLevel::Transaction(tx) => tx.commit().await?,
         _ => {
@@ -646,6 +650,90 @@ async fn create_script(
     }
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
+}
+
+async fn run_workspace_repo_git_callback<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: PushIsolationLevel<'c, R>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    script_hash: &ScriptHash,
+    script_path: &str,
+) -> Result<PushIsolationLevel<'c, R>> {
+    let workspace_git_repo_setting = sqlx::query_as::<_, WorkspaceSettings>(
+        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(&w_id)
+    .fetch_optional(db)
+    .await?;
+
+    if workspace_git_repo_setting.is_none() {
+        return Err(Error::InternalErr(
+            "No workspace settings found for workspace ID".to_string(),
+        ));
+    }
+
+    let workspace_git_repo = workspace_git_repo_setting
+        .unwrap()
+        .git_sync
+        .map(|conf| serde_json::from_value::<WorkspaceGitRepo>(conf).ok())
+        .flatten();
+
+    if workspace_git_repo.is_none() {
+        return Ok(tx);
+    }
+    let workspace_git_repo = workspace_git_repo.unwrap();
+
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    args.insert(
+        "repo_url_resource_path".to_string(),
+        json!(workspace_git_repo
+            .git_repo_resource_path
+            .strip_prefix("$res:")),
+    );
+    args.insert("script_path".to_string(), json!(script_path.to_string()));
+    let commit_msg = format!("Script '{}' deployed", script_path); // for now auto-generate a commit message
+    args.insert("commit_msg".to_string(), json!(commit_msg));
+    let (job_uuid, mut new_tx) = windmill_queue::push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::DeploymentCallback { path: workspace_git_repo.script_path },
+        args,
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None, // 'deploymentcallback' tag will be added to this kind of job
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    sqlx::query!(
+        "UPDATE script SET deployment_msg = $1, deployment_callbacks = $2 WHERE hash = $3 AND workspace_id = $4",
+        commit_msg,
+        &[job_uuid],
+        script_hash.0,
+        w_id,
+    )
+    .execute(&mut new_tx)
+    .await?;
+
+    tx = PushIsolationLevel::Transaction(new_tx);
+
+    tracing::warn!("git push job {}", job_uuid);
+
+    return Ok(tx);
 }
 
 pub async fn get_hub_script_by_path(

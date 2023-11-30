@@ -1192,6 +1192,8 @@ paths:
                     type: boolean
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
+                  git_sync:
+                    $ref: "#/components/schemas/WorkspaceGitSync"
                 required:
                   - code_completion_enabled
 
@@ -1505,6 +1507,32 @@ paths:
               properties:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_git_sync_config:
+    post:
+      summary: edit workspace git sync settings
+      operationId: editWorkspaceGitSyncConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace Git sync settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_sync_settings:
+                  $ref: "#/components/schemas/WorkspaceGitSync"
 
       responses:
         "200":
@@ -2197,8 +2225,7 @@ paths:
 
   /w/{workspace}/resources/get_value_interpolated/{path}:
     get:
-      summary:
-        get resource interpolated (variables and resources are fully unrolled)
+      summary: get resource interpolated (variables and resources are fully unrolled)
       operationId: getResourceValueInterpolated
       tags:
         - resource
@@ -2886,8 +2913,7 @@ paths:
           schema:
             type: string
         - name: first_parent_hash
-          description:
-            mask to filter scripts whom first direct parent has exact hash
+          description: mask to filter scripts whom first direct parent has exact hash
           in: query
           schema:
             type: string
@@ -3082,8 +3108,7 @@ paths:
 
   /workers/custom_tags:
     get:
-      summary:
-        get all instance custom tags (tags are used to dispatch jobs to
+      summary: get all instance custom tags (tags are used to dispatch jobs to
         different worker groups)
       operationId: getCustomTags
       tags:
@@ -3134,8 +3159,7 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary:
-        delete script by hash (erase content but keep hash, require admin)
+      summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -3327,16 +3351,14 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4309,8 +4331,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4318,8 +4339,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4371,8 +4391,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4380,8 +4399,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4419,8 +4437,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4428,8 +4445,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4460,8 +4476,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4494,8 +4509,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4710,8 +4724,7 @@ paths:
         - job
       responses:
         "200":
-          description:
-            the timestamp of the db that can be used to compute the drift
+          description: the timestamp of the db that can be used to compute the drift
           content:
             application/json:
               schema:
@@ -4947,8 +4960,7 @@ paths:
 
   /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
     get:
-      summary:
-        get resume urls given a job_id, resume_id and a nonce to resume a flow
+      summary: get resume urls given a job_id, resume_id and a nonce to resume a flow
       operationId: getResumeUrls
       tags:
         - job
@@ -5499,8 +5511,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the groups the user is member of (default false)
+          description: only list the groups the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -5688,8 +5699,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the folders the user is member of (default false)
+          description: only list the folders the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -6594,8 +6604,7 @@ components:
         type: integer
     PerPage:
       name: per_page
-      description:
-        number of items to return for a given page (default 30, max 100)
+      description: number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
@@ -6729,8 +6738,7 @@ components:
         type: boolean
     ArgsFilter:
       name: args
-      description:
-        filter on jobs containing those args as a json subset (@> in postgres)
+      description: filter on jobs containing those args as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -6742,8 +6750,7 @@ components:
         type: string
     ResultFilter:
       name: result
-      description:
-        filter on jobs containing those result as a json subset (@> in postgres)
+      description: filter on jobs containing those result as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -7125,6 +7132,7 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "deploymentcallback",
             ]
         schedule_path:
           type: string
@@ -7233,6 +7241,7 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "deploymentcallback",
             ]
         schedule_path:
           type: string
@@ -8562,3 +8571,14 @@ components:
         - endPoint
         - useSSL
         - pathStyle
+
+    WorkspaceGitSync:
+      type: object
+      properties:
+        script_path:
+          type: string
+        git_repo_resource_path:
+          type: string
+      required:
+        - script_path
+        - git_repo_resource_path

@@ -30,6 +30,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue},
+    get_latest_deployed_hash_for_path,
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
@@ -2700,11 +2701,10 @@ struct ContentReqLangEnvs {
 }
 
 async fn get_hub_script_content_and_requirements(
-    job: &QueuedJob,
+    script_path: Option<String>,
     db: &DB,
 ) -> error::Result<ContentReqLangEnvs> {
-    let script_path = job
-        .script_path
+    let script_path = script_path
         .clone()
         .ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
     let mut script_path_iterator = script_path.split("/");
@@ -2715,8 +2715,8 @@ async fn get_hub_script_content_and_requirements(
     let cache_path = format!("{HUB_CACHE_DIR}/{version}");
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {
-        script =
-            get_full_hub_script_by_path(StripPath(script_path.clone()), &HTTP_CLIENT, db).await?;
+        script = get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db)
+            .await?;
         write_file(
             HUB_CACHE_DIR,
             &version,
@@ -2735,6 +2735,23 @@ async fn get_hub_script_content_and_requirements(
         language: Some(script.language),
         envs: None,
     })
+}
+
+async fn get_script_content_by_path(
+    script_path: Option<String>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<ContentReqLangEnvs> {
+    let script_path = script_path
+        .clone()
+        .ok_or_else(|| Error::InternalErr(format!("expected script path")))?;
+    return if script_path.starts_with("/hub/") {
+        get_hub_script_content_and_requirements(Some(script_path), db).await
+    } else {
+        let (script_hash, ..) =
+            get_latest_deployed_hash_for_path(db, w_id, script_path.as_str()).await?;
+        get_script_content_by_hash(&script_hash, w_id, db).await
+    };
 }
 
 async fn get_script_content_by_hash(
@@ -2785,7 +2802,9 @@ async fn handle_code_execution_job(
                 language: job.language.to_owned(),
                 envs: None,
             },
-            JobKind::Script_Hub => get_hub_script_content_and_requirements(job, db).await?,
+            JobKind::Script_Hub => {
+                get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
+            }
             JobKind::Script => {
                 get_script_content_by_hash(
                     &job.script_hash.unwrap_or(ScriptHash(0)),
@@ -2793,6 +2812,9 @@ async fn handle_code_execution_job(
                     db,
                 )
                 .await?
+            }
+            JobKind::DeploymentCallback => {
+                get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
             }
             _ => unreachable!(
                 "handle_code_execution_job should never be reachable with a non-code execution job"
