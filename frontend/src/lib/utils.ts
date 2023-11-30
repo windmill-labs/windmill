@@ -714,8 +714,23 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
 
+function sortObjectKeys(obj: any): any {
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const sortedObj: any = {}
+		Object.keys(obj)
+			.sort()
+			.forEach((key) => {
+				sortedObj[key] = sortObjectKeys(obj[key])
+			})
+		return sortedObj
+	} else if (Array.isArray(obj)) {
+		return obj.map((item) => sortObjectKeys(item))
+	} else {
+		return obj
+	}
+}
+
 export function orderedYamlStringify(obj: any) {
-	const allKeys = new Set()
-	YAML.stringify(obj, (key, value) => (allKeys.add(key), value))
-	return YAML.stringify(obj, (Array.from(allKeys) as string[]).sort())
+	const sortedObj = sortObjectKeys(obj)
+	return YAML.stringify(sortedObj)
 }

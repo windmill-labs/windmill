@@ -323,7 +323,12 @@
 				requestBody: {
 					path: newPath,
 					typ: 'app',
-					value: $app!
+					value: {
+						value: $app,
+						path: newPath,
+						summary: $summary,
+						policy
+					}
 				}
 			})
 			savedApp = {
@@ -379,21 +384,49 @@
 		try {
 			await computeTriggerables()
 			let path = $page.params.path
+			if (savedApp.draft_only) {
+				await AppService.deleteApp({
+					workspace: $workspaceStore!,
+					path: path
+				})
+				await AppService.createApp({
+					workspace: $workspaceStore!,
+					requestBody: {
+						value: $app!,
+						summary: $summary,
+						policy,
+						path: newPath || path,
+						draft_only: true
+					}
+				})
+			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: path,
+					path: savedApp.draft_only ? newPath || path : path,
 					typ: 'app',
-					value: $app!
+					value: {
+						value: $app!,
+						summary: $summary,
+						policy,
+						path: newPath || path
+					}
 				}
 			})
 
 			savedApp = {
-				...savedApp,
+				...(savedApp?.draft_only
+					? {
+							summary: $summary,
+							value: cloneDeep($app),
+							path: savedApp.draft_only ? newPath || path : path,
+							policy
+					  }
+					: savedApp),
 				draft: {
 					summary: $summary,
 					value: cloneDeep($app),
-					path,
+					path: newPath || path,
 					policy
 				}
 			}
@@ -401,6 +434,9 @@
 			sendUserToast('Draft saved')
 			localStorage.removeItem(`app-${path}`)
 			loading.saveDraft = false
+			if (newPath || path !== path) {
+				goto(`/apps/edit/${newPath || path}`)
+			}
 		} catch (e) {
 			loading.saveDraft = false
 			throw e
