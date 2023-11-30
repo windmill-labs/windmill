@@ -10,6 +10,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { loadIcon } from '../icon'
 	import Loader from '../helpers/Loader.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -29,10 +30,10 @@
 
 	let iconComponent: any
 
-	$: isIcon && resolvedConfig?.media?.configuration?.icon.icon && handleIcon()
+	$: isIcon && resolvedConfig?.media?.configuration?.icon?.icon && handleIcon()
 
 	async function handleIcon() {
-		if (resolvedConfig?.media?.configuration?.icon.icon) {
+		if (resolvedConfig?.media?.configuration?.icon?.icon) {
 			iconComponent = await loadIcon(resolvedConfig.media.configuration.icon.icon)
 		}
 	}
@@ -59,6 +60,8 @@
 	/>
 {/each}
 
+<InitializeComponent {id} />
+
 {#if render}
 	<div
 		class={twMerge(
@@ -77,18 +80,18 @@
 			style={css?.media?.style}
 		>
 			{#if isIcon}
-				{#if resolvedConfig.media && iconComponent}
+				{#if resolvedConfig?.media && iconComponent}
 					<svelte:component this={iconComponent} size={24} />
 				{/if}
 			{:else}
-				<Loader loading={resolvedConfig.media.configuration.image.source == undefined}>
+				<Loader loading={resolvedConfig?.media?.configuration?.image?.source == undefined}>
 					<img
 						on:pointerdown|preventDefault
 						src={getImageDataURL(
 							resolvedConfig?.media?.configuration?.image?.sourceKind,
 							resolvedConfig?.media?.configuration?.image?.source
 						)}
-						alt={resolvedConfig.title}
+						alt={resolvedConfig?.title}
 					/>
 				</Loader>
 			{/if}
@@ -103,7 +106,7 @@
 				)}
 				style={css?.title?.style}
 			>
-				{resolvedConfig.title}
+				{resolvedConfig?.title}
 			</div>
 			<div class="mt-1 flex items-baseline justify-between">
 				<div
