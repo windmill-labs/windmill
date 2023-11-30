@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::Duration;
@@ -402,6 +403,9 @@ pub fn pg_cell_to_json_value(
             Ok(JSONValue::String(a.to_string()))
         })?,
         Type::UUID => get_basic(row, column, column_i, |a: uuid::Uuid| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::INET => get_basic(row, column, column_i, |a: IpAddr| {
             Ok(JSONValue::String(a.to_string()))
         })?,
         Type::JSON | Type::JSONB => get_basic(row, column, column_i, |a: JSONValue| Ok(a))?,
