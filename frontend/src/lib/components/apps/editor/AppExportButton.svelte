@@ -18,7 +18,7 @@
 
 	let app: App | undefined = undefined
 
-	let rawType: 'json' | 'yaml' = 'yaml'
+	let rawType: 'json' | 'yaml' = 'json'
 
 	export function open(app_l: App) {
 		app = app_l
@@ -49,13 +49,15 @@
 						>
 							Copy content
 						</Button>
-						<Highlight
-							class="overflow-auto px-1 flex-1"
-							language={rawType === 'yaml' ? yaml : json}
-							code={rawType === 'yaml'
-								? YAML.stringify(app ?? {})
-								: JSON.stringify(app ?? {}, null, 4)}
-						/>
+						{#key rawType}
+							<Highlight
+								class="overflow-auto px-1 flex-1"
+								language={rawType === 'yaml' ? yaml : json}
+								code={rawType === 'yaml'
+									? YAML.stringify(app ?? {})
+									: JSON.stringify(app ?? {}, null, 4)}
+							/>
+						{/key}
 					</div>
 				</svelte:fragment>
 			</Tabs>
