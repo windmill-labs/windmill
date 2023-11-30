@@ -64,6 +64,7 @@
 	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
 	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
 	import AppStatCard from '../../components/display/AppStatCard.svelte'
+	import AppMenu from '../../components/display/AppMenu.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -683,6 +684,16 @@
 				id={component.id}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'menucomponent'}
+			<AppMenu
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				menuItems={component.menuItems}
 				{render}
 			/>
 		{/if}

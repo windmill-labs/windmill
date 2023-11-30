@@ -41,7 +41,8 @@ import {
 	PanelTopInactive,
 	ListIcon,
 	Heading1,
-	FileBarChart
+	FileBarChart,
+	Menu
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -164,6 +165,9 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
 export type StatisticCardComponent = BaseComponent<'statcomponent'>
+export type MenuComponent = BaseComponent<'menucomponent'> & {
+	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
+}
 
 export type TypedComponent =
 	| DisplayComponent
@@ -226,6 +230,7 @@ export type TypedComponent =
 	| PlotlyComponentV2
 	| ChartJsComponentV2
 	| StatisticCardComponent
+	| MenuComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -275,6 +280,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	numberOfSubgrids?: number
 	recomputeIds?: boolean
 	actionButtons?: boolean
+	menuItems?: boolean
 	tabs?: string[]
 	panes?: number[]
 	conditions?: AppInputSpec<'boolean', boolean>[]
@@ -2789,6 +2795,56 @@ This is a paragraph.
 					}
 				} as const
 			}
+		}
+	},
+	menucomponent: {
+		name: 'Menu',
+		icon: Menu,
+		documentationLink: `${documentationBaseUrl}/menu`,
+		dims: '1:1-1:2' as AppComponentDimensions,
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: '' as string
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.buttonColorOptions,
+					value: 'light'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+
+					value: false
+				},
+				beforeIcon: {
+					type: 'static',
+					value: 'Menu',
+					fieldType: 'icon-select'
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				}
+			},
+			menuItems: true
 		}
 	}
 } as const

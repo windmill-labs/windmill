@@ -745,5 +745,8 @@ export const quickStyleProperties: Record<
 		selectedTab: [typographyGrouping, sizeGrouping]
 	},
 	selectstepcomponent: {},
-	statcomponent: {}
+	statcomponent: {},
+	menucomponent: {
+		button: buttonDefaultProps
+	}
 }
