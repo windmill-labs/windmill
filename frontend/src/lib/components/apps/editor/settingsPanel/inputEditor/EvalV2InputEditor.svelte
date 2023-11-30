@@ -104,7 +104,7 @@
 					>
 						<Highlight
 							language={json}
-							code={JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4)}
+							code={JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}
 						/>
 					</div>
 				</div>
