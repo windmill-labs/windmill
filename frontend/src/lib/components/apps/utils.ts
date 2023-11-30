@@ -183,7 +183,7 @@ declare async function goto(path: string, newTab?: boolean): Promise<void>;
  * @param id component's id
  * @param index index of the tab to set
 */
-declare function setTab(id: string, index: string): void;
+declare function setTab(id: string, index: number): void;
 
 /** recompute a component's runnable or background runnable
  * @param id component's id
@@ -247,7 +247,7 @@ declare const state: ${JSON.stringify(state)};
 declare const iter: {index: number, value: any};
 
 /** The row within the context of a table */
-declare const row: Record<string, any>;
+declare const row: {index: number, value: Record<string, any>, disabled: boolean};
 
 /** The group fields within the context of a container's group */
 declare const group: Record<string, any>;

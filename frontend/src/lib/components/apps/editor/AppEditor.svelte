@@ -162,6 +162,7 @@
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		yTop,
+		evalPreview: writable({}),
 		componentActive,
 		dndItem: writable({}),
 		refreshComponents: writable(undefined),

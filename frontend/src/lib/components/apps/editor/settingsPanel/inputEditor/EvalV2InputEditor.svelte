@@ -2,17 +2,21 @@
 	import type { EvalV2AppInput } from '../../../inputType'
 
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '$lib/components/apps/types'
+	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
 	import { inferDeps } from '../../appUtilsInfer'
 	import { Maximize2 } from 'lucide-svelte'
 	import { Drawer } from '$lib/components/common'
+	import { Highlight } from 'svelte-highlight'
+	import { json } from 'svelte-highlight/languages'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
+	export let field: string
 
 	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: SimpleEditor
 	export function setCode(code: string) {
@@ -43,6 +47,7 @@
 	}
 
 	let fullscreen = false
+	let focus = false
 </script>
 
 {#if componentInput?.type === 'evalv2'}
@@ -75,6 +80,12 @@
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight
+				on:focus={() => {
+					focus = true
+				}}
+				on:blur={() => {
+					focus = false
+				}}
 				on:change={async (e) => {
 					if (onchange) {
 						onchange()
@@ -86,10 +97,24 @@
 				class="border bg-surface absolute top-0.5 right-2 p-0.5"
 				on:click={() => (fullscreen = true)}><Maximize2 size={12} /></button
 			>
+			{#if focus}
+				<div class="relative w-full">
+					<div
+						class="p-1 !text-2xs absolute rounded-b border-b border-r border-l bg-surface w-full z-[5000] overflow-auto"
+					>
+						<Highlight
+							language={json}
+							code={JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4)}
+						/>
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<pre class="text-small border px-2">{componentInput.expr}</pre>
 		{/if}
 	</div>
+	<!-- <div class="relative">
+		<div class="absolute top-0 left-0 z-[1000]"> -->
 
 	{#if componentInput?.expr && componentInput.expr != '' && componentInput.expr
 			.trim()
