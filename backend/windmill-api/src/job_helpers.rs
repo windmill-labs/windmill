@@ -3,7 +3,7 @@ use std::cmp;
 use crate::{
     db::DB, resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage,
 };
-use aws_sdk_s3::config::{Credentials, Region};
+use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -244,7 +244,7 @@ async fn list_stored_files(
         ));
     }
 
-    let next_marker = if bucket_objects.is_truncated() {
+    let next_marker = if bucket_objects.is_truncated().unwrap_or(false) {
         if bucket_objects.next_marker().is_some() {
             // some S3 providers returns the next marker for us. If that's the case just re-use it
             bucket_objects.next_marker().map(|v| v.to_owned())
@@ -337,7 +337,7 @@ async fn load_file_metadata(
 
     let response = LoadFileMetadataResponse {
         mime_type: s3_object_metadata.content_type().map(&str::to_string),
-        size_in_bytes: Some(s3_object_metadata.content_length()),
+        size_in_bytes: s3_object_metadata.content_length(),
         last_modified: s3_object_metadata
             .last_modified()
             .map(|dt| chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
@@ -378,7 +378,9 @@ async fn load_file_preview(
 
     // if content length is provided in the request, use it, otherwise get it from s3
     let (s3_object_mime_type, s3_object_content_length) =
-        if query.file_size_in_bytes.is_none() || query.file_mime_type.is_none() {
+        if query.file_size_in_bytes.is_some() || query.file_mime_type.is_some() {
+            (query.file_mime_type.clone(), query.file_size_in_bytes)
+        } else {
             let s3_object_metadata = s3_client
                 .head_object()
                 .bucket(&s3_bucket)
@@ -390,17 +392,16 @@ async fn load_file_preview(
                 s3_object_metadata.content_type().map(|v| v.to_owned()),
                 s3_object_metadata.content_length(),
             )
-        } else {
-            (
-                query.file_mime_type.clone(),
-                query.file_size_in_bytes.unwrap(),
-            )
         };
 
-    let file_chunk_length = cmp::min(
-        query.read_bytes_length,
-        s3_object_content_length - query.read_bytes_from,
-    );
+    let file_chunk_length = if s3_object_content_length.is_some() {
+        cmp::min(
+            query.read_bytes_length,
+            s3_object_content_length.unwrap() - query.read_bytes_from,
+        )
+    } else {
+        query.read_bytes_length
+    };
 
     let content_type: WindmillContentType;
     let content_preview = match s3_object_mime_type.as_deref() {
@@ -537,6 +538,7 @@ fn build_s3_client(s3_resource_ref: &S3Resource) -> aws_sdk_s3::Client {
     let endpoint = render_endpoint(&s3_resource);
     let mut s3_config_builder = aws_sdk_s3::Config::builder()
         .endpoint_url(endpoint)
+        .behavior_version(BehaviorVersion::latest())
         .region(Region::new(s3_resource.region));
     if s3_resource.access_key.is_some() {
         s3_config_builder = s3_config_builder.credentials_provider(Credentials::new(
