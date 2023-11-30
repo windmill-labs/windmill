@@ -247,10 +247,12 @@ export function getRecommendedDimensionsByComponent(
 	return { w: +size[0], h: +size[1] }
 }
 
+export type Quickstyle = { quickCss?: string[]; quickTailwindClasses?: string[] }
 export type AppComponentConfig<T extends TypedComponent['type']> = {
 	name: string
 	icon: any
 	documentationLink: string
+	quickstyle?: Record<string, Quickstyle>
 	/**
 	 * Dimensions key formula:
 	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
@@ -2727,19 +2729,25 @@ This is a paragraph.
 		icon: FileBarChart,
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
+		quickstyle: {
+			title: {
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			},
+			value: {
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			}
+		} as Record<string, Quickstyle>,
 		customCss: {
 			title: {
 				class: '',
-				style: '',
-				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
-				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+				style: ''
 			},
 			container: { class: '', style: '' },
 			value: {
 				class: '',
-				style: '',
-				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
-				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+				style: ''
 			},
 			media: { class: '', style: '' }
 		},

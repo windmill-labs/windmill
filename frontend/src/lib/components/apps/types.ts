@@ -44,8 +44,6 @@ export type ComponentCssProperty = {
 	class?: string
 	style?: string
 	evalClass?: RichConfiguration
-	quickCss?: readonly string[] | undefined
-	quickTailwindClasses?: readonly string[] | undefined
 }
 
 export type ComponentCustomCSS<T extends keyof typeof components> = Partial<
