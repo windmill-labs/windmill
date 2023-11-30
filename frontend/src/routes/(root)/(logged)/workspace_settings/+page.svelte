@@ -224,6 +224,9 @@
 
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
+			if (errorHandlerScriptPath !== undefined && isSlackHandler(errorHandlerScriptPath)) {
+				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			}
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -244,6 +247,13 @@
 			})
 			sendUserToast(`workspace error handler removed`)
 		}
+	}
+
+	function isSlackHandler(scriptPath: string) {
+		return (
+			scriptPath.startsWith('hub/') &&
+			scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
+		)
 	}
 </script>
 
