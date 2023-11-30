@@ -3,15 +3,30 @@ version: "3.7"
 services:
   npm_registry:
     image: verdaccio/verdaccio
-    ports:
-      - 4873:4873
     environment:
-      - VERDACCIO_PROTOCOL=https
-      - VERDACCIO_PUBLIC_URL=https://npm_registry:4873
+      - VERDACCIO_PROTOCOL=http
+      - VERDACCIO_PUBLIC_URL=http://caddy/npm/
     volumes:
       - ./verdaccio_conf:/verdaccio/conf
-      - ./certs:/verdaccio/certs
       - npm_registry_data:/verdaccio/storage
+
+  pypi_server:
+    image: pypiserver/pypiserver:latest
+    platform: linux/x86_64
+    volumes:
+      - pypi_data:/data/packages
+    command: run -P . -a . /data/packages
+
+  caddy:
+    image: caddy:2.5.2-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./certs:/certs
+      - ./helloworld_static:/static/
+    ports:
+      - 443:443
+    environment:
+      - BASE_URL=":443"
 
   db:
     image: postgres:14
@@ -31,11 +46,17 @@ services:
     ports:
       - 8000:8000
     environment:
-      - WHITELIST_ENVS='DENO_CERT'
       - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
-      - NPM_CONFIG_REGISTRY=https://npm_registry:4873
+      - WORKER_TAGS=deno,go,python3,bash,flow,hub,dependency,nativets
+
+      # For DENO and REST scripts:
+      - NPM_CONFIG_REGISTRY=http://caddy/npm/
       - DENO_CERT=/custom-certs/windmill-root.crt # this will make deno trust this RootCA for all sessions
       # - DENO_TLS_CA_STORE=system # alternatively, you can use this but you'll need to manually trust the RootCA at the host level, see README.md
+
+      # For Python scripts:
+      - PIP_INDEX_URL=https://caddy/simple/
+      - PIP_INDEX_CERT=/custom-certs/windmill-root.crt # this will make pip trust this RootCA for all sessions
     volumes:
       - ./certs:/custom-certs
     depends_on:
@@ -44,4 +65,5 @@ services:
 
 volumes:
   npm_registry_data: null
+  pypi_data: null
   db_data: null

@@ -1,0 +1,16 @@
+{$BASE_URL} {
+        bind {$ADDRESS}
+        tls /certs/caddy.crt /certs/caddy.key
+        handle_path /static/* {
+            root * /static/
+            file_server {
+                browse
+            }
+        }
+        handle_path /npm/* {
+            reverse_proxy * http://npm_registry:4873
+        }
+        handle_path /* {
+            reverse_proxy * http://pypi_server:8080
+        }
+}

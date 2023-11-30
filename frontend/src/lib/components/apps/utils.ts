@@ -365,3 +365,20 @@ export function transformBareBase64IfNecessary(source: string | undefined) {
 		return `data:application/octet-stream;base64,${source}`
 	}
 }
+
+export function getImageDataURL(imageKind: string | undefined, image: string | undefined) {
+	if (!imageKind || !image) {
+		return null
+	}
+
+	switch (imageKind) {
+		case 'png encoded as base64':
+			return 'data:image/png;base64,' + image
+		case 'jpeg encoded as base64':
+			return 'data:image/jpeg;base64,' + image
+		case 'svg encoded as base64':
+			return 'data:image/svg+xml;base64,' + image
+		default:
+			return image
+	}
+}

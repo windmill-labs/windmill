@@ -10,7 +10,7 @@ env:
 
 jobs:
   build_go_and_push_to_repo:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4

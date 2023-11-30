@@ -16,7 +16,7 @@ use crate::{
         start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
-    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{
@@ -512,7 +512,7 @@ plugin(p)
 }
 
 pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
-    let mut bun_envs: HashMap<String, String> = HashMap::from([
+    let bun_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
@@ -529,10 +529,6 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
             BUN_CACHE_DIR.to_string(),
         ),
     ]);
-
-    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        bun_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
-    }
     return bun_envs;
 }
 

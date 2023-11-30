@@ -7,15 +7,14 @@ uplinks:
   npmjs:
     url: https://registry.npmjs.org/
 packages:
-  '@*/*':
+  "@*/*":
     access: $all
     publish: $authenticated
-  '**':
+  "**":
+    access: $all
     proxy: npmjs
 listen:
-- https://npm_registry:4873
-https:
-  key: /verdaccio/certs/npm_registry.key
-  cert: /verdaccio/certs/npm_registry.crt
-  ca: /verdaccio/certs/windmill-root.crt
+  - http://localhost:4873
+  - http://npm_registry:4873
+url_prefix: /npm/
 log: { type: stdout, format: pretty, level: http }

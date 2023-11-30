@@ -2127,19 +2127,37 @@ async fn impersonate(
     Ok((StatusCode::CREATED, token))
 }
 
+#[derive(Deserialize)]
+struct ListTokenQuery {
+    exclude_ephemeral: Option<bool>,
+}
+
 async fn list_tokens(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
+    Query(query): Query<ListTokenQuery>,
 ) -> JsonResult<Vec<TruncatedToken>> {
-    let rows = sqlx::query_as!(
-        TruncatedToken,
-        "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-         last_used_at, scopes FROM token WHERE email = $1
-         ORDER BY created_at DESC",
-        email,
-    )
-    .fetch_all(&db)
-    .await?;
+    let rows = if query.exclude_ephemeral.unwrap_or(false) {
+        sqlx::query_as!(
+            TruncatedToken,
+            "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
+             last_used_at, scopes FROM token WHERE email = $1 AND label != 'ephemeral-script'
+             ORDER BY created_at DESC",
+            email,
+        )
+        .fetch_all(&db)
+        .await?
+    } else {
+        sqlx::query_as!(
+            TruncatedToken,
+            "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
+            last_used_at, scopes FROM token WHERE email = $1
+            ORDER BY created_at DESC",
+            email,
+        )
+        .fetch_all(&db)
+        .await?
+    };
     Ok(Json(rows))
 }
 

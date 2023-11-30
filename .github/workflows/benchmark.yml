@@ -7,14 +7,13 @@ on:
 
 jobs:
   benchmark:
-    runs-on: [self-hosted, new]
+    runs-on: ubicloud-standard-8
     services:
       postgres:
         image: postgres
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
-
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
@@ -35,12 +34,12 @@ jobs:
         image: ghcr.io/windmill-labs/windmill-ee:main
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
-          DISABLE_SERVER: true
+          MODE: worker
           WORKER_GROUP: dedicated
           DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         options: >-
-          --pull always
+          --pull always --restart unless-stopped
     steps:
       - uses: denoland/setup-deno@v1
         with:
@@ -50,9 +49,11 @@ jobs:
           ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
-        run: deno run --unstable -A -r
+        run:
+          deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
-          -c https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+          -c
+          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
       - name: Push changes
         run: |
           pwd

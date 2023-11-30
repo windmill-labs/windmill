@@ -5,8 +5,6 @@ env:
 name: Build windmill:mssql
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 0 */4 * *"
 
 concurrency:
   group: ${{ github.ref }}-mssql
