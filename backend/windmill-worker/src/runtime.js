@@ -22,10 +22,15 @@ import "ext:deno_web/13_message_port.js";
 import "ext:deno_web/14_compression.js";
 import "ext:deno_web/15_performance.js";
 
+globalThis.atob = base64.atob;
+globalThis.btoa = base64.btoa;
 globalThis.fetch = fetch.fetch;
 globalThis.Request = request.Request;
 globalThis.Blob = file.Blob;
 globalThis.URL = url.URL;
+globalThis.FormData = formData.FormData;
+globalThis.URLSearchParams = url.URLSearchParams;
+globalThis.Headers = headers.Headers;
 globalThis.FileReader = fileReader.FileReader;
 globalThis.console = new console.Console((msg, level) =>
   globalThis.Deno.core.ops.op_log([msg])
