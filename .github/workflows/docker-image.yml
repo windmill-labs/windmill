@@ -131,6 +131,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
 
       - name: Login to ECR
         if: github.event_name != 'pull_request'
