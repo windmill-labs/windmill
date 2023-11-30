@@ -788,7 +788,7 @@
 				<Skeleton layout={[[4], 0.7]} />
 			{/each}
 		{:else}
-			<div class="overflow-auto">
+			<div class="overflow-auto mt-4">
 				<DataTable>
 					<Head>
 						<Row>
@@ -797,8 +797,7 @@
 							<Cell head last />
 						</Row>
 					</Head>
-
-					<tbody>
+					<tbody class="divide-y bg-surface">
 						{#if resourceTypes}
 							{#each resourceTypes as { name, description, schema, canWrite }}
 								<Row>
@@ -838,6 +837,7 @@
 													size="xs"
 													color="red"
 													variant="border"
+													btnClasses="border-0"
 													startIcon={{ icon: Trash }}
 													on:click={() => handleDeleteResourceType(name)}
 												>
@@ -845,8 +845,7 @@
 												</Button>
 												<Button
 													size="xs"
-													variant="border"
-													color="dark"
+													color="light"
 													startIcon={{ icon: Pen }}
 													on:click={() => startEditResourceType(name)}
 												>
