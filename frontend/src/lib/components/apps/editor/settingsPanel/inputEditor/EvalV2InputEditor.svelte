@@ -8,8 +8,6 @@
 	import { inferDeps } from '../../appUtilsInfer'
 	import { Maximize2 } from 'lucide-svelte'
 	import { Drawer } from '$lib/components/common'
-	import { Highlight } from 'svelte-highlight'
-	import { json } from 'svelte-highlight/languages'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
@@ -102,10 +100,9 @@
 					<div
 						class="p-1 !text-2xs absolute rounded-b border-b border-r border-l bg-surface w-full z-[5000] overflow-auto"
 					>
-						<Highlight
-							language={json}
-							code={JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}
-						/>
+						<pre class="text-tertiary"
+							>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
+						>
 					</div>
 				</div>
 			{/if}
