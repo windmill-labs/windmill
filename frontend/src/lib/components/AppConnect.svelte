@@ -537,7 +537,7 @@
 			{/if}
 			{#if isGoogleSignin}
 				<button {disabled} on:click={next}>
-					<img class="h-10 w-auto" src="/google_signin.png" alt="Google sign-in" />
+					<img class="h-full w-auto" src="/google_signin.png" alt="Google sign-in" />
 				</button>
 			{:else}
 				<Button {disabled} on:click={next}>
