@@ -15,30 +15,28 @@
 	const items = [...(enum_ ?? [])]
 </script>
 
-<div class="flex flex-row items-center gap-2 w-full">
-	<AutoComplete
-		{items}
-		bind:selectedItem={value}
-		inputClassName={twMerge(
-			'bg-surface-secondary flex',
-			valid
-				? ''
-				: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
-		)}
-		value={value ?? defaultValue}
-		hideArrow={true}
-		dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md"
-		className="w-full"
-		onFocus={() => {
-			dispatch('focus')
-		}}
-		create={true}
-		onCreate={(newItem) => {
-			items.push(newItem)
-			return newItem
-		}}
-		{disabled}
-		{autofocus}
-		createText="Press enter to use this non-predefined value"
-	/>
-</div>
+<AutoComplete
+	{items}
+	bind:selectedItem={value}
+	inputClassName={twMerge(
+		'bg-surface-secondary flex',
+		valid
+			? ''
+			: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+	)}
+	value={value ?? defaultValue}
+	hideArrow={true}
+	dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md"
+	className="w-full"
+	onFocus={() => {
+		dispatch('focus')
+	}}
+	create={true}
+	onCreate={(newItem) => {
+		items.push(newItem)
+		return newItem
+	}}
+	{disabled}
+	{autofocus}
+	createText="Press enter to use this non-predefined value"
+/>
