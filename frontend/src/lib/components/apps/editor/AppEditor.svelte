@@ -130,6 +130,7 @@
 		selectedComponent,
 		mode,
 		connectingInput,
+		bgRuns: writable([]),
 		breakpoint,
 		runnableComponents: writable({}),
 		appPath: path,

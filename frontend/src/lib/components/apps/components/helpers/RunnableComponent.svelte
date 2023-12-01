@@ -68,7 +68,8 @@
 		initialized,
 		selectedComponent,
 		app,
-		connectingInput
+		connectingInput,
+		bgRuns
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
@@ -108,6 +109,8 @@
 	let lazyStaticValues = computeStaticValues()
 	let currentStaticValues = lazyStaticValues
 
+	let isBg = id.startsWith('bg_')
+	$: isBg && updateBgRuns(loading)
 	$: fields && (currentStaticValues = computeStaticValues())
 	$: if (!deepEqual(currentStaticValues, lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
@@ -505,6 +508,14 @@
 	let lastJobId: string | undefined = undefined
 
 	let inputValues: Record<string, InputValue> = {}
+
+	function updateBgRuns(loading: boolean) {
+		if (loading) {
+			bgRuns.update((runs) => [...runs, id])
+		} else {
+			bgRuns.update((runs) => runs.filter((r) => r !== id))
+		}
+	}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
