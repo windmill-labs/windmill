@@ -19,8 +19,73 @@
 	export let getSteps: (driver: Driver, options?: Options | undefined) => DriveStep[] = () => []
 
 	let totalSteps = 0
-
+	let tutorial: Driver | undefined = undefined
 	const dispatch = createEventDispatcher()
+
+	// Render controls needs to be exposed so steps that have a custom render can call it
+	export function renderControls({ config, state }) {
+		const popoverDescription = document.querySelector('#driver-popover-description')
+
+		if (!tutorial) {
+			return
+		}
+
+		if (state.activeIndex == 0) {
+			const div = document.createElement('div')
+
+			const skipTutorials = new SkipTutorials({
+				target: div
+			})
+
+			skipTutorials.$on('skipAll', () => {
+				dispatch('skipAll')
+				tutorial?.destroy()
+			})
+
+			skipTutorials.$on('skipThis', () => {
+				updateProgress(index)
+				tutorial?.destroy()
+			})
+
+			if (popoverDescription) {
+				popoverDescription.appendChild(div)
+			}
+		}
+
+		const controls = document.createElement('div')
+
+		const tutorialControls = new TutorialControls({
+			target: controls,
+			props: {
+				activeIndex: state.activeIndex,
+				totalSteps
+			}
+		})
+
+		tutorialControls.$on('next', () => {
+			const step = tutorial?.getActiveStep()
+
+			if (step) {
+				if (tutorial?.getActiveStep()?.popover?.onNextClick) {
+					const activeElement = tutorial?.getActiveElement()
+					tutorial?.getActiveStep()?.popover?.onNextClick?.(activeElement, step, {
+						config,
+						state
+					})
+				} else {
+					tutorial?.moveNext()
+				}
+			}
+		})
+
+		tutorialControls.$on('previous', () => {
+			tutorial?.movePrevious()
+		})
+
+		if (popoverDescription) {
+			popoverDescription.appendChild(controls)
+		}
+	}
 
 	export const runTutorial = (options?: Options | undefined) => {
 		if (tainted) {
@@ -28,63 +93,17 @@
 			return
 		}
 
-		const tutorial = driver({
+		tutorial = driver({
 			allowClose: true,
 			disableActiveInteraction: true,
 			showButtons: ['close'],
 			showProgress: false,
 			overlayColor: 'rgba(0, 0, 0, 0.8)',
 			onPopoverRender: (popover, { config, state }) => {
-				const popoverDescription = document.querySelector('#driver-popover-description')
-
-				if (state.activeIndex == 0) {
-					const div = document.createElement('div')
-
-					const skipTutorials = new SkipTutorials({
-						target: div
-					})
-
-					skipTutorials.$on('skipAll', () => {
-						dispatch('skipAll')
-						tutorial.destroy()
-					})
-
-					skipTutorials.$on('skipThis', () => {
-						updateProgress(index)
-						tutorial.destroy()
-					})
-
-					if (popoverDescription) {
-						popoverDescription.appendChild(div)
-					}
-				}
-
-				const controls = document.createElement('div')
-
-				console.log(state)
-
-				const tutorialControls = new TutorialControls({
-					target: controls,
-					props: {
-						activeIndex: state.activeIndex,
-						totalSteps
-					}
-				})
-
-				tutorialControls.$on('next', () => {
-					tutorial.moveNext()
-				})
-
-				tutorialControls.$on('previous', () => {
-					tutorial.movePrevious()
-				})
-
-				if (popoverDescription) {
-					popoverDescription.appendChild(controls)
-				}
+				renderControls({ config, state })
 			},
 			onDestroyed: () => {
-				if (!tutorial.hasNextStep()) {
+				if (!tutorial?.hasNextStep()) {
 					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, index]))
 				}
 			}
