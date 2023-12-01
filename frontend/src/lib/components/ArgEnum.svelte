@@ -12,7 +12,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const customItems: string[] = []
+	let customItems: string[] = []
 </script>
 
 <AutoComplete
@@ -34,6 +34,7 @@
 	create={true}
 	onCreate={(newItem) => {
 		customItems.push(newItem)
+		customItems = customItems
 		return newItem
 	}}
 	{disabled}
