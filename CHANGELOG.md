@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.219.0](https://github.com/windmill-labs/windmill/compare/v1.218.0...v1.219.0) (2023-12-01)
+
+
+### Features
+
+* eval preview for apps ([d4374a0](https://github.com/windmill-labs/windmill/commit/d4374a0103d2244b31b5cec7649dbfb96b2af1b4))
+
+
+### Bug Fixes
+
+* **frontend:** rename menu component ([#2738](https://github.com/windmill-labs/windmill/issues/2738)) ([f816ad0](https://github.com/windmill-labs/windmill/commit/f816ad01d3e39917714abadcf3833a4d8619e4f3))
+* improve quickstyle to be in static ccomponents only ([4774e03](https://github.com/windmill-labs/windmill/commit/4774e03be5663017bccbe95f026cc39d4c43f536))
+* improve stat card ([fc5f054](https://github.com/windmill-labs/windmill/commit/fc5f054b94fa58ee889d10d06e486b6e8c4f885e))
+* limit log pull from queued jobs ([592d783](https://github.com/windmill-labs/windmill/commit/592d7839d183843b425521a319b802fb8cac3f21))
+* support INET in pg ([007d5be](https://github.com/windmill-labs/windmill/commit/007d5be23e038fbf82907c3b335b3d747791295d))
+
 ## [1.218.0](https://github.com/windmill-labs/windmill/compare/v1.217.0...v1.218.0) (2023-11-30)
 
 
