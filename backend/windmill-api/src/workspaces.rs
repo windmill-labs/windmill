@@ -36,7 +36,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 #[cfg(feature = "enterprise")]
-use chrono::{TimeZone, Datelike};
+use chrono::{TimeZone, Datelike, Timelike};
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -424,22 +424,25 @@ async fn stripe_checkout(
                 _ => params.customer_email = Some(&authed.email),
             }
             
+            let now = Utc::now();
             params.subscription_data = Some(stripe::CreateCheckoutSessionSubscriptionData {
                 metadata: {
                     let mut map = std::collections::HashMap::new();
                     map.insert("workspace_id".to_string(), w_id.clone());
                     Some(map)
                 },
-                billing_cycle_anchor: Some({
-                    // first of the next month (and possibly next year) at noon UTC
-                    let now = Utc::now();
-                    let date = if now.month() == 12 {
-                        Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 12, 0, 0).single().unwrap()
-                    } else {
-                        Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 12, 0, 0).single().unwrap()
-                    };
-                    date.timestamp()
-                }),
+                billing_cycle_anchor: if now.day() == 1 && now.hour() < 12 {
+                        // no need to prorate so close to the billing cycle renew date
+                        None 
+                    } else { 
+                        // first of the next month (and possibly next year) at noon UTC
+                        let date = if now.month() == 12 {
+                            Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 12, 0, 0).single().unwrap()
+                        } else {
+                            Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 12, 0, 0).single().unwrap()
+                        };
+                        Some(date.timestamp())
+                    },
                 ..Default::default()
             });
 
