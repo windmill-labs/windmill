@@ -106,18 +106,21 @@
 
 	let typeFilter: string | undefined = undefined
 
+	$: currentResources =
+		tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : resources
+
 	$: preFilteredItemsOwners =
 		ownerFilter == undefined
-			? resources
-			: resources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+			? currentResources
+			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
 
 	$: preFilteredType =
 		typeFilter == undefined
-			? preFilteredItemsOwners?.filter((x) =>
-					tab === 'workspace'
+			? preFilteredItemsOwners?.filter((x) => {
+					return tab === 'workspace'
 						? x.resource_type !== 'app_theme' &&
-						  x.resource_type !== 'state' &&
-						  x.resource_type !== 'cache'
+								x.resource_type !== 'state' &&
+								x.resource_type !== 'cache'
 						: tab === 'states'
 						? x.resource_type === 'state'
 						: tab === 'cache'
@@ -125,16 +128,18 @@
 						: tab === 'theme'
 						? x.resource_type === 'app_theme'
 						: true
-			  )
-			: preFilteredItemsOwners?.filter(
-					(x) =>
+			  })
+			: preFilteredItemsOwners?.filter((x) => {
+					console.log(x.resource_type)
+					return (
 						x.resource_type === typeFilter &&
 						(tab === 'workspace'
 							? x.resource_type !== 'app_theme' &&
 							  x.resource_type !== 'state' &&
 							  x.resource_type !== 'cache'
 							: true)
-			  )
+					)
+			  })
 
 	async function loadResources(): Promise<void> {
 		resources = await loadResourceInternal(undefined, 'cache,state')
@@ -307,8 +312,6 @@
 		inferrer?.closeDrawer?.()
 	}
 	let deploymentDrawer: DeployWorkspaceDrawer
-
-	$: items = tab == 'cache' ? cacheResources : tab == 'states' ? stateResources : filteredItems
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
@@ -585,7 +588,7 @@
 				{#each new Array(6) as _}
 					<Skeleton layout={[[4], 0.7]} />
 				{/each}
-			{:else if items?.length == 0}
+			{:else if filteredItems?.length == 0}
 				<div class="flex flex-col items-center justify-center h-full">
 					<div class="text-md font-medium">No resources found</div>
 					<div class="text-sm text-secondary">
@@ -605,8 +608,8 @@
 						</Row>
 					</Head>
 					<tbody class="divide-y bg-surface">
-						{#if items}
-							{#each items as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
+						{#if filteredItems}
+							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
 								<Row>
 									<Cell first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
