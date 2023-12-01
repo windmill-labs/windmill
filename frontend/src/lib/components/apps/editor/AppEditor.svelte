@@ -594,7 +594,7 @@
 										on:scroll={parseScroll}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
-											$appStore.fullscreen ? '' : 'max-w-7xl border-x',
+											$appStore.fullscreen ? '' : 'max-w-7xl',
 											$componentActive ? 'absolute' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
