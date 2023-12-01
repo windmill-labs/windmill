@@ -162,7 +162,6 @@
 			bind:inlineScript
 		/>
 	{/if}
-
 	<div class="h-full flex flex-col gap-1">
 		<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
 			{#if name !== undefined}
