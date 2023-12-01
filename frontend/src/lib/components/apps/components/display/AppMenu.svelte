@@ -27,20 +27,18 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let menuItems: (BaseAppComponent & ButtonComponent)[]
 
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	let outputs = initOutput($worldStore, id, {
+		result: {
+			latestButtonClicked: undefined as string | undefined
+		}
+	})
+
 	const resolvedConfig = initConfig(
 		components['menucomponent'].initialData.configuration,
 		configuration
 	)
-
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
-
-	initOutput($worldStore, id, {
-		result: undefined,
-		loading: false
-	})
-
-	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
 
 	let beforeIconComponent: any
 	let afterIconComponent: any
@@ -123,17 +121,25 @@
 				{#if menuItems.length > 0}
 					{#each menuItems as actionButton, actionIndex (actionButton?.id)}
 						{#if actionButton.type == 'buttoncomponent'}
-							<AppButton
-								extraKey={'idx' + actionIndex}
-								{render}
-								id={actionButton.id}
-								customCss={actionButton.customCss}
-								configuration={actionButton.configuration}
-								recomputeIds={actionButton.recomputeIds}
-								componentInput={actionButton.componentInput}
-								noWFull={false}
-								isMenuItem={true}
-							/>
+							<div
+								on:pointerup={() => {
+									outputs?.result.set({
+										latestButtonClicked: actionButton.id
+									})
+								}}
+							>
+								<AppButton
+									extraKey={'idx' + actionIndex}
+									{render}
+									id={actionButton.id}
+									customCss={actionButton.customCss}
+									configuration={actionButton.configuration}
+									recomputeIds={actionButton.recomputeIds}
+									componentInput={actionButton.componentInput}
+									noWFull={false}
+									isMenuItem={true}
+								/>
+							</div>
 						{/if}
 					{/each}
 				{/if}
