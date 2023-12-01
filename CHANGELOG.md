@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.219.1](https://github.com/windmill-labs/windmill/compare/v1.219.0...v1.219.1) (2023-12-01)
+
+
+### Bug Fixes
+
+* fix editorContext in preview ([cb42f10](https://github.com/windmill-labs/windmill/commit/cb42f10dc605f00ba70fadc61069aba98af8ec88))
+* maps mapRegion update on move ([62de305](https://github.com/windmill-labs/windmill/commit/62de305908ba7e6ac75aa5e8ffba822522b08345))
+
 ## [1.219.0](https://github.com/windmill-labs/windmill/compare/v1.218.0...v1.219.0) (2023-12-01)
 
 
