@@ -31,6 +31,18 @@
 	$: open =
 		$allIdsInPath.includes(id) || id == $selectedComponent?.[0] || $manuallyOpened[id] || inSearch
 
+	$: if (id.startsWith('bg_')) {
+		if (open) {
+			manuallyOpened.update((current) => ({ ...current, [id]: true }))
+		} else {
+			manuallyOpened.update((current) => {
+				const updated = { ...current }
+				delete updated[id]
+				return updated
+			})
+		}
+	}
+
 	const hoverColor = {
 		blue: 'hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-frost-900 dark:hover:text-frost-100',
 		indigo:
