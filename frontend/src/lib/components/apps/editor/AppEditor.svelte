@@ -54,6 +54,9 @@
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import ScriptFix from '$lib/components/copilot/ScriptFix.svelte'
 
 	export let app: App
 	export let path: string
@@ -161,8 +164,10 @@
 
 	let yTop = writable(0)
 
+	let runnableJob = writable({ focused: false, job: undefined as Job | undefined })
 	setContext<AppEditorContext>('AppEditorContext', {
 		yTop,
+		runnableJobResultPanel: runnableJob,
 		evalPreview: writable({}),
 		componentActive,
 		dndItem: writable({}),
@@ -614,8 +619,51 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									<div class="relative h-full w-full">
+									<div class="relative h-full w-full overflow-x-visible">
 										<InlineScriptsPanel />
+										{#if $runnableJob.focused}
+											{@const testJob = $runnableJob.job}
+											<div
+												class="absolute top-0 right-0 translate-x-60 border-r border-t border-b rounded-r-xl bg-red-300 h-full w-60"
+											>
+												<Splitpanes horizontal>
+													<Pane size={50} minSize={10}>
+														<LogViewer
+															jobId={testJob?.id}
+															duration={testJob?.['duration_ms']}
+															mem={testJob?.['mem_peak']}
+															content={testJob?.logs}
+															isLoading={false}
+															tag={testJob?.tag}
+														/>
+													</Pane>
+													<Pane size={50} minSize={10} class="text-sm text-tertiary">
+														{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
+															<pre class="overflow-x-auto break-words relative h-full px-2"
+																><DisplayResult
+																	workspaceId={testJob?.workspace_id}
+																	jobId={testJob?.id}
+																	result={testJob.result}>
+																<!-- <svelte:fragment slot="copilot-fix">
+																	{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
+																			<ScriptFix
+																				error={JSON.stringify(testJob.result.error)}
+																				{lang}
+																				{editor}
+																				{diffEditor}
+																				args={stepArgs}
+																			/>
+																		{/if}
+																</svelte:fragment> -->
+															</DisplayResult>
+														</pre>
+														{:else}
+															<div class="p-2"> Test to see the result here </div>
+														{/if}
+													</Pane>
+												</Splitpanes>
+											</div>
+										{/if}
 									</div>
 								</Pane>
 							{/if}
