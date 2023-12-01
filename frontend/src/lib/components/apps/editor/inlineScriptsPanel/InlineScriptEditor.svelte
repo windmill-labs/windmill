@@ -1,13 +1,12 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppViewerContext, InlineScript } from '../../types'
+	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
+	import type { AppEditorContext, AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { defaultIfEmptyString, emptySchema, getModifierKey, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
@@ -36,6 +35,8 @@
 
 	const { runnableComponents, stateId, worldStore, state, appPath, app } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	const { runnableJobResultPanel: runnableJob } = getContext<AppEditorContext>('AppEditorContext')
 
 	export let editor: Editor | undefined = undefined
 	let diffEditor: DiffEditor
@@ -151,6 +152,13 @@
 			$stateId++
 		}
 	}
+
+	onDestroy(() => {
+		runnableJob.update((x) => {
+			x.focused = false
+			return x
+		})
+	})
 </script>
 
 {#if inlineScript}
@@ -182,11 +190,10 @@
 				{/if}
 			{/if}
 			<div class="flex w-full flex-row gap-2 items-center justify-end">
-				{#if validCode}
-					<Badge color="green" baseClass="!text-2xs">Valid</Badge>
-				{:else}
-					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
-				{/if}
+				<div
+					title={validCode ? 'Main function parsable' : 'Main function not parsable'}
+					class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+				/>
 				{#if inlineScript}
 					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
 				{/if}
@@ -260,6 +267,19 @@
 						class="flex flex-1 grow h-full"
 						lang={scriptLangToEditorLang(inlineScript?.language)}
 						bind:code={inlineScript.content}
+						on:focus={() => {
+							runnableJob.update((x) => {
+								x.focused = true
+								return x
+							})
+							// $selectedComponentInEditor = id
+						}}
+						on:blur={() => {
+							runnableJob.update((x) => {
+								x.focused = false
+								return x
+							})
+						}}
 						fixedOverflowWidgets={true}
 						cmdEnterAction={async () => {
 							if (inlineScript) {

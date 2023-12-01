@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Preview } from '$lib/gen'
+import type { Job, Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
@@ -260,6 +260,7 @@ export type AppViewerContext = {
 
 export type AppEditorContext = {
 	yTop: Writable<number>
+	runnableJobResultPanel: Writable<{ focused: boolean; job: Job | undefined; width: number }>
 	evalPreview: Writable<Record<string, any>>
 	componentActive: Writable<boolean>
 	dndItem: Writable<Record<string, (x: number, y: number, topY: number) => void>>
