@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deployment_callback_runs (workspace_id, deployed_script_hash, callback_script_path, job_id, deployment_msg) VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "261791b707b23a70fac4b1b8d492d818501fd6a74c31d2b3d7debaf217243daa"
+}
