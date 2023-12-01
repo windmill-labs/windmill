@@ -189,6 +189,7 @@ export type AppViewerContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
+	bgRuns: Writable<string[]>
 	runnableComponents: Writable<
 		Record<
 			string,
