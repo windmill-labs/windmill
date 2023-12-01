@@ -792,7 +792,6 @@ const config = {
 					backgroundColor: lightTheme.border + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
-					zIndex: '1001 !important',
 					'&::after': {
 						backgroundColor: lightTheme.border + ' !important',
 						margin: '0 !important',
@@ -803,7 +802,8 @@ const config = {
 						'--splitter-hover-adjustment': '-2px'
 					},
 					'&:hover::after': {
-						opacity: '1'
+						opacity: '1',
+						zIndex: '1001 !important'
 					}
 				},
 				'.dark .splitpanes__splitter': {
