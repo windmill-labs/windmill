@@ -999,6 +999,13 @@ async fn edit_git_sync_config(
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditGitSyncConfig>,
 ) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Git sync is only available on Windmill Enterprise Edition".to_string(),
+        ));
+    }
+
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;

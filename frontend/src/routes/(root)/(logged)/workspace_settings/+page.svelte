@@ -37,6 +37,7 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
 
 	let initialPath: string
 	let scriptPath: string
@@ -656,13 +657,17 @@
 				>
 			</div>
 		{:else if tab == 'git_sync'}
-			<PageHeader title="Git sync" primary={false} />
+			<PageHeader
+				title="Git sync"
+				primary={false}
+				tooltip="Connect the Windmill workspace to a git repository to automatically commit and push scripts to the repository on each deploy."
+			/>
 			{#if !$enterpriseLicense}
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
 			{/if}
-			<div class="mt-5 flex gap-1">
+			<div class="mt-5 mb-5 flex gap-1">
 				{#key s3ResourceInitialPath}
 					<ResourcePicker
 						resourceType="git_repository"
@@ -672,6 +677,41 @@
 						}}
 					/>
 				{/key}
+			</div>
+
+			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
+				<div class="text-primary font-md font-semibold w-full"> Git repository initial setup </div>
+
+				<div class="prose text-2xs text-tertiary">
+					Every time a script is deployed, only the updated script will be pushed to the remote Git
+					repository.
+
+					<br />
+
+					For the git repo to be representative of the entire workspace, it is recommended to set it
+					up using the Windmill CLI before turning this option on.
+
+					<br /><br />
+
+					Not familiar with the Windmill CLI?
+					<a href="https://www.windmill.dev/docs/advanced/cli">Check out the docs</a>.
+
+					<br /><br />
+
+					Run the following commands from the git repo folder to push the initial workspace content
+					to the remote:
+
+					<br />
+
+					<pre class="overflow-auto max-h-screen"
+						><code
+							>> wmill workspace add WORKSPACE_NAME WORKSPACE_ID WINDMILL_URL
+> wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
+> git add -A git commit -m 'Initial commit'
+> git push</code
+						></pre
+					>
+				</div>
 			</div>
 		{/if}
 	{:else}
