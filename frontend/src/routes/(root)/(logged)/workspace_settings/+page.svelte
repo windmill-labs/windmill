@@ -665,7 +665,7 @@
 			<div class="mt-5 flex gap-1">
 				{#key s3ResourceInitialPath}
 					<ResourcePicker
-						resourceType="authed_git_repo_url"
+						resourceType="git_repository"
 						initialValue={gitSyncResourceInitialPath}
 						on:change={(ev) => {
 							editWindmillGitSyncSettings(ev.detail)

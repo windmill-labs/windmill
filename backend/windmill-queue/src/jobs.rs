@@ -2596,10 +2596,12 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 || job_kind == JobKind::Identity
             {
                 "flow".to_string()
-            } else if job_kind == JobKind::Dependencies || job_kind == JobKind::FlowDependencies {
+            } else if job_kind == JobKind::Dependencies
+                || job_kind == JobKind::FlowDependencies
+                || job_kind == JobKind::DeploymentCallback
+            {
+                // using the dependency tag for deployment callback for now. We can create a separate tag when we need
                 "dependency".to_string()
-            } else if job_kind == JobKind::DeploymentCallback {
-                "deployment_callback".to_string()
             } else {
                 "deno".to_string()
             }

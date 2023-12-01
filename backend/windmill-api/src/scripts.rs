@@ -712,16 +712,17 @@ async fn run_workspace_repo_git_callback<'c, R: rsmq_async::RsmqConnection + Sen
         false,
         None,
         true,
-        None, // 'deploymentcallback' tag will be added to this kind of job
+        None,
         None,
         None,
         None,
     )
     .await?;
 
+    // We're not persisting the default commit msg as it's pretty useless. We will persist the ones manually set by users
     sqlx::query!(
-        "INSERT INTO deployment_callback_runs (workspace_id, deployed_script_hash, callback_script_path, job_id, deployment_msg) VALUES ($1, $2, $3, $4, $5)",
-        w_id, script_hash.0, workspace_git_repo.script_path, job_uuid, commit_msg
+        "INSERT INTO deployment_metadata (workspace_id, deployed_script_hash, callback_job_ids) VALUES ($1, $2, $3)",
+        w_id, script_hash.0, &[job_uuid]
     )
     .execute(&mut new_tx)
     .await?;
