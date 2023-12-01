@@ -7,6 +7,7 @@
 
 	export let componentId: string
 	export let hasContent: boolean = false
+	export let suffix: string = ''
 
 	const { worldStore, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const { search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
@@ -19,7 +20,7 @@
 				object[k] = undefined
 				output?.subscribe(
 					{
-						id: 'alloutputs' + componentId + '-' + k,
+						id: 'alloutputs' + suffix + componentId + '-' + k,
 						next: (value) => {
 							if (!hasContent) {
 								hasContent = true
