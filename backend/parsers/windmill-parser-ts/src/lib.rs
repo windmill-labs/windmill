@@ -311,6 +311,12 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
             } else {
                 let literals = types
                     .into_iter()
+                    .filter(|x| match ***x {
+                        TsType::TsKeywordType(TsKeywordType { kind, .. }) => {
+                            kind != TsKeywordTypeKind::TsStringKeyword
+                        }
+                        _ => true,
+                    })
                     .map(|x| match &**x {
                         TsType::TsLitType(TsLitType {
                             lit: TsLit::Str(Str { value, .. }), ..
