@@ -9,9 +9,10 @@
 
 	export let id: string
 	export let first: boolean = false
+	export let label: string
 </script>
 
-<OutputHeader renamable={false} {id} name={'Menu Item'} {first}>
+<OutputHeader renamable={false} {id} name={label} {first}>
 	<ComponentOutputViewer
 		componentId={id}
 		on:select={({ detail }) => {

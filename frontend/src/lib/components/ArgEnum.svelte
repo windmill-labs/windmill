@@ -12,11 +12,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	const items = [...(enum_ ?? [])]
+	const customItems: string[] = []
 </script>
 
 <AutoComplete
-	{items}
+	items={[...(enum_ ?? []), ...customItems]}
 	bind:selectedItem={value}
 	inputClassName={twMerge(
 		'bg-surface-secondary flex',
@@ -33,7 +33,7 @@
 	}}
 	create={true}
 	onCreate={(newItem) => {
-		items.push(newItem)
+		customItems.push(newItem)
 		return newItem
 	}}
 	{disabled}
