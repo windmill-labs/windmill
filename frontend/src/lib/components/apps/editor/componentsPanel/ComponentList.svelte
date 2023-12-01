@@ -190,7 +190,7 @@
 			{#each componentsFiltered as { title, components, presets }, index (index)}
 				{#if components.length || presets?.length}
 					<div>
-						<ListItem title={`${title} (${components.length})`}>
+						<ListItem title={`${title}`} subtitle={`(${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
 									<div class="w-20">

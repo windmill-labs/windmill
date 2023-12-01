@@ -126,12 +126,12 @@
 		color={timeout ? 'blue' : 'light'}
 		variant={timeout ? 'contained' : 'border'}
 		size="xs"
-		btnClasses="!rounded-r-none {timeout ? '!border !border-blue-500' : ''}"
+		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
 		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 			? `every ${interval / 1000} seconds`
 			: 'once'}"
 	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={16} /> &nbsp;({componentNumber})
+		<RefreshCw class={loading ? 'animate-spin' : ''} size={14} /> &nbsp;{componentNumber}
 	</Button>
 
 	<ButtonDropdown hasPadding={true}>

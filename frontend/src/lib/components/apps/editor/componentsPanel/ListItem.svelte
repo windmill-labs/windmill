@@ -14,6 +14,7 @@
 	export let isOpen = false
 	export let tooltip: string | undefined = undefined
 	export let documentationLink: string | undefined = undefined
+	export let subtitle: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -39,13 +40,14 @@
 			<h1 class="text-sm font-semibold text-left">
 				<slot name="title">
 					{title}
+					{#if subtitle}
+						<span class="text-2xs text-tertiary ml-1">
+							{subtitle}
+						</span>
+					{/if}
 				</slot>
 				{#if tooltip}
-					<Tooltip
-						class="ml-1"
-						documentationLink="https://github.com/windmill-labs/windmill-custom-component-template"
-						>{tooltip}</Tooltip
-					>
+					<Tooltip class="ml-1" {documentationLink}>{tooltip}</Tooltip>
 				{/if}
 			</h1>
 			<ChevronDown class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
@@ -59,13 +61,14 @@
 		<h1 class="text-base font-semibold text-left px-2 py-1 text-secondary">
 			<slot name="title">
 				{title}
+				{#if subtitle}
+					<span class="text-2xs text-tertiary ml-1">
+						{subtitle}
+					</span>
+				{/if}
 			</slot>
 			{#if tooltip}
-				<Tooltip
-					class="ml-1"
-					documentationLink="https://github.com/windmill-labs/windmill-custom-component-template"
-					>{tooltip}</Tooltip
-				>
+				<Tooltip class="ml-1" {documentationLink}>{tooltip}</Tooltip>
 			{/if}
 		</h1>
 		<div class="px-2">
