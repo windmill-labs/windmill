@@ -39,6 +39,7 @@
 				>
 			</svelte:fragment>
 			<ComponentOutputViewer
+				suffix="connect"
 				on:select={({ detail }) =>
 					connectOutput(connectingInput, component.type, component.id, detail)}
 				componentId={component.id}
