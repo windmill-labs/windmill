@@ -53,6 +53,7 @@ pub mod embeddings;
 mod favorite;
 mod flows;
 mod folders;
+mod git_sync_helpers;
 mod granular_acls;
 mod groups;
 mod inputs;

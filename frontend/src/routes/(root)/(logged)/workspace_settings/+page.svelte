@@ -189,7 +189,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						script_path: 'hub/7775/sync-script-to-git-repo-windmill',
+						script_path: 'hub/7835/sync-script-to-git-repo-windmill',
 						git_repo_resource_path: resourcePathWithPrefix
 					}
 				}
@@ -679,9 +679,9 @@
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
-				<div class="text-primary font-md font-semibold w-full"> Git repository initial setup </div>
+				<div class="text-primary font-md font-semibold"> Git repository initial setup </div>
 
-				<div class="prose text-2xs text-tertiary">
+				<div class="prose max-w-none text-2xs text-tertiary">
 					Every time a script is deployed, only the updated script will be pushed to the remote Git
 					repository.
 
@@ -692,8 +692,8 @@
 
 					<br /><br />
 
-					Not familiar with the Windmill CLI?
-					<a href="https://www.windmill.dev/docs/advanced/cli">Check out the docs</a>.
+					Not familiar with Windmill CLI?
+					<a href="https://www.windmill.dev/docs/advanced/cli">Check out the docs</a>
 
 					<br /><br />
 
