@@ -37,7 +37,6 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
 
 	let initialPath: string
 	let scriptPath: string
