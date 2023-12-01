@@ -2745,7 +2745,7 @@ async fn get_script_content_by_path(
     let script_path = script_path
         .clone()
         .ok_or_else(|| Error::InternalErr(format!("expected script path")))?;
-    return if script_path.starts_with("/hub/") {
+    return if script_path.starts_with("hub/") {
         get_hub_script_content_and_requirements(Some(script_path), db).await
     } else {
         let (script_hash, ..) =
