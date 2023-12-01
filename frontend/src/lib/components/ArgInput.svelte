@@ -188,10 +188,7 @@
 	}
 
 	let redraw = 0
-
 	let itemsLimit = 50
-
-	let customValue = false
 
 	$: validateInput(pattern, value, required)
 </script>
@@ -391,11 +388,9 @@
 														}}
 														{defaultValue}
 														{valid}
-														{customValue}
 														{disabled}
 														{autofocus}
 														bind:value={v}
-														disableCustomValue={true}
 														enum_={itemsType?.enum ?? []}
 													/>
 												{:else}
@@ -495,7 +490,7 @@
 				{/if}
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">
-					<ArgEnum {defaultValue} {valid} {customValue} {disabled} bind:value {enum_} {autofocus} />
+					<ArgEnum {defaultValue} {valid} {disabled} bind:value {enum_} {autofocus} />
 				</div>
 			{:else if inputCat == 'date'}
 				<DateTimeInput {autofocus} bind:value />
