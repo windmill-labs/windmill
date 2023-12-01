@@ -30,7 +30,7 @@
 	export let field: string = key
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
-	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
@@ -147,7 +147,7 @@
 	const debounceEval = async () => {
 		let nvalue = await evalExpr(lastInput as EvalAppInput)
 		if (field) {
-			evalPreview.update((x) => {
+			editorContext?.evalPreview.update((x) => {
 				x[`${id}.${field}`] = nvalue
 				return x
 			})
