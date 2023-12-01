@@ -1,7 +1,6 @@
 <script lang="ts">
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
-	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
 	export let disabled: boolean
@@ -13,11 +12,17 @@
 
 	const dispatch = createEventDispatcher()
 
-	const customItems = writable<string[]>([])
+	let customItems: string[] = []
+
+	function onCreate(newItem: string) {
+		customItems = [...customItems, newItem]
+
+		return newItem
+	}
 </script>
 
 <AutoComplete
-	items={[...(enum_ ?? []), ...$customItems]}
+	items={[...(enum_ ?? []), ...customItems]}
 	bind:selectedItem={value}
 	inputClassName={twMerge(
 		'bg-surface-secondary flex',
@@ -32,10 +37,8 @@
 	onFocus={() => {
 		dispatch('focus')
 	}}
-	onCreate={(newItem) => {
-		$customItems = [...$customItems, newItem]
-		return newItem
-	}}
+	create
+	{onCreate}
 	{disabled}
 	{autofocus}
 	createText="Press enter to use this non-predefined value"
