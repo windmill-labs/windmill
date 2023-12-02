@@ -11,6 +11,7 @@
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type {
+		AppEditorContext,
 		AppViewerContext,
 		CancelablePromise,
 		GroupContext,
@@ -71,13 +72,15 @@
 		connectingInput,
 		bgRuns
 	} = getContext<AppViewerContext>('AppViewerContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const groupContext = getContext<GroupContext>('GroupContext')
 
 	const dispatch = createEventDispatcher()
 
-	let donePromise: (() => void) | undefined = undefined
+	let donePromise: ((v: any) => void) | undefined = undefined
 
 	$runnableComponents = $runnableComponents
 
@@ -213,7 +216,11 @@
 			return njobs
 		})
 	}
-	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
+	async function executeComponent(
+		noToast = false,
+		inlineScriptOverride?: InlineScript,
+		setRunnableJobEditorPanel?: boolean
+	) {
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
@@ -229,8 +236,9 @@
 				addJob(job)
 			}
 
+			let r: any
 			try {
-				const r = await eval_like(
+				r = await eval_like(
 					runnable.inlineScript?.content,
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
@@ -245,20 +253,29 @@
 					$runnableComponents
 				)
 
-				await setResult(r, job)
+				await setResult(r, job, setRunnableJobEditorPanel)
 				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-				await setResult({ error: { message: e.body ?? e.message } }, job)
+				r = { error: { message: e.body ?? e.message } }
+				await setResult(r, job)
 			}
 			loading = false
-			donePromise?.()
+			donePromise?.(r)
+			if (setRunnableJobEditorPanel && editorContext) {
+				editorContext.runnableJobEditorPanel.update((p) => {
+					return {
+						...p,
+						frontendJobs: { ...p.frontendJobs, [id]: r }
+					}
+				})
+			}
 			return
 		} else if (noBackend) {
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
-			donePromise?.()
+			donePromise?.(undefined)
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
@@ -271,7 +288,7 @@
 		}
 
 		try {
-			await resultJobLoader?.abstractRun(async () => {
+			const jobId = await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
 				for (const k of Object.keys(fields ?? {})) {
@@ -322,6 +339,14 @@
 				}
 				return uuid
 			})
+			if (setRunnableJobEditorPanel && editorContext) {
+				editorContext.runnableJobEditorPanel.update((p) => {
+					return {
+						...p,
+						jobs: { ...p.jobs, [id]: jobId }
+					}
+				})
+			}
 		} catch (e) {
 			updateResult({ error: e.body ?? e.message })
 			loading = false
@@ -423,7 +448,11 @@
 		result = res
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
+	async function setResult(
+		res: any,
+		jobId: string | undefined,
+		setRunnableJobEditorPanel?: boolean
+	) {
 		dispatch('done')
 		const errors = getResultErrors(res)
 
@@ -435,17 +464,25 @@
 			recordJob(jobId, errors, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
-			donePromise?.()
+			donePromise?.(res)
 			return
 		}
 
 		const transformerResult = await runTransformer(res)
+		if (setRunnableJobEditorPanel && editorContext) {
+			editorContext.runnableJobEditorPanel.update((p) => {
+				return {
+					...p,
+					frontendJobs: { ...p.frontendJobs, [id + '_transformer']: transformerResult }
+				}
+			})
+		}
 
 		if (transformerResult?.error) {
 			recordJob(jobId, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
-			donePromise?.()
+			donePromise?.(res)
 			return
 		}
 
@@ -454,7 +491,7 @@
 		delete $errorByComponent[id]
 
 		dispatch('success')
-		donePromise?.()
+		donePromise?.(result)
 	}
 
 	function handleInputClick(e: CustomEvent) {
@@ -466,12 +503,12 @@
 		undefined
 
 	onMount(() => {
-		cancellableRun = (inlineScript?: InlineScript) => {
+		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 			let rejectCb: (err: Error) => void
-			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
+			let p: Partial<CancelablePromise<any>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-				executeComponent(true, inlineScript).catch(reject)
+				executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()

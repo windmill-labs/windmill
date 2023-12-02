@@ -124,6 +124,7 @@
 		<Splitpanes horizontal>
 			<Pane size={50} minSize={10}>
 				<LogViewer
+					small
 					jobId={testJob?.id}
 					duration={testJob?.['duration_ms']}
 					mem={testJob?.['mem_peak']}

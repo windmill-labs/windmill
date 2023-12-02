@@ -257,6 +257,7 @@
 					on:click={genLoading ? () => abortController?.abort() : undefined}
 					bind:element={button}
 					iconOnly
+					title="Generate code from Prompt"
 					startIcon={{ icon: genLoading ? Ban : Wand2 }}
 				/>
 			{:else}
@@ -338,6 +339,7 @@
 							color="blue"
 							buttonType="button"
 							btnClasses="!p-1 !w-[38px] !ml-2"
+							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
 								onGenerate(() => close(input || null))
