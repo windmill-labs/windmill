@@ -933,6 +933,10 @@
 			}, 500)
 		})
 
+		editor.onDidBlurEditorText(() => {
+			dispatch('blur')
+		})
+
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 
