@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Job, Preview } from '$lib/gen'
+import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'

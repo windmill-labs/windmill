@@ -1,7 +1,6 @@
 import { initServices } from 'monaco-languageclient'
 import { LogLevel } from 'vscode/services'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
-import { is } from 'date-fns/locale'
 export let isInitialized = false
 export let isInitializing = false
 
