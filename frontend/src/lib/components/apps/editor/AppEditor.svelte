@@ -556,7 +556,7 @@
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer z-[100]  h-full overflow-visible'
+										'wm-app-viewer h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
@@ -599,7 +599,7 @@
 										on:scroll={parseScroll}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
-											$appStore.fullscreen ? '' : 'max-w-7xl border-x',
+											$appStore.fullscreen ? '' : 'max-w-7xl',
 											$componentActive ? 'absolute' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
@@ -619,7 +619,7 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									<div class="relative h-full w-full z-[100] overflow-x-visible">
+									<div class="relative h-full w-full overflow-x-visible">
 										<InlineScriptsPanel />
 										{#if $runnableJob.focused}
 											{@const testJob = $runnableJob.job}

@@ -70,6 +70,7 @@
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	export let newPageOAuth = false
 
@@ -327,7 +328,18 @@
 	let filteredConnects: [string, { scopes: string[]; extra_params?: Record<string, string> }][] = []
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
+
+	let darkMode: boolean = document.documentElement.classList.contains('dark')
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <SearchItems
 	{filter}
@@ -537,7 +549,11 @@
 			{/if}
 			{#if isGoogleSignin}
 				<button {disabled} on:click={next}>
-					<img class="h-10 w-auto" src="/google_signin.png" alt="Google sign-in" />
+					<img
+						class="h-10 w-auto object-contain"
+						src={darkMode ? '/google_signin_dark.png' : '/google_signin_light.png'}
+						alt="Google sign-in"
+					/>
 				</button>
 			{:else}
 				<Button {disabled} on:click={next}>

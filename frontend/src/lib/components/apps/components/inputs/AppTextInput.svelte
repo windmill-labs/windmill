@@ -15,6 +15,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { loadIcon } from '../icon'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -77,6 +78,24 @@
 		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
 		'wm-text-input'
 	)
+
+	let beforeIconComponent: any
+	let afterIconComponent: any
+
+	$: resolvedConfig.beforeIcon && handleBeforeIcon()
+	$: resolvedConfig.afterIcon && handleAfterIcon()
+
+	async function handleBeforeIcon() {
+		if (resolvedConfig.beforeIcon) {
+			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
+		}
+	}
+
+	async function handleAfterIcon() {
+		if (resolvedConfig.afterIcon) {
+			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
+		}
+	}
 </script>
 
 {#each Object.keys(components['textinputcomponent'].initialData.configuration) as key (key)}
@@ -102,7 +121,14 @@
 {#if render}
 	{#if inputType === 'textarea'}
 		<textarea
-			class={twMerge(classInput, 'h-full')}
+			class={twMerge(
+				classInput,
+
+				beforeIconComponent && 'pl-8',
+				afterIconComponent && 'pr-8',
+
+				'h-full'
+			)}
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -113,43 +139,57 @@
 		/>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
-			{#if inputType === 'password'}
-				<input
-					class={classInput}
-					style={css?.input?.style ?? ''}
-					on:pointerdown|stopPropagation={(e) =>
-						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-					on:keydown|stopPropagation
-					type="password"
-					bind:value
-					placeholder={resolvedConfig.placeholder}
-					disabled={resolvedConfig.disabled}
-				/>
-			{:else if inputType === 'text'}
-				<input
-					class={classInput}
-					style={css?.input?.style ?? ''}
-					on:pointerdown|stopPropagation={(e) =>
-						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-					on:keydown|stopPropagation
-					type="text"
-					bind:value
-					placeholder={resolvedConfig.placeholder}
-					disabled={resolvedConfig.disabled}
-				/>
-			{:else if inputType === 'email'}
-				<input
-					class={classInput}
-					style={css?.input?.style ?? ''}
-					on:pointerdown|stopPropagation={(e) =>
-						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-					on:keydown|stopPropagation
-					type="email"
-					bind:value
-					placeholder={resolvedConfig.placeholder}
-					disabled={resolvedConfig.disabled}
-				/>
-			{/if}
+			<div class="relative w-full">
+				<div class="absolute top-1/2 -translate-y-1/2 left-2">
+					{#if resolvedConfig.beforeIcon && beforeIconComponent}
+						<svelte:component this={beforeIconComponent} size={14} />
+					{/if}
+				</div>
+
+				{#if inputType === 'password'}
+					<input
+						class={twMerge(classInput, beforeIconComponent && 'pl-8', afterIconComponent && 'pr-8')}
+						style={css?.input?.style ?? ''}
+						on:pointerdown|stopPropagation={(e) =>
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+						on:keydown|stopPropagation
+						type="password"
+						bind:value
+						placeholder={resolvedConfig.placeholder}
+						disabled={resolvedConfig.disabled}
+					/>
+				{:else if inputType === 'text'}
+					<input
+						class={twMerge(classInput, beforeIconComponent && 'pl-8', afterIconComponent && 'pr-8')}
+						style={css?.input?.style ?? ''}
+						on:pointerdown|stopPropagation={(e) =>
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+						on:keydown|stopPropagation
+						type="text"
+						bind:value
+						placeholder={resolvedConfig.placeholder}
+						disabled={resolvedConfig.disabled}
+					/>
+				{:else if inputType === 'email'}
+					<input
+						class={twMerge(classInput, beforeIconComponent && 'pl-8', afterIconComponent && 'pr-8')}
+						style={css?.input?.style ?? ''}
+						on:pointerdown|stopPropagation={(e) =>
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+						on:keydown|stopPropagation
+						type="email"
+						bind:value
+						placeholder={resolvedConfig.placeholder}
+						disabled={resolvedConfig.disabled}
+					/>
+				{/if}
+
+				<div class="absolute top-1/2 -translate-y-1/2 right-2">
+					{#if resolvedConfig.afterIcon && afterIconComponent}
+						<svelte:component this={afterIconComponent} size={14} />
+					{/if}
+				</div>
+			</div>
 		</AlignWrapper>
 	{/if}
 {/if}
