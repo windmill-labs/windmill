@@ -196,7 +196,7 @@ export type AppViewerContext = {
 			{
 				autoRefresh: boolean
 				refreshOnStart?: boolean
-				cb: ((inlineScript?: InlineScript) => CancelablePromise<void>)[]
+				cb: ((inlineScript?: InlineScript, setRunnableJob?: boolean) => CancelablePromise<void>)[]
 			}
 		>
 	>
@@ -260,7 +260,12 @@ export type AppViewerContext = {
 
 export type AppEditorContext = {
 	yTop: Writable<number>
-	runnableJobResultPanel: Writable<{ focused: boolean; job: Job | undefined; width: number }>
+	runnableJobEditorPanel: Writable<{
+		focused: boolean
+		jobs: Record<string, string>
+		frontendJobs: Record<string, any>
+		width: number
+	}>
 	evalPreview: Writable<Record<string, any>>
 	componentActive: Writable<boolean>
 	dndItem: Writable<Record<string, (x: number, y: number, topY: number) => void>>

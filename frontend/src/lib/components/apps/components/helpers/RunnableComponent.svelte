@@ -11,6 +11,7 @@
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type {
+		AppEditorContext,
 		AppViewerContext,
 		CancelablePromise,
 		GroupContext,
@@ -71,6 +72,8 @@
 		connectingInput,
 		bgRuns
 	} = getContext<AppViewerContext>('AppViewerContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const groupContext = getContext<GroupContext>('GroupContext')
@@ -213,7 +216,11 @@
 			return njobs
 		})
 	}
-	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
+	async function executeComponent(
+		noToast = false,
+		inlineScriptOverride?: InlineScript,
+		setRunnableJobEditorPanel?: boolean
+	) {
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
@@ -246,7 +253,7 @@
 					$runnableComponents
 				)
 
-				await setResult(r, job)
+				await setResult(r, job, setRunnableJobEditorPanel)
 				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
@@ -255,6 +262,14 @@
 			}
 			loading = false
 			donePromise?.(r)
+			if (setRunnableJobEditorPanel && editorContext) {
+				editorContext.runnableJobEditorPanel.update((p) => {
+					return {
+						...p,
+						frontendJobs: { ...p.frontendJobs, [id]: r }
+					}
+				})
+			}
 			return
 		} else if (noBackend) {
 			if (!noToast) {
@@ -273,7 +288,7 @@
 		}
 
 		try {
-			await resultJobLoader?.abstractRun(async () => {
+			const jobId = await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
 				for (const k of Object.keys(fields ?? {})) {
@@ -324,6 +339,14 @@
 				}
 				return uuid
 			})
+			if (setRunnableJobEditorPanel && editorContext) {
+				editorContext.runnableJobEditorPanel.update((p) => {
+					return {
+						...p,
+						jobs: { ...p.jobs, [id]: jobId }
+					}
+				})
+			}
 		} catch (e) {
 			updateResult({ error: e.body ?? e.message })
 			loading = false
@@ -425,7 +448,11 @@
 		result = res
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
+	async function setResult(
+		res: any,
+		jobId: string | undefined,
+		setRunnableJobEditorPanel?: boolean
+	) {
 		dispatch('done')
 		const errors = getResultErrors(res)
 
@@ -442,6 +469,14 @@
 		}
 
 		const transformerResult = await runTransformer(res)
+		if (setRunnableJobEditorPanel && editorContext) {
+			editorContext.runnableJobEditorPanel.update((p) => {
+				return {
+					...p,
+					frontendJobs: { ...p.frontendJobs, [id + '_transformer']: transformerResult }
+				}
+			})
+		}
 
 		if (transformerResult?.error) {
 			recordJob(jobId, res, undefined, transformerResult)
@@ -468,12 +503,12 @@
 		undefined
 
 	onMount(() => {
-		cancellableRun = (inlineScript?: InlineScript) => {
+		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<any>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-				executeComponent(true, inlineScript).catch(reject)
+				executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()

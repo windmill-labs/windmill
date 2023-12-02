@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
-	import type { AppEditorContext, AppViewerContext, InlineScript } from '../../types'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import type { AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs, parseOutputs } from '$lib/infer'
@@ -35,8 +35,6 @@
 
 	const { runnableComponents, stateId, worldStore, state, appPath, app } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	const { runnableJobResultPanel: runnableJob } = getContext<AppEditorContext>('AppEditorContext')
 
 	export let editor: Editor | undefined = undefined
 	let diffEditor: DiffEditor
@@ -152,13 +150,6 @@
 			$stateId++
 		}
 	}
-
-	onDestroy(() => {
-		runnableJob.update((x) => {
-			x.focused = false
-			return x
-		})
-	})
 </script>
 
 {#if inlineScript}
@@ -191,7 +182,7 @@
 			<div class="flex w-full flex-row gap-2 items-center justify-end">
 				<div
 					title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-					class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+					class="rounded-full w-2 h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 				/>
 				{#if inlineScript}
 					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
@@ -221,14 +212,13 @@
 					<Button
 						size="xs"
 						color="light"
-						btnClasses="!px-2 !py-1 !bg-surface-secondary hover:!bg-surface-hover"
+						title="Full Editor"
+						btnClasses="!px-2  !bg-surface-secondary hover:!bg-surface-hover"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
 						endIcon={{ icon: Maximize2 }}
-					>
-						Full Editor
-					</Button>
+					/>
 				{/if}
 
 				<Button
@@ -266,26 +256,15 @@
 						class="flex flex-1 grow h-full"
 						lang={scriptLangToEditorLang(inlineScript?.language)}
 						bind:code={inlineScript.content}
-						on:focus={() => {
-							runnableJob.update((x) => {
-								x.focused = true
-								return x
-							})
-							// $selectedComponentInEditor = id
-						}}
-						on:blur={() => {
-							runnableJob.update((x) => {
-								x.focused = false
-								return x
-							})
-						}}
 						fixedOverflowWidgets={true}
 						cmdEnterAction={async () => {
 							if (inlineScript) {
 								inlineScript.content = editor?.getCode() ?? ''
 							}
 							runLoading = true
-							await Promise.all($runnableComponents[id]?.cb?.map((f) => f?.(inlineScript)) ?? [])
+							await Promise.all(
+								$runnableComponents[id]?.cb?.map((f) => f?.(inlineScript, true)) ?? []
+							)
 							runLoading = false
 						}}
 						on:change={async (e) => {
@@ -320,7 +299,9 @@
 						cmdEnterAction={async () => {
 							runLoading = true
 							await await Promise.all(
-								$runnableComponents[id]?.cb?.map((f) => f(!transformer ? inlineScript : undefined))
+								$runnableComponents[id]?.cb?.map((f) =>
+									f(!transformer ? inlineScript : undefined, true)
+								)
 							)
 							runLoading = false
 						}}
