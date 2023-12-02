@@ -19,6 +19,7 @@
 	export let selectedFileKey: { s3: string } | undefined = undefined
 
 	let csvSeparatorChar: string = ','
+	let csvHasHeader: boolean = true
 
 	let dispatch = createEventDispatcher()
 
@@ -146,14 +147,26 @@
 			fileSizeInBytes: fileSizeInBytes,
 			fileMimeType: fileMimeType,
 			csvSeparator: csvSeparatorChar,
+			csvHasHeader: csvHasHeader,
 			readBytesFrom: 0,
-			readBytesLength: 1 * 1024 * 1024 // For now static limit of 1Mb per file
+			readBytesLength: 128 * 1024 // For now static limit of 128Kb per file
 		})
+
+		let filePreviewContent = filePreviewRaw.content
+		if (
+			filePreviewContent !== null &&
+			filePreviewContent !== undefined &&
+			filePreviewContent.length >= 128 * 1024
+		) {
+			filePreviewContent =
+				filePreviewContent?.substring(0, 128 * 1024 - 35) +
+				'\n\n ... FILE CONTENT TRUNCATED ...\n\n'
+		}
 
 		if (filePreviewRaw !== undefined) {
 			filePreview = {
 				fileKey: fileKey,
-				contentPreview: filePreviewRaw.content,
+				contentPreview: filePreviewContent,
 				contentType: filePreviewRaw.content_type
 			}
 		}
@@ -350,8 +363,8 @@
 								{#if filePreview.contentType === 'Unknown'}
 									Type of file not supported for preview
 								{:else if filePreview.contentType === 'Csv'}
-									Previewing a {filePreview.contentType?.toLowerCase()} file. Change the separator:
-									<div class="inline-flex w-12 ml-2">
+									Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
+									<div class="inline-flex w-12 ml-2 mr-2">
 										<select
 											class="h-8"
 											bind:value={csvSeparatorChar}
@@ -364,8 +377,27 @@
 										>
 											<option value=",">,</option>
 											<option value=";">;</option>
+											<option value="\t">\t</option>
 											<option value="|">|</option>
 										</select>
+									</div>
+									Header row:
+									<div class="inline-flex item-center w-4 ml-2 mr-2">
+										<input
+											on:focus
+											on:click
+											disabled={false}
+											type="checkbox"
+											id="csv-header"
+											class="h-5"
+											bind:checked={csvHasHeader}
+											on:change|stopPropagation={(e) =>
+												loadFilePreview(
+													fileMetadata?.fileKey ?? '',
+													fileMetadata?.size,
+													fileMetadata?.mimeType
+												)}
+										/>
 									</div>
 								{:else}
 									Previewing a {filePreview.contentType?.toLowerCase()} file
