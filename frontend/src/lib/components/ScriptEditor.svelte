@@ -39,6 +39,8 @@
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let collabMode = false
 	export let edit = true
+	export let noHistory = false
+	export let saveToWorkspace = false
 
 	let websocketAlive = {
 		pyright: false,
@@ -246,12 +248,15 @@
 			on:collabPopup={() => (showCollabPopup = true)}
 			{editor}
 			{lang}
+			on:createScriptFromInlineScript
 			{websocketAlive}
 			collabUsers={peers}
 			kind={asKind(kind)}
 			{template}
 			{diffEditor}
 			{args}
+			{noHistory}
+			{saveToWorkspace}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">

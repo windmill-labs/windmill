@@ -1681,6 +1681,12 @@ struct ScriptMetadata {
     priority: Option<i16>,    
     #[serde(skip_serializing_if = "Option::is_none")]
     tag: Option<String>,    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart_unless_cancelled: Option<bool>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -1886,6 +1892,9 @@ async fn tarball_workspace(
                 ws_error_handler_muted: script.ws_error_handler_muted,
                 priority: script.priority,
                 tag: script.tag,
+                timeout: script.timeout,
+                delete_after_use: script.delete_after_use,
+                restart_unless_cancelled: script.restart_unless_cancelled,
                 
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();

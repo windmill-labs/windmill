@@ -103,6 +103,8 @@ components:
           type: number
         timeout:
           type: number
+        delete_after_use:
+          type: boolean
         summary:
           type: string
         mock:

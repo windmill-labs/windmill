@@ -4,7 +4,7 @@
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from './InlineScriptRunnableByPath.svelte'
 	import type { Runnable, StaticAppInput } from '../../inputType'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	export let runnable: HiddenRunnable
 	export let id: string
@@ -24,6 +24,7 @@
 			recomputeOnInputChanged: true
 		}
 	}
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if transformer}
@@ -48,6 +49,7 @@
 	{/if}
 {:else if runnable?.type === 'runnableByName' && runnable.inlineScript}
 	<InlineScriptEditor
+		on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
 		{id}
 		bind:inlineScript={runnable.inlineScript}
 		bind:name={runnable.name}

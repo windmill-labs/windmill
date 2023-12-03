@@ -176,6 +176,12 @@ pub struct Script {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart_unless_cancelled: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -234,6 +240,9 @@ pub struct NewScript {
     pub dedicated_worker: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     pub priority: Option<i16>,
+    pub timeout: Option<i32>,
+    pub delete_after_use: Option<bool>,
+    pub restart_unless_cancelled: Option<bool>,
 }
 
 #[derive(Deserialize)]

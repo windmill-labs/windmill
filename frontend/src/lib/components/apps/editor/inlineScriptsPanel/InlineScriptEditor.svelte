@@ -159,6 +159,10 @@
 			{editor}
 			bind:this={inlineScriptEditorDrawer}
 			bind:inlineScript
+			on:createScriptFromInlineScript={() => {
+				dispatch('createScriptFromInlineScript')
+				drawerIsOpen = false
+			}}
 		/>
 	{/if}
 	<div class="h-full flex flex-col gap-1">
