@@ -57,7 +57,12 @@
 
 {#if result.length > pageSize || manualPagination || download}
 	<div
-		class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
+		class={twMerge(
+			'px-2 py-1 text-xs gap-2 items-center justify-between',
+			c,
+			'flex flex-row',
+			'app-table-footer'
+		)}
 		{style}
 	>
 		{#if result.length > pageSize || manualPagination}

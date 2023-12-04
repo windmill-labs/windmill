@@ -2267,7 +2267,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             priority,
         ),
         JobPayload::ScriptHub { path } => {
-            if path == "hub/7771/slack" {
+            if path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
             }

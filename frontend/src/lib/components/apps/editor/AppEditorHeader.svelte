@@ -552,13 +552,17 @@
 				inputsDrawerOpen = true
 			}
 		},
-		{
-			displayName: 'Schedule Reports',
-			icon: FileClock,
-			action: () => {
-				appReportingDrawerOpen = true
-			}
-		},
+		...(savedApp && !savedApp.draft_only
+			? [
+					{
+						displayName: 'Schedule Reports',
+						icon: FileClock,
+						action: () => {
+							appReportingDrawerOpen = true
+						}
+					}
+			  ]
+			: []),
 		...(savedApp
 			? [
 					{
