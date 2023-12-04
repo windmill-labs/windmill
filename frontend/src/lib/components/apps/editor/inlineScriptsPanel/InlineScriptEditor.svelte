@@ -257,6 +257,7 @@
 						deno={inlineScript.language == 'deno'}
 						path={inlineScript.path}
 						bind:this={editor}
+						small
 						class="flex flex-1 grow h-full"
 						lang={scriptLangToEditorLang(inlineScript?.language)}
 						bind:code={inlineScript.content}
@@ -297,6 +298,7 @@
 					<SimpleEditor
 						bind:this={simpleEditor}
 						class="h-full"
+						small
 						{extraLib}
 						bind:code={inlineScript.content}
 						lang="javascript"
