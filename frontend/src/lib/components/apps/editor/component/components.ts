@@ -1228,7 +1228,7 @@ Hello \${ctx.username}
 	customcomponent: {
 		name: 'Custom',
 		icon: Code2,
-		documentationLink: `${documentationBaseUrl}#custom`,
+		documentationLink: `https://www.windmill.dev/docs/apps/react_components`,
 		dims: '1:2-1:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
