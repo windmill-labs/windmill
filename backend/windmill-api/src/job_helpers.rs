@@ -1,7 +1,8 @@
 use std::cmp;
 
 use crate::{
-    db::DB, resources::transform_json_value, users::Tokened, workspaces::LargeFileStorage,
+    db::DB, resources::get_resource_value_interpolated_internal, users::Tokened,
+    workspaces::LargeFileStorage,
 };
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use axum::{
@@ -40,8 +41,20 @@ pub fn workspaced_service() -> Router {
             post(duckdb_connection_settings).layer(cors.clone()),
         )
         .route(
+            "/v2/duckdb_connection_settings",
+            post(duckdb_connection_settings_v2).layer(cors.clone()),
+        )
+        .route(
             "/polars_connection_settings",
             post(polars_connection_settings).layer(cors.clone()),
+        )
+        .route(
+            "/v2/polars_connection_settings",
+            post(polars_connection_settings_v2).layer(cors.clone()),
+        )
+        .route(
+            "/blah",
+            post(polars_connection_settings_v2).layer(cors.clone()),
         )
         .route("/test_connection", get(test_connection).layer(cors.clone()))
         .route(
@@ -114,12 +127,82 @@ async fn duckdb_connection_settings(
 }
 
 #[derive(Deserialize)]
+struct DuckdbConnectionSettingsQueryV2 {
+    s3_resource_path: Option<String>,
+}
+
+async fn duckdb_connection_settings_v2(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(query): Json<DuckdbConnectionSettingsQueryV2>,
+) -> error::JsonResult<DuckdbConnectionSettingsResponse> {
+    let s3_resource_opt = match query.s3_resource_path {
+        Some(s3_resource_path) => {
+            get_s3_resource(
+                &authed,
+                &user_db,
+                &db,
+                &token,
+                &w_id,
+                s3_resource_path.as_str(),
+            )
+            .await?
+        }
+        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+    };
+    let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
+        "No datasets storage resource defined at the workspace level".to_string(),
+    ))?;
+    return duckdb_connection_settings(
+        Path(w_id),
+        Json(DuckdbConnectionSettingsQuery { s3_resource }),
+    )
+    .await;
+}
+
+#[derive(Deserialize)]
 struct PolarsConnectionSettingsQuery {
     s3_resource: S3Resource,
 }
 
 #[derive(Serialize)]
+struct PolarsConnectionSettings {
+    pub region_name: String,
+}
+
+async fn polars_connection_settings(
+    Path(_w_id): Path<String>,
+    Json(query): Json<PolarsConnectionSettingsQuery>,
+) -> error::JsonResult<S3fsArgs> {
+    let s3_resource = query.s3_resource;
+
+    let response = S3fsArgs {
+        endpoint_url: render_endpoint(&s3_resource),
+        key: s3_resource.access_key,
+        secret: s3_resource.secret_key,
+        use_ssl: s3_resource.use_ssl,
+        cache_regions: false,
+        client_kwargs: PolarsConnectionSettings { region_name: s3_resource.region },
+    };
+    return Ok(Json(response));
+}
+
+#[derive(Deserialize)]
+struct PolarsConnectionSettingsQueryV2 {
+    s3_resource_path: Option<String>,
+}
+
+#[derive(Serialize)]
 struct PolarsConnectionSettingsResponse {
+    s3fs_args: S3fsArgs,
+    polars_cloud_options: PolarsCloudOptions,
+}
+
+#[derive(Serialize)]
+struct S3fsArgs {
     endpoint_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     key: Option<String>,
@@ -131,25 +214,57 @@ struct PolarsConnectionSettingsResponse {
 }
 
 #[derive(Serialize)]
-struct PolarsConnectionSettings {
-    pub region_name: String,
+struct PolarsCloudOptions {
+    aws_endpoint_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    aws_access_key_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    aws_secret_access_key: Option<String>,
+    aws_region: String,
+    aws_allow_http: bool,
 }
 
-async fn polars_connection_settings(
-    Path(_w_id): Path<String>,
-    Json(query): Json<PolarsConnectionSettingsQuery>,
+async fn polars_connection_settings_v2(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(query): Json<PolarsConnectionSettingsQueryV2>,
 ) -> error::JsonResult<PolarsConnectionSettingsResponse> {
-    let s3_resource = query.s3_resource;
-
-    let response = PolarsConnectionSettingsResponse {
-        endpoint_url: render_endpoint(&s3_resource),
-        key: s3_resource.access_key,
-        secret: s3_resource.secret_key,
-        use_ssl: s3_resource.use_ssl,
-        cache_regions: false,
-        client_kwargs: PolarsConnectionSettings { region_name: s3_resource.region },
+    let s3_resource_opt = match query.s3_resource_path {
+        Some(s3_resource_path) => {
+            get_s3_resource(
+                &authed,
+                &user_db,
+                &db,
+                &token,
+                &w_id,
+                s3_resource_path.as_str(),
+            )
+            .await?
+        }
+        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
     };
-
+    let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
+        "No datasets storage resource defined at the workspace level".to_string(),
+    ))?;
+    let s3fs = polars_connection_settings(
+        Path(w_id),
+        Json(PolarsConnectionSettingsQuery { s3_resource: s3_resource.clone() }),
+    )
+    .await?
+    .0;
+    let response = PolarsConnectionSettingsResponse {
+        s3fs_args: s3fs,
+        polars_cloud_options: PolarsCloudOptions {
+            aws_endpoint_url: render_endpoint(&s3_resource),
+            aws_access_key_id: s3_resource.access_key,
+            aws_secret_access_key: s3_resource.secret_key,
+            aws_region: s3_resource.region,
+            aws_allow_http: !s3_resource.use_ssl,
+        },
+    };
     return Ok(Json(response));
 }
 
@@ -284,8 +399,9 @@ struct LoadFilePreviewQuery {
     pub file_size_in_bytes: Option<i64>,
     pub file_mime_type: Option<String>,
 
-    // For CSV files, the separator needs to be specify
-    pub csv_separator: Option<String>,
+    // For CSV files, the separator needs to be specified
+    pub csv_separator: Option<String>, // defaults to ','
+    pub csv_has_header: Option<bool>,  // defaults to true
 
     // Specify the content length to be read. Both will be taken into account when reading files, except for:
     // - CSVs: only the length will be taken into account, a CSV file larger than this will be truncated.
@@ -402,17 +518,17 @@ async fn load_file_preview(
     } else {
         query.read_bytes_length
     };
-
     let content_type: WindmillContentType;
     let content_preview = match s3_object_mime_type.as_deref() {
         Some("text/csv") => {
             content_type = WindmillContentType::Csv;
-            read_s3_csv_object_head(
+            csv_file_preview_with_fallback(
                 &s3_client,
                 &s3_bucket,
                 &file_key,
                 file_chunk_length,
                 query.csv_separator,
+                query.csv_has_header,
             )
             .await
         }
@@ -438,12 +554,13 @@ async fn load_file_preview(
                 read_s3_parquet_object_head(&s3_resource, &file_key).await
             } else if file_key.to_lowercase().ends_with(".csv") {
                 content_type = WindmillContentType::Csv;
-                read_s3_csv_object_head(
+                csv_file_preview_with_fallback(
                     &s3_client,
                     &s3_bucket,
                     &file_key,
                     file_chunk_length,
                     query.csv_separator,
+                    query.csv_has_header,
                 )
                 .await
             } else {
@@ -514,20 +631,41 @@ async fn get_workspace_s3_resource<'c>(
         LargeFileStorage::S3Storage(s3_lfs) => s3_lfs,
     };
 
-    let resource_path_json_value = serde_json::to_value(s3_lfs.s3_resource_path)
-        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
-    let interpolated_value = transform_json_value(
+    return get_s3_resource(
         authed,
         user_db,
         db,
-        &w_id,
-        resource_path_json_value,
-        &Option::None,
+        token,
+        w_id,
+        s3_lfs.s3_resource_path.as_str(),
+    )
+    .await;
+}
+
+async fn get_s3_resource<'c>(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    token: &str,
+    w_id: &str,
+    s3_resource_path: &str,
+) -> error::Result<Option<S3Resource>> {
+    let s3_resource_value_raw = get_resource_value_interpolated_internal(
+        authed,
+        user_db,
+        db,
+        w_id,
+        s3_resource_path,
+        None,
         token,
     )
     .await?;
 
-    let s3_resource = serde_json::from_value::<S3Resource>(interpolated_value)
+    if s3_resource_value_raw.is_none() {
+        return Err(error::Error::NotFound("Resource not found".to_string()));
+    }
+
+    let s3_resource = serde_json::from_value::<S3Resource>(s3_resource_value_raw.unwrap())
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
     return Ok(Some(s3_resource));
 }
@@ -682,23 +820,45 @@ async fn read_s3_parquet_object_head(
     return polars_df_result;
 }
 
+async fn csv_file_preview_with_fallback(
+    s3_client: &aws_sdk_s3::Client,
+    s3_bucket: &str,
+    file_key: &str,
+    length: i64,
+    separator: Option<String>,
+    has_header: Option<bool>,
+) -> error::Result<String> {
+    match read_s3_csv_object_head(
+        &s3_client, &s3_bucket, &file_key, length, separator, has_header,
+    )
+    .await
+    {
+        Ok(csv_preview) => Ok(csv_preview),
+        Err(_) => {
+            // fallback to default text file preview is the CSV could not be parsed. It's a text file after all
+            let raw_text =
+                read_s3_text_object_head(&s3_client, &s3_bucket, &file_key, 0, length).await?;
+            return Ok(raw_text);
+        }
+    }
+}
+
 async fn read_s3_csv_object_head(
     s3_client: &aws_sdk_s3::Client,
     s3_bucket: &str,
     file_key: &str,
     length: i64,
     separator: Option<String>,
+    has_header: Option<bool>,
 ) -> error::Result<String> {
-    let separator_final = if let Some(separator_char) = separator {
-        if separator_char.len() != 1 {
-            return Err(error::Error::BadRequest(
-                "Separator must be a single character".to_string(),
-            ));
-        }
-        separator_char.as_bytes()[0]
-    } else {
-        ",".as_bytes()[0] // polars uses the comma as default, doing the same here
-    };
+    let separator_final = match separator {
+        Some(separator_char) if separator_char == "\\t" => Ok("\t".as_bytes()[0]),
+        Some(separator_char) if separator_char.len() != 1 => Err(error::Error::BadRequest(
+            "Separator must be a single character".to_string(),
+        )),
+        Some(separator_char) => Ok(separator_char.as_bytes()[0]),
+        None => Ok(",".as_bytes()[0]), // polars uses the comma as default, doing the same here
+    }?;
 
     let s3_object = s3_client
         .get_object()
@@ -723,6 +883,7 @@ async fn read_s3_csv_object_head(
     let csv_df = CsvReader::new(cursor)
         .with_n_rows(Some(10)) // for now read only first 10 lines
         .with_separator(separator_final)
+        .has_header(has_header.unwrap_or(true))
         .finish()
         .map_err(|err| error::Error::InternalErr(err.to_string()))?;
 
