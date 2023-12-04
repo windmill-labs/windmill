@@ -1,7 +1,7 @@
 Private package registry with self-signed certificates
 ==================================================
 
-Setup a private NPM registry and Pypi server behind a revers proxy (Caddy) exposing an HTTPS endpoint with self signed certificates
+Setup a private NPM registry and Pypi server behind a reverse proxy (Caddy) exposing an HTTPS endpoint with self signed certificates
 
 ### Setup
 
