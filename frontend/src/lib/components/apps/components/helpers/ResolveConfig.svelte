@@ -22,6 +22,7 @@
 	{#each Object.keys(configuration.configuration?.[choice] ?? {}) as nestedKey (nestedKey)}
 		{#if resolvedConfig.configuration?.[choice] != undefined}
 			<InputValue
+				field={key}
 				key={key + choice + nestedKey + extraKey}
 				{id}
 				input={configuration?.configuration?.[choice]?.[nestedKey]}
@@ -30,5 +31,11 @@
 		{/if}
 	{/each}
 {:else}
-	<InputValue key={key + extraKey} {id} input={configuration} bind:value={resolvedConfig} />
+	<InputValue
+		field={key}
+		key={key + extraKey}
+		{id}
+		input={configuration}
+		bind:value={resolvedConfig}
+	/>
 {/if}

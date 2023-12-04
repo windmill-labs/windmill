@@ -221,14 +221,16 @@
 	<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>
 		Add
 	</Button>
-
-	{#if subFieldType === 'table-column'}
+	{#if subFieldType === 'table-column' || subFieldType == 'ag-grid'}
 		<QuickAddColumn
 			columns={componentInput.value?.map((item) => item.field)}
 			on:add={({ detail }) => {
 				if (!componentInput.value) componentInput.value = []
-
-				componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
+				if (subFieldType === 'table-column') {
+					componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
+				} else if (subFieldType === 'ag-grid') {
+					componentInput.value.push({ field: detail, headerName: detail, flex: 1 })
+				}
 				componentInput = componentInput
 
 				if (componentInput.value) {

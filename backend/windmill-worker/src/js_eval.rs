@@ -683,8 +683,8 @@ import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.strin
     let local = v8::Local::new(scope, global);
     // Deserialize a `v8` object into a Rust type using `serde_v8`,
     // in this case deserialize to a JSON `Value`.
-    let r = serde_v8::from_v8::<String>(scope, local)?;
-    Ok(unsafe_raw(r))
+    let r = serde_v8::from_v8::<Option<String>>(scope, local)?;
+    Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
 }
 
 #[op]

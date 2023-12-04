@@ -356,7 +356,7 @@
 			</button>
 		</div>
 		<Button
-			on:click={contentSearch?.open}
+			on:click={() => contentSearch?.open()}
 			variant="border"
 			btnClasses="py-2.5"
 			size="xs"

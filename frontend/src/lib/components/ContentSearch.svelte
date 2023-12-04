@@ -11,15 +11,16 @@
 	import FlowIcon from './home/FlowIcon.svelte'
 	import { Alert, Button } from './common'
 	import { goto } from '$app/navigation'
+	import YAML from 'yaml'
 
 	let search: string = ''
 
-	export function open() {
+	export async function open(nsearch?: string) {
 		isOpen = true
-		loadScripts()
-		loadResources()
-		loadApps()
-		loadFlows()
+		await Promise.all([loadScripts(), loadResources(), loadApps(), loadFlows()])
+		if (nsearch) {
+			search = nsearch
+		}
 	}
 
 	export async function loadScripts() {
@@ -38,6 +39,8 @@
 		flows = await FlowService.listSearchFlow({ workspace: $workspaceStore ?? '' })
 	}
 
+	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = 'all'
+
 	let isOpen = false
 
 	let scripts: undefined | { path: string; content: string }[] = undefined
@@ -52,13 +55,19 @@
 	let apps: undefined | { path: string; value: any }[] = undefined
 	let filteredAppItems: { path: string; value: any; marked: any }[] = []
 
-	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = 'all'
-
 	function getCounts(n: number) {
 		return ` (${n})`
 	}
 	$: counts =
-		search == '' || !scripts || !resources || !flows || !apps
+		search == '' ||
+		!scripts ||
+		!resources ||
+		!flows ||
+		!apps ||
+		!filteredAppItems ||
+		!filteredFlowItems ||
+		!filteredResourceItems ||
+		!filteredScriptItems
 			? {
 					all: '',
 					apps: '',
@@ -93,7 +102,7 @@
 	filter={search}
 	items={resources}
 	f={(s) => {
-		return JSON.stringify(s.value, null, 4)
+		return YAML.stringify(s.value)
 	}}
 	bind:filteredItems={filteredResourceItems}
 />
@@ -102,7 +111,7 @@
 	filter={search}
 	items={flows}
 	f={(s) => {
-		return JSON.stringify(s.value, null, 4)
+		return YAML.stringify(s.value, null, 4)
 	}}
 	bind:filteredItems={filteredFlowItems}
 />
@@ -111,7 +120,7 @@
 	filter={search}
 	items={apps}
 	f={(s) => {
-		return JSON.stringify(s.value, null, 4)
+		return YAML.stringify(s.value, null, 4)
 	}}
 	bind:filteredItems={filteredAppItems}
 />
@@ -243,6 +252,8 @@
 
 					<div class="mt-1 overflow-auto max-h-[80vh]">
 						{#if !$enterpriseLicense}
+							<div class="py-1" />
+
 							<Alert title="Content Search is an EE feature" type="warning">
 								Without EE, content search will only search among 10 scripts, 3 flows, 3 apps and 3
 								resources.
@@ -252,8 +263,8 @@
 
 						{#if search.length > 0}
 							<div class="flex flex-col gap-4">
-								{#if (searchKind == 'all' || searchKind == 'scripts') && filteredScriptItems.length > 0}
-									{#each filteredScriptItems as item}
+								{#if (searchKind == 'all' || searchKind == 'scripts') && filteredScriptItems?.length > 0}
+									{#each filteredScriptItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
 												><a href="/scripts/get/{item.path}">Script: {item.path}</a></div
@@ -280,8 +291,8 @@
 										</div>
 									{/each}
 								{/if}
-								{#if (searchKind == 'all' || searchKind == 'resources') && filteredResourceItems.length > 0}
-									{#each filteredResourceItems as item}
+								{#if (searchKind == 'all' || searchKind == 'resources') && filteredResourceItems?.length > 0}
+									{#each filteredResourceItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold">Resource: {item.path}</div>
 											<div class="flex gap-2 justify-between">
@@ -292,8 +303,8 @@
 										</div>
 									{/each}
 								{/if}
-								{#if (searchKind == 'all' || searchKind == 'flows') && filteredFlowItems.length > 0}
-									{#each filteredFlowItems as item}
+								{#if (searchKind == 'all' || searchKind == 'flows') && filteredFlowItems?.length > 0}
+									{#each filteredFlowItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
 												><a href="/flows/get/{item.path}">Flow: {item.path}</a></div
@@ -318,8 +329,8 @@
 										</div>
 									{/each}
 								{/if}
-								{#if (searchKind == 'all' || searchKind == 'apps') && filteredAppItems.length > 0}
-									{#each filteredAppItems as item}
+								{#if (searchKind == 'all' || searchKind == 'apps') && filteredAppItems?.length > 0}
+									{#each filteredAppItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
 												><a href="/apps/get/{item.path}">App: {item.path}</a></div

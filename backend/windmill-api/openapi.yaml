@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.217.0
+  version: 1.219.1
   title: Windmill API
 
   contact:
@@ -6355,6 +6355,39 @@ paths:
                 properties:
                   connection_settings_str:
                     type: string
+  /w/{workspace}/job_helpers/v2/duckdb_connection_settings:
+    post:
+      summary:
+        Converts an S3 resource to the set of instructions necessary to connect
+        DuckDB to an S3 bucket
+      operationId: duckdbConnectionSettingsV2
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: S3 resource path to use to generate the connection settings. If empty, the S3 resource defined in the workspace settings will be used
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_resource_path:
+                  type: string
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection_settings_str:
+                    type: string
+                required:
+                  - connection_settings_str
+
   /w/{workspace}/job_helpers/polars_connection_settings:
     post:
       summary:
@@ -6400,6 +6433,74 @@ paths:
                   - use_ssl
                   - cache_regions
                   - client_kwargs
+  /w/{workspace}/job_helpers/v2/polars_connection_settings:
+    post:
+      summary:
+        Converts an S3 resource to the set of arguments necessary to connect
+        Polars to an S3 bucket
+      operationId: polarsConnectionSettingsV2
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: S3 resource path to use to generate the connection settings. If empty, the S3 resource defined in the workspace settings will be used
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_resource_path:
+                  type: string
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  s3fs_args:
+                    type: object
+                    properties:
+                      endpoint_url:
+                        type: string
+                      key:
+                        type: string
+                      secret:
+                        type: string
+                      use_ssl:
+                        type: boolean
+                      cache_regions:
+                        type: boolean
+                      client_kwargs:
+                        $ref: "#/components/schemas/PolarsClientKwargs"
+                    required:
+                      - endpoint_url
+                      - use_ssl
+                      - cache_regions
+                      - client_kwargs
+                  polars_cloud_options:
+                    type: object
+                    properties:
+                      aws_endpoint_url:
+                        type: string
+                      aws_access_key_id:
+                        type: string
+                      aws_secret_access_key:
+                        type: string
+                      aws_region:
+                        type: string
+                      aws_allow_http:
+                        type: boolean
+                    required:
+                      - aws_endpoint_url
+                      - aws_region
+                      - aws_allow_http
+                required:
+                  - s3fs_args
+                  - cloud_options
 
   /w/{workspace}/job_helpers/test_connection:
     get:
@@ -6496,6 +6597,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
         - name: read_bytes_from
           in: query
           schema:
@@ -6919,6 +7024,12 @@ components:
           type: boolean
         priority:
           type: integer
+        restart_unless_cancelled:
+          type: boolean
+        timeout:
+          type: integer
+        delete_after_use:
+          type: boolean
       required:
         - hash
         - path
@@ -6997,6 +7108,12 @@ components:
           type: boolean
         priority:
           type: integer
+        restart_unless_cancelled:
+          type: boolean
+        timeout:
+          type: integer
+        delete_after_use:
+          type: boolean
       required:
         - path
         - summary
@@ -8266,6 +8383,8 @@ components:
           type: integer
         dedicated_worker:
           type: boolean
+        timeout:
+          type: number
       required:
         - path
         - edited_by
@@ -8288,6 +8407,8 @@ components:
               type: integer
             dedicated_worker:
               type: boolean
+            timeout:
+              type: number
           required:
             - path
 

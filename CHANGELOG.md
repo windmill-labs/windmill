@@ -1,6 +1,48 @@
 # Changelog
 
 
+## [1.219.1](https://github.com/windmill-labs/windmill/compare/v1.219.0...v1.219.1) (2023-12-01)
+
+
+### Bug Fixes
+
+* fix editorContext in preview ([cb42f10](https://github.com/windmill-labs/windmill/commit/cb42f10dc605f00ba70fadc61069aba98af8ec88))
+* maps mapRegion update on move ([62de305](https://github.com/windmill-labs/windmill/commit/62de305908ba7e6ac75aa5e8ffba822522b08345))
+
+## [1.219.0](https://github.com/windmill-labs/windmill/compare/v1.218.0...v1.219.0) (2023-12-01)
+
+
+### Features
+
+* eval preview for apps ([d4374a0](https://github.com/windmill-labs/windmill/commit/d4374a0103d2244b31b5cec7649dbfb96b2af1b4))
+
+
+### Bug Fixes
+
+* **frontend:** rename menu component ([#2738](https://github.com/windmill-labs/windmill/issues/2738)) ([f816ad0](https://github.com/windmill-labs/windmill/commit/f816ad01d3e39917714abadcf3833a4d8619e4f3))
+* improve quickstyle to be in static ccomponents only ([4774e03](https://github.com/windmill-labs/windmill/commit/4774e03be5663017bccbe95f026cc39d4c43f536))
+* improve stat card ([fc5f054](https://github.com/windmill-labs/windmill/commit/fc5f054b94fa58ee889d10d06e486b6e8c4f885e))
+* limit log pull from queued jobs ([592d783](https://github.com/windmill-labs/windmill/commit/592d7839d183843b425521a319b802fb8cac3f21))
+* support INET in pg ([007d5be](https://github.com/windmill-labs/windmill/commit/007d5be23e038fbf82907c3b335b3d747791295d))
+
+## [1.218.0](https://github.com/windmill-labs/windmill/compare/v1.217.0...v1.218.0) (2023-11-30)
+
+
+### Features
+
+* **frontend:** add menu component ([#2721](https://github.com/windmill-labs/windmill/issues/2721)) ([0665692](https://github.com/windmill-labs/windmill/commit/06656924ae8173e906a243aab2af658a1689af01))
+* **frontend:** resource rework ([#2725](https://github.com/windmill-labs/windmill/issues/2725)) ([ec25856](https://github.com/windmill-labs/windmill/commit/ec25856b7c8a7d33a50d1beb5f3e99c7b912e1ca))
+
+
+### Bug Fixes
+
+* make REST language support URLSearchParams, headers, FormData ([830dec0](https://github.com/windmill-labs/windmill/commit/830dec0f90e0189b4dea4de8c44a03e437acf440))
+* Pull patched version of gosyn ([#2734](https://github.com/windmill-labs/windmill/issues/2734)) ([0bf3685](https://github.com/windmill-labs/windmill/commit/0bf3685cbdecae0a8e7a24a5198ae2fed98fe340))
+* s3 resource openapi spec ([#2730](https://github.com/windmill-labs/windmill/issues/2730)) ([16d10ae](https://github.com/windmill-labs/windmill/commit/16d10aedf79cddf7cdc15d55c42c72f4948b3ee2))
+* update deployed even when draft only ([#2694](https://github.com/windmill-labs/windmill/issues/2694)) ([1f99fcd](https://github.com/windmill-labs/windmill/commit/1f99fcd3af21208676aa90015559359740b0534a))
+* Using latest gosyn ([#2737](https://github.com/windmill-labs/windmill/issues/2737)) ([920cc9a](https://github.com/windmill-labs/windmill/commit/920cc9a576db0112ffd9572480c3d0a8aa08055b))
+* Workspace error handler creation was not adding the slack resource ([#2733](https://github.com/windmill-labs/windmill/issues/2733)) ([70c504e](https://github.com/windmill-labs/windmill/commit/70c504edfaf7c114c91af2b3ca39dfee073f04f2))
+
 ## [1.217.0](https://github.com/windmill-labs/windmill/compare/v1.216.0...v1.217.0) (2023-11-29)
 
 

@@ -23,7 +23,17 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import { DollarSign, History, Library, Link, Package, Plus, RotateCw, Users } from 'lucide-svelte'
+	import {
+		DollarSign,
+		History,
+		Library,
+		Link,
+		Package,
+		Plus,
+		RotateCw,
+		Save,
+		Users
+	} from 'lucide-svelte'
 	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -54,6 +64,8 @@
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let args: Record<string, any>
+	export let noHistory = false
+	export let saveToWorkspace = false
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -557,7 +569,7 @@
 	</div>
 
 	<div class="flex flex-row items-center gap-2">
-		{#if scriptPath}
+		{#if scriptPath && !noHistory}
 			<Button
 				btnClasses="!font-medium text-tertiary"
 				size="xs"
@@ -583,6 +595,17 @@
 				title="Explore other scripts"
 			>
 				Library
+			</Button>
+		{/if}
+		{#if saveToWorkspace}
+			<Button
+				size="xs"
+				color="light"
+				startIcon={{ icon: Save }}
+				on:click={() => dispatch('createScriptFromInlineScript')}
+				iconOnly={false}
+			>
+				Save to workspace
 			</Button>
 		{/if}
 	</div>

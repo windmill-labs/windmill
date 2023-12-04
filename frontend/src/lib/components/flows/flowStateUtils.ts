@@ -13,10 +13,11 @@ import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
-import { emptyFlowModuleState, findNextAvailablePath } from './utils'
+import { emptyFlowModuleState } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { loadSchemaFromModule } from './flowInfers'
 import { nextId } from './flowModuleNextId'
+import { findNextAvailablePath } from '$lib/path'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {

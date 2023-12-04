@@ -232,9 +232,7 @@ class Windmill:
     def set_variable(self, path: str, value: str) -> None:
         """Set variable from Windmill"""
         # check if variable exists
-        r = self.get(
-            f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
-        )
+        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
         if r.status_code == 404:
             # create variable
             self.post(
@@ -260,9 +258,7 @@ class Windmill:
     ) -> str | dict | None:
         """Get resource from Windmill"""
         try:
-            return self.get(
-                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
-            ).json()
+            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -276,9 +272,7 @@ class Windmill:
         resource_type: str,
     ):
         # check if resource exists
-        r = self.get(
-            f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False
-        )
+        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
         if r.status_code == 404:
             # create resource
             self.post(
@@ -305,7 +299,7 @@ class Windmill:
 
     def get_duckdb_connection_settings(
         self,
-        s3_resource: Any,
+        s3_resource_path: str = "",
         none_if_undefined: bool = False,
     ) -> Union[str, None]:
         """
@@ -314,19 +308,17 @@ class Windmill:
         """
         try:
             return self.post(
-                f"/w/{self.workspace}/job_helpers/duckdb_connection_settings",
-                json={"s3_resource": s3_resource},
+                f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
+                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
         except JSONDecodeError as e:
             if none_if_undefined:
                 return None
-            raise Exception(
-                "Could not generate DuckDB S3 connection settings from the provided resource"
-            ) from e
+            raise Exception("Could not generate DuckDB S3 connection settings from the provided resource") from e
 
     def get_polars_connection_settings(
         self,
-        s3_resource: Any,
+        s3_resource_path: str = "",
         none_if_undefined: bool = False,
     ) -> Any:
         """
@@ -335,15 +327,13 @@ class Windmill:
         """
         try:
             return self.post(
-                f"/w/{self.workspace}/job_helpers/polars_connection_settings",
-                json={"s3_resource": s3_resource},
+                f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
+                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
         except JSONDecodeError as e:
             if none_if_undefined:
                 return None
-            raise Exception(
-                "Could not generate Polars S3 connection settings from the provided resource"
-            ) from e
+            raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
 
     def whoami(self) -> dict:
         return self.get("/users/whoami").json()
@@ -354,9 +344,7 @@ class Windmill:
 
     @property
     def state_path(self) -> str:
-        state_path = os.environ.get(
-            "WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH")
-        )
+        state_path = os.environ.get("WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH"))
         if state_path is None:
             raise Exception("State path not found")
         return state_path
@@ -533,21 +521,23 @@ def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
 
 
 @init_global_client
-def duckdb_connection_settings(s3_resource: Any, none_if_undefined: bool=False) -> Union[str, None]:
+def duckdb_connection_settings(s3_resource_path: str = "", none_if_undefined: bool = False) -> Union[str, None]:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
     """
-    return _client.get_duckdb_connection_settings(s3_resource=s3_resource, none_if_undefined=none_if_undefined)
+    return _client.get_duckdb_connection_settings(
+        s3_resource_path=s3_resource_path, none_if_undefined=none_if_undefined
+    )
 
 
 @init_global_client
-def polars_connection_settings(s3_resource: Any, none_if_undefined: bool=False) -> Any:
+def polars_connection_settings(s3_resource_path: str = "", none_if_undefined: bool = False) -> Any:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from Polars
     """
-    return _client.get_polars_connection_settings(s3_resource, none_if_undefined)
+    return _client.get_polars_connection_settings(s3_resource_path, none_if_undefined)
 
 
 @init_global_client
@@ -577,10 +567,7 @@ def get_resource(
 
 
 @init_global_client
-def set_resource(   
-        path: str,     
-        value: Any,
-        resource_type: str = "any") -> None:
+def set_resource(path: str, value: Any, resource_type: str = "any") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """

@@ -105,7 +105,7 @@
 							/>
 						{:else}
 							<button
-								class="val {pureViewer
+								class="val text-left {pureViewer
 									? 'cursor-auto'
 									: ''} rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
 								on:click={() => selectProp(key, json[key])}
@@ -189,6 +189,7 @@
 
 	.val.number {
 		@apply text-orange-600;
+		@apply font-mono;
 	}
 	.val.boolean {
 		@apply text-blue-600;

@@ -41,6 +41,8 @@ pub struct Flow {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -74,6 +76,7 @@ pub struct NewFlow {
     pub tag: Option<String>,
     pub ws_error_handler_muted: Option<bool>,
     pub dedicated_worker: Option<bool>,
+    pub timeout: Option<i32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

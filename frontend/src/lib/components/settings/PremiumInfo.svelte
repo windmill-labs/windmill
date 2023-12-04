@@ -100,7 +100,7 @@
 			{#if plan}
 				<div class="text-base inline font-bold leading-8 mb-2">
 					Current plan: {capitalize(plan)} plan{plan === 'team'
-						? `(${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
+						? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
 						: ''}
 				</div>
 			{:else}

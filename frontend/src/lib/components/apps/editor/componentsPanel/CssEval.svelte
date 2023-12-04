@@ -4,6 +4,7 @@
 	import InputsSpecEditor from '../settingsPanel/InputsSpecEditor.svelte'
 
 	export let evalClass: RichConfiguration
+	export let key: string
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -26,6 +27,6 @@
 		selectOptions={undefined}
 		subFieldType={undefined}
 		allowTypeChange={false}
-		key=""
+		{key}
 	/>
 {/if}

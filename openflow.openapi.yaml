@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.217.0
+  version: 1.219.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -103,6 +103,8 @@ components:
           type: number
         timeout:
           type: number
+        delete_after_use:
+          type: boolean
         summary:
           type: string
         mock:
