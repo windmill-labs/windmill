@@ -26,6 +26,16 @@ pub enum DeployedObject {
     App { path: String, version: i64 },
 }
 
+impl DeployedObject {
+    pub fn get_path(&self) -> &str {
+        match self {
+            DeployedObject::Script { path, .. } => path,
+            DeployedObject::Flow { path } => path,
+            DeployedObject::App { path, .. } => path,
+        }
+    }
+}
+
 pub async fn run_workspace_repo_git_callback<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut tx: PushIsolationLevel<'c, R>,
     authed: &ApiAuthed,
@@ -33,6 +43,14 @@ pub async fn run_workspace_repo_git_callback<'c, R: rsmq_async::RsmqConnection +
     w_id: &str,
     obj: DeployedObject,
 ) -> Result<PushIsolationLevel<'c, R>> {
+    if obj.get_path().starts_with("u/") {
+        tracing::debug!(
+            "Ignoring {} from git sync as it's in a private user folder",
+            obj.get_path()
+        );
+        return Ok(tx);
+    }
+
     let workspace_git_repo_setting = sqlx::query_as::<_, WorkspaceSettings>(
         "SELECT * FROM workspace_settings WHERE workspace_id = $1",
     )

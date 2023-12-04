@@ -659,13 +659,18 @@
 			<PageHeader
 				title="Git sync"
 				primary={false}
-				tooltip="Connect the Windmill workspace to a git repository to automatically commit and push scripts to the repository on each deploy."
+				tooltip="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows and apps to the repository on each deploy."
 			/>
 			{#if !$enterpriseLicense}
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
 			{/if}
+			<Alert type="info" title="Script, flows and apps in the user private folders will be ignored">
+				All scripts, flows and apps located in the workspace will be pushed to the Git repository,
+				except the ones that are saved in private user folders (i.e. where the path starts with
+				`u/`).
+			</Alert>
 			<div class="mt-5 mb-5 flex gap-1">
 				{#key s3ResourceInitialPath}
 					<ResourcePicker
