@@ -64,7 +64,6 @@ const display: ComponentSet = {
 		'displaycomponent',
 		'jobidlogcomponent',
 		'jobidflowstatuscomponent',
-		'customcomponent',
 		'statcomponent',
 		'menucomponent'
 	]
