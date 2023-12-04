@@ -8,6 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
+    git_sync_helpers,
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -310,6 +311,7 @@ async fn create_script(
         ));
     }
 
+    let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -635,6 +637,15 @@ async fn create_script(
         .await?;
         tx = PushIsolationLevel::Transaction(new_tx);
     }
+
+    tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx,
+        &authed,
+        &db,
+        &w_id,
+        git_sync_helpers::DeployedObject::Script { hash: hash, path: script_path },
+    )
+    .await?;
 
     match tx {
         PushIsolationLevel::Transaction(tx) => tx.commit().await?,

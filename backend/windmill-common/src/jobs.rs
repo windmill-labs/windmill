@@ -28,6 +28,7 @@ pub enum JobKind {
     FlowDependencies,
     AppDependencies,
     Noop,
+    DeploymentCallback,
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -306,6 +307,9 @@ pub enum JobPayload {
         value: FlowValue,
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
+    },
+    DeploymentCallback {
+        path: String,
     },
     Identity,
     Noop,

@@ -84,6 +84,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_copilot_info", get(get_copilot_info) )
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_large_file_storage_config", post(edit_large_file_storage_config))
+        .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/leave", post(leave_workspace));
 
     #[cfg(feature = "enterprise")]
@@ -151,6 +152,7 @@ pub struct WorkspaceSettings {
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitRepo
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -979,7 +981,72 @@ async fn edit_large_file_storage_config(
     }
     tx.commit().await?;
 
-    Ok(format!("Edit copilot config for workspace {}", &w_id))
+    Ok(format!("Edit large file storage config for workspace {}", &w_id))
+}
+
+#[derive(Deserialize)]
+struct EditGitSyncConfig {
+    git_sync_settings: Option<WorkspaceGitRepo>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WorkspaceGitRepo {
+    pub script_path: String,
+    pub git_repo_resource_path: String,
+}
+
+async fn edit_git_sync_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditGitSyncConfig>,
+) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Git sync is only available on Windmill Enterprise Edition".to_string(),
+        ));
+    }
+
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.git_sync_settings);
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspaces.edit_git_sync_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("git_sync_settings", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    if let Some(git_sync_settings) = new_config.git_sync_settings {
+        let serialized_config = serde_json::to_value::<WorkspaceGitRepo>(git_sync_settings)
+            .map_err(|err| Error::InternalErr(err.to_string()))?;
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+            serialized_config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET git_sync = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
 async fn edit_error_handler(
@@ -1114,7 +1181,7 @@ async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
         .await?;
     if nb_workspaces.unwrap_or(0) >= 2 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of workspaces (2 outside of default worskapce 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
+            "You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
                 .to_string(),
         ));
     }

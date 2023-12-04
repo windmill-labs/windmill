@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deployment_metadata (workspace_id, path, script_hash, callback_job_ids) VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2dd55a9987fce9187fcaf00e4d8bcbe42f0d233f6f973ec77b44518a5c361b2c"
+}
