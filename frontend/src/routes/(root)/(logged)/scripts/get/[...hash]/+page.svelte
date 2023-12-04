@@ -378,6 +378,9 @@
 				break
 		}
 	}
+
+	let token = 'TOKEN_TO_CREATE'
+	let detailSelected = 'saved_inputs'
 </script>
 
 <MoveDrawer
@@ -408,7 +411,7 @@
 			/>
 		</DrawerContent>
 	</Drawer>
-	<DetailPageLayout isOperator={$userStore?.operator}>
+	<DetailPageLayout bind:selected={detailSelected} isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
@@ -541,7 +544,7 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
-			<WebhooksPanel scopes={[`run:script/${script?.path}`]} {webhooks} {args} />
+			<WebhooksPanel bind:token scopes={[`run:script/${script?.path}`]} {webhooks} {args} />
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
 			<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />
