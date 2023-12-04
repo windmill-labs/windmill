@@ -37,7 +37,7 @@
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
 	}
 	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = $enterpriseLicense
-		? 'email'
+		? 'slack'
 		: 'custom'
 
 	let screenshotKind: 'pdf' | 'png' = 'pdf'
@@ -156,12 +156,12 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
   await page.$eval("#sidebar", el => el.remove())
   await page.$eval("#content", el => el.classList.remove("md:pl-12"))
 	await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
-	await page.$$eval(".app-table-footer", els => els.forEach(el => el.remove()))
+	await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
   const elem = await page.$(\'#app-content\');
   const { height } = await elem.boundingBox();
   await page.setViewport({ width: 1200, height });
   await new Promise((resolve, _) => {
-		setTimeout(resolve, 200)
+		setTimeout(resolve, 500)
   })
   const screenshot = kind === "pdf" ? await page.pdf({
 		printBackground: true,
@@ -552,17 +552,17 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 					{#if !$enterpriseLicense}
 						<Tab value="custom">Custom</Tab>
 					{/if}
-					<Tab value="email" disabled={!$enterpriseLicense}>
-						<div class="flex flex-row gap-1 items-center"
-							>Email{!$enterpriseLicense ? ' (EE only)' : ''}</div
-						>
-					</Tab>
 					<Tab value="slack" disabled={!$enterpriseLicense}
 						>Slack{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
 					>
 					<Tab value="discord" disabled={!$enterpriseLicense}
 						>Discord{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
 					>
+					<Tab value="email" disabled={!$enterpriseLicense}>
+						<div class="flex flex-row gap-1 items-center"
+							>Email{!$enterpriseLicense ? ' (EE only)' : ''}
+						</div>
+					</Tab>
 					{#if $enterpriseLicense}
 						<Tab value="custom">Custom</Tab>
 					{/if}

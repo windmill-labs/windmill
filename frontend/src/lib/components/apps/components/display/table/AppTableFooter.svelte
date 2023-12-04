@@ -57,12 +57,7 @@
 
 {#if result.length > pageSize || manualPagination || download}
 	<div
-		class={twMerge(
-			'px-2 py-1 text-xs gap-2 items-center justify-between',
-			c,
-			'flex flex-row',
-			'app-table-footer'
-		)}
+		class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
 		{style}
 	>
 		{#if result.length > pageSize || manualPagination}
@@ -78,6 +73,7 @@
 					disabled={!$table.getCanPreviousPage()}
 					loading={isPreviousLoading && loading}
 					startIcon={{ icon: ChevronLeft }}
+					wrapperClasses="app-table-footer-btn"
 				>
 					Previous
 				</Button>
@@ -92,6 +88,7 @@
 					disabled={!$table.getCanNextPage()}
 					loading={isNextLoading && loading}
 					endIcon={{ icon: ChevronRight }}
+					wrapperClasses="app-table-footer-btn"
 				>
 					Next
 				</Button>
@@ -110,6 +107,7 @@
 					btnClasses="!py-1"
 					on:click={downloadResultAsCSV}
 					startIcon={{ icon: Download }}
+					wrapperClasses="app-table-footer-btn"
 				>
 					Download
 				</Button>
