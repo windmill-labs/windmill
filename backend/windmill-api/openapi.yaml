@@ -6572,7 +6572,7 @@ paths:
         - name: csv_has_header
           in: query
           schema:
-            type: bool
+            type: boolean
         - name: read_bytes_from
           in: query
           schema:
