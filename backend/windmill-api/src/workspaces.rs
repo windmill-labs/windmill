@@ -36,7 +36,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 #[cfg(feature = "enterprise")]
-use chrono::{TimeZone, Datelike};
+use chrono::{TimeZone, Datelike, Timelike};
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -424,22 +424,25 @@ async fn stripe_checkout(
                 _ => params.customer_email = Some(&authed.email),
             }
             
+            let now = Utc::now();
             params.subscription_data = Some(stripe::CreateCheckoutSessionSubscriptionData {
                 metadata: {
                     let mut map = std::collections::HashMap::new();
                     map.insert("workspace_id".to_string(), w_id.clone());
                     Some(map)
                 },
-                billing_cycle_anchor: Some({
-                    // first of the next month (and possibly next year) at noon UTC
-                    let now = Utc::now();
-                    let date = if now.month() == 12 {
-                        Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 12, 0, 0).single().unwrap()
-                    } else {
-                        Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 12, 0, 0).single().unwrap()
-                    };
-                    date.timestamp()
-                }),
+                billing_cycle_anchor: if now.day() == 1 && now.hour() < 12 {
+                        // no need to prorate so close to the billing cycle renew date
+                        None 
+                    } else { 
+                        // first of the next month (and possibly next year) at noon UTC
+                        let date = if now.month() == 12 {
+                            Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 12, 0, 0).single().unwrap()
+                        } else {
+                            Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 12, 0, 0).single().unwrap()
+                        };
+                        Some(date.timestamp())
+                    },
                 ..Default::default()
             });
 
@@ -1678,6 +1681,12 @@ struct ScriptMetadata {
     priority: Option<i16>,    
     #[serde(skip_serializing_if = "Option::is_none")]
     tag: Option<String>,    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart_unless_cancelled: Option<bool>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -1883,6 +1892,9 @@ async fn tarball_workspace(
                 ws_error_handler_muted: script.ws_error_handler_muted,
                 priority: script.priority,
                 tag: script.tag,
+                timeout: script.timeout,
+                delete_after_use: script.delete_after_use,
+                restart_unless_cancelled: script.restart_unless_cancelled,
                 
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();

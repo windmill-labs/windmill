@@ -505,6 +505,7 @@
 																			>
 																		</svelte:fragment>
 																		<ComponentOutputViewer
+																			suffix="table"
 																			on:select={({ detail }) =>
 																				connectOutput(
 																					connectingInput,

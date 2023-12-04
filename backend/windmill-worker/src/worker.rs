@@ -1245,6 +1245,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             if let Err(e) = sqlx::query!("VACUUM queue").execute(db).await {
+                jobs_executed += 1;
                 tracing::error!(worker = %worker_name, "failed to vacuum queue: {}", e);
             }
             tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");

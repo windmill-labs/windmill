@@ -7,7 +7,13 @@
 		TemplateV2Input,
 		UploadAppInput
 	} from '../../inputType'
-	import type { AppViewerContext, GroupContext, ListContext, RichConfiguration } from '../../types'
+	import type {
+		AppEditorContext,
+		AppViewerContext,
+		GroupContext,
+		ListContext,
+		RichConfiguration
+	} from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
@@ -21,8 +27,10 @@
 	export let id: string | undefined = undefined
 	export let error: string = ''
 	export let key: string = ''
+	export let field: string = key
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
@@ -138,6 +146,12 @@
 
 	const debounceEval = async () => {
 		let nvalue = await evalExpr(lastInput as EvalAppInput)
+		if (field) {
+			editorContext?.evalPreview.update((x) => {
+				x[`${id}.${field}`] = nvalue
+				return x
+			})
+		}
 		if (!deepEqual(nvalue, value)) {
 			if (
 				typeof nvalue == 'string' ||
@@ -253,7 +267,7 @@
 			return r
 		} catch (e) {
 			error = e.message
-			console.error("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
 			return value
 		}
 	}
@@ -277,7 +291,7 @@
 				error = ''
 				return r
 			} catch (e) {
-				console.debug("Eval error in app input '" + id + "' with key '" + key + "'", e)
+				console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
 				return e.message
 			}
 		} else if (input.type === 'static') {

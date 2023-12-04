@@ -54,6 +54,7 @@
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import RunnableJobPanel from './RunnableJobPanel.svelte'
 
 	export let app: App
 	export let path: string
@@ -130,6 +131,7 @@
 		selectedComponent,
 		mode,
 		connectingInput,
+		bgRuns: writable([]),
 		breakpoint,
 		runnableComponents: writable({}),
 		appPath: path,
@@ -160,8 +162,11 @@
 
 	let yTop = writable(0)
 
+	let runnableJob = writable({ focused: false, jobs: {}, frontendJobs: {}, width: 100 })
 	setContext<AppEditorContext>('AppEditorContext', {
 		yTop,
+		runnableJobEditorPanel: runnableJob,
+		evalPreview: writable({}),
 		componentActive,
 		dndItem: writable({}),
 		refreshComponents: writable(undefined),
@@ -476,6 +481,8 @@
 			}
 		}
 	}
+
+	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -549,7 +556,7 @@
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer z-[100]  h-full overflow-visible'
+										'wm-app-viewer h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
@@ -592,7 +599,7 @@
 										on:scroll={parseScroll}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
-											$appStore.fullscreen ? '' : 'max-w-7xl border-x',
+											$appStore.fullscreen ? '' : 'max-w-7xl',
 											$componentActive ? 'absolute' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
@@ -612,15 +619,29 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									<div class="relative h-full w-full z-[100]">
+									<!-- svelte-ignore a11y-no-static-element-interactions -->
+									<div
+										class="relative h-full w-full overflow-x-visible"
+										on:mouseenter={() => {
+											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
+											$runnableJob.focused = true
+										}}
+										on:mouseleave={() => {
+											runnableJobEnterTimeout = setTimeout(
+												() => ($runnableJob.focused = false),
+												200
+											)
+										}}
+									>
 										<InlineScriptsPanel />
+										<RunnableJobPanel />
 									</div>
 								</Pane>
 							{/if}
 						</Splitpanes>
 					</Pane>
 					<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
-						<div class="relative flex flex-col h-full">
+						<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component library</svelte:fragment>

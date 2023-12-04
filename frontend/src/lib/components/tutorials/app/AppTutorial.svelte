@@ -252,6 +252,8 @@
 						wrapper.appendChild(objectViewer)
 
 						popover.description.appendChild(wrapper)
+
+						tutorial?.renderControls(opts)
 					}
 				}
 			},

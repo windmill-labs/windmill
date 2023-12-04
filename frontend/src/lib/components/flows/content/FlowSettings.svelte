@@ -480,6 +480,7 @@
 									id="oauth_name"
 									bind:value={$flowStore.value.early_return}
 								>
+									<option value={undefined}>Node's id</option>
 									{#each $flowStore.value?.modules?.map((x) => x.id) as name}
 										<option value={name}>{name}</option>
 									{/each}

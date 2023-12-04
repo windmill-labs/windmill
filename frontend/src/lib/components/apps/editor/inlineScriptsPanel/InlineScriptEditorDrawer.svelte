@@ -27,17 +27,20 @@
 	>
 		{#if inlineScript && inlineScript.language != 'frontend'}
 			<ScriptEditor
+				noHistory
 				noSyncFromGithub
 				lang={inlineScript.language}
 				path={inlineScript.path ? inlineScript.path + '_fullscreen' : undefined}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}
+				on:createScriptFromInlineScript
 				tag={undefined}
+				saveToWorkspace
 			/>
 		{/if}
 		<svelte:fragment slot="actions">
-			<Button startIcon={{ icon: Save }} disabled>Automatically Saved</Button>
+			<Button size="xs" startIcon={{ icon: Save }} disabled>Automatically Synced</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

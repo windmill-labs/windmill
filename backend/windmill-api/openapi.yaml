@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.217.0
+  version: 1.219.1
   title: Windmill API
 
   contact:
@@ -6996,6 +6996,12 @@ components:
           type: boolean
         priority:
           type: integer
+        restart_unless_cancelled:
+          type: boolean
+        timeout:
+          type: integer
+        delete_after_use:
+          type: boolean
       required:
         - hash
         - path
@@ -7074,6 +7080,12 @@ components:
           type: boolean
         priority:
           type: integer
+        restart_unless_cancelled:
+          type: boolean
+        timeout:
+          type: integer
+        delete_after_use:
+          type: boolean
       required:
         - path
         - summary
@@ -8341,6 +8353,8 @@ components:
           type: integer
         dedicated_worker:
           type: boolean
+        timeout:
+          type: number
       required:
         - path
         - edited_by
@@ -8363,6 +8377,8 @@ components:
               type: integer
             dedicated_worker:
               type: boolean
+            timeout:
+              type: number
           required:
             - path
 

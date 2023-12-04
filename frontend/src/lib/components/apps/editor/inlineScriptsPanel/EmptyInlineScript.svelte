@@ -171,11 +171,11 @@
 				on:click={() => picker?.openDrawer()}
 				size="xs"
 				variant="border"
-				color="blue"
+				color="light"
 				startIcon={{ icon: GitFork }}
 				btnClasses="truncate"
 			>
-				Fork a script
+				Fork other script
 			</Button>
 
 			<Button

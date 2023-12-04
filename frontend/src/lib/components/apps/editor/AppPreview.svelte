@@ -77,6 +77,7 @@
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,
+		bgRuns: writable([]),
 		mode,
 		connectingInput,
 		breakpoint,

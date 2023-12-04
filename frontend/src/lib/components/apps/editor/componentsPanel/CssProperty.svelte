@@ -167,9 +167,9 @@
 							/>
 						</div>
 					{/if}
-					{#if value.quickCss}
+					{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickCss}
 						<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
-							{#each value.quickCss as v}
+							{#each ccomponents?.[componentType]?.quickstyle?.[name].quickCss ?? [] as v}
 								<Badge
 									small
 									baseClass="cursor-pointer"
@@ -206,9 +206,9 @@
 							subType="tailwind"
 						/>
 					</div>
-					{#if value.quickTailwindClasses}
+					{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
 						<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
-							{#each value.quickTailwindClasses as cls}
+							{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
 								<Badge
 									baseClass="cursor-pointer"
 									small
@@ -246,7 +246,7 @@
 			/>
 
 			{#if value?.evalClass && dynamicClass}
-				<CssEval bind:evalClass={value.evalClass} />
+				<CssEval key={name} bind:evalClass={value.evalClass} />
 			{/if}
 		</div>
 	{/if}
