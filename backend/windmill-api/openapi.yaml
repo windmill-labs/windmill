@@ -1192,6 +1192,8 @@ paths:
                     type: boolean
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
+                  git_sync:
+                    $ref: "#/components/schemas/WorkspaceGitSync"
                 required:
                   - code_completion_enabled
 
@@ -1505,6 +1507,32 @@ paths:
               properties:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_git_sync_config:
+    post:
+      summary: edit workspace git sync settings
+      operationId: editWorkspaceGitSyncConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace Git sync settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_sync_settings:
+                  $ref: "#/components/schemas/WorkspaceGitSync"
 
       responses:
         "200":
@@ -7221,6 +7249,7 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "deploymentcallback",
             ]
         schedule_path:
           type: string
@@ -7329,6 +7358,7 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "deploymentcallback",
             ]
         schedule_path:
           type: string
@@ -8662,3 +8692,14 @@ components:
         - endPoint
         - useSSL
         - pathStyle
+
+    WorkspaceGitSync:
+      type: object
+      properties:
+        script_path:
+          type: string
+        git_repo_resource_path:
+          type: string
+      required:
+        - script_path
+        - git_repo_resource_path

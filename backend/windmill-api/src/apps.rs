@@ -9,6 +9,7 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
+    git_sync_helpers,
     users::{require_owner_of_path, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -512,8 +513,8 @@ async fn create_app(
     )
     .await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
-    let (dependency_job_uuid, tx) = push(
+    let mut tx = PushIsolationLevel::Transaction(tx);
+    let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
         &w_id,
@@ -538,7 +539,26 @@ async fn create_app(
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
-    tx.commit().await?;
+
+    tx = PushIsolationLevel::Transaction(new_tx);
+    tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx,
+        &authed,
+        &db,
+        &w_id,
+        git_sync_helpers::DeployedObject::App { path: app.path.clone(), version: v_id },
+    )
+    .await?;
+
+    match tx {
+        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        _ => {
+            return Err(Error::InternalErr(
+                "Expected a transaction here".to_string(),
+            ));
+        }
+    }
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateApp { workspace: w_id, path: app.path.clone() },
@@ -753,11 +773,10 @@ async fn update_app(
     )
     .await?;
 
+    let mut tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
+        PushIsolationLevel::Transaction(tx);
     if let Some(v_id) = v_id {
-        let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
-            PushIsolationLevel::Transaction(tx);
-
-        let (dependency_job_uuid, tx) = push(
+        let (dependency_job_uuid, new_tx) = push(
             &db,
             tx,
             &w_id,
@@ -782,10 +801,27 @@ async fn update_app(
         )
         .await?;
         tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
-        tx.commit().await?;
-    } else {
-        tx.commit().await?;
+
+        tx = PushIsolationLevel::Transaction(new_tx);
+        tx = git_sync_helpers::run_workspace_repo_git_callback(
+            tx,
+            &authed,
+            &db,
+            &w_id,
+            git_sync_helpers::DeployedObject::App { path: npath.clone(), version: v_id },
+        )
+        .await?;
     }
+
+    match tx {
+        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        _ => {
+            return Err(Error::InternalErr(
+                "Expected a transaction here".to_string(),
+            ));
+        }
+    }
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateApp {
