@@ -21,7 +21,7 @@
 		{isFrontend}
 		shoudlDisplayChangeEvents={recomputeOnInputChanged || isFrontend}
 	/>
-{:else if script.type === 'runnableByName'}
+{:else if script.type === 'runnableByPath'}
 	<ScriptTriggers
 		{id}
 		dependencies={getDependencies(script.fields)}

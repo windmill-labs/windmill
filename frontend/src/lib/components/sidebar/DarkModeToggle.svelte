@@ -7,14 +7,6 @@
 	export let darkMode: boolean = document.documentElement.classList.contains('dark')
 	export let forcedDarkMode: boolean = true
 
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
-
 	export function toggle() {
 		if (!document.documentElement.classList.contains('dark')) {
 			document.documentElement.classList.add('dark')
@@ -40,4 +32,4 @@
 	{/if}
 </button>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />

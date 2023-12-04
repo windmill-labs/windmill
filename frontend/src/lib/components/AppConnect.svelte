@@ -329,17 +329,10 @@
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
 
-	let darkMode: boolean = document.documentElement.classList.contains('dark')
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
+	let darkMode: boolean = false
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />
 
 <SearchItems
 	{filter}

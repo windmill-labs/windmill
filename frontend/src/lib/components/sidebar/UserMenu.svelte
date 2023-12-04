@@ -11,15 +11,8 @@
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
-	let darkMode: boolean = document.documentElement.classList.contains('dark')
+	let darkMode: boolean = false
 	export let isCollapsed: boolean = false
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
 </script>
 
 <Menu>
@@ -142,4 +135,4 @@
 	</div>
 </Menu>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />
