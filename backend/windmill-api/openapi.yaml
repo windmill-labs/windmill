@@ -3225,6 +3225,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/NewScriptWithDraft"
 
+  /w/{workspace}/scripts/history/p/{path}:
+    get:
+      summary: get history of a script by path
+      operationId: getScriptHistoryByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScriptHistory"
+
+  /w/{workspace}/scripts/history_update/h/{hash}/p/{path}:
+    post:
+      summary: update history of a script
+      operationId: updateScriptHistory
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Script deployment message
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deployment_msg:
+                  type: string
+      responses:
+        "200":
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/scripts/raw/p/{path}:
     get:
       summary: raw script by path
@@ -4064,6 +4111,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersionWDraft"
+
+  /w/{workspace}/apps/history/p/{path}:
+    get:
+      summary: get app history by path
+      operationId: getAppHistoryByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppHistory"
+
+  /w/{workspace}/apps/history_update/a/{id}/v/{version}:
+    post:
+      summary: update app history
+      operationId: updateAppHistory
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+        - $ref: "#/components/parameters/PathVersion"
+      requestBody:
+        description: App deployment message
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deployment_msg:
+                  type: string
+      responses:
+        "200":
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/apps_u/public_app/{path}:
     get:
@@ -6695,6 +6789,12 @@ components:
       required: true
       schema:
         type: integer
+    PathVersion:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: integer
     Name:
       name: name
       in: path
@@ -7132,6 +7232,14 @@ components:
               type: string
           required:
             - hash
+
+    ScriptHistory:
+      type: object
+      properties:
+        script_hash: string
+        deployment_msg: string
+      required:
+        - script_hash
 
     ScriptArgs:
       type: object
@@ -8571,6 +8679,14 @@ components:
             draft_only:
               type: boolean
             draft: {}
+
+    AppHistory:
+      type: object
+      properties:
+        version: integer
+        deployment_msg: string
+      required:
+        - version
 
     SlackToken:
       type: object

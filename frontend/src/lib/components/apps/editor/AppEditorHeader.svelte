@@ -103,7 +103,6 @@
 
 	export let policy: Policy
 	export let fromHub: boolean = false
-	export let versions: number[]
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedApp:
 		| {
@@ -824,7 +823,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {versions} />
+		<DeploymentHistory on:restore {appPath} />
 	</DrawerContent>
 </Drawer>
 
