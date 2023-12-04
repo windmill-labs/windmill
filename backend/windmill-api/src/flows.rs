@@ -7,6 +7,7 @@
  */
 
 use crate::db::ApiAuthed;
+use crate::git_sync_helpers;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -354,8 +355,8 @@ async fn create_flow(
     )
     .await?;
 
-    let tx = PushIsolationLevel::Transaction(tx);
-    let (dependency_job_uuid, mut tx) = push(
+    let mut tx = PushIsolationLevel::Transaction(tx);
+    let (dependency_job_uuid, mut new_tx) = push(
         &db,
         tx,
         &w_id,
@@ -389,9 +390,27 @@ async fn create_flow(
         nf.path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut new_tx)
     .await?;
-    tx.commit().await?;
+
+    tx = PushIsolationLevel::Transaction(new_tx);
+    tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx,
+        &authed,
+        &db,
+        &w_id,
+        git_sync_helpers::DeployedObject::Flow { path: nf.path.clone() },
+    )
+    .await?;
+
+    match tx {
+        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        _ => {
+            return Err(Error::InternalErr(
+                "Expected a transaction here".to_string(),
+            ));
+        }
+    }
 
     webhook.send_message(
         w_id.clone(),
@@ -565,9 +584,9 @@ async fn update_flow(
         },
     );
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let mut tx = PushIsolationLevel::Transaction(tx);
 
-    let (dependency_job_uuid, mut tx) = push(
+    let (dependency_job_uuid, mut new_tx) = push(
         &db,
         tx,
         &w_id,
@@ -600,17 +619,36 @@ async fn update_flow(
         nf.path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut new_tx)
     .await?;
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE queue SET canceled = true WHERE id = $1",
             old_dep_job
         )
-        .execute(&mut tx)
+        .execute(&mut new_tx)
         .await?;
     }
-    tx.commit().await?;
+
+    tx = PushIsolationLevel::Transaction(new_tx);
+    tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx,
+        &authed,
+        &db,
+        &w_id,
+        git_sync_helpers::DeployedObject::Flow { path: nf.path.clone() },
+    )
+    .await?;
+
+    match tx {
+        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        _ => {
+            return Err(Error::InternalErr(
+                "Expected a transaction here".to_string(),
+            ));
+        }
+    }
+
     Ok(nf.path.to_string())
 }
 

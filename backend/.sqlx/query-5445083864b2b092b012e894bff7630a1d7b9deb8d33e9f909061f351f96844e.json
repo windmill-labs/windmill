@@ -87,6 +87,11 @@
         "ordinal": 16,
         "name": "large_file_storage",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 17,
+        "name": "git_sync",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -111,6 +116,7 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },

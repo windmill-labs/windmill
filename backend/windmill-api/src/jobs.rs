@@ -1965,9 +1965,15 @@ async fn run_wait_result<T>(
                     })?;
 
                 if windmill_content_type.is_some() {
-                    let serialized_result = result_value
+                    let serialized_json_result = result_value
                         .map(|val| val.get().to_owned())
                         .unwrap_or_else(String::new);
+                    // if the `result` was just a single string, the below removes the surrounding quotes by parsing it as a string.
+                    // it falls back to the original serialized JSON if it doesn't work.
+                    let serialized_result =
+                        serde_json::from_str::<String>(serialized_json_result.as_str())
+                            .ok()
+                            .unwrap_or(serialized_json_result);
                     return Ok((
                         status_code_or_default,
                         [(
