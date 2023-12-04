@@ -257,8 +257,15 @@
 
 	$: lang && args && $dbSchemas && updateSchema()
 	$: initialized && dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
-	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
+
+	function disposeSqlSchemaCompletor() {
+		sqlSchemaCompletor?.dispose()
+	}
+	$: (!dbSchema || lang !== 'sql') && disposeSqlSchemaCompletor()
+	function disposeGaphqlService() {
+		graphqlService = undefined
+	}
+	$: (!dbSchema || lang !== 'graphql') && disposeGaphqlService()
 
 	function addDBSchemaCompletions() {
 		const { lang: schemaLang, schema } = dbSchema || {}
