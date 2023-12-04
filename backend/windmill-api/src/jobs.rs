@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::flow_status::RestartedFrom;
@@ -1874,15 +1875,16 @@ impl Drop for Guard {
 }
 
 #[derive(Deserialize)]
-pub struct WindmillStatusCode {
+pub struct WindmillCompositeResult {
     windmill_status_code: Option<u16>,
+    windmill_content_type: Option<String>,
     result: Option<Box<RawValue>>,
 }
 async fn run_wait_result<T>(
     db: &DB,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
-    node_id: Option<String>,
+    node_id_for_empty_return: Option<String>,
 ) -> error::Result<Response> {
     let mut result;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
@@ -1898,10 +1900,16 @@ async fn run_wait_result<T>(
     let mut accumulated_delay = 0 as u64;
 
     loop {
-        if let Some(node_id) = node_id.as_ref() {
-            result = get_result_by_id_from_running_flow(&db, &w_id, &uuid, node_id, None)
-                .await
-                .ok();
+        if let Some(node_id_for_empty_return) = node_id_for_empty_return.as_ref() {
+            result = get_result_by_id_from_running_flow(
+                &db,
+                &w_id,
+                &uuid,
+                node_id_for_empty_return,
+                None,
+            )
+            .await
+            .ok();
         } else {
             let row =
                 sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
@@ -1934,13 +1942,47 @@ async fn run_wait_result<T>(
     if let Some(result) = result {
         g.done = true;
 
-        let status_code = serde_json::from_str::<WindmillStatusCode>(result.get());
-        match status_code {
-            Ok(WindmillStatusCode { windmill_status_code: Some(status_code), result }) => {
-                Err(Error::CustomStatusCode(
-                    StatusCode::from_u16(status_code).unwrap_or_else(|_| StatusCode::IM_A_TEAPOT),
-                    result,
-                ))
+        let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
+        match composite_result {
+            Ok(WindmillCompositeResult {
+                windmill_status_code,
+                windmill_content_type,
+                result: result_value,
+            }) => {
+                if windmill_content_type.is_none() && windmill_status_code.is_none() {
+                    return Ok(Json(result).into_response());
+                }
+
+                let status_code_or_default = windmill_status_code
+                    .map(|val| match StatusCode::from_u16(val) {
+                        Ok(sc) => Ok(sc),
+                        Err(_) => Err(Error::ExecutionErr("Invalid status code".to_string())),
+                    })
+                    .unwrap_or(if result_value.is_some() {
+                        Ok(StatusCode::OK)
+                    } else {
+                        Ok(StatusCode::NO_CONTENT)
+                    })?;
+
+                if windmill_content_type.is_some() {
+                    let serialized_result = result_value
+                        .map(|val| val.get().to_owned())
+                        .unwrap_or_else(String::new);
+                    return Ok((
+                        status_code_or_default,
+                        [(
+                            http::header::CONTENT_TYPE,
+                            HeaderValue::from_str(windmill_content_type.unwrap().as_str()).unwrap(),
+                        )],
+                        serialized_result,
+                    )
+                        .into_response());
+                }
+                return Ok((
+                    status_code_or_default,
+                    Json(result_value), // default to JSON result if no content type is provided
+                )
+                    .into_response());
             }
             _ => Ok(Json(result).into_response()),
         }
