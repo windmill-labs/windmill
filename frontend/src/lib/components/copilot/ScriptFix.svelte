@@ -5,7 +5,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Popover from '../Popover.svelte'
@@ -45,7 +45,8 @@
 					code: editor?.getCode() || '',
 					error,
 					dbSchema: dbSchema,
-					type: 'fix'
+					type: 'fix',
+					workspace: $workspaceStore!
 				},
 				generatedCode,
 				abortController,

@@ -22,7 +22,7 @@
 	loadCodeCompletionSessinoEnabled()
 </script>
 
-{#if $copilotInfo.code_completion_enabled}
+{#if $copilotInfo.exists_openai_resource_path && $copilotInfo.code_completion_enabled}
 	<Popover>
 		<svelte:fragment slot="text"
 			>Click to {$codeCompletionSessionEnabled ? 'disable' : 'enable'} code completion (applies only

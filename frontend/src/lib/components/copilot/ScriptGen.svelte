@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import Popup from '../common/popup/Popup.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -59,7 +59,8 @@
 						description: funcDesc,
 						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
-						type: 'edit'
+						type: 'edit',
+						workspace: $workspaceStore!
 					},
 					generatedCode,
 					abortController
@@ -70,7 +71,8 @@
 						language: lang,
 						description: funcDesc,
 						dbSchema: dbSchema,
-						type: 'gen'
+						type: 'gen',
+						workspace: $workspaceStore!
 					},
 					generatedCode,
 					abortController
