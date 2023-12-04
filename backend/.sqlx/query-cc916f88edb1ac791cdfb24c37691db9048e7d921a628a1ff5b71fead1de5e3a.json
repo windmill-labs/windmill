@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, dedicated_worker, ws_error_handler_muted, priority) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
+  "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
   "describe": {
     "columns": [],
     "parameters": {
@@ -61,10 +61,11 @@
         "Int4",
         "Bool",
         "Bool",
-        "Int2"
+        "Int2",
+        "Bool"
       ]
     },
     "nullable": []
   },
-  "hash": "52ad1773a9f5a1b6be1bb16af408f051f27d3f21b615c468b85aa75b64d943db"
+  "hash": "cc916f88edb1ac791cdfb24c37691db9048e7d921a628a1ff5b71fead1de5e3a"
 }

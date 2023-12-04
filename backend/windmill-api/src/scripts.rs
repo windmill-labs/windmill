@@ -465,8 +465,8 @@ async fn create_script(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-         dedicated_worker, ws_error_handler_muted, priority) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
+         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
         &w_id,
         &hash.0,
         ns.path,
@@ -490,6 +490,7 @@ async fn create_script(
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
         ns.priority,
+        ns.restart_unless_cancelled
     )
     .execute(&mut tx)
     .await?;
