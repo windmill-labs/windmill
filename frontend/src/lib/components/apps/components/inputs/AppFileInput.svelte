@@ -11,7 +11,7 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -33,7 +33,6 @@
 				return { name: file.name, data }
 			})
 		}
-
 		outputs?.result.set(files)
 	}
 
