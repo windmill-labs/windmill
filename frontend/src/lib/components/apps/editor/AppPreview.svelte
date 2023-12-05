@@ -36,6 +36,7 @@
 	export let context: Record<string, any>
 	export let noBackend: boolean = false
 	export let isLocked = false
+	export let hideRefreshBar = false
 
 	migrateApp(app)
 
@@ -177,7 +178,7 @@
 			<div
 				class={classNames(
 					'mx-auto',
-					$appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
+					hideRefreshBar || $appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
 				)}
 			>
 				<div

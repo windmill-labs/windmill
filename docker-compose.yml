@@ -78,6 +78,30 @@ services:
       db:
         condition: service_healthy
 
+  ## This worker is specialized for reports or scrapping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  # windmill_worker_reports:
+  #   image: ${WM_IMAGE}
+  #   pull_policy: always
+  #   deploy:
+  #     replicas: 1
+  #     resources:
+  #       limits:
+  #         cpus: "1"
+  #         memory: 2048M
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - MODE=worker
+  #     - WORKER_GROUP=reports
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+  #   volumes:
+  #     # mount the docker socket to allow to run docker containers from within the workers
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - worker_dependency_cache:/tmp/windmill/cache
+
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
     pull_policy: always

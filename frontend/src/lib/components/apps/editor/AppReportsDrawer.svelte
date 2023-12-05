@@ -10,13 +10,14 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import {
 		FlowService,
+		JobService,
 		RawScript,
 		ScheduleService,
 		SettingService,
 		WorkspaceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -35,7 +36,12 @@
 		cron: '0 0 12 * *',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
 	}
-	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = 'custom'
+	let selectedTab: 'email' | 'slack' | 'discord' | 'custom' = $enterpriseLicense
+		? 'slack'
+		: 'custom'
+
+	let screenshotKind: 'pdf' | 'png' = 'pdf'
+
 	let customPath: string | undefined = undefined
 	let customPathSchema: Record<string, any> = {}
 	let args: Record<string, any> = {}
@@ -48,7 +54,7 @@
 							...schema,
 							properties: Object.fromEntries(
 								Object.entries(schema.properties ?? {}).filter(
-									([key, _]) => key !== 'pdf' && key !== 'app_path'
+									([key, _]) => key !== 'screenshot' && key !== 'app_path' && key !== 'kind'
 								)
 							)
 					  }
@@ -76,10 +82,12 @@
 				workspace: $workspaceStore!,
 				path: flowPath
 			})
+
 			const schedule = await ScheduleService.getSchedule({
 				workspace: $workspaceStore!,
 				path: flowPath
 			})
+
 			appReportingSchedule = {
 				cron: schedule.schedule,
 				timezone: schedule.timezone
@@ -117,7 +125,7 @@
 
 	$: appPath && getAppReportingInfo()
 
-	async function disableAppReporting(skipToast = false) {
+	async function disableAppReporting() {
 		const flowPath = appPath + '_reports'
 		await ScheduleService.deleteSchedule({
 			workspace: $workspaceStore!,
@@ -127,14 +135,12 @@
 			workspace: $workspaceStore!,
 			path: flowPath
 		})
-		if (!skipToast) {
-			appReportingEnabled = false
-			sendUserToast('App reporting disabled')
-		}
+		appReportingEnabled = false
+		sendUserToast('App reporting disabled')
 	}
 
-	const pdfPreviewScript = `import puppeteer from \'puppeteer-core\';
-export async function main(app_path: string, startup_duration = 5) {
+	const appPreviewScript = `import puppeteer from \'puppeteer-core\';
+export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
   const browser = await puppeteer.launch({ headless: \'new\', executablePath: \'/usr/bin/chromium\', args: [\'--no-sandbox\'] });
   const page = await browser.newPage();
   await page.setCookie({
@@ -142,31 +148,46 @@ export async function main(app_path: string, startup_duration = 5) {
     "value": Bun.env["WM_TOKEN"],
     "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, \'\')
   })
+  page
+    .on('console', msg =>
+      console.log(msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
+    .on('pageerror', ({ msg }) => console.log(msg))
+    .on('response', response => {
+      console.log(response.status, response.url);
+    })
+    .on('requestfailed', request => {
+      console.log(request.failure().errorText, request.url);
+    });
   await page.goto(Bun.env["WM_BASE_URL"] + \'/apps/get/\' + app_path + \'?workspace=\' + Bun.env["WM_WORKSPACE"]);
+	await page.waitForSelector("#app-content", { timeout: 20000 })
   await new Promise((resolve, _) => {
-      setTimeout(resolve, startup_duration * 1000)
+		setTimeout(resolve, startup_duration * 1000)
   })
   await page.$eval("#sidebar", el => el.remove())
   await page.$eval("#content", el => el.classList.remove("md:pl-12"))
-  await page.$eval("#app-edit-btn", el => el.remove())
+	await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
+	await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
   const elem = await page.$(\'#app-content\');
   const { height } = await elem.boundingBox();
   await page.setViewport({ width: 1200, height });
   await new Promise((resolve, _) => {
-      setTimeout(resolve, 200)
+		setTimeout(resolve, 500)
   })
-  const pdf = await page.pdf({
-      printBackground: true,
-      width: 1200,
-      height
-  });
+  const screenshot = kind === "pdf" ? await page.pdf({
+		printBackground: true,
+		width: 1200,
+		height
+  }) : await page.screenshot({
+		fullPage: true,
+		type: "png"
+	});
   await browser.close();
-  return Buffer.from(pdf).toString(\'base64\');
+  return Buffer.from(screenshot).toString(\'base64\');
 }`
 
 	const notificationScripts = {
 		discord: {
-			path: 'hub/7772/discord',
+			path: 'hub/7838/discord',
 			schema: {
 				type: 'object',
 				properties: {
@@ -182,7 +203,7 @@ export async function main(app_path: string, startup_duration = 5) {
 			}
 		},
 		slack: {
-			path: 'hub/7771/slack', // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
+			path: 'hub/7836/slack', // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
 			schema: {
 				type: 'object',
 				properties: {
@@ -195,7 +216,7 @@ export async function main(app_path: string, startup_duration = 5) {
 			}
 		},
 		email: {
-			path: 'hub/7774/smtp',
+			path: 'hub/7837/smtp',
 			schema: {
 				type: 'object',
 				properties: {
@@ -220,32 +241,22 @@ export async function main(app_path: string, startup_duration = 5) {
 		}
 	}
 
-	async function updateAppReporting() {
-		await disableAppReporting(true)
-		await enableAppReporting(true)
-		sendUserToast('App reporting updated')
+	function getFlowArgs() {
+		return {
+			app_path: appPath,
+			startup_duration: appReportingStartupDuration,
+			kind: screenshotKind,
+			...args,
+			...(selectedTab === 'slack'
+				? {
+						slack: '$res:' + WORKSPACE_SLACK_BOT_TOKEN_PATH
+				  }
+				: {})
+		}
 	}
 
-	async function enableAppReporting(skipToast = false) {
-		const flowPath = appPath + '_reports'
-
-		try {
-			// will only work if the user is super admin
-			const customTags = ((await SettingService.getGlobal({
-				key: CUSTOM_TAGS_SETTING
-			})) ?? []) as string[]
-
-			if (!customTags.includes('chromium')) {
-				await SettingService.setGlobal({
-					key: CUSTOM_TAGS_SETTING,
-					requestBody: {
-						value: [...customTags, 'chromium']
-					}
-				})
-			}
-		} catch (err) {}
-
-		const inputTransforms: {
+	function getFlowValue() {
+		const notifInputTransforms: {
 			[key: string]: {
 				expr: string
 				type: 'javascript'
@@ -255,9 +266,13 @@ export async function main(app_path: string, startup_duration = 5) {
 				type: 'javascript',
 				expr: 'flow_input.app_path'
 			},
-			pdf: {
+			screenshot: {
 				type: 'javascript',
 				expr: 'results.a'
+			},
+			kind: {
+				type: 'javascript',
+				expr: 'flow_input.kind'
 			},
 			...Object.fromEntries(
 				Object.keys(args).map((key) => [
@@ -277,44 +292,76 @@ export async function main(app_path: string, startup_duration = 5) {
 				  }
 				: {})
 		}
+
+		const value = {
+			modules: [
+				{
+					id: 'a',
+					value: {
+						type: 'rawscript' as const,
+						tag: 'chromium',
+						content: appPreviewScript,
+						language: RawScript.language.BUN,
+						input_transforms: {
+							app_path: {
+								expr: 'flow_input.app_path',
+								type: 'javascript' as const
+							},
+							startup_duration: {
+								expr: 'flow_input.startup_duration',
+								type: 'javascript' as const
+							},
+							kind: {
+								expr: 'flow_input.kind',
+								type: 'javascript' as const
+							}
+						}
+					}
+				},
+				{
+					id: 'b',
+					value: {
+						type: 'script' as const,
+						path:
+							selectedTab === 'custom' ? customPath || '' : notificationScripts[selectedTab].path,
+						input_transforms: notifInputTransforms
+					}
+				}
+			]
+		}
+
+		return value
+	}
+
+	async function enableAppReporting() {
+		const flowPath = appPath + '_reports'
+
+		try {
+			// will only work if the user is super admin
+			const customTags = ((await SettingService.getGlobal({
+				key: CUSTOM_TAGS_SETTING
+			})) ?? []) as string[]
+
+			if (!customTags.includes('chromium')) {
+				await SettingService.setGlobal({
+					key: CUSTOM_TAGS_SETTING,
+					requestBody: {
+						value: [...customTags, 'chromium']
+					}
+				})
+			}
+		} catch (err) {}
+
+		await FlowService.deleteFlowByPath({
+			workspace: $workspaceStore!,
+			path: flowPath
+		})
+
 		await FlowService.createFlow({
 			workspace: $workspaceStore!,
 			requestBody: {
 				summary: appPath + ' - Reports flow',
-				value: {
-					modules: [
-						{
-							id: 'a',
-							value: {
-								type: 'rawscript',
-								tag: 'chromium',
-								content: pdfPreviewScript,
-								language: RawScript.language.BUN,
-								input_transforms: {
-									app_path: {
-										expr: 'flow_input.app_path',
-										type: 'javascript'
-									},
-									startup_duration: {
-										expr: 'flow_input.startup_duration',
-										type: 'javascript'
-									}
-								}
-							}
-						},
-						{
-							id: 'b',
-							value: {
-								type: 'script',
-								path:
-									selectedTab === 'custom'
-										? customPath || ''
-										: notificationScripts[selectedTab].path,
-								input_transforms: inputTransforms
-							}
-						}
-					]
-				},
+				value: getFlowValue(),
 				schema: {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
 					properties: {
@@ -328,6 +375,13 @@ export async function main(app_path: string, startup_duration = 5) {
 							description: '',
 							type: 'integer',
 							default: 5,
+							format: ''
+						},
+						kind: {
+							description: '',
+							type: 'string',
+							enum: ['pdf', 'png'],
+							default: 'pdf',
 							format: ''
 						},
 						...(selectedTab === 'custom'
@@ -348,6 +402,7 @@ export async function main(app_path: string, startup_duration = 5) {
 					required: [
 						'app_path',
 						'startup_duration',
+						'kind',
 						...(selectedTab === 'custom'
 							? customPathSchema.required
 							: notificationScripts[selectedTab].schema.required),
@@ -359,6 +414,11 @@ export async function main(app_path: string, startup_duration = 5) {
 			}
 		})
 
+		await ScheduleService.deleteSchedule({
+			workspace: $workspaceStore!,
+			path: flowPath
+		})
+
 		await ScheduleService.createSchedule({
 			workspace: $workspaceStore!,
 			requestBody: {
@@ -367,22 +427,60 @@ export async function main(app_path: string, startup_duration = 5) {
 				timezone: appReportingSchedule.timezone,
 				script_path: flowPath,
 				is_flow: true,
-				args: {
-					app_path: appPath,
-					startup_duration: appReportingStartupDuration,
-					...args,
-					...(selectedTab === 'slack'
-						? {
-								slack: '$res:' + WORKSPACE_SLACK_BOT_TOKEN_PATH
-						  }
-						: {})
-				},
+				args: getFlowArgs(),
 				enabled: true
 			}
 		})
 		appReportingEnabled = true
-		if (!skipToast) {
-			sendUserToast('App reporting enabled')
+	}
+
+	let testLoading = false
+	async function testReport() {
+		try {
+			testLoading = true
+			const jobId = await JobService.runFlowPreview({
+				workspace: $workspaceStore!,
+				requestBody: {
+					args: getFlowArgs(),
+					value: getFlowValue()
+				}
+			})
+			tryEvery({
+				tryCode: async () => {
+					let testResult = await JobService.getCompletedJob({
+						workspace: $workspaceStore!,
+						id: jobId
+					})
+					testLoading = false
+					sendUserToast(
+						testResult.success
+							? 'Report sent successfully'
+							: 'Report error: ' + testResult.result?.['error']?.['message'],
+						!testResult.success
+					)
+				},
+				timeoutCode: async () => {
+					testLoading = false
+					sendUserToast('Reports flow did not return after 30s', true)
+					try {
+						await JobService.cancelQueuedJob({
+							workspace: $workspaceStore!,
+							id: jobId,
+							requestBody: {
+								reason: 'Reports flow did not return after 30s'
+							}
+						})
+					} catch (err) {
+						console.error(err)
+					}
+				},
+				interval: 500,
+				timeout: 30000
+			})
+		} catch (err) {
+			sendUserToast('Could not test reports flow: ' + err, true)
+		} finally {
+			testLoading = false
 		}
 	}
 
@@ -394,7 +492,7 @@ export async function main(app_path: string, startup_duration = 5) {
 		!areArgsValid
 </script>
 
-<Drawer bind:open>
+<Drawer bind:open size="800px">
 	<DrawerContent title="Schedule Reports" on:close={() => (open = false)}
 		><svelte:fragment slot="actions">
 			<div class="mr-4 center-center -mt-2">
@@ -405,10 +503,11 @@ export async function main(app_path: string, startup_duration = 5) {
 						if (appReportingEnabled) {
 							disableAppReporting()
 						} else {
-							enableAppReporting()
+							await enableAppReporting()
+							sendUserToast('App reporting enabled')
 						}
 					}}
-					{disabled}
+					disabled={disabled && !appReportingEnabled}
 				/>
 			</div>
 			<Button
@@ -416,7 +515,8 @@ export async function main(app_path: string, startup_duration = 5) {
 				startIcon={{ icon: Save }}
 				size="sm"
 				on:click={async () => {
-					appReportingEnabled ? await updateAppReporting() : await enableAppReporting()
+					await enableAppReporting()
+					sendUserToast('App reporting updated')
 					open = false
 				}}
 				{disabled}
@@ -425,9 +525,9 @@ export async function main(app_path: string, startup_duration = 5) {
 			</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-8">
-			<Alert type="info" title="Scheduled PDF reports"
-				>Send a PDF preview of the app at a given schedule. Enabling this feature will create a flow
-				and a schedule in your workspace.
+			<Alert type="info" title="Scheduled PDF/PNG reports"
+				>Send a PDF or PNG preview of the app at a given schedule. Enabling this feature will create
+				a flow and a schedule in your workspace.
 				<br /><br />
 				For the flow to be executed, you need to set the WORKER_GROUP environment variable of one of
 				your workers to "reports" or add the tag "chromium" to one of your worker groups.
@@ -454,20 +554,34 @@ export async function main(app_path: string, startup_duration = 5) {
 				</div>
 			</Section>
 
+			<Section label="Screenshot kind">
+				<div class="w-full pt-2">
+					<select class="text-sm w-full font-semibold" bind:value={screenshotKind}>
+						<option value="pdf">PDF</option>
+						<option value="png">PNG</option>
+					</select>
+				</div></Section
+			>
+
 			<Section label="Notification">
 				<Tabs bind:selected={selectedTab}>
-					<Tab value="custom">Custom</Tab>
-					<Tab value="email" disabled={!$enterpriseLicense}>
-						<div class="flex flex-row gap-1 items-center"
-							>Email{!$enterpriseLicense ? ' (EE only)' : ''}</div
-						>
-					</Tab>
+					{#if !$enterpriseLicense}
+						<Tab value="custom">Custom</Tab>
+					{/if}
 					<Tab value="slack" disabled={!$enterpriseLicense}
 						>Slack{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
 					>
 					<Tab value="discord" disabled={!$enterpriseLicense}
 						>Discord{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
 					>
+					<Tab value="email" disabled={!$enterpriseLicense}>
+						<div class="flex flex-row gap-1 items-center"
+							>Email{!$enterpriseLicense ? ' (EE only)' : ''}
+						</div>
+					</Tab>
+					{#if $enterpriseLicense}
+						<Tab value="custom">Custom</Tab>
+					{/if}
 				</Tabs>
 				{#if selectedTab === 'custom'}
 					<div class="pt-2">
@@ -480,13 +594,13 @@ export async function main(app_path: string, startup_duration = 5) {
 						/>
 					</div>
 					<div class="prose text-2xs text-tertiary mt-2">
-						Pick a script that does whatever with the PDF report.
+						Pick a script that does whatever with the PDF/PNG report.
 
 						<br />
 
-						The script chosen is passed the parameters `pdf: string` and `app_path: string` where
-						`pdf` is the base64 encoded PDF report and `app_path` is the path of the app being
-						reported.
+						The script chosen is passed the parameters `screenshot: string`, `kind: 'pdf' | 'png'`,
+						`app_path: string` where `screenshot` is the base64 encoded PDF/PNG report, `kind` is
+						the type of the screenshot, and `app_path` is the path of the app being reported.
 					</div>
 				{/if}
 				{#if selectedTab === 'slack'}
@@ -526,6 +640,16 @@ export async function main(app_path: string, startup_duration = 5) {
 						{/key}
 					{/if}
 				</div>
+				<Button
+					loading={testLoading}
+					{disabled}
+					on:click={testReport}
+					size="xs"
+					color="dark"
+					btnClasses="w-auto"
+				>
+					Send test report
+				</Button>
 			</Section>
 		</div>
 	</DrawerContent>

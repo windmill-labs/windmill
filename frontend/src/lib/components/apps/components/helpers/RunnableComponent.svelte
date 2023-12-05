@@ -680,7 +680,7 @@
 			</div>
 		{/if}
 		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
-			<div class="flex absolute top-1 right-1 z-50">
+			<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
 				<RefreshButton {loading} componentId={id} />
 			</div>
 		{/if}

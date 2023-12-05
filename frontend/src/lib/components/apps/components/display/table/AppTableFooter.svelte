@@ -73,6 +73,7 @@
 					disabled={!$table.getCanPreviousPage()}
 					loading={isPreviousLoading && loading}
 					startIcon={{ icon: ChevronLeft }}
+					wrapperClasses="app-table-footer-btn"
 				>
 					Previous
 				</Button>
@@ -87,6 +88,7 @@
 					disabled={!$table.getCanNextPage()}
 					loading={isNextLoading && loading}
 					endIcon={{ icon: ChevronRight }}
+					wrapperClasses="app-table-footer-btn"
 				>
 					Next
 				</Button>
@@ -105,6 +107,7 @@
 					btnClasses="!py-1"
 					on:click={downloadResultAsCSV}
 					startIcon={{ icon: Download }}
+					wrapperClasses="app-table-footer-btn"
 				>
 					Download
 				</Button>

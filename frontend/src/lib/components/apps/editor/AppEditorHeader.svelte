@@ -568,33 +568,31 @@
 			icon: FileClock,
 			action: () => {
 				appReportingDrawerOpen = true
-			}
+			},
+			disabled: !savedApp || savedApp.draft_only
 		},
-		...(savedApp
-			? [
-					{
-						displayName: 'Diff',
-						icon: DiffIcon,
-						action: () => {
-							if (!savedApp) {
-								return
-							}
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'normal',
-								deployed: savedApp,
-								draft: savedApp.draft,
-								current: {
-									summary: $summary,
-									value: $app,
-									path: newPath || savedApp.draft?.path || savedApp.path,
-									policy
-								}
-							})
-						}
+		{
+			displayName: 'Diff',
+			icon: DiffIcon,
+			action: () => {
+				if (!savedApp) {
+					return
+				}
+				diffDrawer?.openDrawer()
+				diffDrawer?.setDiff({
+					mode: 'normal',
+					deployed: savedApp,
+					draft: savedApp.draft,
+					current: {
+						summary: $summary,
+						value: $app,
+						path: newPath || savedApp.draft?.path || savedApp.path,
+						policy
 					}
-			  ]
-			: [])
+				})
+			},
+			disabled: !savedApp
+		}
 	]
 
 	let appEditorTutorial: AppEditorTutorial | undefined = undefined
@@ -1134,7 +1132,11 @@
 			</svelte:fragment>
 			<svelte:fragment slot="items">
 				{#each moreItems as item}
-					<MenuItem on:click={item.action}>
+					<MenuItem
+						on:click={item.action}
+						disabled={item.disabled}
+						class={item.disabled ? 'opacity-50' : ''}
+					>
 						<div
 							class={classNames(
 								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
