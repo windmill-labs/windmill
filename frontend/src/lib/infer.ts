@@ -210,7 +210,8 @@ function argSigToJsonSchemaType(
 export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
-		if (schema && 'properties' in schema) {
+
+		if (schema && typeof schema === 'object' && 'properties' in schema) {
 			return schema
 		} else {
 			const newSchema = emptySchema()
@@ -222,6 +223,7 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 			workspace: get(workspaceStore)!,
 			hash
 		})
+
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
