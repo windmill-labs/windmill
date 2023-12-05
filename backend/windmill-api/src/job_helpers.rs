@@ -548,11 +548,12 @@ async fn load_file_preview(
             .await
         }
         mt_opt => {
+            let lowercased_file_key = file_key.to_lowercase();
             // sometimes S3 doesn't infer the content type on upload. Guess it from the file extension
-            if file_key.to_lowercase().ends_with(".parquet") {
+            if lowercased_file_key.ends_with(".parquet") {
                 content_type = WindmillContentType::Parquet;
                 read_s3_parquet_object_head(&s3_resource, &file_key).await
-            } else if file_key.to_lowercase().ends_with(".csv") {
+            } else if lowercased_file_key.ends_with(".csv") {
                 content_type = WindmillContentType::Csv;
                 csv_file_preview_with_fallback(
                     &s3_client,
@@ -561,6 +562,22 @@ async fn load_file_preview(
                     file_chunk_length,
                     query.csv_separator,
                     query.csv_has_header,
+                )
+                .await
+            } else if lowercased_file_key.ends_with(".json")
+                || lowercased_file_key.ends_with(".yaml")
+                || lowercased_file_key.ends_with(".yml")
+                || lowercased_file_key.ends_with(".xml")
+                || lowercased_file_key.ends_with(".txt")
+                || lowercased_file_key.ends_with(".log")
+            {
+                content_type = WindmillContentType::RawText;
+                read_s3_text_object_head(
+                    &s3_client,
+                    &s3_bucket,
+                    &file_key,
+                    query.read_bytes_from,
+                    file_chunk_length,
                 )
                 .await
             } else {
