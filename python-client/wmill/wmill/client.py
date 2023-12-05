@@ -79,7 +79,7 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
     ) -> str:
-        """Create a job and return its job id."""
+        """Create a script job and return its job id."""
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
@@ -89,6 +89,21 @@ class Windmill:
             endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
         else:
             raise Exception("path or hash_ must be provided")
+        return self.post(endpoint, json=args, params=params).text
+
+    def run_flow_async(
+        self,
+        path: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a flow job and return its job id."""
+        args = args or {}
+        params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if path:
+            endpoint = f"/w/{self.workspace}/jobs/run/f/{path}"
+        else:
+            raise Exception("path must be provided")
         return self.post(endpoint, json=args, params=params).text
 
     def run_script(
@@ -448,16 +463,31 @@ def get_version() -> str:
 
 @init_global_client
 def run_script_async(
-    hash: str,
+    hash_or_path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
+    is_path = "/" in hash_or_path
+    hash_ = None if is_path else hash_or_path
+    path = hash_or_path if is_path else None
     return _client.run_script_async(
-        hash_=hash,
+        hash_=hash_,
+        path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
     )
 
+@init_global_client
+def run_flow_async(
+    path: str,
+    args: Dict[str, Any] = None,
+    scheduled_in_secs: int = None,
+) -> str:
+    return _client.run_flow_async(
+        path=path,
+        args=args,
+        scheduled_in_secs=scheduled_in_secs,
+    )
 
 @init_global_client
 def run_script_sync(
