@@ -79,7 +79,7 @@
 									{#if openDetails}
 										<Button
 											on:click={() => {
-												dispatch('openDetails', { version: version.hash })
+												dispatch('openDetails', { version: version.script_hash })
 											}}
 											class="ml-2 inline-flex gap-1 text-xs items-center"
 											size="xs"

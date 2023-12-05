@@ -8,7 +8,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { ExternalLink, Pencil, ArrowRight, X } from 'lucide-svelte'
+	import { Pencil, ArrowRight, X } from 'lucide-svelte'
 
 	export let appPath: string | undefined
 	let loading: boolean = false
