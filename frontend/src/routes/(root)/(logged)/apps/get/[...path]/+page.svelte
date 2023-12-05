@@ -24,6 +24,9 @@
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
+
+	const hideRefreshBar = $page.url.searchParams.get('hideRefreshBar') === 'true'
+	const hideEditBtn = $page.url.searchParams.get('hideEditBtn') === 'true'
 </script>
 
 {#if app}
@@ -52,8 +55,9 @@
 				policy={app.policy}
 				isEditor={false}
 				noBackend={false}
+				{hideRefreshBar}
 			/>
-			{#if can_write}
+			{#if can_write && !hideEditBtn}
 				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
 					<Button size="sm" startIcon={{ icon: Pen }} variant="border" href="/apps/edit/{app.path}"
 						>Edit</Button
