@@ -195,7 +195,6 @@
 
 <S3FilePicker
 	bind:this={s3FilePicker}
-	initialFileKey={value}
 	bind:selectedFileKey={value}
 	on:close={() => {
 		rawValue = JSON.stringify(value, null, 2)
@@ -458,9 +457,8 @@
 						size="xs"
 						btnClasses="mt-1"
 						on:click={() => {
-							s3FilePicker?.open?.()
+							s3FilePicker?.open?.(value)
 						}}
-						id="arg-input-file-picker"
 						startIcon={{ icon: Pipette }}
 					>
 						Choose an object from the catalog

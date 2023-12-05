@@ -173,6 +173,7 @@
 
 	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
 		if (preSelectedFileKey !== undefined) {
+			initialFileKey = { ...preSelectedFileKey }
 			selectedFileKey = { ...preSelectedFileKey }
 		}
 		displayedFileKeys = []
