@@ -222,7 +222,11 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
-				} else if (item?.data.type === 'tabscomponent' || item?.data.type === 'steppercomponent') {
+				} else if (
+					item?.data.type === 'tabscomponent' ||
+					item?.data.type === 'steppercomponent' ||
+					item?.data.type === 'conditionalwrapper'
+				) {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex:
