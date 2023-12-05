@@ -777,7 +777,11 @@
 			{#key renderCount}
 				<Svelvet
 					on:expand={() => {
-						localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+						try {
+							localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+						} catch (e) {
+							console.error('error interacting with local storage', e)
+						}
 						window.open('/view_graph', '_blank')
 					}}
 					{download}

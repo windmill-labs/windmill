@@ -132,9 +132,12 @@
 		loadingDraft = true
 		try {
 			const flow = cleanInputs($flowStore)
-			localStorage.removeItem('flow')
-			localStorage.removeItem(`flow-${$pathStore}`)
-
+			try {
+				localStorage.removeItem('flow')
+				localStorage.removeItem(`flow-${$pathStore}`)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			if (newFlow || savedFlow?.draft_only) {
 				if (savedFlow?.draft_only) {
 					await FlowService.deleteFlowByPath({
@@ -213,8 +216,12 @@
 			// return
 			const { cron, timezone, args, enabled } = $scheduleStore
 			if (newFlow) {
-				localStorage.removeItem('flow')
-				localStorage.removeItem(`flow-${$pathStore}`)
+				try {
+					localStorage.removeItem('flow')
+					localStorage.removeItem(`flow-${$pathStore}`)
+				} catch (e) {
+					console.error('error interacting with local storage', e)
+				}
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -232,7 +239,11 @@
 					await createSchedule($pathStore)
 				}
 			} else {
-				localStorage.removeItem(`flow-${initialPath}`)
+				try {
+					localStorage.removeItem(`flow-${initialPath}`)
+				} catch (e) {
+					console.error('error interacting with local storage', e)
+				}
 
 				const scheduleExists = await ScheduleService.existsSchedule({
 					workspace: $workspaceStore ?? '',

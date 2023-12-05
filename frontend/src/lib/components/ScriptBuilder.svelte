@@ -180,8 +180,11 @@
 	async function editScript(): Promise<void> {
 		loadingSave = true
 		try {
-			localStorage.removeItem(script.path)
-
+			try {
+				localStorage.removeItem(script.path)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
@@ -245,8 +248,11 @@
 
 		loadingDraft = true
 		try {
-			localStorage.removeItem(script.path)
-
+			try {
+				localStorage.removeItem(script.path)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)

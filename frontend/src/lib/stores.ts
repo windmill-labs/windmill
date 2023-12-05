@@ -17,8 +17,16 @@ export interface UserExt {
 	folders_owners: string[]
 }
 
-const persistedWorkspace = BROWSER && localStorage.getItem('workspace')
+const persistedWorkspace = BROWSER && getWorkspace()
 
+function getWorkspace(): string | undefined {
+	try {
+		return localStorage.getItem('workspace') ?? undefined
+	} catch (e) {
+		console.error('error interacting with local storage', e)
+	}
+	return undefined
+}
 export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
