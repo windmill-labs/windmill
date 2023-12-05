@@ -426,46 +426,52 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 
 	let testLoading = false
 	async function testReport() {
-		const jobId = await JobService.runFlowPreview({
-			workspace: $workspaceStore!,
-			requestBody: {
-				args: getFlowArgs(),
-				value: getFlowValue()
-			}
-		})
-		testLoading = true
-		tryEvery({
-			tryCode: async () => {
-				let testResult = await JobService.getCompletedJob({
-					workspace: $workspaceStore!,
-					id: jobId
-				})
-				testLoading = false
-				sendUserToast(
-					testResult.success
-						? 'Report sent successfully'
-						: 'Report error: ' + testResult.result?.['error']?.['message'],
-					!testResult.success
-				)
-			},
-			timeoutCode: async () => {
-				testLoading = false
-				sendUserToast('Reports flow did not return after 30s', true)
-				try {
-					await JobService.cancelQueuedJob({
-						workspace: $workspaceStore!,
-						id: jobId,
-						requestBody: {
-							reason: 'Reports flow did not return after 30s'
-						}
-					})
-				} catch (err) {
-					console.error(err)
+		try {
+			testLoading = true
+			const jobId = await JobService.runFlowPreview({
+				workspace: $workspaceStore!,
+				requestBody: {
+					args: getFlowArgs(),
+					value: getFlowValue()
 				}
-			},
-			interval: 500,
-			timeout: 30000
-		})
+			})
+			tryEvery({
+				tryCode: async () => {
+					let testResult = await JobService.getCompletedJob({
+						workspace: $workspaceStore!,
+						id: jobId
+					})
+					testLoading = false
+					sendUserToast(
+						testResult.success
+							? 'Report sent successfully'
+							: 'Report error: ' + testResult.result?.['error']?.['message'],
+						!testResult.success
+					)
+				},
+				timeoutCode: async () => {
+					testLoading = false
+					sendUserToast('Reports flow did not return after 30s', true)
+					try {
+						await JobService.cancelQueuedJob({
+							workspace: $workspaceStore!,
+							id: jobId,
+							requestBody: {
+								reason: 'Reports flow did not return after 30s'
+							}
+						})
+					} catch (err) {
+						console.error(err)
+					}
+				},
+				interval: 500,
+				timeout: 30000
+			})
+		} catch (err) {
+			sendUserToast('Could not test reports flow: ' + err, true)
+		} finally {
+			testLoading = false
+		}
 	}
 
 	let disabled = true
