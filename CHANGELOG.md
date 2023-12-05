@@ -1,6 +1,43 @@
 # Changelog
 
 
+## [1.220.0](https://github.com/windmill-labs/windmill/compare/v1.219.1...v1.220.0) (2023-12-05)
+
+
+### Features
+
+* Add workspace settings to sync scripts/flows/apps to git repo on deployment ([#2740](https://github.com/windmill-labs/windmill/issues/2740)) ([194ee83](https://github.com/windmill-labs/windmill/commit/194ee830cc8d8cc0ea69c877b428966f3f20bdb5))
+* app reports v2 ([#2778](https://github.com/windmill-labs/windmill/issues/2778)) ([f36a510](https://github.com/windmill-labs/windmill/commit/f36a510025d87fc20e15f66e041390cc701c65c8))
+* CLI now accepts message arg for sync push ([#2784](https://github.com/windmill-labs/windmill/issues/2784)) ([d9458e9](https://github.com/windmill-labs/windmill/commit/d9458e96ebc26160e9d5f909574bd1cf1d288d73))
+* Custom content type for script and flow results ([#2767](https://github.com/windmill-labs/windmill/issues/2767)) ([6c0f921](https://github.com/windmill-labs/windmill/commit/6c0f921b3ab3acac8890ceb1fa0565bf082de0d4))
+* **frontend:** add before and after icons for text input components ([#2746](https://github.com/windmill-labs/windmill/issues/2746)) ([a3f1111](https://github.com/windmill-labs/windmill/commit/a3f1111ca7715ffaa3a615786adee20e00870b30))
+* History commit message can be updated from the UI ([#2777](https://github.com/windmill-labs/windmill/issues/2777)) ([874b7a5](https://github.com/windmill-labs/windmill/commit/874b7a50f72a6505490a02c82786ea5f5c8261e0))
+* perpetual scripts ([bea0da3](https://github.com/windmill-labs/windmill/commit/bea0da3d6ff81ace956d6a1e7fb643e449927b05))
+* result preview in app editor ([#2761](https://github.com/windmill-labs/windmill/issues/2761)) ([51d648d](https://github.com/windmill-labs/windmill/commit/51d648d450c578580f6d9a9630ff91920060cc27))
+* save inline scripts of apps to workspace + search by path ([f50cef0](https://github.com/windmill-labs/windmill/commit/f50cef03670e50b8d7a6bb4719ae636f2714f22f))
+* Various minor improvements for S3 DX ([#2760](https://github.com/windmill-labs/windmill/issues/2760)) ([5cb3c34](https://github.com/windmill-labs/windmill/commit/5cb3c34e440be878687217fdd95d735f053c7839))
+
+
+### Bug Fixes
+
+* add access-control-allow-origin to static assets ([60cd14f](https://github.com/windmill-labs/windmill/commit/60cd14ff59a80f671838a5f9bfa21effc309cb54))
+* add run_flow_sync to python client + few nits ([042504f](https://github.com/windmill-labs/windmill/commit/042504f9052963c882ac346d2026c518c6d94f0f))
+* Array of S3 files now shows links to the S3 explorer ([#2783](https://github.com/windmill-labs/windmill/issues/2783)) ([20b0500](https://github.com/windmill-labs/windmill/commit/20b0500a2824be1e715d4301e05c6081a5575dbe))
+* deployment_metadata table app_version is a nullable BIGINT ([#2769](https://github.com/windmill-labs/windmill/issues/2769)) ([df86538](https://github.com/windmill-labs/windmill/commit/df865380bceb8663defb322a88f58f7c3f1a263c))
+* do not prorate for team plan checkouts mornings of firsts ([#2751](https://github.com/windmill-labs/windmill/issues/2751)) ([8fc0afc](https://github.com/windmill-labs/windmill/commit/8fc0afce714774647f86e1aca8eeec4b7d4c13fc))
+* fix early return sync on existing flows ([60c4860](https://github.com/windmill-labs/windmill/commit/60c486023310ef85d1cb171ebca792be8d7917e8))
+* **frontend:** Fix dark mode observer, removed code duplication ([#2770](https://github.com/windmill-labs/windmill/issues/2770)) ([a6d1e7c](https://github.com/windmill-labs/windmill/commit/a6d1e7c79bb16d2c02d53f9ede56451e064956e0))
+* **frontend:** fix fileinput drag and drop check ([#2781](https://github.com/windmill-labs/windmill/issues/2781)) ([0c3d4a6](https://github.com/windmill-labs/windmill/commit/0c3d4a64c4a8ad823646f9ce27de7e58ccc002e8))
+* **frontend:** fix resource search ([#2748](https://github.com/windmill-labs/windmill/issues/2748)) ([6eaec47](https://github.com/windmill-labs/windmill/commit/6eaec471629d6c60e6c3123372fa3569bc5471c7))
+* **frontend:** fix sign in with Google button ([#2756](https://github.com/windmill-labs/windmill/issues/2756)) ([8ca04e4](https://github.com/windmill-labs/windmill/commit/8ca04e49b061675f820e4aeaad6196403eabe135))
+* **frontend:** fix tutorials contols ([#2745](https://github.com/windmill-labs/windmill/issues/2745)) ([85805bd](https://github.com/windmill-labs/windmill/commit/85805bdf8265f4fe14a583b43b786257ffccc4dc))
+* **frontend:** infer args if the schema is not an object ([#2782](https://github.com/windmill-labs/windmill/issues/2782)) ([b67d005](https://github.com/windmill-labs/windmill/commit/b67d00540b7adfac3550299d50fc9a620b5a6e2e))
+* improve azure openai readme ([#2754](https://github.com/windmill-labs/windmill/issues/2754)) ([d47d4cc](https://github.com/windmill-labs/windmill/commit/d47d4ccf85747a14e0498be871ead08371392ff5))
+* show bg runnables currently running ([a122b6c](https://github.com/windmill-labs/windmill/commit/a122b6cab664e0b8b3d7223b9fd70569a2fe0991))
+* string or enum ([#2752](https://github.com/windmill-labs/windmill/issues/2752)) ([583dae6](https://github.com/windmill-labs/windmill/commit/583dae6a72ee6be70dee5a356e1b4172db9a7e2d))
+* string results with custom content types are not quoted ([#2768](https://github.com/windmill-labs/windmill/issues/2768)) ([1cad51b](https://github.com/windmill-labs/windmill/commit/1cad51b5941a3bd1892c935581373bb7375da45a))
+* strip prefix of s3 resource ([#2780](https://github.com/windmill-labs/windmill/issues/2780)) ([f3a0c81](https://github.com/windmill-labs/windmill/commit/f3a0c81639662a7da65af49e4032dfc573dd93eb))
+
 ## [1.219.1](https://github.com/windmill-labs/windmill/compare/v1.219.0...v1.219.1) (2023-12-01)
 
 
