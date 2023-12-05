@@ -109,7 +109,7 @@
 {#if value}
 	<div class="h-screen">
 		{#key value}
-			<AppEditor versions={[]} {summary} app={value} path={''} {policy} fromHub={hubId != null} />
+			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} />
 		{/key}
 	</div>
 {/if}
