@@ -32,13 +32,28 @@
 		}
 		for (let i = 0; i < fileList.length; i++) {
 			const file = fileList.item(i)
-			if (file) files.push(file)
+			if (file && isAcceptedFileType(file)) {
+				files.push(file)
+			}
 		}
+
+		if (!files.length) {
+			files = undefined
+		}
+
 		// Needs to be reset so the same file can be selected
 		// multiple times in a row
 		input.value = ''
 
 		dispatchChange()
+	}
+
+	function isAcceptedFileType(file: File): boolean {
+		const acceptedTypes = accept?.split(',').map((type) => type.trim()) ?? []
+		return (
+			acceptedTypes.includes(file.type) ||
+			acceptedTypes.includes(`.${file?.name?.split('.').pop()}`)
+		)
 	}
 
 	async function convertFile(file: File): Promise<string | ArrayBuffer | null> {

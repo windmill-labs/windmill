@@ -11,7 +11,7 @@
 
 	export let id: string
 	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'conditionalwrapper'> | undefined = undefined
 	export let render: boolean
 	export let conditions: RichConfiguration[]
 
@@ -30,7 +30,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.conditionalwrapper, customCss)
 
 	let resolvedConditions: boolean[] = []
 	let selectedConditionIndex = 0
