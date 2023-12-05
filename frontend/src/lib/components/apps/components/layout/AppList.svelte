@@ -45,7 +45,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.listcomponent, customCss)
 	let result: any[] | undefined = undefined
 
 	$: isCard = resolvedConfig.width?.selected == 'card'
