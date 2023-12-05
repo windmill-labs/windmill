@@ -58,6 +58,7 @@
 		})
 		selectedVersion.deployment_msg = deploymentMsgUpdate
 		deploymentMsgUpdateMode = false
+		loadVersions()
 	}
 
 	const dispatch = createEventDispatcher()
@@ -84,7 +85,9 @@
 										deploymentMsgUpdate = undefined
 									}}
 								>
-									<span class="text-xs truncate">{version.version}</span>
+									<span class="text-xs truncate">
+										{#if emptyString(version.deployment_msg)}Version {version.version}{:else}{version.deployment_msg}{/if}
+									</span>
 								</div>
 							{/each}
 						</div>
@@ -161,11 +164,14 @@
 								</button>
 							{/if}
 						</span>
-						<div class="flex gap-2">
-							<Button on:click={() => window.open(`/apps/add?template_id=${selectedVersion}`)}>
+						<div class="flex p-1 gap-2">
+							<Button
+								size="xs"
+								on:click={() => window.open(`/apps/add?template_id=${selectedVersion}`)}
+							>
 								Restore as fork
 							</Button>
-							<Button on:click={() => dispatch('restore', selected)}
+							<Button size="xs" on:click={() => dispatch('restore', selected)}
 								>Redeploy with that version
 							</Button>
 						</div>

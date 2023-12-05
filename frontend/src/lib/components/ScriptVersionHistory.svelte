@@ -45,6 +45,7 @@
 		})
 		selectedVersion.deployment_msg = deploymentMsgUpdate
 		deploymentMsgUpdateMode = false
+		loadVersions()
 	}
 
 	loadVersions()
@@ -72,7 +73,9 @@
 										deploymentMsgUpdateMode = false
 									}}
 								>
-									<span class="text-xs truncate">{version.script_hash}</span>
+									<span class="text-xs truncate">
+										{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
+									</span>
 									{#if openDetails}
 										<Button
 											on:click={() => {
@@ -146,7 +149,7 @@
 								{#if selectedVersion.deployment_msg}
 									{selectedVersion.deployment_msg}
 								{:else}
-									No deployment message for version {selectedVersion.script_hash}.
+									Version {selectedVersion.script_hash}
 								{/if}
 								<button
 									on:click={() => {
