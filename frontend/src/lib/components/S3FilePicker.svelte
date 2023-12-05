@@ -14,7 +14,7 @@
 
 	export let readOnlyMode: boolean
 
-	export let initialFileKey: { s3: string }
+	export let initialFileKey: { s3: string } | undefined = undefined
 	let initialFileKeyInternalCopy: { s3: string }
 	export let selectedFileKey: { s3: string } | undefined = undefined
 
@@ -64,7 +64,6 @@
 			maxKeys: 1000, // fixed pages of 1000 files for now
 			marker: paginationMarker
 		})
-
 		for (let file_path of availableFiles.windmill_large_files) {
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
@@ -99,7 +98,6 @@
 		if (availableFiles.next_marker !== undefined) {
 			paginationMarker = availableFiles.next_marker
 		}
-
 		// before returning, un-collapse the folders containing the selected file (if any)
 		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
 			let split_path = selectedFileKey.s3.split('/')
@@ -173,13 +171,22 @@
 		filePreviewLoading = false
 	}
 
-	export async function open() {
+	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
+		if (preSelectedFileKey !== undefined) {
+			initialFileKey = { ...preSelectedFileKey }
+			selectedFileKey = { ...preSelectedFileKey }
+		}
+		displayedFileKeys = []
+		allFilesByKey = {}
+		paginationMarker = undefined
 		reloadContent()
 		drawer.openDrawer?.()
 	}
 
 	async function reloadContent() {
-		initialFileKeyInternalCopy = { ...initialFileKey }
+		if (initialFileKey !== undefined) {
+			initialFileKeyInternalCopy = { ...initialFileKey }
+		}
 		try {
 			await HelpersService.datasetStorageTestConnection({ workspace: $workspaceStore! })
 		} catch (e) {
