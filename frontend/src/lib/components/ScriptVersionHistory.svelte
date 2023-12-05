@@ -35,7 +35,6 @@
 		if (selectedVersion === undefined || emptyString(deploymentMsgUpdate)) {
 			return
 		}
-		console.log('New deployment msg:', deploymentMsgUpdate)
 		await ScriptService.updateScriptHistory({
 			workspace: $workspaceStore!,
 			path: scriptPath,
