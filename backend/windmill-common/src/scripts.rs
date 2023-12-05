@@ -255,6 +255,7 @@ pub struct NewScript {
     pub timeout: Option<i32>,
     pub delete_after_use: Option<bool>,
     pub restart_unless_cancelled: Option<bool>,
+    pub deployment_message: Option<String>,
 }
 
 #[derive(Deserialize)]

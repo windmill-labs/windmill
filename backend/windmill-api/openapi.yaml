@@ -3787,6 +3787,8 @@ paths:
                   properties:
                     draft_only:
                       type: boolean
+                    deployment_message:
+                      type: string
       responses:
         "201":
           description: flow created
@@ -3810,7 +3812,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OpenFlowWPath"
+              allOf:
+                - $ref: "#/components/schemas/OpenFlowWPath"
+                - type: object
+                  properties:
+                    deployment_message:
+                      type: string
 
       responses:
         "200":
@@ -4048,6 +4055,8 @@ paths:
                   $ref: "#/components/schemas/Policy"
                 draft_only:
                   type: boolean
+                deployment_message:
+                  type: string
               required:
                 - path
                 - value
@@ -4349,6 +4358,8 @@ paths:
                 value: {}
                 policy:
                   $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
       responses:
         "200":
           description: app updated
@@ -7214,6 +7225,8 @@ components:
           type: integer
         delete_after_use:
           type: boolean
+        deployment_message:
+          type: string
       required:
         - path
         - summary

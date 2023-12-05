@@ -65,7 +65,8 @@ export async function handleScriptMetadata(
 export async function handleFile(
   path: string,
   workspace: string,
-  alreadySynced: string[]
+  alreadySynced: string[],
+  message?: string,
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -161,6 +162,7 @@ export async function handleFile(
           cache_ttl: typed?.cache_ttl,
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
+          deployment_message: message,
         },
       });
     } else {
@@ -187,6 +189,7 @@ export async function handleFile(
           cache_ttl: typed?.cache_ttl,
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
+          deployment_message: message,
         },
       });
     }

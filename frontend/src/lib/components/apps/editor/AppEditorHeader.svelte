@@ -151,6 +151,7 @@
 	let saveDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
+	let deploymentMsg: string | undefined = undefined
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -227,7 +228,8 @@
 					value: $app,
 					path,
 					summary: $summary,
-					policy
+					policy,
+					deployment_message: deploymentMsg
 				}
 			})
 			savedApp = {
@@ -258,7 +260,8 @@
 				value: $app!,
 				summary: $summary,
 				policy,
-				path: npath
+				path: npath,
+				deployment_message: deploymentMsg
 			}
 		})
 		savedApp = {
@@ -698,6 +701,18 @@
 						)
 					}
 				}}
+			/>
+		</div>
+		<div class="py-4" />
+		<span class="text-secondary text-sm font-bold">Deployment message</span>
+		<div class="w-full pt-2">
+			<!-- svelte-ignore a11y-autofocus -->
+			<input
+				autofocus
+				type="text"
+				placeholder="Optional deployment message"
+				class="text-sm w-full"
+				bind:value={deploymentMsg}
 			/>
 		</div>
 		<div class="py-4" />
