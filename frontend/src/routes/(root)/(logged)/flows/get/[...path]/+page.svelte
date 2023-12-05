@@ -229,6 +229,8 @@
 		}
 	}
 	let stepDetail: FlowModule | string | undefined = undefined
+	let token = 'TOKEN_TO_CREATE'
+	let detailSelected = 'saved_inputs'
 </script>
 
 <Skeleton
@@ -249,6 +251,7 @@
 
 {#if flow}
 	<DetailPageLayout
+		bind:selected={detailSelected}
 		isOperator={$userStore?.operator}
 		flow_json={{
 			value: flow.value,
@@ -374,6 +377,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
 			<WebhooksPanel
+				bind:token
 				scopes={[`run:flow/${flow?.path}`]}
 				webhooks={{
 					async: {

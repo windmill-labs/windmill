@@ -210,7 +210,8 @@
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl,
 					ws_error_handler_muted: script.ws_error_handler_muted,
-					priority: script.priority
+					priority: script.priority,
+					restart_unless_cancelled: script.restart_unless_cancelled
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -643,6 +644,24 @@
 										{/if}
 									</div>
 								</Section>
+								<Section label="Perpetual Script">
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.restart_unless_cancelled)}
+											on:change={() => {
+												if (script.restart_unless_cancelled) {
+													script.restart_unless_cancelled = undefined
+												} else {
+													script.restart_unless_cancelled = true
+												}
+											}}
+											options={{
+												right: 'Restart upon ending unless cancelled'
+											}}
+										/>
+									</div>
+								</Section>
 								<Section label="Dedicated Workers" eeOnly>
 									<Toggle
 										disabled={!$enterpriseLicense ||
@@ -682,7 +701,7 @@
 									</svelte:fragment>
 								</Section>
 								{#if !isCloudHosted()}
-									<Section label="High priority script">
+									<Section label="High priority script" eeOnly>
 										<Toggle
 											disabled={!$enterpriseLicense || isCloudHosted()}
 											size="sm"

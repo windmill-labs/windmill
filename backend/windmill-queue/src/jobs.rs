@@ -559,6 +559,63 @@ pub async fn add_completed_job<
         }
     }
 
+    if !queued_job.is_flow_step && queued_job.job_kind == JobKind::Script && canceled_by.is_none() {
+        if let Some(hash) = queued_job.script_hash {
+            let p = sqlx::query_scalar!(
+                "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+                hash.0,
+                &queued_job.workspace_id
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            .unwrap_or(false);
+
+            if p {
+                let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+
+                let (_uuid, tx) = push(
+                    db,
+                    tx,
+                    &queued_job.workspace_id,
+                    JobPayload::ScriptHash {
+                        hash,
+                        path: queued_job.script_path().to_string(),
+                        concurrent_limit: queued_job.concurrent_limit,
+                        concurrency_time_window_s: queued_job.concurrency_time_window_s,
+                        cache_ttl: queued_job.cache_ttl,
+                        dedicated_worker: None,
+                        language: queued_job
+                            .language
+                            .clone()
+                            .unwrap_or_else(|| ScriptLang::Deno),
+                        priority: queued_job.priority,
+                    },
+                    queued_job.args.clone(),
+                    &queued_job.created_by,
+                    &queued_job.email,
+                    queued_job.permissioned_as.clone(),
+                    None,
+                    queued_job.schedule_path.clone(),
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                    queued_job.visible_to_owner,
+                    Some(queued_job.tag.clone()),
+                    queued_job.timeout,
+                    None,
+                    queued_job.priority,
+                )
+                .await?;
+                if let Err(e) = tx.commit().await {
+                    tracing::error!("Could not restart job {}: {}", queued_job.id, e);
+                }
+            }
+        }
+    }
     // tracing::error!("4 {:?}", start.elapsed());
 
     Ok(queued_job.id)

@@ -20,7 +20,8 @@
 		superadmin,
 		usageStore,
 		userStore,
-		workspaceStore
+		workspaceStore,
+		type UserExt
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
@@ -168,6 +169,22 @@
 	}
 
 	let devOnly = $page.url.pathname.startsWith('/scripts/dev')
+
+	$: onUserStore($userStore)
+
+	let timeout: NodeJS.Timeout | undefined
+	async function onUserStore(u: UserExt | undefined) {
+		if (u && timeout) {
+			clearTimeout(timeout)
+			timeout = undefined
+		} else if (!u) {
+			timeout = setTimeout(async () => {
+				if (!$userStore && $workspaceStore) {
+					$userStore = await getUserExt($workspaceStore)
+				}
+			}, 5000)
+		}
+	}
 </script>
 
 <svelte:window bind:innerWidth />

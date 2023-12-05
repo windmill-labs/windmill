@@ -631,15 +631,11 @@ async fn get_workspace_s3_resource<'c>(
         LargeFileStorage::S3Storage(s3_lfs) => s3_lfs,
     };
 
-    return get_s3_resource(
-        authed,
-        user_db,
-        db,
-        token,
-        w_id,
-        s3_lfs.s3_resource_path.as_str(),
-    )
-    .await;
+    let stripped_resource_path = match s3_lfs.s3_resource_path.strip_prefix("$res:") {
+        Some(stripped) => stripped,
+        None => s3_lfs.s3_resource_path.as_str(),
+    };
+    return get_s3_resource(authed, user_db, db, token, w_id, stripped_resource_path).await;
 }
 
 async fn get_s3_resource<'c>(
