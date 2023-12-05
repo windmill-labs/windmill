@@ -148,6 +148,16 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
     "value": Bun.env["WM_TOKEN"],
     "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, \'\')
   })
+  page
+    .on('console', msg =>
+      console.log(msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
+    .on('pageerror', ({ msg }) => console.log(msg))
+    .on('response', response => {
+      console.log(response.status, response.url);
+    })
+    .on('requestfailed', request => {
+      console.log(request.failure().errorText, request.url);
+    });
   await page.goto(Bun.env["WM_BASE_URL"] + \'/apps/get/\' + app_path + \'?workspace=\' + Bun.env["WM_WORKSPACE"]);
 	await page.waitForSelector("#app-content", { timeout: 20000 })
   await new Promise((resolve, _) => {
