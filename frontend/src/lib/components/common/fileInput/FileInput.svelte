@@ -48,8 +48,8 @@
 		dispatchChange()
 	}
 
-	function isAcceptedFileType(file: File) {
-		const acceptedTypes = accept.split(',').map((type) => type.trim()) ?? []
+	function isAcceptedFileType(file: File): boolean {
+		const acceptedTypes = accept?.split(',').map((type) => type.trim()) ?? []
 		return (
 			acceptedTypes.includes(file.type) ||
 			acceptedTypes.includes(`.${file?.name?.split('.').pop()}`)
