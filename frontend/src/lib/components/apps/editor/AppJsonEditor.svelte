@@ -45,7 +45,11 @@
 			requestBody: { ...app, value: JSON.parse(code) }
 		})
 		dispatch('change')
-		localStorage.removeItem(`app-${path}`)
+		try {
+			localStorage.removeItem(`app-${path}`)
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 		sendUserToast('App deployed')
 	}
 
@@ -59,8 +63,11 @@
 			}
 		})
 		dispatch('change')
-		localStorage.removeItem(`app-${path}`)
-
+		try {
+			localStorage.removeItem(`app-${path}`)
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 		sendUserToast('Draft saved')
 	}
 </script>

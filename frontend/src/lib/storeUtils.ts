@@ -1,17 +1,26 @@
-import { resourceTypesStore } from "./components/resourceTypesStore"
-import { workspaceStore, userStore, usersWorkspaceStore, superadmin } from "./stores"
+import { resourceTypesStore } from './components/resourceTypesStore'
+import { workspaceStore, userStore, usersWorkspaceStore, superadmin } from './stores'
 
 export function switchWorkspace(workspace: string | undefined) {
-	localStorage.removeItem('flow')
-	localStorage.removeItem('app')
+	try {
+		localStorage.removeItem('flow')
+		localStorage.removeItem('app')
+	} catch (e) {
+		console.error('error interacting with local storage', e)
+	}
 	resourceTypesStore.set(undefined)
 	workspaceStore.set(workspace)
 }
 
 export function clearStores(): void {
-	localStorage.removeItem('flow')
-	localStorage.removeItem('app')
-	localStorage.removeItem('workspace')
+	try {
+		localStorage.removeItem('flow')
+		localStorage.removeItem('app')
+		localStorage.removeItem('workspace')
+	} catch (e) {
+		console.error('error interacting with local storage', e)
+	}
+
 	resourceTypesStore.set(undefined)
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
