@@ -66,7 +66,7 @@
 			path
 		})) as unknown as AppWithLastVersion
 
-		appDeploymentHistory.open(app.versions)
+		appDeploymentHistory.open(app.path)
 	}
 </script>
 

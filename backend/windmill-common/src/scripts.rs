@@ -204,6 +204,18 @@ pub struct ListableScript {
     pub ws_error_handler_muted: Option<bool>,
 }
 
+#[derive(Serialize)]
+pub struct ScriptHistory {
+    pub script_hash: ScriptHash,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ScriptHistoryUpdate {
+    pub deployment_msg: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx)]
