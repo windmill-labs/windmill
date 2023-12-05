@@ -5,7 +5,13 @@
 	import Popover from '../Popover.svelte'
 
 	function loadCodeCompletionSessinoEnabled() {
-		const stored = localStorage.getItem('codeCompletionSessionEnabled')
+		let stored
+		try {
+			stored = localStorage.getItem('codeCompletionSessionEnabled')
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
+
 		if (stored) {
 			$codeCompletionSessionEnabled = JSON.parse(stored)
 		}
@@ -13,10 +19,14 @@
 
 	function toggleCodeCompletionSessionEnabled() {
 		$codeCompletionSessionEnabled = !$codeCompletionSessionEnabled
-		localStorage.setItem(
-			'codeCompletionSessionEnabled',
-			JSON.stringify($codeCompletionSessionEnabled)
-		)
+		try {
+			localStorage.setItem(
+				'codeCompletionSessionEnabled',
+				JSON.stringify($codeCompletionSessionEnabled)
+			)
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 
 	loadCodeCompletionSessinoEnabled()

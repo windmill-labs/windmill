@@ -160,7 +160,11 @@
 
 	let promptHistory: string[] = []
 	function getPromptHistory() {
-		promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+		try {
+			promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 
 	function savePrompt() {
@@ -171,12 +175,20 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		try {
+			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		try {
+			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 	$: lang && getPromptHistory()
 

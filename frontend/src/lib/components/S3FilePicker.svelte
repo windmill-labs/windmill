@@ -14,11 +14,12 @@
 
 	export let readOnlyMode: boolean
 
-	export let initialFileKey: { s3: string }
+	export let initialFileKey: { s3: string } | undefined = undefined
 	let initialFileKeyInternalCopy: { s3: string }
 	export let selectedFileKey: { s3: string } | undefined = undefined
 
 	let csvSeparatorChar: string = ','
+	let csvHasHeader: boolean = true
 
 	let dispatch = createEventDispatcher()
 
@@ -63,7 +64,6 @@
 			maxKeys: 1000, // fixed pages of 1000 files for now
 			marker: paginationMarker
 		})
-
 		for (let file_path of availableFiles.windmill_large_files) {
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
@@ -98,7 +98,6 @@
 		if (availableFiles.next_marker !== undefined) {
 			paginationMarker = availableFiles.next_marker
 		}
-
 		// before returning, un-collapse the folders containing the selected file (if any)
 		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
 			let split_path = selectedFileKey.s3.split('/')
@@ -146,27 +145,48 @@
 			fileSizeInBytes: fileSizeInBytes,
 			fileMimeType: fileMimeType,
 			csvSeparator: csvSeparatorChar,
+			csvHasHeader: csvHasHeader,
 			readBytesFrom: 0,
-			readBytesLength: 1 * 1024 * 1024 // For now static limit of 1Mb per file
+			readBytesLength: 128 * 1024 // For now static limit of 128Kb per file
 		})
+
+		let filePreviewContent = filePreviewRaw.content
+		if (
+			filePreviewContent !== null &&
+			filePreviewContent !== undefined &&
+			filePreviewContent.length >= 128 * 1024
+		) {
+			filePreviewContent =
+				filePreviewContent?.substring(0, 128 * 1024 - 35) +
+				'\n\n ... FILE CONTENT TRUNCATED ...\n\n'
+		}
 
 		if (filePreviewRaw !== undefined) {
 			filePreview = {
 				fileKey: fileKey,
-				contentPreview: filePreviewRaw.content,
+				contentPreview: filePreviewContent,
 				contentType: filePreviewRaw.content_type
 			}
 		}
 		filePreviewLoading = false
 	}
 
-	export async function open() {
+	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
+		if (preSelectedFileKey !== undefined) {
+			initialFileKey = { ...preSelectedFileKey }
+			selectedFileKey = { ...preSelectedFileKey }
+		}
+		displayedFileKeys = []
+		allFilesByKey = {}
+		paginationMarker = undefined
 		reloadContent()
 		drawer.openDrawer?.()
 	}
 
 	async function reloadContent() {
-		initialFileKeyInternalCopy = { ...initialFileKey }
+		if (initialFileKey !== undefined) {
+			initialFileKeyInternalCopy = { ...initialFileKey }
+		}
 		try {
 			await HelpersService.datasetStorageTestConnection({ workspace: $workspaceStore! })
 		} catch (e) {
@@ -350,8 +370,8 @@
 								{#if filePreview.contentType === 'Unknown'}
 									Type of file not supported for preview
 								{:else if filePreview.contentType === 'Csv'}
-									Previewing a {filePreview.contentType?.toLowerCase()} file. Change the separator:
-									<div class="inline-flex w-12 ml-2">
+									Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
+									<div class="inline-flex w-12 ml-2 mr-2">
 										<select
 											class="h-8"
 											bind:value={csvSeparatorChar}
@@ -364,8 +384,27 @@
 										>
 											<option value=",">,</option>
 											<option value=";">;</option>
+											<option value="\t">\t</option>
 											<option value="|">|</option>
 										</select>
+									</div>
+									Header row:
+									<div class="inline-flex item-center w-4 ml-2 mr-2">
+										<input
+											on:focus
+											on:click
+											disabled={false}
+											type="checkbox"
+											id="csv-header"
+											class="h-5"
+											bind:checked={csvHasHeader}
+											on:change|stopPropagation={(e) =>
+												loadFilePreview(
+													fileMetadata?.fileKey ?? '',
+													fileMetadata?.size,
+													fileMetadata?.mimeType
+												)}
+										/>
 									</div>
 								{:else}
 									Previewing a {filePreview.contentType?.toLowerCase()} file

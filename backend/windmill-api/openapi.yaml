@@ -1192,6 +1192,8 @@ paths:
                     type: boolean
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
+                  git_sync:
+                    $ref: "#/components/schemas/WorkspaceGitSync"
                 required:
                   - code_completion_enabled
 
@@ -1505,6 +1507,32 @@ paths:
               properties:
                 large_file_storage:
                   $ref: "#/components/schemas/LargeFileStorage"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_git_sync_config:
+    post:
+      summary: edit workspace git sync settings
+      operationId: editWorkspaceGitSyncConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace Git sync settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                git_sync_settings:
+                  $ref: "#/components/schemas/WorkspaceGitSync"
 
       responses:
         "200":
@@ -2197,8 +2225,7 @@ paths:
 
   /w/{workspace}/resources/get_value_interpolated/{path}:
     get:
-      summary:
-        get resource interpolated (variables and resources are fully unrolled)
+      summary: get resource interpolated (variables and resources are fully unrolled)
       operationId: getResourceValueInterpolated
       tags:
         - resource
@@ -2886,8 +2913,7 @@ paths:
           schema:
             type: string
         - name: first_parent_hash
-          description:
-            mask to filter scripts whom first direct parent has exact hash
+          description: mask to filter scripts whom first direct parent has exact hash
           in: query
           schema:
             type: string
@@ -3082,8 +3108,7 @@ paths:
 
   /workers/custom_tags:
     get:
-      summary:
-        get all instance custom tags (tags are used to dispatch jobs to
+      summary: get all instance custom tags (tags are used to dispatch jobs to
         different worker groups)
       operationId: getCustomTags
       tags:
@@ -3134,8 +3159,7 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary:
-        delete script by hash (erase content but keep hash, require admin)
+      summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -3200,6 +3224,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NewScriptWithDraft"
+
+  /w/{workspace}/scripts/history/p/{path}:
+    get:
+      summary: get history of a script by path
+      operationId: getScriptHistoryByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScriptHistory"
+
+  /w/{workspace}/scripts/history_update/h/{hash}/p/{path}:
+    post:
+      summary: update history of a script
+      operationId: updateScriptHistory
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Script deployment message
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deployment_msg:
+                  type: string
+      responses:
+        "200":
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/scripts/raw/p/{path}:
     get:
@@ -3327,16 +3398,14 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4043,6 +4112,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersionWDraft"
 
+  /w/{workspace}/apps/history/p/{path}:
+    get:
+      summary: get app history by path
+      operationId: getAppHistoryByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppHistory"
+
+  /w/{workspace}/apps/history_update/a/{id}/v/{version}:
+    post:
+      summary: update app history
+      operationId: updateAppHistory
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+        - $ref: "#/components/parameters/PathVersion"
+      requestBody:
+        description: App deployment message
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deployment_msg:
+                  type: string
+      responses:
+        "200":
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps_u/public_app/{path}:
     get:
       summary: get public app by secret
@@ -4309,8 +4425,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4318,8 +4433,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4371,8 +4485,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4380,8 +4493,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4419,8 +4531,7 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
@@ -4428,8 +4539,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4460,8 +4570,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4494,8 +4603,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4710,8 +4818,7 @@ paths:
         - job
       responses:
         "200":
-          description:
-            the timestamp of the db that can be used to compute the drift
+          description: the timestamp of the db that can be used to compute the drift
           content:
             application/json:
               schema:
@@ -4947,8 +5054,7 @@ paths:
 
   /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
     get:
-      summary:
-        get resume urls given a job_id, resume_id and a nonce to resume a flow
+      summary: get resume urls given a job_id, resume_id and a nonce to resume a flow
       operationId: getResumeUrls
       tags:
         - job
@@ -5499,8 +5605,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the groups the user is member of (default false)
+          description: only list the groups the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -5688,8 +5793,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the folders the user is member of (default false)
+          description: only list the folders the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -6345,6 +6449,39 @@ paths:
                 properties:
                   connection_settings_str:
                     type: string
+  /w/{workspace}/job_helpers/v2/duckdb_connection_settings:
+    post:
+      summary:
+        Converts an S3 resource to the set of instructions necessary to connect
+        DuckDB to an S3 bucket
+      operationId: duckdbConnectionSettingsV2
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: S3 resource path to use to generate the connection settings. If empty, the S3 resource defined in the workspace settings will be used
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_resource_path:
+                  type: string
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection_settings_str:
+                    type: string
+                required:
+                  - connection_settings_str
+
   /w/{workspace}/job_helpers/polars_connection_settings:
     post:
       summary:
@@ -6390,6 +6527,74 @@ paths:
                   - use_ssl
                   - cache_regions
                   - client_kwargs
+  /w/{workspace}/job_helpers/v2/polars_connection_settings:
+    post:
+      summary:
+        Converts an S3 resource to the set of arguments necessary to connect
+        Polars to an S3 bucket
+      operationId: polarsConnectionSettingsV2
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: S3 resource path to use to generate the connection settings. If empty, the S3 resource defined in the workspace settings will be used
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_resource_path:
+                  type: string
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  s3fs_args:
+                    type: object
+                    properties:
+                      endpoint_url:
+                        type: string
+                      key:
+                        type: string
+                      secret:
+                        type: string
+                      use_ssl:
+                        type: boolean
+                      cache_regions:
+                        type: boolean
+                      client_kwargs:
+                        $ref: "#/components/schemas/PolarsClientKwargs"
+                    required:
+                      - endpoint_url
+                      - use_ssl
+                      - cache_regions
+                      - client_kwargs
+                  polars_cloud_options:
+                    type: object
+                    properties:
+                      aws_endpoint_url:
+                        type: string
+                      aws_access_key_id:
+                        type: string
+                      aws_secret_access_key:
+                        type: string
+                      aws_region:
+                        type: string
+                      aws_allow_http:
+                        type: boolean
+                    required:
+                      - aws_endpoint_url
+                      - aws_region
+                      - aws_allow_http
+                required:
+                  - s3fs_args
+                  - cloud_options
 
   /w/{workspace}/job_helpers/test_connection:
     get:
@@ -6486,6 +6691,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
         - name: read_bytes_from
           in: query
           schema:
@@ -6580,6 +6789,12 @@ components:
       required: true
       schema:
         type: integer
+    PathVersion:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: integer
     Name:
       name: name
       in: path
@@ -6594,8 +6809,7 @@ components:
         type: integer
     PerPage:
       name: per_page
-      description:
-        number of items to return for a given page (default 30, max 100)
+      description: number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
@@ -6729,8 +6943,7 @@ components:
         type: boolean
     ArgsFilter:
       name: args
-      description:
-        filter on jobs containing those args as a json subset (@> in postgres)
+      description: filter on jobs containing those args as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -6742,8 +6955,7 @@ components:
         type: string
     ResultFilter:
       name: result
-      description:
-        filter on jobs containing those result as a json subset (@> in postgres)
+      description: filter on jobs containing those result as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -7021,6 +7233,16 @@ components:
           required:
             - hash
 
+    ScriptHistory:
+      type: object
+      properties:
+        script_hash:
+          type: string
+        deployment_msg:
+          type: string
+      required:
+        - script_hash
+
     ScriptArgs:
       type: object
       additionalProperties: {}
@@ -7137,6 +7359,7 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "deploymentcallback",
             ]
         schedule_path:
           type: string
@@ -7245,6 +7468,7 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "deploymentcallback",
             ]
         schedule_path:
           type: string
@@ -8458,6 +8682,16 @@ components:
               type: boolean
             draft: {}
 
+    AppHistory:
+      type: object
+      properties:
+        version:
+          type: integer
+        deployment_msg:
+          type: string
+      required:
+        - version
+
     SlackToken:
       type: object
       properties:
@@ -8578,3 +8812,14 @@ components:
         - endPoint
         - useSSL
         - pathStyle
+
+    WorkspaceGitSync:
+      type: object
+      properties:
+        script_path:
+          type: string
+        git_repo_resource_path:
+          type: string
+      required:
+        - script_path
+        - git_repo_resource_path

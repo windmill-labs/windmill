@@ -180,8 +180,11 @@
 	async function editScript(): Promise<void> {
 		loadingSave = true
 		try {
-			localStorage.removeItem(script.path)
-
+			try {
+				localStorage.removeItem(script.path)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
@@ -210,7 +213,8 @@
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl,
 					ws_error_handler_muted: script.ws_error_handler_muted,
-					priority: script.priority
+					priority: script.priority,
+					restart_unless_cancelled: script.restart_unless_cancelled
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -244,8 +248,11 @@
 
 		loadingDraft = true
 		try {
-			localStorage.removeItem(script.path)
-
+			try {
+				localStorage.removeItem(script.path)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
@@ -643,6 +650,24 @@
 										{/if}
 									</div>
 								</Section>
+								<Section label="Perpetual Script">
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.restart_unless_cancelled)}
+											on:change={() => {
+												if (script.restart_unless_cancelled) {
+													script.restart_unless_cancelled = undefined
+												} else {
+													script.restart_unless_cancelled = true
+												}
+											}}
+											options={{
+												right: 'Restart upon ending unless cancelled'
+											}}
+										/>
+									</div>
+								</Section>
 								<Section label="Dedicated Workers" eeOnly>
 									<Toggle
 										disabled={!$enterpriseLicense ||
@@ -682,7 +707,7 @@
 									</svelte:fragment>
 								</Section>
 								{#if !isCloudHosted()}
-									<Section label="High priority script">
+									<Section label="High priority script" eeOnly>
 										<Toggle
 											disabled={!$enterpriseLicense || isCloudHosted()}
 											size="sm"

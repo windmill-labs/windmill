@@ -399,41 +399,53 @@ async fn get_resource_value_interpolated(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(job_info): Query<JobInfo>,
 ) -> JsonResult<Option<serde_json::Value>> {
-    let path = path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
+    return get_resource_value_interpolated_internal(
+        &authed,
+        &user_db,
+        &db,
+        w_id.as_str(),
+        path.to_path(),
+        job_info.job_id,
+        token.as_str(),
+    )
+    .await
+    .map(|success| Json(success));
+}
+
+use async_recursion::async_recursion;
+
+pub async fn get_resource_value_interpolated_internal(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    workspace: &str,
+    path: &str,
+    job_id: Option<Uuid>,
+    token: &str,
+) -> Result<Option<serde_json::Value>> {
+    let mut tx = user_db.clone().begin(authed).await?;
 
     let value_o = sqlx::query_scalar!(
         "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
-        path.to_owned(),
-        &w_id
+        path,
+        workspace
     )
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
     if value_o.is_none() {
-        explain_resource_perm_error(&path, &w_id, &db).await?;
+        explain_resource_perm_error(path, workspace, db).await?;
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        Ok(Json(Some(
-            transform_json_value(
-                &authed,
-                &user_db,
-                &db,
-                &w_id,
-                value,
-                &job_info.job_id,
-                &token,
-            )
-            .await?,
-        )))
+        Ok(Some(
+            transform_json_value(authed, user_db, db, workspace, value, &job_id, token).await?,
+        ))
     } else {
-        Ok(Json(None))
+        Ok(None)
     }
 }
-
-use async_recursion::async_recursion;
 
 #[async_recursion]
 pub async fn transform_json_value<'c>(

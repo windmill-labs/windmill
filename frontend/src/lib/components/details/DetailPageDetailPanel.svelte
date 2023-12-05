@@ -14,7 +14,8 @@
 
 	export let isOperator: boolean = false
 
-	let selected = 'saved_inputs'
+	export let selected: string
+
 	let rawType: 'json' | 'yaml' = 'yaml'
 
 	$: if (hasStepDetails) {
@@ -27,7 +28,7 @@
 
 <Splitpanes horizontal class="h-full">
 	<Pane size={100}>
-		<Tabs {selected}>
+		<Tabs bind:selected>
 			<Tab value="saved_inputs">Saved inputs</Tab>
 			{#if !isOperator}
 				<Tab value="details">Details & Triggers</Tab>

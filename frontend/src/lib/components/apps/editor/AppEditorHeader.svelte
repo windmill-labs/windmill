@@ -103,7 +103,6 @@
 
 	export let policy: Policy
 	export let fromHub: boolean = false
-	export let versions: number[]
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedApp:
 		| {
@@ -239,7 +238,11 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			localStorage.removeItem(`app-${path}`)
+			try {
+				localStorage.removeItem(`app-${path}`)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -268,7 +271,11 @@
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		if (appPath !== npath) {
-			localStorage.removeItem(`app-${appPath}`)
+			try {
+				localStorage.removeItem(`app-${appPath}`)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			window.location.pathname = `/apps/edit/${npath}?nodraft=true`
 		}
 	}
@@ -432,7 +439,11 @@
 			}
 
 			sendUserToast('Draft saved')
-			localStorage.removeItem(`app-${path}`)
+			try {
+				localStorage.removeItem(`app-${path}`)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			loading.saveDraft = false
 			if (newPath || path !== path) {
 				goto(`/apps/edit/${newPath || path}`)
@@ -822,7 +833,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {versions} />
+		<DeploymentHistory on:restore {appPath} />
 	</DrawerContent>
 </Drawer>
 

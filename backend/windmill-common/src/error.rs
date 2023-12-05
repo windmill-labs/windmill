@@ -15,7 +15,6 @@ use axum::{
 };
 
 use hyper::StatusCode;
-use serde_json::value::RawValue;
 #[cfg(feature = "sqlx")]
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
@@ -65,8 +64,6 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
-    #[error("Custom Status Code: {0:#?}")]
-    CustomStatusCode(StatusCode, Option<Box<RawValue>>),
     #[error("{0}")]
     OpenAIError(String),
 }
@@ -85,41 +82,30 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 #[cfg(feature = "axum")]
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response<BoxBody> {
-        match self {
-            Self::CustomStatusCode(code, result) => {
-                let mut res = Json(result).into_response();
-                let status_mut = res.status_mut();
-                *status_mut = code;
-                res
+        let e = &self;
+        let body = body::boxed(body::Full::from(e.to_string()));
+
+        let status = match self {
+            Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
+            Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
+            Self::SqlErr(_) | Self::BadRequest(_) | Self::OpenAIError(_) => {
+                axum::http::StatusCode::BAD_REQUEST
             }
-            _ => {
-                let e = &self;
-                let body = body::boxed(body::Full::from(e.to_string()));
+            _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        };
 
-                let status = match self {
-                    Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
-                    Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
-                    Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-                    Self::CustomStatusCode(code, _) => code,
-                    Self::SqlErr(_) | Self::BadRequest(_) | Self::OpenAIError(_) => {
-                        axum::http::StatusCode::BAD_REQUEST
-                    }
-                    _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                };
+        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+            tracing::warn!(not_found = e.to_string());
+        } else {
+            tracing::error!(error = e.to_string());
+        };
 
-                if matches!(status, axum::http::StatusCode::NOT_FOUND) {
-                    tracing::warn!(not_found = e.to_string());
-                } else {
-                    tracing::error!(error = e.to_string());
-                };
-
-                axum::response::Response::builder()
-                    .header("Content-Type", "text/plain")
-                    .status(status)
-                    .body(body)
-                    .unwrap()
-            }
-        }
+        axum::response::Response::builder()
+            .header("Content-Type", "text/plain")
+            .status(status)
+            .body(body)
+            .unwrap()
     }
 }
 

@@ -184,6 +184,12 @@
 					showTooltipIcon
 					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
 				/>
+				<ToggleButton
+					value="deploymentcallbacks"
+					label="Sync"
+					showTooltipIcon
+					tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+				/>
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative">
@@ -361,6 +367,12 @@
 								label="Deps"
 								showTooltipIcon
 								tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+							/>
+							<ToggleButton
+								value="deploymentcallbacks"
+								label="Sync"
+								showTooltipIcon
+								tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
 							/>
 						</ToggleButtonGroup>
 					</Label>

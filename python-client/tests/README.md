@@ -5,10 +5,6 @@ Make sure you have a local windmill BE running and listening on localhost:8000 (
 
 Install the local package to your virtual env:
 ```bash
-# this is necessary only if you made a change to the BE API via the openapi.yml file
-cd ./windmill-api # you can generate it using the build.sh script at the root of this repo
-pip3 install .
-
 cd ./wmill
 pip3 install .
 ```

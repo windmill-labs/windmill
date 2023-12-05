@@ -329,17 +329,10 @@
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
 
-	let darkMode: boolean = document.documentElement.classList.contains('dark')
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
+	let darkMode: boolean = false
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />
 
 <SearchItems
 	{filter}
@@ -421,6 +414,14 @@
 			{/if}
 
 			<h2 class="mt-8 mb-4">Others</h2>
+
+			{#if connectsManual && connectsManual?.length < 10}
+				<div class="text-tertiary p-2">
+					Resource Types have not been synced with the hub. Go to the admins workspace to sync them
+					(and add a schedule to do daily).
+				</div>
+			{/if}
+
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
 					{#each filteredConnectsManual as [key, _]}

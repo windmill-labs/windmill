@@ -1629,6 +1629,8 @@ async fn create_user(
         None,
     )
     .await?;
+    tx = add_to_demo_if_exists(tx, &email).await?;
+
     tx.commit().await?;
 
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
@@ -2449,26 +2451,34 @@ pub async fn login_externally(
         )
         .await?;
 
-        let demo_exists =
-            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
-                .fetch_one(&mut *tx)
-                .await?
-                .unwrap_or(false);
-        if demo_exists {
-            if let Err(e) = sqlx::query!(
-                "INSERT INTO workspace_invite
-                (workspace_id, email, is_admin)
-                VALUES ('demo', $1, false)
-                ON CONFLICT DO NOTHING",
-                &email
-            )
-            .execute(&mut *tx)
-            .await
-            {
-                tracing::error!("error inserting invite: {:#?}", e);
-            }
-        }
+        tx = add_to_demo_if_exists(tx, email).await?;
     }
     tx.commit().await?;
     Ok(())
+}
+
+async fn add_to_demo_if_exists<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    email: &String,
+) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    let demo_exists =
+        sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false);
+    if demo_exists {
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO workspace_invite
+                (workspace_id, email, is_admin)
+                VALUES ('demo', $1, false)
+                ON CONFLICT DO NOTHING",
+            &email
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!("error inserting invite: {:#?}", e);
+        }
+    }
+    return Ok(tx);
 }

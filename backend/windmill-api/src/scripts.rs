@@ -8,6 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
+    git_sync_helpers,
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -39,7 +40,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
-        ScriptKind, ScriptLang,
+        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang,
     },
     users::username_to_permissioned_as,
     utils::{
@@ -119,6 +120,11 @@ pub fn workspaced_service() -> Router {
         .route(
             "/toggle_workspace_error_handler/p/*path",
             post(toggle_workspace_error_handler),
+        )
+        .route("/history/p/*path", get(get_script_history))
+        .route(
+            "/history_update/h/:hash/p/*path",
+            post(update_script_history),
         )
 }
 
@@ -310,6 +316,7 @@ async fn create_script(
         ));
     }
 
+    let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -463,8 +470,8 @@ async fn create_script(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-         dedicated_worker, ws_error_handler_muted, priority) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
+         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
         &w_id,
         &hash.0,
         ns.path,
@@ -488,6 +495,7 @@ async fn create_script(
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
         ns.priority,
+        ns.restart_unless_cancelled
     )
     .execute(&mut tx)
     .await?;
@@ -636,6 +644,15 @@ async fn create_script(
         tx = PushIsolationLevel::Transaction(new_tx);
     }
 
+    tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx,
+        &authed,
+        &db,
+        &w_id,
+        git_sync_helpers::DeployedObject::Script { hash: hash, path: script_path },
+    )
+    .await?;
+
     match tx {
         PushIsolationLevel::Transaction(tx) => tx.commit().await?,
         _ => {
@@ -710,6 +727,54 @@ async fn get_script_by_path_w_draft(
 
     let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn get_script_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<ScriptHistory>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let query_result = sqlx::query!(
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
+        WHERE s.workspace_id = $1 AND s.path = $2
+        ORDER by created_at DESC",
+        w_id,
+        path.to_path(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let result: Vec<ScriptHistory> = query_result
+        .into_iter()
+        .map(|row| ScriptHistory {
+            script_hash: ScriptHash(row.hash),
+            deployment_msg: row.deployment_msg,
+        })
+        .collect();
+    return Ok(Json(result));
+}
+
+async fn update_script_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_hash, script_path)): Path<(String, ScriptHash, StripPath)>,
+    Json(script_history_update): Json<ScriptHistoryUpdate>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        w_id,
+        script_path.to_path(),
+        script_hash.0,
+        script_history_update.deployment_msg,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    return Ok(());
 }
 
 async fn list_paths(
