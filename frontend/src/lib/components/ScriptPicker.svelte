@@ -2,7 +2,7 @@
 	import { ScriptService, FlowService, Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'
 
@@ -55,21 +55,9 @@
 
 	$: itemKind && $workspaceStore && loadItems()
 	let darkMode: boolean = false
-
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
-
-	onMount(() => {
-		onThemeChange()
-	})
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />
 
 <Drawer bind:this={drawerViewer} size="900px">
 	<DrawerContent title="Script {scriptPath}" on:close={drawerViewer.closeDrawer}>

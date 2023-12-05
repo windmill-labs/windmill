@@ -3,7 +3,7 @@
 	import { Badge, Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { ConnectedAppInput, InputConnection } from '../../../inputType'
-	import { Plug, UserX } from 'lucide-svelte'
+	import { Plug, Unplug } from 'lucide-svelte'
 
 	export let componentInput: ConnectedAppInput
 
@@ -26,7 +26,7 @@
 
 	<Button
 		size="xs"
-		startIcon={{ icon: UserX }}
+		startIcon={{ icon: Unplug }}
 		color="red"
 		variant="border"
 		on:click={() => {
