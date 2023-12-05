@@ -30,6 +30,7 @@
 		| 'svg'
 		| 'filename'
 		| 's3object'
+		| 's3object-list'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -127,6 +128,11 @@
 					return 'approval'
 				} else if (keys.length === 1 && keys.includes('s3')) {
 					return 's3object'
+				} else if (
+					Array.isArray(result) &&
+					result.every((elt) => inferResultKind(elt) === 's3object')
+				) {
+					return 's3object-list'
 				}
 			} catch (err) {}
 		}
@@ -151,7 +157,7 @@
 
 <div class="inline-highlight relative grow min-h-[200px]">
 	{#if result != undefined && length != undefined && largeObject != undefined}
-		{#if resultKind && !['json', 's3object'].includes(resultKind)}
+		{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind)}
 			<div class="top-0 flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
@@ -304,10 +310,23 @@
 				<button
 					class="text-secondary underline text-2xs whitespace-nowrap"
 					on:click={() => {
-						s3FileViewer?.open?.()
+						s3FileViewer?.open?.(result)
 					}}
 					>s3 explorer
 				</button>
+			</div>
+		{:else if !forceJson && resultKind == 's3object-list'}
+			<div class="absolute top-1 h-full w-full">
+				{#each result as s3object}
+					<Highlight class="" language={json} code={toJsonStr(s3object).replace(/\\n/g, '\n')} />
+					<button
+						class="text-secondary underline text-2xs whitespace-nowrap"
+						on:click={() => {
+							s3FileViewer?.open?.(s3object)
+						}}
+						>s3 explorer
+					</button>
+				{/each}
 			</div>
 		{:else if largeObject}<div class="text-sm text-tertiary"
 				><a
@@ -383,11 +402,6 @@
 	</Portal>
 
 	<Portal>
-		<S3FilePicker
-			bind:this={s3FileViewer}
-			initialFileKey={result}
-			selectedFileKey={result}
-			readOnlyMode={true}
-		/>
+		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 	</Portal>
 {/if}
