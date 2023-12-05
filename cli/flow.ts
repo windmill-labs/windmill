@@ -26,7 +26,8 @@ const alreadySynced: string[] = [];
 export async function pushFlow(
   workspace: string,
   remotePath: string,
-  localFlowPath: string
+  localFlowPath: string,
+  message?: string
 ): Promise<void> {
   if (alreadySynced.includes(localFlowPath)) {
     return;
@@ -77,6 +78,7 @@ export async function pushFlow(
       path: remotePath.replaceAll("\\", "/"),
       requestBody: {
         path: remotePath.replaceAll("\\", "/"),
+        deployment_message: message,
         ...localFlow,
       },
     });
@@ -86,6 +88,7 @@ export async function pushFlow(
       workspace: workspace,
       requestBody: {
         path: remotePath.replaceAll("\\", "/"),
+        deployment_message: message,
         ...localFlow,
       },
     });

@@ -4351,6 +4351,8 @@ paths:
                   type: integer
                 delete_after_use:
                   type: boolean
+                deployment_message:
+                  type: string
               required: &ref_36
                 - path
                 - summary
@@ -5455,6 +5457,8 @@ paths:
                   properties:
                     draft_only:
                       type: boolean
+                    deployment_message:
+                      type: string
       responses:
         '201':
           description: flow created
@@ -5483,7 +5487,12 @@ paths:
         content:
           application/json:
             schema:
-              allOf: *ref_46
+              allOf:
+                - allOf: *ref_46
+                - type: object
+                  properties:
+                    deployment_message:
+                      type: string
       responses:
         '200':
           description: flow updated
@@ -5885,6 +5894,8 @@ paths:
                       type: string
                 draft_only:
                   type: boolean
+                deployment_message:
+                  type: string
               required:
                 - path
                 - value
@@ -6321,6 +6332,8 @@ paths:
                 policy:
                   type: object
                   properties: *ref_47
+                deployment_message:
+                  type: string
       responses:
         '200':
           description: app updated

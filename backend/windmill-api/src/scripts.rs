@@ -8,7 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    git_sync_helpers,
+    deployment_metadata_helpers,
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -644,12 +644,13 @@ async fn create_script(
         tx = PushIsolationLevel::Transaction(new_tx);
     }
 
-    tx = git_sync_helpers::run_workspace_repo_git_callback(
+    tx = deployment_metadata_helpers::handle_deployment_metadata(
         tx,
         &authed,
         &db,
         &w_id,
-        git_sync_helpers::DeployedObject::Script { hash: hash, path: script_path },
+        deployment_metadata_helpers::DeployedObject::Script { hash: hash, path: script_path },
+        ns.deployment_message,
     )
     .await?;
 

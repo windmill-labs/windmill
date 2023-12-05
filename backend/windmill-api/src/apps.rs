@@ -9,7 +9,7 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
-    git_sync_helpers,
+    deployment_metadata_helpers,
     users::{require_owner_of_path, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -169,6 +169,7 @@ pub struct CreateApp {
     pub value: serde_json::Value,
     pub policy: Policy,
     pub draft_only: Option<bool>,
+    pub deployment_message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -177,6 +178,7 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<serde_json::Value>,
     pub policy: Option<Policy>,
+    pub deployment_message: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -614,12 +616,13 @@ async fn create_app(
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
     tx = PushIsolationLevel::Transaction(new_tx);
-    tx = git_sync_helpers::run_workspace_repo_git_callback(
+    tx = deployment_metadata_helpers::handle_deployment_metadata(
         tx,
         &authed,
         &db,
         &w_id,
-        git_sync_helpers::DeployedObject::App { path: app.path.clone(), version: v_id },
+        deployment_metadata_helpers::DeployedObject::App { path: app.path.clone(), version: v_id },
+        app.deployment_message,
     )
     .await?;
 
@@ -876,12 +879,13 @@ async fn update_app(
         tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
         tx = PushIsolationLevel::Transaction(new_tx);
-        tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx = deployment_metadata_helpers::handle_deployment_metadata(
             tx,
             &authed,
             &db,
             &w_id,
-            git_sync_helpers::DeployedObject::App { path: npath.clone(), version: v_id },
+            deployment_metadata_helpers::DeployedObject::App { path: npath.clone(), version: v_id },
+            ns.deployment_message,
         )
         .await?;
     }

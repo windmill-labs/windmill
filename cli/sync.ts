@@ -625,6 +625,7 @@ async function push(
     skipResources?: boolean;
     skipSecrets?: boolean;
     includeSchedules?: boolean;
+    message?: string;
   }
 ) {
   if (!opts.raw) {
@@ -705,7 +706,7 @@ async function push(
           }
           continue;
         } else if (
-          await handleFile(change.path, workspace.workspaceId, alreadySynced)
+          await handleFile(change.path, workspace.workspaceId, alreadySynced, opts.message)
         ) {
           if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
@@ -725,7 +726,8 @@ async function push(
           oldObj,
           newObj,
           opts.plainSecrets ?? false,
-          opts.raw
+          opts.raw,
+          opts.message,
         );
 
         if (!opts.raw && stateExists) {
@@ -738,7 +740,7 @@ async function push(
         ) {
           continue;
         } else if (
-          await handleFile(change.path, workspace.workspaceId, alreadySynced)
+          await handleFile(change.path, workspace.workspaceId, alreadySynced, opts.message)
         ) {
           continue;
         }
@@ -753,7 +755,8 @@ async function push(
           undefined,
           obj,
           opts.plainSecrets ?? false,
-          opts.raw
+          opts.raw,
+          opts.message,
         );
 
         if (!opts.raw && stateExists) {
@@ -881,6 +884,7 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
+  .option("--message <message:string>", "Include a message that will be added to all scripts/flows/apps updated during this push")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
