@@ -44,8 +44,13 @@
 		selected = app
 	}
 
-	async function updateDeploymentMsg(appId: number | undefined, appVersion: number) {
-		if (selectedVersion === undefined || appId === undefined || emptyString(deploymentMsgUpdate)) {
+	async function updateDeploymentMsg(appId: number | undefined, appVersion: number | undefined) {
+		if (
+			selectedVersion === undefined ||
+			appId === undefined ||
+			appVersion === undefined ||
+			emptyString(deploymentMsgUpdate)
+		) {
 			return
 		}
 		await AppService.updateAppHistory({

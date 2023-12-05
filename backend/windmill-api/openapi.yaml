@@ -7236,8 +7236,10 @@ components:
     ScriptHistory:
       type: object
       properties:
-        script_hash: string
-        deployment_msg: string
+        script_hash:
+          type: string
+        deployment_msg:
+          type: string
       required:
         - script_hash
 
@@ -8683,8 +8685,10 @@ components:
     AppHistory:
       type: object
       properties:
-        version: integer
-        deployment_msg: string
+        version:
+          type: integer
+        deployment_msg:
+          type: string
       required:
         - version
 

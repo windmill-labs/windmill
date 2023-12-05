@@ -31,8 +31,12 @@
 		loading = false
 	}
 
-	async function updateDeploymentMsg(scriptHash: string) {
-		if (selectedVersion === undefined || emptyString(deploymentMsgUpdate)) {
+	async function updateDeploymentMsg(scriptHash: string | undefined) {
+		if (
+			selectedVersion === undefined ||
+			scriptHash === undefined ||
+			emptyString(deploymentMsgUpdate)
+		) {
 			return
 		}
 		await ScriptService.updateScriptHistory({

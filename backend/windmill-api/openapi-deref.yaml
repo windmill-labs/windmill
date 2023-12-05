@@ -4590,8 +4590,10 @@ paths:
                 items:
                   type: object
                   properties: &ref_108
-                    script_hash: string
-                    deployment_msg: string
+                    script_hash:
+                      type: string
+                    deployment_msg:
+                      type: string
                   required: &ref_109
                     - script_hash
   /w/{workspace}/scripts/history_update/h/{hash}/p/{path}:
@@ -6038,8 +6040,10 @@ paths:
                 items:
                   type: object
                   properties: &ref_162
-                    version: integer
-                    deployment_msg: string
+                    version:
+                      type: integer
+                    deployment_msg:
+                      type: string
                   required: &ref_163
                     - version
   /w/{workspace}/apps/history_update/a/{id}/v/{version}:
