@@ -171,7 +171,11 @@
 </script>
 
 <Drawer bind:this={ccDrawer}>
-	<DrawerContent title="Custom Components" on:close={ccDrawer.closeDrawer}>
+	<DrawerContent
+		title="Custom Components"
+		on:close={ccDrawer.closeDrawer}
+		documentationLink="https://www.windmill.dev/docs/apps/react_components"
+		>
 		<ComponentsList on:reload={fetchCustomComponents} />
 	</DrawerContent>
 </Drawer>
