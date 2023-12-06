@@ -27,6 +27,8 @@ use std::{
 };
 
 use uuid::Uuid;
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue},
@@ -855,7 +857,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-            if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::warn!("S3 cache not available in the pro plan");
+            } else if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
                 let bucket = s.to_string();
                 let worker_name2 = worker_name.clone();
 
@@ -1254,7 +1258,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         #[cfg(feature = "enterprise")]
         if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
-            if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::warn!("S3 cache not available in the pro plan");
+            } else if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL
                 && (copy_cache_from_bucket_handle.is_none()
                     || copy_cache_from_bucket_handle
                         .as_ref()

@@ -197,7 +197,7 @@
 					{#if category == 'SSO/OAuth'}
 						<div class="mb-6">
 							<h4 class="pb-4">SSO</h4>
-							{#if !$enterpriseLicense}
+							{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 								<Alert type="warning" title="Limited to 10 SSO users">
 									Without EE, the number of SSO users is limited to 10. SCIM/SAML is available on EE
 								</Alert>

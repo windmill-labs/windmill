@@ -40,6 +40,9 @@ pub struct ServiceProviderExt(pub Option<ServiceProvider>);
 #[cfg(not(feature = "enterprise"))]
 pub struct ServiceProviderExt();
 
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
+
 pub struct SamlSsoLogin(pub Option<String>);
 
 #[cfg(feature = "enterprise")]
@@ -97,6 +100,11 @@ pub async fn acs(
     Extension(se): Extension<Arc<ServiceProviderExt>>,
     Form(s): Form<SamlForm>,
 ) -> Result<Redirect> {
+    if matches!(get_license_plan().await, LicensePlan::Pro) {
+        return Err(Error::BadRequest(
+            "SAML not available in the pro plan".to_string(),
+        ));
+    };
     if let Some(sp_m) = &se.0 {
         let sp = sp_m.clone();
         if let Some(encoded_resp) = s.SAMLResponse {
