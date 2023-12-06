@@ -337,6 +337,11 @@
 				bind:conditions={componentSettings.item.data.conditions}
 				bind:component={componentSettings.item.data}
 			/>
+		{:else if componentSettings.item.data.type === 'decisiontreecomponent'}
+			<GridCondition
+				bind:conditions={componentSettings.item.data.conditions}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane
 				bind:panes={componentSettings.item.data.panes}

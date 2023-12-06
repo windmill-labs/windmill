@@ -42,7 +42,8 @@ import {
 	ListIcon,
 	Heading1,
 	FileBarChart,
-	Menu
+	Menu,
+	Network
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -169,6 +170,10 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
+export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
+	conditions: RichConfiguration[]
+}
+
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
@@ -231,6 +236,7 @@ export type TypedComponent =
 	| ChartJsComponentV2
 	| StatisticCardComponent
 	| MenuComponent
+	| DecisionTreeComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2883,6 +2889,32 @@ This is a paragraph.
 				}
 			},
 			menuItems: true
+		}
+	},
+	decisiontreecomponent: {
+		name: 'Decision Tree',
+		icon: Network,
+		documentationLink: `${documentationBaseUrl}/decision_tree`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 2,
+			conditions: [
+				{
+					type: 'eval',
+					expr: 'false',
+					fieldType: 'boolean'
+				},
+				{
+					type: 'eval',
+					expr: 'true',
+					fieldType: 'boolean'
+				}
+			] as AppInputSpec<'boolean', boolean>[]
 		}
 	}
 } as const
