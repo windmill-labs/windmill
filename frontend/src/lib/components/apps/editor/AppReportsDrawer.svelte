@@ -150,8 +150,8 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
   })
   page
     .on('console', msg =>
-      console.log(msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
-    .on('pageerror', ({ msg }) => console.log(msg));
+      console.log(dayjs().format("HH:mm:ss") + " " + msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
+    .on('pageerror', ({ msg }) => console.log(dayjs().format("HH:mm:ss") + " " + msg));
   await page.setViewport({ width: 1200, height: 2000 });
   await page.goto(Bun.env["WM_BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
@@ -474,7 +474,6 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			})
 		} catch (err) {
 			sendUserToast('Could not test reports flow: ' + err, true)
-		} finally {
 			testLoading = false
 		}
 	}
