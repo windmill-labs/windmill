@@ -7,6 +7,7 @@
 	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from 'svelte-portal'
+	import { PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 
 	export let json: any
@@ -137,7 +138,7 @@
 						on:click={() => {
 							s3FileViewer?.open?.(json)
 						}}
-						>s3 explorer
+						><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
 					</button>
 				{/if}
 			{/if}
