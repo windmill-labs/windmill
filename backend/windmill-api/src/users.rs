@@ -1665,9 +1665,16 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
     if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
-        let client = SmtpClientBuilder::new(smtp.host, smtp.port)
-            .implicit_tls(smtp.tls_implicit)
-            .credentials((smtp.username, smtp.password));
+        let client = SmtpClientBuilder::new(smtp.host, smtp.port).implicit_tls(smtp.tls_implicit);
+        let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
+            if !username.is_empty() {
+                client.credentials((username, password))
+            } else {
+                client
+            }
+        } else {
+            client
+        };
         let message = MessageBuilder::new()
             .from(("Windmill", smtp.from.as_str()))
             .to(to)
