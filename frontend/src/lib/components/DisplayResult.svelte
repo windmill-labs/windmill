@@ -31,6 +31,7 @@
 		| 'filename'
 		| 's3object'
 		| 's3object-list'
+		| 'plain'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -100,6 +101,11 @@
 					return 'html'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
+				} else if (
+					keys.includes('windmill_content_type') &&
+					result['windmill_content_type'].startsWith('text/')
+				) {
+					return 'plain'
 				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
@@ -268,6 +274,10 @@
 					class="w-auto h-full"
 					src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 				/>
+			</div>
+		{:else if !forceJson && resultKind == 'plain'}
+			<div class="h-full text-2xs">
+				<pre>{result?.['result']}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
 			<div
