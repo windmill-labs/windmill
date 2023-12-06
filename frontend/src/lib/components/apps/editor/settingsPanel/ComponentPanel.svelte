@@ -37,6 +37,7 @@
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
+	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -338,8 +339,8 @@
 				bind:component={componentSettings.item.data}
 			/>
 		{:else if componentSettings.item.data.type === 'decisiontreecomponent'}
-			<GridCondition
-				bind:conditions={componentSettings.item.data.conditions}
+			<DecisionTreeGraphEditor
+				bind:graph={componentSettings.item.data.graph}
 				bind:component={componentSettings.item.data}
 			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}

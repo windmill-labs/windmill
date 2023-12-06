@@ -170,8 +170,22 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
+export type DecisionTreeNode = {
+	id: string
+	label: string
+	next: Array<{
+		id: string
+		label: string
+		//condition: RichConfiguration
+	}>
+}
+
+export type DecisionTreeGraph = {
+	nodes: DecisionTreeNode[]
+}
+
 export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
-	conditions: RichConfiguration[]
+	graph: DecisionTreeGraph
 }
 
 export type TypedComponent =
