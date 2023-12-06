@@ -135,7 +135,7 @@
 							}
 						}}
 						options={{ right: 'global cache to s3' }}
-						disabled={!$enterpriseLicense}
+						disabled={!$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 					/>
 					<Tooltip
 						><p
