@@ -4,7 +4,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, PanelRightOpen } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -312,7 +312,7 @@
 					on:click={() => {
 						s3FileViewer?.open?.(result)
 					}}
-					>s3 explorer
+					><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
 				</button>
 			</div>
 		{:else if !forceJson && resultKind == 's3object-list'}
@@ -320,11 +320,11 @@
 				{#each result as s3object}
 					<Highlight class="" language={json} code={toJsonStr(s3object).replace(/\\n/g, '\n')} />
 					<button
-						class="text-secondary underline text-2xs whitespace-nowrap"
+						class="text-secondary text-2xs whitespace-nowrap"
 						on:click={() => {
 							s3FileViewer?.open?.(s3object)
 						}}
-						>s3 explorer
+						><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
 					</button>
 				{/each}
 			</div>
