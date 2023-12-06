@@ -10,6 +10,8 @@ use tokio::{
     process::Command,
 };
 use uuid::Uuid;
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -649,12 +651,16 @@ pub async fn handle_python_reqs(
 
         #[cfg(feature = "enterprise")]
         if let Some(ref bucket) = *S3_CACHE_BUCKET {
-            sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                .execute(db)
-                .await?;
-            if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
-                req_paths.push(venv_p.clone());
-                continue;
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::warn!("S3 cache not available in the pro plan");
+            } else {
+                sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
+                    .execute(db)
+                    .await?;
+                if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
+                    req_paths.push(venv_p.clone());
+                    continue;
+                }
             }
         }
 
@@ -770,8 +776,12 @@ pub async fn handle_python_reqs(
 
         #[cfg(feature = "enterprise")]
         if let Some(ref bucket) = *S3_CACHE_BUCKET {
-            let venv_p = venv_p.clone();
-            tokio::spawn(build_tar_and_push(bucket, venv_p));
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::warn!("S3 cache not available in the pro plan");
+            } else {
+                let venv_p = venv_p.clone();
+                tokio::spawn(build_tar_and_push(bucket, venv_p));
+            }
         }
         req_paths.push(venv_p);
     }
