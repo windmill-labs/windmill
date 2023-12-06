@@ -1,6 +1,27 @@
 # Changelog
 
 
+## [1.221.0](https://github.com/windmill-labs/windmill/compare/v1.220.0...v1.221.0) (2023-12-06)
+
+
+### Features
+
+* limit pro plans ([#2794](https://github.com/windmill-labs/windmill/issues/2794)) ([c58190e](https://github.com/windmill-labs/windmill/commit/c58190ef788feaae9bac9848e8cfa59d10f51cab))
+
+
+### Bug Fixes
+
+* Allow run git for Deno ([#2789](https://github.com/windmill-labs/windmill/issues/2789)) ([8ad8d20](https://github.com/windmill-labs/windmill/commit/8ad8d20136f3151ca28784ba3513af562fcb5c9b))
+* Allow run git for Deno ([#2790](https://github.com/windmill-labs/windmill/issues/2790)) ([d822beb](https://github.com/windmill-labs/windmill/commit/d822beba63f08e4e1e1dac4aff56353276558f02))
+* app reports nits ([#2788](https://github.com/windmill-labs/windmill/issues/2788)) ([0b13f2d](https://github.com/windmill-labs/windmill/commit/0b13f2d782d5626d64b5efe39232ec8da268cd27))
+* app reports ts ([#2798](https://github.com/windmill-labs/windmill/issues/2798)) ([4f6a116](https://github.com/windmill-labs/windmill/commit/4f6a116e462d198cb81260749fdd8d57bc0ef03a))
+* Deno allow run git ([#2791](https://github.com/windmill-labs/windmill/issues/2791)) ([256ee64](https://github.com/windmill-labs/windmill/commit/256ee646b49bca091ee6e7a0fea37f7d98c9e378))
+* **frontend:** fix storage key typo ([#2796](https://github.com/windmill-labs/windmill/issues/2796)) ([e4da819](https://github.com/windmill-labs/windmill/commit/e4da819cda12e0e1f27cabc594fe5af5e2d9966c))
+* **frontend:** use correct id for selected for loop iteration ([#2787](https://github.com/windmill-labs/windmill/issues/2787)) ([90668fb](https://github.com/windmill-labs/windmill/commit/90668fb0e5b4ac9f09a0b1e57fcb10b4b4208d2e))
+* improve conditionalwrapper selection ([b5f5355](https://github.com/windmill-labs/windmill/commit/b5f53556a9afb3becbaaab034eeb8fdf4b1178a1))
+* linked variable already being a variable ([9c4f1e0](https://github.com/windmill-labs/windmill/commit/9c4f1e0333743b35c237b4d8fe49757c8ae122e7))
+* smtp doesn't require username/password ([abb50fa](https://github.com/windmill-labs/windmill/commit/abb50fac93a615d0ee18e9776c1fb84829fa2464))
+
 ## [1.220.0](https://github.com/windmill-labs/windmill/compare/v1.219.1...v1.220.0) (2023-12-05)
 
 
