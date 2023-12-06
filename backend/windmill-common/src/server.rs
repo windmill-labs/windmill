@@ -5,8 +5,8 @@ use crate::{error, DB};
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct Smtp {
     pub host: String,
-    pub username: String,
-    pub password: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub port: u16,
     pub from: String,
     pub tls_implicit: bool,
@@ -33,7 +33,7 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
             .flatten()
             .unwrap_or_default();
 
-    let config_smtp = if let (Some(host), Some(username), Some(password)) =
+    let config_smtp = if let (Some(host), username, password) =
         (config.smtp_host, config.smtp_username, config.smtp_password)
     {
         Some(Smtp {
@@ -50,7 +50,7 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
         None
     };
     let smtp = config_smtp.or(
-        if let (Some(host), Some(username), Some(password)) = (
+        if let (Some(host), username, password) = (
             std::env::var("SMTP_HOST").ok(),
             std::env::var("SMTP_USERNAME").ok(),
             std::env::var("SMTP_PASSWORD").ok(),
