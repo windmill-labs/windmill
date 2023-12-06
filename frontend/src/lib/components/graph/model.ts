@@ -32,21 +32,16 @@ export type GraphModuleStates = {
 	states: Record<string, GraphModuleState>
 }
 
+export type DurationStatus = {
+	iteration_from?: number
+	iteration_total?: number
+	byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
+}
+
 export type FlowStatusViewerContext = {
 	flowStateStore?: Writable<FlowState>
-	flowModuleStates: Writable<Record<string, GraphModuleState>>
 	retryStatus: Writable<Record<string, number | undefined>>
 	suspendStatus: Writable<Record<string, number | undefined>>
-	durationStatuses: Writable<
-		Record<
-			string,
-			{
-				iteration_from?: number
-				iteration_total?: number
-				byJob: Record<string, { created_at?: number; started_at?: number; duration_ms?: number }>
-			}
-		>
-	>
 }
 export type GraphModuleState = {
 	type: FlowStatusModule.type
