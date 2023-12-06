@@ -116,7 +116,6 @@ pub async fn generate_deno_lock(
         .args(vec![
             "cache",
             "--unstable",
-            "--allow-run='git'", // TODO: make this configurable from an env variable when needed
             "--lock=lock.json",
             "--lock-write",
             "--import-map",
@@ -289,6 +288,7 @@ run().catch(async (e) => {{
             args.push("--allow-read=./,/tmp/windmill/cache/deno/");
             args.push("--allow-write=./");
             args.push("--allow-env");
+            args.push("--allow-run='git'");
         } else {
             args.push("-A");
         }
