@@ -483,7 +483,7 @@
 						<svelte:self
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
 							{workspaceId}
-							jobId={forloop_selected}
+							jobId={loopJobId}
 							on:jobsLoaded={(e) => innerJobLoaded(e.detail, j)}
 						/>
 					</div>
