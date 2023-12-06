@@ -288,7 +288,7 @@ run().catch(async (e) => {{
             args.push("--allow-read=./,/tmp/windmill/cache/deno/");
             args.push("--allow-write=./");
             args.push("--allow-env");
-            args.push("--allow-run='git'");
+            args.push("--allow-run=git");
         } else {
             args.push("-A");
         }
