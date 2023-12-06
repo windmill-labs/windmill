@@ -65,7 +65,7 @@
 
 	function getPromptsRegex(): string | undefined {
 		try {
-			return localStorage.getItem('workspace') ?? undefined
+			return localStorage.getItem('prompts-regex') ?? undefined
 		} catch (e) {
 			console.error('error interacting with local storage', e)
 		}
