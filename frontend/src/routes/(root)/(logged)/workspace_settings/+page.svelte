@@ -189,7 +189,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						script_path: 'hub/7835/sync-script-to-git-repo-windmill',
+						script_path: 'hub/7839/sync-script-to-git-repo-windmill',
 						git_repo_resource_path: resourcePathWithPrefix
 					}
 				}
