@@ -478,11 +478,12 @@
 							</span>
 						</Button>
 					{/if}
+
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
 							{workspaceId}
-							jobId={loopJobId}
+							jobId={forloop_selected}
 							on:jobsLoaded={(e) => innerJobLoaded(e.detail, j)}
 						/>
 					</div>
