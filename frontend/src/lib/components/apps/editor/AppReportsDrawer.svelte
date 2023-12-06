@@ -139,26 +139,21 @@
 		sendUserToast('App reporting disabled')
 	}
 
-	const appPreviewScript = `import puppeteer from \'puppeteer-core\';
+	const appPreviewScript = `import puppeteer from 'puppeteer-core';
 export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
-  const browser = await puppeteer.launch({ headless: \'new\', executablePath: \'/usr/bin/chromium\', args: [\'--no-sandbox\'] });
+  const browser = await puppeteer.launch({ headless: 'new', executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
   const page = await browser.newPage();
   await page.setCookie({
     "name": "token",
     "value": Bun.env["WM_TOKEN"],
-    "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, \'\')
+    "domain": Bun.env["WM_BASE_URL"]?.replace(/https?:\\/\\//, '')
   })
   page
     .on('console', msg =>
       console.log(msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
-    .on('pageerror', ({ msg }) => console.log(msg))
-    .on('response', response => {
-      console.log(response.status, response.url);
-    })
-    .on('requestfailed', request => {
-      console.log(request.failure().errorText, request.url);
-    });
-  await page.goto(Bun.env["WM_BASE_URL"] + \'/apps/get/\' + app_path + \'?workspace=\' + Bun.env["WM_WORKSPACE"]);
+    .on('pageerror', ({ msg }) => console.log(msg));
+  await page.setViewport({ width: 1200, height: 2000 });
+  await page.goto(Bun.env["WM_BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
   await new Promise((resolve, _) => {
 		setTimeout(resolve, startup_duration * 1000)
@@ -167,7 +162,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
   await page.$eval("#content", el => el.classList.remove("md:pl-12"))
 	await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
 	await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
-  const elem = await page.$(\'#app-content\');
+  const elem = await page.$('#app-content');
   const { height } = await elem.boundingBox();
   await page.setViewport({ width: 1200, height });
   await new Promise((resolve, _) => {
@@ -182,7 +177,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		type: "png"
 	});
   await browser.close();
-  return Buffer.from(screenshot).toString(\'base64\');
+  return Buffer.from(screenshot).toString('base64');
 }`
 
 	const notificationScripts = {
