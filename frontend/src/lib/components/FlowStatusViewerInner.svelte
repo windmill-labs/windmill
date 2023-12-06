@@ -91,18 +91,6 @@
 		}
 	}
 
-	function setDurationStatus(key: string, value: DurationStatus) {
-		if (!deepEqual($localDurationStatuses[key], value)) {
-			$localDurationStatuses[key] = value
-			globalDurationStatuses.forEach((s) => {
-				s.update((x) => {
-					x[key] = JSON.parse(JSON.stringify(value))
-					return x
-				})
-			})
-		}
-	}
-
 	function setDurationStatusByJob(key: string, id: string, value: any) {
 		if (!deepEqual($localDurationStatuses[key]?.byJob[id], value)) {
 			$localDurationStatuses[key].byJob[id] = value
