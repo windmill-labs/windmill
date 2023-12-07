@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use base64::Engine;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
@@ -9,7 +11,7 @@ use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
 };
-use windmill_parser_sql::parse_mysql_sig;
+use windmill_parser_sql::{parse_mysql_sig, RE_ARG_MYSQL_NAMED};
 
 use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
@@ -63,14 +65,19 @@ pub async fn do_mysql(
     let pool = mysql_async::Pool::new(opts);
     let mut conn = pool.get_conn().await.map_err(to_anyhow)?;
 
-    let mut statement_values: Vec<mysql_async::Value> = vec![];
-
     let sig = parse_mysql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(&query).count() > 0;
+
+    let mut statement_values: Params = match using_named_params {
+        true => Params::Named(HashMap::new()),
+        false => Params::Positional(vec![]),
+    };
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
+        let arg_n = arg.clone().name;
         let mysql_v = match job
             .args
             .as_ref()
@@ -103,10 +110,23 @@ pub async fn do_mysql(
                 )))
             }
         };
-        statement_values.push(mysql_v);
+        match &mut statement_values {
+            Params::Positional(v) => v.push(mysql_v),
+            Params::Named(m) => {
+                m.insert(arg_n.into_bytes(), mysql_v);
+            }
+            _ => {}
+        }
     }
     let rows: Vec<Row> = conn
-        .exec(query, Params::Positional(statement_values))
+        .exec(
+            query,
+            match statement_values {
+                Params::Positional(v) => Params::Positional(v),
+                Params::Named(m) => Params::Named(m),
+                _ => Params::Empty,
+            },
+        )
         .await
         .map_err(to_anyhow)?;
     let rows = rows
