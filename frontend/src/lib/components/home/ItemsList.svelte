@@ -67,8 +67,7 @@
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			showArchived: archived ? true : undefined,
-			perPage: 300
+			showArchived: archived ? true : undefined
 		})
 
 		scripts = loadedScripts.map((script: Script) => {

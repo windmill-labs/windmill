@@ -92,11 +92,13 @@
 				cron: schedule.schedule,
 				timezone: schedule.timezone
 			}
-			appReportingStartupDuration ??= schedule.args?.startup_duration
+			appReportingStartupDuration = schedule.args?.startup_duration ?? appReportingStartupDuration
+			screenshotKind = schedule.args?.kind ?? screenshotKind
+
 			args = schedule.args
 				? Object.fromEntries(
 						Object.entries(schedule.args).filter(
-							([key, _]) => key !== 'app_path' && key !== 'startup_duration'
+							([key, _]) => key !== 'app_path' && key !== 'startup_duration' && key !== 'kind'
 						)
 				  )
 				: {}
@@ -140,6 +142,7 @@
 	}
 
 	const appPreviewScript = `import puppeteer from 'puppeteer-core';
+import dayjs from 'dayjs';
 export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
   const browser = await puppeteer.launch({ headless: 'new', executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
   const page = await browser.newPage();
@@ -150,8 +153,8 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
   })
   page
     .on('console', msg =>
-      console.log(msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
-    .on('pageerror', ({ msg }) => console.log(msg));
+      console.log(dayjs().format("HH:mm:ss") + " " + msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
+    .on('pageerror', ({ msg }) => console.log(dayjs().format("HH:mm:ss") + " " + msg));
   await page.setViewport({ width: 1200, height: 2000 });
   await page.goto(Bun.env["WM_BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
@@ -174,7 +177,8 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 		height
   }) : await page.screenshot({
 		fullPage: true,
-		type: "png"
+		type: "png",
+    captureBeyondViewport: false
 	});
   await browser.close();
   return Buffer.from(screenshot).toString('base64');
@@ -474,7 +478,6 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			})
 		} catch (err) {
 			sendUserToast('Could not test reports flow: ' + err, true)
-		} finally {
 			testLoading = false
 		}
 	}
