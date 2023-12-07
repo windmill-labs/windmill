@@ -251,6 +251,7 @@ pub fn parse_mysql_typ(typ: &str) -> Typ {
         "int" | "uint" | "integer" => Typ::Int,
         "bool" | "bit" => Typ::Bool,
         "double precision" | "float" | "real" | "dec" | "fixed" => Typ::Float,
+        "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
         _ => Typ::Str(None),
     }
 }
