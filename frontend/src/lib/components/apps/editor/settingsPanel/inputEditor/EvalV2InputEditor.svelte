@@ -8,6 +8,7 @@
 	import { inferDeps } from '../../appUtilsInfer'
 	import { Maximize2, X } from 'lucide-svelte'
 	import { Drawer } from '$lib/components/common'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
@@ -51,21 +52,36 @@
 {#if componentInput?.type === 'evalv2'}
 	{#if fullscreen}
 		<Drawer placement="bottom" on:close={() => (fullscreen = false)} open>
-			<SimpleEditor
-				class="h-full w-full"
-				bind:this={editor}
-				lang="javascript"
-				bind:code={componentInput.expr}
-				shouldBindKey={false}
-				fixedOverflowWidgets={false}
-				{extraLib}
-				on:change={async (e) => {
-					if (onchange) {
-						onchange()
-					}
-					inferDepsFromCode(e.detail.code)
-				}}
-			/>
+			<Splitpanes horizontal class="h-full">
+				<Pane size={50}>
+					<SimpleEditor
+						class="h-full w-full"
+						bind:this={editor}
+						lang="javascript"
+						bind:code={componentInput.expr}
+						shouldBindKey={false}
+						fixedOverflowWidgets={false}
+						{extraLib}
+						on:change={async (e) => {
+							if (onchange) {
+								onchange()
+							}
+							inferDepsFromCode(e.detail.code)
+						}}
+					/>
+				</Pane>
+				<Pane size={50}>
+					<div class="relative w-full">
+						<div
+							class="p-1 !text-2xs absolute border border-l bg-surface w-full z-[5000] overflow-auto"
+						>
+							<pre class="text-tertiary"
+								>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
+							>
+						</div>
+					</div>
+				</Pane>
+			</Splitpanes>
 		</Drawer>
 	{/if}
 	<div class="border relative">
