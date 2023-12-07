@@ -697,10 +697,10 @@
 				menuItems={component.menuItems}
 				{render}
 			/>
-		{:else if component.type === 'decisiontreecomponent' && component.conditions}
+		{:else if component.type === 'decisiontreecomponent' && component.nodes}
 			<AppDecisionTree
 				id={component.id}
-				conditions={component.conditions}
+				nodes={component.nodes}
 				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}

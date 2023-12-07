@@ -1,27 +1,24 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import type { DecisionTreeNode } from '../../editor/component'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { ArrowLeft, ArrowRight } from 'lucide-svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'decisiontreecomponent'> | undefined = undefined
 	export let render: boolean
-	export let conditions: RichConfiguration[]
+	export let nodes: DecisionTreeNode[]
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
+	const { app, focusedGrid, selectedComponent, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	const outputs = initOutput($worldStore, id, {
-		conditions: [] as boolean[],
-		selectedConditionIndex: 0
-	})
 
 	function onFocus() {
 		$focusedGrid = {
@@ -32,43 +29,59 @@
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 
-	let resolvedConditions: boolean[] = []
+	let resolvedConditions: Record<string, boolean[]> = nodes.reduce((acc, node) => {
+		acc[node.id] = []
+		return acc
+	}, {})
 	let selectedConditionIndex = 0
 
-	function handleResolvedConditions() {
-		const slicedArray = resolvedConditions.slice(0, conditions.length)
-		const firstTrueIndex = slicedArray.findIndex((c) => c)
+	let currentNodeId = nodes[0].id
 
-		outputs.conditions.set(slicedArray, true)
+	function next() {
+		const resolvedNodeConditions = resolvedConditions[currentNodeId]
 
-		setSelectedIndex(firstTrueIndex)
-	}
+		resolvedNodeConditions.forEach((condition, index) => {
+			const node = nodes.find((node) => node.id == currentNodeId)
 
-	function setSelectedIndex(index: number) {
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: index
-		}
+			if (condition && node) {
+				currentNodeId = node.next[index].id
 
-		selectedConditionIndex = index
-		outputs.selectedConditionIndex.set(index)
-	}
+				console.log(currentNodeId)
 
-	$: resolvedConditions && handleResolvedConditions()
-
-	$componentControl[id] = {
-		setTab: (conditionIndex: number) => {
-			if (conditionIndex === -1) {
-				handleResolvedConditions()
-			} else {
-				setSelectedIndex(conditionIndex)
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: nodes.findIndex((node) => node.id == currentNodeId)
+				}
 			}
+		})
+	}
+
+	$: console.log($focusedGrid)
+
+	function prev() {
+		// Find the previous node
+
+		const previousNode = nodes.find((node) => {
+			return node.next.find((next) => next.id == currentNodeId)
+		})
+
+		if (previousNode) {
+			currentNodeId = previousNode.id
 		}
 	}
 </script>
 
-{#each conditions ?? [] as condition, index}
-	<InputValue key="conditions" {id} input={condition} bind:value={resolvedConditions[index]} />
+{#each nodes ?? [] as node}
+	{#each node.next ?? [] as next, conditionIndex}
+		{#if next.condition}
+			<InputValue
+				key="conditions"
+				{id}
+				input={next.condition}
+				bind:value={resolvedConditions[node.id][conditionIndex]}
+			/>
+		{/if}
+	{/each}
 {/each}
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -83,24 +96,37 @@
 
 <InitializeComponent {id} />
 
-<div class="w-full h-full">
-	{#if $app.subgrids}
-		{#each resolvedConditions ?? [] as _res, i}
-			<SubGridEditor
-				visible={render && i == selectedConditionIndex}
-				{id}
-				class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
-				style={css?.container?.style}
-				subGridId={`${id}-${i}`}
-				containerHeight={componentContainerHeight}
-				on:focus={() => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
-					onFocus()
-				}}
-			/>
-		{/each}
-	{/if}
-	<div class="h-8 p- 2" />
+<div class="w-full overflow-auto">
+	<div class="w-full">
+		{#if $app.subgrids}
+			{#each Object.values(nodes) ?? [] as node, i}
+				<SubGridEditor
+					visible={render && node.id === currentNodeId}
+					{id}
+					class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
+					style={css?.container?.style}
+					subGridId={`${id}-${i}`}
+					containerHeight={componentContainerHeight - 40}
+					on:focus={() => {
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+						}
+						onFocus()
+					}}
+				/>
+			{/each}
+		{/if}
+	</div>
+
+	<div class="h-8 flex flex-row gap-2 justify-end items-center px-2">
+		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
+		<span class="text-xs text-primary">Tab: {currentNodeId}</span>
+		<Button
+			on:click={next}
+			size="xs2"
+			color="dark"
+			endIcon={{ icon: ArrowRight }}
+			disabled={resolvedConditions[currentNodeId].every((condition) => !condition)}>Next</Button
+		>
+	</div>
 </div>

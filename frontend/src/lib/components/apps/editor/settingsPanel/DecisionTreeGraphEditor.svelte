@@ -1,45 +1,78 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { Network } from 'lucide-svelte'
-	import type { AppComponent, DecisionTreeGraph } from '../component'
+	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Svelvet from '$lib/components/graph/svelvet/container/views/Svelvet.svelte'
 	import type { UserEdgeType } from '$lib/components/graph/svelvet/types'
 	import { NODE, type Node } from '$lib/components/graph'
 	import DecisionTreeGraphNode from './DecisionTreeGraphNode.svelte'
 	import { onMount } from 'svelte'
+	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let component: AppComponent
-	export let graph: DecisionTreeGraph
+	export let nodes: DecisionTreeNode[]
 
 	let drawer: Drawer | undefined = undefined
-	let nodes: Node[] = JSON.parse(
-		'[{"type":"node","id":"Input","position":{"x":120.5,"y":42},"data":{"custom":{"props":{"label":"Input","insertable":true,"modules":[{"id":"a","value":{"type":"identity","flow":false}}],"bgColor":"#dfe6ee","selected":false,"index":0,"selectable":true,"center":true,"disableAi":false}}},"width":275,"height":34,"borderColor":"#999","sourcePosition":"bottom","targetPosition":"top","parentIds":[],"loopDepth":0,"childNodes":[]},{"type":"node","id":"a","position":{"x":120.5,"y":126},"data":{"custom":{"props":{"trigger":false,"mod":{"id":"a","value":{"type":"identity","flow":false}},"insertable":true,"insertableEnd":true,"branchable":false,"bgColor":"#fff","modules":[{"id":"a","value":{"type":"identity","flow":false}}],"disableAi":false}}},"width":275,"height":34,"parentIds":["Input"],"sourcePosition":"bottom","targetPosition":"top","loopDepth":0,"childNodes":[]},{"type":"node","id":"-2","position":{"x":120.5,"y":210},"data":{"custom":{"props":{"label":"Result","insertable":true,"bgColor":"#fff","selected":false,"index":1,"selectable":true,"center":true,"disableAi":false}}},"width":275,"height":34,"borderColor":"#999","sourcePosition":"bottom","targetPosition":"top","parentIds":["a"],"loopDepth":0,"childNodes":[]}]'
-	)
+
+	let displayedNodes: Node[] = []
 	let edges: UserEdgeType[] = []
 	let width: number, height: number
 	let fullWidth: number
 	let scroll = false
 	let fullSize = false
 
-	async function createGraph(graph: DecisionTreeGraph) {
+	let selectedNodeId: string | null = null
+
+	$: selectedNode = nodes?.find((node) => node.id == selectedNodeId)
+
+	$: console.log(nodes)
+
+	async function createGraph() {
 		try {
-			nodes = []
+			displayedNodes = []
 			edges = []
 
-			graph.nodes.forEach((graphNode, index) => {
-				nodes.push({
+			nodes?.forEach((graphNode, index) => {
+				displayedNodes.push({
 					type: 'node',
 					id: graphNode.id,
 					position: {
 						x: 80,
-						y: 24 + index * 64
+						y: 16 + index * 88
 					},
 					data: {
 						custom: {
 							component: DecisionTreeGraphNode,
 							props: {
-								node: graphNode
+								node: graphNode,
+								selected: selectedNodeId == graphNode.id
+							},
+							cb: (e: string, detail: any) => {
+								console.log(e, detail)
+								if (e == 'select') {
+									selectedNodeId = detail
+								} else if (e == 'add') {
+									const newNode = {
+										id: 'd',
+										label: 'd',
+										next: []
+									}
+
+									graphNode.next.push(newNode)
+
+									nodes.push(newNode)
+									graphNode.next.push({
+										id: newNode.id,
+										condition: {
+											type: 'eval',
+											expr: 'true',
+											fieldType: 'boolean'
+										}
+									})
+
+									createGraph()
+								}
 							}
 						}
 					},
@@ -68,39 +101,11 @@
 	}
 
 	onMount(async () => {
-		await createGraph({
-			nodes: [
-				{
-					id: 'Input',
-					label: 'Input',
-					next: [
-						{
-							id: 'a',
-							label: 'a'
-						}
-					]
-				},
-				{
-					id: 'a',
-					label: 'a',
-					next: [
-						{
-							id: '-2',
-							label: '-2'
-						}
-					]
-				},
-				{
-					id: '-2',
-					label: 'Result',
-					next: []
-				}
-			]
-		})
+		await createGraph()
 	})
 </script>
 
-<Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="800px">
+<Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
 	<DrawerContent
 		title="Decision tree"
 		on:close={drawer.closeDrawer}
@@ -108,14 +113,14 @@
 		tooltip="Decision tree graph editor"
 	>
 		<Splitpanes>
-			<Pane size={50} class="h-full">
+			<Pane size={50}>
 				<Svelvet
 					on:expand={() => {}}
 					download={false}
 					highlightEdges={false}
 					locked
 					dataflow={false}
-					{nodes}
+					nodes={displayedNodes}
 					width={fullSize ? fullWidth : width}
 					{edges}
 					{height}
@@ -125,7 +130,31 @@
 				/>
 			</Pane>
 			<Pane size={50}>
-				<p>test</p>
+				<div class="h-full w-full bg-surface p-2">
+					{#if selectedNode}
+						{#each selectedNode.next as subNode}
+							{#if subNode.condition}
+								<InputsSpecEditor
+									key={`Goes to ${subNode.id} if:`}
+									bind:componentInput={subNode.condition}
+									id={'sad'}
+									userInputEnabled={false}
+									shouldCapitalize={true}
+									resourceOnly={false}
+									fieldType={subNode.condition?.['fieldType']}
+									subFieldType={subNode.condition?.['subFieldType']}
+									format={subNode.condition?.['format']}
+									selectOptions={subNode.condition?.['selectOptions']}
+									tooltip={subNode.condition?.['tooltip']}
+									fileUpload={subNode.condition?.['fileUpload']}
+									placeholder={subNode.condition?.['placeholder']}
+									customTitle={subNode.condition?.['customTitle']}
+									displayType={false}
+								/>
+							{/if}
+						{/each}
+					{/if}
+				</div>
 			</Pane>
 		</Splitpanes>
 	</DrawerContent>

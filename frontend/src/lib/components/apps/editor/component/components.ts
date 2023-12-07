@@ -175,17 +175,12 @@ export type DecisionTreeNode = {
 	label: string
 	next: Array<{
 		id: string
-		label: string
-		//condition: RichConfiguration
+		condition?: RichConfiguration | undefined
 	}>
 }
 
-export type DecisionTreeGraph = {
-	nodes: DecisionTreeNode[]
-}
-
 export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
-	graph: DecisionTreeGraph
+	nodes: DecisionTreeNode[]
 }
 
 export type TypedComponent =
@@ -306,6 +301,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	tabs?: string[]
 	panes?: number[]
 	conditions?: AppInputSpec<'boolean', boolean>[]
+	nodes?: DecisionTreeNode[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -2917,18 +2913,41 @@ This is a paragraph.
 			configuration: {},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
-			conditions: [
+			nodes: [
 				{
-					type: 'eval',
-					expr: 'false',
-					fieldType: 'boolean'
+					id: 'a',
+					label: 'a',
+					next: [
+						{
+							id: 'b',
+							condition: {
+								type: 'evalv2',
+								expr: 'true',
+								fieldType: 'boolean'
+							}
+						}
+					]
 				},
 				{
-					type: 'eval',
-					expr: 'true',
-					fieldType: 'boolean'
+					id: 'b',
+					label: 'b',
+					next: [
+						{
+							id: 'c',
+							condition: {
+								type: 'evalv2',
+								expr: 'true',
+								fieldType: 'boolean'
+							}
+						}
+					]
+				},
+				{
+					id: 'c',
+					label: 'c',
+					next: []
 				}
-			] as AppInputSpec<'boolean', boolean>[]
+			] as DecisionTreeNode[]
 		}
 	}
 } as const

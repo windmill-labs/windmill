@@ -340,7 +340,7 @@
 			/>
 		{:else if componentSettings.item.data.type === 'decisiontreecomponent'}
 			<DecisionTreeGraphEditor
-				bind:graph={componentSettings.item.data.graph}
+				bind:nodes={componentSettings.item.data.nodes}
 				bind:component={componentSettings.item.data}
 			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
