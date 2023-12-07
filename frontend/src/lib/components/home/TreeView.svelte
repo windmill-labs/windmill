@@ -5,13 +5,13 @@
 	import Item from './Item.svelte'
 	import type { FolderItem, ItemType, UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
 	import { pluralize } from '$lib/utils'
 
 	export let item: ItemType | FolderItem | UserItem
 
 	export let collapseAll: boolean
 	export let depth: number = 0
+	export let showCode: (path: string, summary: string) => void
 
 	const isFolder = (i: any): i is FolderItem => i && 'folderName' in i
 	const isUser = (i: any): i is UserItem => i && 'username' in i
@@ -23,8 +23,6 @@
 	function toggleOpened(collapseAll: boolean) {
 		opened = !collapseAll
 	}
-
-	export let showCode: (path: string, summary: string) => void
 
 	let showMax = 30
 </script>
@@ -57,7 +55,7 @@
 					</div>
 				</div>
 			</div>
-			<button on:click={() => (opened = !opened)}>
+			<button class="w-full flex flex-row-reverse" on:click={() => (opened = !opened)}>
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
@@ -66,7 +64,7 @@
 			</button>
 		</div>
 		{#if opened}
-			<div transition:slide>
+			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						{collapseAll}
@@ -88,7 +86,6 @@
 							if (isFolder(item)) {
 								showMax += Math.min(30, item.items.length - showMax)
 								showMax = showMax
-								console.log(showMax)
 							}
 						}}
 					>
@@ -118,7 +115,7 @@
 					>
 				</div>
 			</div>
-			<button on:click={() => (opened = !opened)}>
+			<button class="w-full flex flex-row-reverse" on:click={() => (opened = !opened)}>
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
@@ -127,7 +124,7 @@
 			</button>
 		</div>
 		{#if opened}
-			<div transition:slide>
+			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						{collapseAll}

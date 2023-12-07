@@ -9,7 +9,7 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
-    git_sync_helpers,
+    deployment_metadata_helpers,
     users::{require_owner_of_path, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -55,6 +55,8 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_app))
         .route("/delete/*path", delete(delete_app))
         .route("/create", post(create_app))
+        .route("/history/p/*path", get(get_app_history))
+        .route("/history_update/a/:id/v/:version", post(update_app_history))
 }
 
 pub fn unauthed_service() -> Router {
@@ -125,6 +127,19 @@ pub struct AppWithLastVersionAndDraft {
     pub draft_only: Option<bool>,
 }
 
+#[derive(Serialize)]
+pub struct AppHistory {
+    pub app_id: i64,
+    pub version: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct AppHistoryUpdate {
+    pub deployment_msg: Option<String>,
+}
+
 pub type StaticFields = HashMap<String, Box<RawValue>>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -154,6 +169,7 @@ pub struct CreateApp {
     pub value: serde_json::Value,
     pub policy: Policy,
     pub draft_only: Option<bool>,
+    pub deployment_message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -162,6 +178,7 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<serde_json::Value>,
     pub policy: Option<Policy>,
+    pub deployment_message: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -311,6 +328,64 @@ async fn get_app_w_draft(
 
     let app = not_found_if_none(app_o, "App", path)?;
     Ok(Json(app))
+}
+
+async fn get_app_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<AppHistory>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let query_result = sqlx::query!(
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
+        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        WHERE a.workspace_id = $1 AND a.path = $2
+        ORDER BY created_at DESC",
+        w_id,
+        path.to_path(),
+    ).fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+
+    let result: Vec<AppHistory> = query_result
+        .into_iter()
+        .map(|row| AppHistory {
+            app_id: row.app_id,
+            version: row.version_id,
+            deployment_msg: row.deployment_msg,
+        })
+        .collect();
+    return Ok(Json(result));
+}
+
+async fn update_app_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, app_id, app_version)): Path<(String, i64, i64)>,
+    Json(app_history_update): Json<AppHistoryUpdate>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    let app_path = sqlx::query_scalar!("SELECT path FROM app WHERE id = $1", app_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    if app_path.is_none() {
+        tx.commit().await?;
+        return Err(Error::NotFound(
+            format!("App with ID {app_id} not found").to_string(),
+        ));
+    }
+
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        w_id,
+        app_path.unwrap(),
+        app_version,
+        app_history_update.deployment_msg,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    return Ok(());
 }
 
 async fn get_app_by_id(
@@ -541,12 +616,13 @@ async fn create_app(
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
     tx = PushIsolationLevel::Transaction(new_tx);
-    tx = git_sync_helpers::run_workspace_repo_git_callback(
+    tx = deployment_metadata_helpers::handle_deployment_metadata(
         tx,
         &authed,
         &db,
         &w_id,
-        git_sync_helpers::DeployedObject::App { path: app.path.clone(), version: v_id },
+        deployment_metadata_helpers::DeployedObject::App { path: app.path.clone(), version: v_id },
+        app.deployment_message,
     )
     .await?;
 
@@ -803,12 +879,13 @@ async fn update_app(
         tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
         tx = PushIsolationLevel::Transaction(new_tx);
-        tx = git_sync_helpers::run_workspace_repo_git_callback(
+        tx = deployment_metadata_helpers::handle_deployment_metadata(
             tx,
             &authed,
             &db,
             &w_id,
-            git_sync_helpers::DeployedObject::App { path: npath.clone(), version: v_id },
+            deployment_metadata_helpers::DeployedObject::App { path: npath.clone(), version: v_id },
+            ns.deployment_message,
         )
         .await?;
     }

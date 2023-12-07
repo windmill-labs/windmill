@@ -15,6 +15,9 @@ use windmill_common::{
     utils::Pagination,
 };
 
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
+
 use serde::{Deserialize, Serialize};
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
@@ -44,23 +47,32 @@ pub struct AuditLog {
 pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     username: &str,
-    _operation: &str,
+    mut _operation: &str,
     action_kind: ActionKind,
     w_id: &str,
-    _resource: Option<&str>,
+    mut _resource: Option<&str>,
     _parameters: Option<HashMap<&str, &str>>,
 ) -> Result<()> {
     #[cfg(feature = "enterprise")]
-    let p_json: serde_json::Value = serde_json::to_value(&_parameters).unwrap();
+    let p_json = match get_license_plan().await {
+        LicensePlan::Enterprise => serde_json::to_value(&_parameters).unwrap(),
+        LicensePlan::Pro => serde_json::json!({"redacted": "-"}),
+    };
 
     #[cfg(not(feature = "enterprise"))]
     let p_json: serde_json::Value = serde_json::json!({"redacted": "-"});
 
-    #[cfg(not(feature = "enterprise"))]
-    let _resource: Option<&str> = Some("EE only");
+    #[cfg(feature = "enterprise")]
+    if matches!(get_license_plan().await, LicensePlan::Pro) {
+        _resource = Some("EE only");
+        _operation = "redacted";
+    }
 
     #[cfg(not(feature = "enterprise"))]
-    let _operation: &str = "redacted";
+    {
+        _resource = Some("EE only");
+        _operation = "redacted";
+    }
 
     tracing::info!(
         operation = _operation,

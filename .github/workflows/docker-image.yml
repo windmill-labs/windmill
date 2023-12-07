@@ -99,7 +99,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise
+            features=enterprise,saml
             nsjail=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest

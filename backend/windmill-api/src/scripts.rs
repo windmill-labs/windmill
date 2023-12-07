@@ -8,7 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    git_sync_helpers,
+    deployment_metadata_helpers,
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -40,7 +40,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
-        ScriptKind, ScriptLang,
+        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang,
     },
     users::username_to_permissioned_as,
     utils::{
@@ -82,6 +82,8 @@ pub struct ScriptWDraft {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart_unless_cancelled: Option<bool>,
 }
 
 pub fn global_service() -> Router {
@@ -120,6 +122,11 @@ pub fn workspaced_service() -> Router {
         .route(
             "/toggle_workspace_error_handler/p/*path",
             post(toggle_workspace_error_handler),
+        )
+        .route("/history/p/*path", get(get_script_history))
+        .route(
+            "/history_update/h/:hash/p/*path",
+            post(update_script_history),
         )
 }
 
@@ -639,12 +646,13 @@ async fn create_script(
         tx = PushIsolationLevel::Transaction(new_tx);
     }
 
-    tx = git_sync_helpers::run_workspace_repo_git_callback(
+    tx = deployment_metadata_helpers::handle_deployment_metadata(
         tx,
         &authed,
         &db,
         &w_id,
-        git_sync_helpers::DeployedObject::Script { hash: hash, path: script_path },
+        deployment_metadata_helpers::DeployedObject::Script { hash: hash, path: script_path },
+        ns.deployment_message,
     )
     .await?;
 
@@ -708,7 +716,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -722,6 +730,54 @@ async fn get_script_by_path_w_draft(
 
     let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn get_script_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<ScriptHistory>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let query_result = sqlx::query!(
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
+        WHERE s.workspace_id = $1 AND s.path = $2
+        ORDER by created_at DESC",
+        w_id,
+        path.to_path(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let result: Vec<ScriptHistory> = query_result
+        .into_iter()
+        .map(|row| ScriptHistory {
+            script_hash: ScriptHash(row.hash),
+            deployment_msg: row.deployment_msg,
+        })
+        .collect();
+    return Ok(Json(result));
+}
+
+async fn update_script_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_hash, script_path)): Path<(String, ScriptHash, StripPath)>,
+    Json(script_history_update): Json<ScriptHistoryUpdate>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        w_id,
+        script_path.to_path(),
+        script_hash.0,
+        script_history_update.deployment_msg,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    return Ok(());
 }
 
 async fn list_paths(

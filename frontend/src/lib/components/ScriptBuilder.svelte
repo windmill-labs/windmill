@@ -288,7 +288,8 @@
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						cache_ttl: script.cache_ttl,
 						ws_error_handler_muted: script.ws_error_handler_muted,
-						priority: script.priority
+						priority: script.priority,
+						restart_unless_cancelled: script.restart_unless_cancelled
 					}
 				})
 			}

@@ -61,7 +61,6 @@
 	export let policy: Policy
 	export let summary: string
 	export let fromHub: boolean = false
-	export let versions: number[]
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedApp:
 		| {
@@ -223,7 +222,11 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
-				} else if (item?.data.type === 'tabscomponent' || item?.data.type === 'steppercomponent') {
+				} else if (
+					item?.data.type === 'tabscomponent' ||
+					item?.data.type === 'steppercomponent' ||
+					item?.data.type === 'conditionalwrapper'
+				) {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex:
@@ -493,7 +496,6 @@
 	{#if $appStore}
 		<AppEditorHeader
 			on:restore
-			{versions}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}

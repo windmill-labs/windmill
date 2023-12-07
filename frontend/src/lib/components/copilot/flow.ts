@@ -220,7 +220,8 @@ export async function stepCopilot(
 			type: 'gen',
 			language: lang as Script.language,
 			description: module.description,
-			dbSchema: undefined
+			dbSchema: undefined,
+			workspace
 		},
 		prompt
 	)

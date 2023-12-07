@@ -15,7 +15,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
-	import TreeView from './TreeView.svelte'
 
 	export let filter = ''
 	export let subtab: 'flow' | 'script' | 'app' = 'script'
@@ -35,8 +34,8 @@
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
-	import { groupItems } from './treeViewUtils'
 	import Item from './Item.svelte'
+	import TreeViewRoot from './TreeViewRoot.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -68,8 +67,7 @@
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			showArchived: archived ? true : undefined,
-			perPage: 300
+			showArchived: archived ? true : undefined
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -246,8 +244,25 @@
 	$: items && resetScroll()
 
 	let archived = false
-	let treeView = false
+	let treeView = getTreeView()
 
+	$: storeTreeView(treeView)
+
+	function storeTreeView(treeView: boolean) {
+		if (treeView) {
+			localStorage.setItem('treeView', 'true')
+		} else {
+			localStorage.removeItem('treeView')
+		}
+	}
+
+	function getTreeView() {
+		try {
+			return localStorage.getItem('treeView') == 'true'
+		} catch (e) {
+			return false
+		}
+	}
 	let contentSearch: ContentSearch
 
 	let viewCodeDrawer: Drawer
@@ -262,7 +277,7 @@
 		})
 	}
 
-	let collapseAll = false
+	let collapseAll = true
 </script>
 
 <SearchItems
@@ -405,34 +420,22 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else if treeView}
-			{@const groupedItems = groupItems(items)}
-			<div class="border rounded-md">
-				{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
-					{#if item}
-						<TreeView
-							{collapseAll}
-							{item}
-							on:scriptChanged={loadScripts}
-							on:flowChanged={loadFlows}
-							on:appChanged={loadApps}
-							on:rawAppChanged={loadRawApps}
-							on:reload={() => {
-								loadScripts()
-								loadFlows()
-								loadApps()
-								loadRawApps()
-							}}
-							{showCode}
-						/>
-					{/if}
-				{/each}
-			</div>
-			{#if groupedItems.length > 30 && nbDisplayed < groupedItems.length}
-				<span class="text-xs"
-					>{nbDisplayed} root nodes out of {groupedItems.length}
-					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
-				>
-			{/if}
+			<TreeViewRoot
+				{items}
+				{nbDisplayed}
+				{collapseAll}
+				on:scriptChanged={loadScripts}
+				on:flowChanged={loadFlows}
+				on:appChanged={loadApps}
+				on:rawAppChanged={loadRawApps}
+				on:reload={() => {
+					loadScripts()
+					loadFlows()
+					loadApps()
+					loadRawApps()
+				}}
+				{showCode}
+			/>
 		{:else}
 			<div class="border rounded-md">
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}

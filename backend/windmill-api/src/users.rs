@@ -42,6 +42,8 @@ use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH;
 use windmill_common::users::truncate_token;
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
@@ -1602,7 +1604,6 @@ async fn create_user(
         ));
     }
 
-    #[cfg(not(feature = "enterprise"))]
     _check_nb_of_user(&db).await?;
 
     sqlx::query!(
@@ -1665,9 +1666,16 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
     if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
-        let client = SmtpClientBuilder::new(smtp.host, smtp.port)
-            .implicit_tls(smtp.tls_implicit)
-            .credentials((smtp.username, smtp.password));
+        let client = SmtpClientBuilder::new(smtp.host, smtp.port).implicit_tls(smtp.tls_implicit);
+        let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
+            if !username.is_empty() {
+                client.credentials((username, password))
+            } else {
+                client
+            }
+        } else {
+            client
+        };
         let message = MessageBuilder::new()
             .from(("Windmill", smtp.from.as_str()))
             .to(to)
@@ -2337,6 +2345,10 @@ pub struct LoginUserInfo {
 }
 
 async fn _check_nb_of_user(db: &DB) -> Result<()> {
+    #[cfg(feature = "enterprise")]
+    if matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return Ok(());
+    }
     let nb_users_sso =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
             .fetch_one(db)
@@ -2423,7 +2435,6 @@ pub async fn login_externally(
             name = user.clone().unwrap().displayName;
         }
 
-        #[cfg(not(feature = "enterprise"))]
         _check_nb_of_user(&db).await?;
 
         sqlx::query(&format!(

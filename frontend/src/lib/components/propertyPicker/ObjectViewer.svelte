@@ -7,6 +7,7 @@
 	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from 'svelte-portal'
+	import { PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 
 	export let json: any
@@ -58,12 +59,7 @@
 </script>
 
 <Portal>
-	<S3FilePicker
-		bind:this={s3FileViewer}
-		initialFileKey={json}
-		selectedFileKey={json}
-		readOnlyMode={true}
-	/>
+	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
 
 {#if keys.length > 0}
@@ -140,9 +136,9 @@
 					<button
 						class="text-secondary underline text-2xs whitespace-nowrap ml-1"
 						on:click={() => {
-							s3FileViewer?.open?.()
+							s3FileViewer?.open?.(json)
 						}}
-						>s3 explorer
+						><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
 					</button>
 				{/if}
 			{/if}

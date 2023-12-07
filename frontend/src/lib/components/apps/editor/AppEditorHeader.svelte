@@ -103,7 +103,6 @@
 
 	export let policy: Policy
 	export let fromHub: boolean = false
-	export let versions: number[]
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedApp:
 		| {
@@ -152,6 +151,7 @@
 	let saveDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
+	let deploymentMsg: string | undefined = undefined
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -228,7 +228,8 @@
 					value: $app,
 					path,
 					summary: $summary,
-					policy
+					policy,
+					deployment_message: deploymentMsg
 				}
 			})
 			savedApp = {
@@ -259,7 +260,8 @@
 				value: $app!,
 				summary: $summary,
 				policy,
-				path: npath
+				path: npath,
+				deployment_message: deploymentMsg
 			}
 		})
 		savedApp = {
@@ -569,33 +571,31 @@
 			icon: FileClock,
 			action: () => {
 				appReportingDrawerOpen = true
-			}
+			},
+			disabled: !savedApp || savedApp.draft_only
 		},
-		...(savedApp
-			? [
-					{
-						displayName: 'Diff',
-						icon: DiffIcon,
-						action: () => {
-							if (!savedApp) {
-								return
-							}
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'normal',
-								deployed: savedApp,
-								draft: savedApp.draft,
-								current: {
-									summary: $summary,
-									value: $app,
-									path: newPath || savedApp.draft?.path || savedApp.path,
-									policy
-								}
-							})
-						}
+		{
+			displayName: 'Diff',
+			icon: DiffIcon,
+			action: () => {
+				if (!savedApp) {
+					return
+				}
+				diffDrawer?.openDrawer()
+				diffDrawer?.setDiff({
+					mode: 'normal',
+					deployed: savedApp,
+					draft: savedApp.draft,
+					current: {
+						summary: $summary,
+						value: $app,
+						path: newPath || savedApp.draft?.path || savedApp.path,
+						policy
 					}
-			  ]
-			: [])
+				})
+			},
+			disabled: !savedApp
+		}
 	]
 
 	let appEditorTutorial: AppEditorTutorial | undefined = undefined
@@ -699,6 +699,18 @@
 						)
 					}
 				}}
+			/>
+		</div>
+		<div class="py-4" />
+		<span class="text-secondary text-sm font-bold">Deployment message</span>
+		<div class="w-full pt-2">
+			<!-- svelte-ignore a11y-autofocus -->
+			<input
+				autofocus
+				type="text"
+				placeholder="Optional deployment message"
+				class="text-sm w-full"
+				bind:value={deploymentMsg}
 			/>
 		</div>
 		<div class="py-4" />
@@ -836,7 +848,7 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {versions} />
+		<DeploymentHistory on:restore {appPath} />
 	</DrawerContent>
 </Drawer>
 
@@ -1135,7 +1147,11 @@
 			</svelte:fragment>
 			<svelte:fragment slot="items">
 				{#each moreItems as item}
-					<MenuItem on:click={item.action}>
+					<MenuItem
+						on:click={item.action}
+						disabled={item.disabled}
+						class={item.disabled ? 'opacity-50' : ''}
+					>
 						<div
 							class={classNames(
 								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'

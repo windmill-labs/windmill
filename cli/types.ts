@@ -99,19 +99,20 @@ export function pushObj(
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
-  checkForCreate: boolean
+  checkForCreate: boolean,
+  message?: string,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    pushApp(workspace, p, befObj, newObj, checkForCreate);
+    pushApp(workspace, p, befObj, newObj, checkForCreate, message);
   } else if (typeEnding === "folder") {
     pushFolder(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "variable") {
     pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
-    pushFlow(workspace, flowName, flowName + ".flow");
+    pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
     pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {

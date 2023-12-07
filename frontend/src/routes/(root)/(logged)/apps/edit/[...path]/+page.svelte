@@ -188,7 +188,6 @@
 					app = e.detail
 					redraw++
 				}}
-				versions={app.versions}
 				summary={app.summary}
 				app={app.value}
 				path={app.path}

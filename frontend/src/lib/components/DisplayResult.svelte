@@ -4,7 +4,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, PanelRightOpen } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -30,6 +30,8 @@
 		| 'svg'
 		| 'filename'
 		| 's3object'
+		| 's3object-list'
+		| 'plain'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -99,6 +101,11 @@
 					return 'html'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
+				} else if (
+					keys.includes('windmill_content_type') &&
+					result['windmill_content_type'].startsWith('text/')
+				) {
+					return 'plain'
 				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
@@ -127,6 +134,11 @@
 					return 'approval'
 				} else if (keys.length === 1 && keys.includes('s3')) {
 					return 's3object'
+				} else if (
+					Array.isArray(result) &&
+					result.every((elt) => inferResultKind(elt) === 's3object')
+				) {
+					return 's3object-list'
 				}
 			} catch (err) {}
 		}
@@ -151,7 +163,7 @@
 
 <div class="inline-highlight relative grow min-h-[200px]">
 	{#if result != undefined && length != undefined && largeObject != undefined}
-		{#if resultKind && !['json', 's3object'].includes(resultKind)}
+		{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind)}
 			<div class="top-0 flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
@@ -263,6 +275,10 @@
 					src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 				/>
 			</div>
+		{:else if !forceJson && resultKind == 'plain'}
+			<div class="h-full text-2xs">
+				<pre>{result?.['result']}</pre>
+			</div>
 		{:else if !forceJson && resultKind == 'file'}
 			<div
 				><a
@@ -304,10 +320,23 @@
 				<button
 					class="text-secondary underline text-2xs whitespace-nowrap"
 					on:click={() => {
-						s3FileViewer?.open?.()
+						s3FileViewer?.open?.(result)
 					}}
-					>s3 explorer
+					><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
 				</button>
+			</div>
+		{:else if !forceJson && resultKind == 's3object-list'}
+			<div class="absolute top-1 h-full w-full">
+				{#each result as s3object}
+					<Highlight class="" language={json} code={toJsonStr(s3object).replace(/\\n/g, '\n')} />
+					<button
+						class="text-secondary text-2xs whitespace-nowrap"
+						on:click={() => {
+							s3FileViewer?.open?.(s3object)
+						}}
+						><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
+					</button>
+				{/each}
 			</div>
 		{:else if largeObject}<div class="text-sm text-tertiary"
 				><a
@@ -383,11 +412,6 @@
 	</Portal>
 
 	<Portal>
-		<S3FilePicker
-			bind:this={s3FileViewer}
-			initialFileKey={result}
-			selectedFileKey={result}
-			readOnlyMode={true}
-		/>
+		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 	</Portal>
 {/if}

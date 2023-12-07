@@ -27,7 +27,8 @@ export async function pushApp(
   remotePath: string,
   app: AppFile | AppWithLastVersion | undefined,
   newApp: AppFile,
-  raw: boolean
+  raw: boolean,
+  message?: string
 ): Promise<void> {
   remotePath = removeType(remotePath, "app");
   if (raw) {
@@ -50,6 +51,7 @@ export async function pushApp(
       workspace,
       path: remotePath.replaceAll("\\", "/"),
       requestBody: {
+        deployment_message: message,
         ...newApp,
       },
     });
@@ -60,6 +62,7 @@ export async function pushApp(
       workspace,
       requestBody: {
         path: remotePath.replaceAll("\\", "/"),
+        deployment_message: message,
         ...newApp,
       },
     });

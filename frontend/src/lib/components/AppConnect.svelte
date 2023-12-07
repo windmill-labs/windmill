@@ -264,20 +264,23 @@
 			const resourceValue = args
 
 			if (!manual || linkedSecret != undefined) {
-				await VariableService.createVariable({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path,
-						value: manual ? args[linkedSecret ?? ''] : value,
-						is_secret: true,
-						description: emptyString(description)
-							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
-							: description,
-						is_oauth: !manual,
-						account: account
-					}
-				})
-				resourceValue[linkedSecret ?? 'token'] = `$var:${path}`
+				let v = manual ? args[linkedSecret ?? ''] : value
+				if (!v.startsWith('$var:')) {
+					await VariableService.createVariable({
+						workspace: $workspaceStore!,
+						requestBody: {
+							path,
+							value: v,
+							is_secret: true,
+							description: emptyString(description)
+								? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
+								: description,
+							is_oauth: !manual,
+							account: account
+						}
+					})
+					resourceValue[linkedSecret ?? 'token'] = `$var:${path}`
+				}
 			}
 
 			await ResourceService.createResource({

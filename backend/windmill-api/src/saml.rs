@@ -7,42 +7,45 @@
  */
 #![allow(non_snake_case)]
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use axum::response::Redirect;
 use axum::{routing::post, Router};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use axum::{Extension, Form};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use std::sync::Arc;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use samael::metadata::{ContactPerson, ContactType, EntityDescriptor};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use samael::service_provider::{ServiceProvider, ServiceProviderBuilder};
 
 use serde::Deserialize;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use tower_cookies::Cookies;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use windmill_common::error::{Error, Result};
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use crate::db::DB;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use crate::users::login_externally;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 use crate::BASE_URL;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 #[derive(Clone)]
 pub struct ServiceProviderExt(pub Option<ServiceProvider>);
 
-#[cfg(not(feature = "enterprise"))]
+#[cfg(not(feature = "saml"))]
 pub struct ServiceProviderExt();
+
+#[cfg(feature = "saml")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
 
 pub struct SamlSsoLogin(pub Option<String>);
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 pub async fn build_sp_extension() -> anyhow::Result<(ServiceProviderExt, SamlSsoLogin)> {
     if let Some(url_metadata) = std::env::var("SAML_METADATA").ok() {
         //todo restrict for non ee
@@ -90,13 +93,18 @@ pub struct SamlForm {
     pub SAMLResponse: Option<String>,
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "saml")]
 pub async fn acs(
     Extension(db): Extension<DB>,
     cookies: Cookies,
     Extension(se): Extension<Arc<ServiceProviderExt>>,
     Form(s): Form<SamlForm>,
 ) -> Result<Redirect> {
+    if matches!(get_license_plan().await, LicensePlan::Pro) {
+        return Err(Error::BadRequest(
+            "SAML not available in the pro plan".to_string(),
+        ));
+    };
     if let Some(sp_m) = &se.0 {
         let sp = sp_m.clone();
         if let Some(encoded_resp) = s.SAMLResponse {
@@ -121,7 +129,7 @@ pub async fn acs(
     }
 }
 
-#[cfg(not(feature = "enterprise"))]
+#[cfg(not(feature = "saml"))]
 pub async fn acs() -> String {
     "SAML available only in enterprise version".to_string()
 }
