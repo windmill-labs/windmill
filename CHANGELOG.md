@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.222.0](https://github.com/windmill-labs/windmill/compare/v1.221.0...v1.222.0) (2023-12-07)
+
+
+### Features
+
+* conditional fields on forms ([b10df30](https://github.com/windmill-labs/windmill/commit/b10df302455202940348cd20c2e733734fb7d027))
+* mysql named params ([#2805](https://github.com/windmill-labs/windmill/issues/2805)) ([c4a1054](https://github.com/windmill-labs/windmill/commit/c4a1054a5a4ab3fd700de842a1f46d5886632b11))
+
+
+### Bug Fixes
+
+* add saml feature flag ([#2802](https://github.com/windmill-labs/windmill/issues/2802)) ([da15a56](https://github.com/windmill-labs/windmill/commit/da15a56a07288d4164c88289dd559389735db719))
+* app reports screenshot refresh ([#2800](https://github.com/windmill-labs/windmill/issues/2800)) ([f7f7130](https://github.com/windmill-labs/windmill/commit/f7f71302f7d0fcac7468d506ebaceb55332ec1ed))
+* fix extraOptions for agGrid ([f7d7746](https://github.com/windmill-labs/windmill/commit/f7d7746327411da06cede4e0ff06222d318d01bc))
+* fix extraOptions for agGrid ([2f7fb9b](https://github.com/windmill-labs/windmill/commit/2f7fb9bfd490932a2f0bc01f02df678668487f8c))
+* **frontend:** Fix chartjs options merge ([#2804](https://github.com/windmill-labs/windmill/issues/2804)) ([e11b257](https://github.com/windmill-labs/windmill/commit/e11b257b2d761b2b26160d61f8e113dbe47e9efe))
+
 ## [1.221.0](https://github.com/windmill-labs/windmill/compare/v1.220.0...v1.221.0) (2023-12-06)
 
 
