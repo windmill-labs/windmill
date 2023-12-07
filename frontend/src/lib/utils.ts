@@ -519,6 +519,10 @@ export function deepMergeWithPriority<T>(target: T, source: T): T {
 			} else {
 				merged[key] = source[key]
 			}
+		} else {
+			if (merged) {
+				merged[key] = source[key]
+			}
 		}
 	}
 
