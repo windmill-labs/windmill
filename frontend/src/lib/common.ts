@@ -36,7 +36,7 @@ export interface SchemaProperty {
 	customErrorMessage?: string
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
-	hideExpr?: string
+	showExpr?: string
 }
 
 export interface ModalSchemaProperty {
@@ -57,7 +57,7 @@ export interface ModalSchemaProperty {
 	contentEncoding?: 'base64' | 'binary'
 	schema?: Schema
 	customErrorMessage?: string
-	hideExpr?: string
+	showExpr?: string
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -78,7 +78,7 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		currency: schema.currency,
 		currencyLocale: schema.currencyLocale,
 		multiselect: schema.multiselect,
-		hideExpr: schema.hideExpr
+		showExpr: schema.showExpr
 	}
 }
 export type Schema = {

@@ -40,7 +40,7 @@
 							required: schema.required ?? []
 					  }
 					: undefined,
-			hideExpr: schema.hideExpr
+			showExpr: schema.showExpr
 		}
 	}
 
@@ -66,12 +66,13 @@
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import Label from './Label.svelte'
-	// import SimpleEditor from './SimpleEditor.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let error = ''
 	export let editing = false
 	export let oldArgName: string | undefined = undefined
 	export let isFlowInput = false
+	export let propsNames: string[] = []
 
 	const dispatch = createEventDispatcher()
 	let drawer: Drawer
@@ -111,7 +112,7 @@
 		property.currencyLocale = undefined
 		property.multiselect = undefined
 		property.items = undefined
-		property.hideExpr = undefined
+		property.showExpr = undefined
 		drawer.closeDrawer()
 	}
 
@@ -185,7 +186,7 @@
 								} else {
 									property.items = undefined
 								}
-								property.hideExpr = undefined
+								property.showExpr = undefined
 							}}
 							id={`schema-modal-type-${argType}`}
 						>
@@ -279,24 +280,37 @@
 							</svelte:fragment>
 						</Tabs>
 					{/if}
-					<!-- <div class="pt-2">
+					<div class="pt-2">
 						<Toggle
-							options={{ right: 'Hide this field conditionally' }}
+							options={{ right: 'Show this field only when conditions are met' }}
 							class="!justify-start"
-							checked={Boolean(property.hideExpr)}
+							checked={Boolean(property.showExpr)}
 							on:change={() => {
-								property.hideExpr = property.hideExpr ? undefined : "//props.foo == 'bar'\nfalse"
+								property.showExpr = property.showExpr ? undefined : 'true //fields.foo == 42'
 							}}
 						/>
-						{#if property.hideExpr != undefined}
-							<SimpleEditor
-								lang="javascript"
-								bind:code={property.hideExpr}
-								shouldBindKey={false}
-								autoHeight
-							/>
+						{#if property.showExpr != undefined}
+							<div class="border">
+								<SimpleEditor
+									extraLib={`declare const fields: Record<${propsNames
+										.filter((x) => x != property.name)
+										.map((x) => `"${x}"`)
+										.join(' | ')}, any>;\n`}
+									lang="javascript"
+									bind:code={property.showExpr}
+									shouldBindKey={false}
+									fixedOverflowWidgets={false}
+									autoHeight
+								/>
+							</div>
+							<div class="flex flex-row-reverse text-2xs text-tertiary"
+								><div
+									>Other fields are available under <code>fields</code> (e.g:
+									<code>fields.foo == 42</code>)</div
+								></div
+							>
 						{/if}
-					</div> -->
+					</div>
 				</div>
 			{/if}
 		</div>
