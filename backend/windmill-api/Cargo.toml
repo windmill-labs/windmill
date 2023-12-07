@@ -9,7 +9,8 @@ name = "windmill_api"
 path = "src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise", "async-stripe", "samael", "windmill-audit/enterprise"]
+enterprise = ["windmill-queue/enterprise", "async-stripe", "windmill-audit/enterprise"]
+saml = ["samael"]
 benchmark = []
 
 [dependencies]

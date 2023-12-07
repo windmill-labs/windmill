@@ -35,6 +35,7 @@ incremental = true
 
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+saml = ["windmill-api/saml"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
@@ -193,7 +194,7 @@ tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
-samael = { version = "0.0.12", features = ["xmlsec"] }
+samael = { version = "0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
