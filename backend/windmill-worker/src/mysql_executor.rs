@@ -90,6 +90,14 @@ pub async fn do_mysql(
         {
             Value::Null => mysql_async::Value::NULL,
             Value::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
+            Value::String(s)
+                if arg_t == "timestamp"
+                    || arg_t == "datetime"
+                    || arg_t == "date"
+                    || arg_t == "time" =>
+            {
+                string_date_to_mysql_date(&s)
+            }
             Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
             Value::Number(n)
                 if n.is_i64() && (arg_t == "int" || arg_t == "integer" || arg_t == "smallint") =>
@@ -142,6 +150,26 @@ pub async fn do_mysql(
     return Ok(windmill_common::worker::to_raw_value(&json!(rows)));
 }
 
+fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
+    // 2023-12-01T16:18:00.000Z
+    let re = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
+    let caps = re.captures(s);
+
+    if let Some(caps) = caps {
+        mysql_async::Value::Date(
+            caps.get(1).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(2).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(3).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(4).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(5).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(6).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(7).unwrap().as_str().parse().unwrap_or_default(),
+        )
+    } else {
+        mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
+    }
+}
+
 fn convert_row_to_value(row: Row) -> serde_json::Value {
     let mut map = serde_json::Map::new();
 
@@ -170,8 +198,10 @@ fn convert_mysql_value_to_json(v: mysql_async::Value, c: ColumnType) -> serde_js
         mysql_async::Value::UInt(n) => json!(n),
         mysql_async::Value::Float(n) => json!(n),
         mysql_async::Value::Double(n) => json!(n),
-        d @ mysql_async::Value::Date(_, _, _, _, _, _, _) => json!(d.as_sql(true)),
-        t @ mysql_async::Value::Time(_, _, _, _, _, _) => json!(t.as_sql(true)),
+        d @ mysql_async::Value::Date(_, _, _, _, _, _, _) => {
+            json!(d.as_sql(true).trim_matches('\''))
+        }
+        t @ mysql_async::Value::Time(_, _, _, _, _, _) => json!(t.as_sql(true).trim_matches('\'')),
         _ => match c {
             ColumnType::MYSQL_TYPE_FLOAT | ColumnType::MYSQL_TYPE_DOUBLE => {
                 conversion_error(f64::from_value_opt(v))
