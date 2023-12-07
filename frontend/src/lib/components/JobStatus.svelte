@@ -5,6 +5,7 @@
 	import { forLater } from '$lib/forLater'
 	import DurationMs from './DurationMs.svelte'
 	import { Calendar, CheckCircle2, Circle, Clock, XCircle } from 'lucide-svelte'
+	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 
 	const SMALL_ICON_SIZE = 12
 
@@ -39,8 +40,9 @@
 		</Badge>
 	</div>
 {:else if job && 'running' in job}
-	<div>
+	<div class="flex flex-row gap-1 items-center">
 		<Badge icon={{ icon: Clock, position: 'left' }}>Queued</Badge>
+		<NoWorkerWithTagWarning tag={job.tag} />
 	</div>
 {:else}
 	<Circle size={SMALL_ICON_SIZE} class="text-gray-200" />

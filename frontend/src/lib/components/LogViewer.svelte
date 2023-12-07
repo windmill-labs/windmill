@@ -95,7 +95,7 @@
 				{#if tag}
 					<div class="flex flex-row items-center gap-1">
 						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
-						<NoWorkerWithTagWarning {tag} {isLoading} />
+						<NoWorkerWithTagWarning {tag} />
 					</div>
 				{/if}
 			</div>
