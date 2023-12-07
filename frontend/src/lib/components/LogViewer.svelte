@@ -4,6 +4,7 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import AnsiUp from 'ansi_up'
+	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 
 	export let content: string | undefined
 	export let isLoading: boolean
@@ -89,10 +90,13 @@
 			</div>
 		</div>
 		{#if isLoading}
-			<div class="flex gap-2 absolute top-2 left-2 items-center">
+			<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
 				<Loader2 class="animate-spin" />
 				{#if tag}
-					<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
+					<div class="flex flex-row items-center gap-1">
+						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
+						<NoWorkerWithTagWarning {tag} {isLoading} />
+					</div>
 				{/if}
 			</div>
 		{:else if duration}
