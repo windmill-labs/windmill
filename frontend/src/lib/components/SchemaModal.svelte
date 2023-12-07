@@ -235,84 +235,82 @@
 					>
 				{/if}
 			</div>
-			{#if property.selectedType !== 'boolean'}
-				<div>
-					<div class="font-semibold text-secondary mb-1">Advanced</div>
-					{#if property.selectedType == 'string'}
-						<StringTypeNarrowing
-							bind:customErrorMessage={property.customErrorMessage}
-							bind:format={property.format}
-							bind:pattern={property.pattern}
-							bind:enum_={property.enum_}
-							bind:contentEncoding={property.contentEncoding}
-						/>
-					{:else if property.selectedType == 'array'}
-						<ArrayTypeNarrowing bind:itemsType={property.items} />
-						<div class="mt-4" />
-						<Label label="Display using multiselect">
-							<Toggle
-								disabled={property?.items?.enum == undefined}
-								bind:checked={property.multiselect}
-							/>
-						</Label>
-					{:else if property.selectedType == 'number' || property.selectedType == 'integer'}
-						<NumberTypeNarrowing
-							bind:min={property.min}
-							bind:max={property.max}
-							bind:currency={property.currency}
-							bind:currencyLocale={property.currencyLocale}
-						/>
-					{:else if property.selectedType == 'object'}
-						<Tabs selected="custom-object">
-							<Tab value="custom-object">Custom Object</Tab>
-							<Tab value="resource">Resource</Tab>
-							<svelte:fragment slot="content">
-								<div class="overflow-auto pt-2">
-									<TabContent value="custom-object">
-										<SchemaEditor bind:schema={property.schema} />
-									</TabContent>
-
-									<TabContent value="resource">
-										<h3 class="mb-2 font-bold mt-4">Resource type</h3>
-										<ObjectTypeNarrowing bind:format={property.format} />
-									</TabContent>
-								</div>
-							</svelte:fragment>
-						</Tabs>
-					{/if}
-					<div class="pt-2">
+			<div>
+				<div class="font-semibold text-secondary mb-1">Advanced</div>
+				{#if property.selectedType == 'string'}
+					<StringTypeNarrowing
+						bind:customErrorMessage={property.customErrorMessage}
+						bind:format={property.format}
+						bind:pattern={property.pattern}
+						bind:enum_={property.enum_}
+						bind:contentEncoding={property.contentEncoding}
+					/>
+				{:else if property.selectedType == 'array'}
+					<ArrayTypeNarrowing bind:itemsType={property.items} />
+					<div class="mt-4" />
+					<Label label="Display using multiselect">
 						<Toggle
-							options={{ right: 'Show this field only when conditions are met' }}
-							class="!justify-start"
-							checked={Boolean(property.showExpr)}
-							on:change={() => {
-								property.showExpr = property.showExpr ? undefined : 'true //fields.foo == 42'
-							}}
+							disabled={property?.items?.enum == undefined}
+							bind:checked={property.multiselect}
 						/>
-						{#if property.showExpr != undefined}
-							<div class="border">
-								<SimpleEditor
-									extraLib={`declare const fields: Record<${propsNames
-										.filter((x) => x != property.name)
-										.map((x) => `"${x}"`)
-										.join(' | ')}, any>;\n`}
-									lang="javascript"
-									bind:code={property.showExpr}
-									shouldBindKey={false}
-									fixedOverflowWidgets={false}
-									autoHeight
-								/>
+					</Label>
+				{:else if property.selectedType == 'number' || property.selectedType == 'integer'}
+					<NumberTypeNarrowing
+						bind:min={property.min}
+						bind:max={property.max}
+						bind:currency={property.currency}
+						bind:currencyLocale={property.currencyLocale}
+					/>
+				{:else if property.selectedType == 'object'}
+					<Tabs selected="custom-object">
+						<Tab value="custom-object">Custom Object</Tab>
+						<Tab value="resource">Resource</Tab>
+						<svelte:fragment slot="content">
+							<div class="overflow-auto pt-2">
+								<TabContent value="custom-object">
+									<SchemaEditor bind:schema={property.schema} />
+								</TabContent>
+
+								<TabContent value="resource">
+									<h3 class="mb-2 font-bold mt-4">Resource type</h3>
+									<ObjectTypeNarrowing bind:format={property.format} />
+								</TabContent>
 							</div>
-							<div class="flex flex-row-reverse text-2xs text-tertiary"
-								><div
-									>Other fields are available under <code>fields</code> (e.g:
-									<code>fields.foo == 42</code>)</div
-								></div
-							>
-						{/if}
-					</div>
+						</svelte:fragment>
+					</Tabs>
+				{/if}
+				<div class="pt-2">
+					<Toggle
+						options={{ right: 'Show this field only when conditions are met' }}
+						class="!justify-start"
+						checked={Boolean(property.showExpr)}
+						on:change={() => {
+							property.showExpr = property.showExpr ? undefined : 'true //fields.foo == 42'
+						}}
+					/>
+					{#if property.showExpr != undefined}
+						<div class="border">
+							<SimpleEditor
+								extraLib={`declare const fields: Record<${propsNames
+									.filter((x) => x != property.name)
+									.map((x) => `"${x}"`)
+									.join(' | ')}, any>;\n`}
+								lang="javascript"
+								bind:code={property.showExpr}
+								shouldBindKey={false}
+								fixedOverflowWidgets={false}
+								autoHeight
+							/>
+						</div>
+						<div class="flex flex-row-reverse text-2xs text-tertiary"
+							><div
+								>Other fields are available under <code>fields</code> (e.g:
+								<code>fields.foo == 42</code>)</div
+							></div
+						>
+					{/if}
 				</div>
-			{/if}
+			</div>
 		</div>
 		<div class="font-semibold text-secondary mb-1 pt-4">Preview</div>
 		<LightweightSchemaForm
