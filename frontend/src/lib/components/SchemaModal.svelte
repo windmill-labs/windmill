@@ -39,7 +39,8 @@
 							properties: schema.properties ?? {},
 							required: schema.required ?? []
 					  }
-					: undefined
+					: undefined,
+			hideExpr: schema.hideExpr
 		}
 	}
 
@@ -65,6 +66,7 @@
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import Label from './Label.svelte'
+	// import SimpleEditor from './SimpleEditor.svelte'
 
 	export let error = ''
 	export let editing = false
@@ -109,7 +111,7 @@
 		property.currencyLocale = undefined
 		property.multiselect = undefined
 		property.items = undefined
-
+		property.hideExpr = undefined
 		drawer.closeDrawer()
 	}
 
@@ -183,6 +185,7 @@
 								} else {
 									property.items = undefined
 								}
+								property.hideExpr = undefined
 							}}
 							id={`schema-modal-type-${argType}`}
 						>
@@ -275,9 +278,25 @@
 								</div>
 							</svelte:fragment>
 						</Tabs>
-					{:else}
-						<p>No advanced configuration for this type</p>
 					{/if}
+					<!-- <div class="pt-2">
+						<Toggle
+							options={{ right: 'Hide this field conditionally' }}
+							class="!justify-start"
+							checked={Boolean(property.hideExpr)}
+							on:change={() => {
+								property.hideExpr = property.hideExpr ? undefined : "//props.foo == 'bar'\nfalse"
+							}}
+						/>
+						{#if property.hideExpr != undefined}
+							<SimpleEditor
+								lang="javascript"
+								bind:code={property.hideExpr}
+								shouldBindKey={false}
+								autoHeight
+							/>
+						{/if}
+					</div> -->
 				</div>
 			{/if}
 		</div>

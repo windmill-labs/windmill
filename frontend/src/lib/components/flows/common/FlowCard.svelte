@@ -8,7 +8,7 @@
 </script>
 
 {#if !noEditor}
-	<FlowCardHeader {title} bind:flowModule>
+	<FlowCardHeader on:reload {title} bind:flowModule>
 		<slot name="header" />
 	</FlowCardHeader>
 {/if}
