@@ -155,10 +155,7 @@ fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
     let re = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
     let caps = re.captures(s);
 
-    if caps.is_none() {
-        mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
-    } else {
-        let caps = caps.unwrap();
+    if let Some(caps) = caps {
         mysql_async::Value::Date(
             caps.get(1).unwrap().as_str().parse().unwrap_or_default(),
             caps.get(2).unwrap().as_str().parse().unwrap_or_default(),
@@ -168,6 +165,8 @@ fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
             caps.get(6).unwrap().as_str().parse().unwrap_or_default(),
             caps.get(7).unwrap().as_str().parse().unwrap_or_default(),
         )
+    } else {
+        mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
     }
 }
 
