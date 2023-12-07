@@ -61,24 +61,27 @@ lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
     // -- $1 name (type) = default
-    static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    pub static ref RE_ARG_MYSQL_NAMED: Regex = Regex::new(r#"(?m)^-- :([a-z_][a-z0-9_]*) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
-    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- @name (type) = default
-    static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
-    static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
 
-    static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
 }
 
 fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args: Vec<Arg> = vec![];
 
-    for cap in RE_ARG_MYSQL.captures_iter(code) {
+    let mut using_named_args = false;
+    for cap in RE_ARG_MYSQL_NAMED.captures_iter(code) {
+        using_named_args = true;
         let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
         let typ = cap
             .get(2)
@@ -100,6 +103,33 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
         });
+    }
+
+    if !using_named_args {
+        // backwards compatibility
+        for cap in RE_ARG_MYSQL.captures_iter(code) {
+            let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+            let typ = cap
+                .get(2)
+                .map(|x| x.as_str().to_string().to_lowercase())
+                .unwrap();
+            let default = cap.get(3).map(|x| x.as_str().to_string());
+            let has_default = default.is_some();
+            let parsed_typ = parse_mysql_typ(typ.as_str());
+
+            let parsed_default = default.and_then(|x| match parsed_typ {
+                Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
+                Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
+                _ => Some(json!(x)),
+            });
+            args.push(Arg {
+                name,
+                typ: parsed_typ,
+                default: parsed_default,
+                otyp: Some(typ),
+                has_default,
+            });
+        }
     }
 
     Ok(Some(args))
