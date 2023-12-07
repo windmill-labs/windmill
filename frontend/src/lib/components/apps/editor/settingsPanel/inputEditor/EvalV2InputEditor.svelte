@@ -6,7 +6,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
 	import { inferDeps } from '../../appUtilsInfer'
-	import { Maximize2 } from 'lucide-svelte'
+	import { Maximize2, X } from 'lucide-svelte'
 	import { Drawer } from '$lib/components/common'
 
 	export let componentInput: EvalV2AppInput | undefined
@@ -100,6 +100,7 @@
 					<div
 						class="p-1 !text-2xs absolute rounded-b border-b border-r border-l bg-surface w-full z-[5000] overflow-auto"
 					>
+						<div class="float-right text-tertiary cursor-pointer"><X size={14} /></div>
 						<pre class="text-tertiary"
 							>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
 						>

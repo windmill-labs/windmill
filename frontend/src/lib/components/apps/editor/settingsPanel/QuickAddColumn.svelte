@@ -4,6 +4,7 @@
 	import type { AppViewerContext } from '../../types'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
+	import { isObject } from '$lib/utils'
 
 	export let columns: string[] = []
 
@@ -35,7 +36,9 @@
 	function updateRemainingColumns(result: any[], columns: string[]) {
 		if (Array.isArray(result) && result?.length > 0) {
 			const allKeysSet: Set<string> = result.reduce((acc, obj) => {
-				Object.keys(obj).forEach((key) => acc.add(key))
+				if (isObject(obj)) {
+					Object.keys(obj).forEach((key) => acc.add(key))
+				}
 				return acc
 			}, new Set<string>())
 

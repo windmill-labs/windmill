@@ -99,7 +99,6 @@
 		"@tanstack/svelte-table": "^8.9.9",
 		"ag-grid-community": "^31.0.0",
 		"ag-grid-enterprise": "^31.0.0",
-		"ag-grid-svelte": "^0.3.0",
 		"ansi_up": "^5.2.1",
 		"chart.js": "^4.3.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
