@@ -16,6 +16,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { deepMergeWithPriority } from '$lib/utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -56,11 +57,10 @@
 		return type === 'bar' || type === 'line' || type === 'scatter' || type === 'bubble'
 	}
 
-	$: options = {
+	$: options = deepMergeWithPriority(resolvedConfig.options, {
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
-		...(resolvedConfig.options ?? {}),
 		plugins: {
 			legend: {
 				labels: {
@@ -82,7 +82,7 @@
 					}
 			  }
 			: {})
-	} as ChartOptions
+	} as ChartOptions)
 
 	$: data =
 		datasets && xData && resolvedDatasets
