@@ -19,6 +19,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
+	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
@@ -347,15 +348,12 @@
 								<Tabs bind:selected={advancedSelected}>
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
-										<Tab value="cache">Cache</Tab>
-										<Tab value="concurrency">Concurrency</Tab>
+										<Tab value="runtime">Runtime</Tab>
 										<Tab value="early-stop">Early Stop</Tab>
 										<Tab value="suspend">Suspend</Tab>
 										<Tab value="sleep">Sleep</Tab>
 										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
-										<Tab value="timeout">Timeout</Tab>
-										<Tab value="priority">Priority</Tab>
 										{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
 											<Tab value="s3">S3</Tab>
 										{/if}
@@ -364,29 +362,7 @@
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
 									{#if advancedSelected === 'retries'}
 										<FlowRetries bind:flowModule />
-									{:else if advancedSelected === 'early-stop'}
-										<FlowModuleEarlyStop bind:flowModule />
-									{:else if advancedSelected === 'suspend'}
-										<div>
-											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'sleep'}
-										<div>
-											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'cache'}
-										<div>
-											<FlowModuleCache bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'mock'}
-										<div>
-											<FlowModuleMock bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'timeout'}
-										<div>
-											<FlowModuleTimeout bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'concurrency'}
+									{:else if advancedSelected === 'runtime'}
 										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
@@ -426,22 +402,12 @@
 												</Alert>
 											{/if}
 										</Section>
-									{:else if advancedSelected === 'same_worker'}
 										<div>
-											<Alert type="info" title="Share a directory between steps">
-												If shared directory is set, will share a folder that will be mounted on
-												`./shared` for each of them to pass data between each other.
-											</Alert>
-											<Button
-												btnClasses="mt-4"
-												on:click={() => {
-													$selectedId = 'settings-same-worker'
-												}}
-											>
-												Set shared directory in the flow settings
-											</Button>
+											<FlowModuleCache bind:flowModule />
 										</div>
-									{:else if advancedSelected === 'priority'}
+										<div>
+											<FlowModuleTimeout bind:flowModule />
+										</div>
 										<Section label="Priority" class="flex flex-col gap-4">
 											<!-- TODO: Add EE-only badge when we have it -->
 											<Toggle
@@ -481,6 +447,38 @@
 												</svelte:fragment>
 											</Toggle>
 										</Section>
+										<div>
+											<FlowModuleDeleteAfterUse bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'early-stop'}
+										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'suspend'}
+										<div>
+											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'sleep'}
+										<div>
+											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'mock'}
+										<div>
+											<FlowModuleMock bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'same_worker'}
+										<div>
+											<Alert type="info" title="Share a directory between steps">
+												If shared directory is set, will share a folder that will be mounted on
+												`./shared` for each of them to pass data between each other.
+											</Alert>
+											<Button
+												btnClasses="mt-4"
+												on:click={() => {
+													$selectedId = 'settings-same-worker'
+												}}
+											>
+												Set shared directory in the flow settings
+											</Button>
+										</div>
 									{:else if advancedSelected === 's3'}
 										<div>
 											<h2 class="pb-4">

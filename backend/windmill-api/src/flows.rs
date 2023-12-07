@@ -863,6 +863,7 @@ mod tests {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -888,6 +889,7 @@ mod tests {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -910,6 +912,7 @@ mod tests {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -931,6 +934,7 @@ mod tests {
                 mock: None,
                 timeout: None,
                 priority: None,
+                delete_after_use: None,
             }),
             same_worker: false,
             concurrent_limit: None,

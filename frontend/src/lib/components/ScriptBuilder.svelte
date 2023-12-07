@@ -214,7 +214,8 @@
 					cache_ttl: script.cache_ttl,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
-					restart_unless_cancelled: script.restart_unless_cancelled
+					restart_unless_cancelled: script.restart_unless_cancelled,
+					delete_after_use: script.delete_after_use
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -289,7 +290,8 @@
 						cache_ttl: script.cache_ttl,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
-						restart_unless_cancelled: script.restart_unless_cancelled
+						restart_unless_cancelled: script.restart_unless_cancelled,
+						delete_after_use: script.delete_after_use
 					}
 				})
 			}
@@ -706,6 +708,37 @@
 											do not spawn a full runtime</Tooltip
 										>
 									</svelte:fragment>
+								</Section>
+								<Section label="Delete after use">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											WARNING: This settings ONLY applies to synchronous webhooks or when the script
+											used within a flow.
+											<br />
+											<br />
+											The logs, arguments and results of the job will be completely deleted from Windmill
+											once the it is complete and the result has been returned.
+											<br />
+											<br />
+											The deletion is irreversible.
+										</Tooltip>
+									</svelte:fragment>
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.delete_after_use)}
+											on:change={() => {
+												if (script.delete_after_use) {
+													script.delete_after_use = undefined
+												} else {
+													script.delete_after_use = true
+												}
+											}}
+											options={{
+												right: 'Delete logs, arguments and results after use'
+											}}
+										/>
+									</div>
 								</Section>
 								{#if !isCloudHosted()}
 									<Section label="High priority script" eeOnly>
