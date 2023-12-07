@@ -2925,12 +2925,34 @@ This is a paragraph.
 								expr: 'true',
 								fieldType: 'boolean'
 							}
+						},
+						{
+							id: 'd',
+							condition: {
+								type: 'evalv2',
+								expr: 'true',
+								fieldType: 'boolean'
+							}
 						}
 					]
 				},
 				{
 					id: 'b',
 					label: 'b',
+					next: [
+						{
+							id: 'c',
+							condition: {
+								type: 'evalv2',
+								expr: 'true',
+								fieldType: 'boolean'
+							}
+						}
+					]
+				},
+				{
+					id: 'd',
+					label: 'd',
 					next: [
 						{
 							id: 'c',

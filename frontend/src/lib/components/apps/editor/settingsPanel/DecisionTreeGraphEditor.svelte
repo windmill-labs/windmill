@@ -9,24 +9,84 @@
 	import DecisionTreeGraphNode from './DecisionTreeGraphNode.svelte'
 	import { onMount } from 'svelte'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
+	import { getNextId } from '$lib/components/flows/idUtils'
+	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
 
 	let drawer: Drawer | undefined = undefined
-
 	let displayedNodes: Node[] = []
 	let edges: UserEdgeType[] = []
 	let width: number, height: number
 	let fullWidth: number
 	let scroll = false
 	let fullSize = false
-
 	let selectedNodeId: string | null = null
 
 	$: selectedNode = nodes?.find((node) => node.id == selectedNodeId)
 
-	$: console.log(nodes)
+	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number; width: number } {
+		let seenId: string[] = []
+		for (const n of nodes) {
+			if (seenId.includes(n.id)) {
+				n.id = n.id + '_dup'
+			}
+			seenId.push(n.id)
+		}
+
+		if (nodes.length == 0) {
+			return {
+				nodes: [],
+				height: 0,
+				width: 0
+			}
+		}
+
+		const stratify = dagStratify().id(({ id }: Node) => id)
+		const dag = stratify(nodes)
+
+		let boxSize: any
+		try {
+			const layout = sugiyama()
+				.decross(decrossOpt())
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		} catch {
+			const layout = sugiyama()
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		}
+		return {
+			nodes: dag.descendants().map((des) => ({
+				...des.data,
+				id: des.data.id,
+				position: {
+					x: des.x
+						? des.data.loopDepth * 50 +
+						  des.x +
+						  (fullSize ? fullWidth : width) / 2 -
+						  boxSize.width / 2 -
+						  NODE.width / 2
+						: 0,
+					y: des.y || 0
+				}
+			})),
+			height: boxSize.height + NODE.height,
+			width: boxSize.width + NODE.width
+		}
+	}
+
+	$: layered = layoutNodes(displayedNodes)
+
+	$: console.log(displayedNodes)
+	$: console.log(layered)
+
+	let hfull = Math.max(layered.height, 400)
+	fullWidth = layered.width
+	height = fullSize ? hfull : Math.min(hfull, 1200 ?? window.innerHeight * 1.5)
 
 	async function createGraph() {
 		try {
@@ -38,8 +98,8 @@
 					type: 'node',
 					id: graphNode.id,
 					position: {
-						x: 80,
-						y: 16 + index * 88
+						x: -1,
+						y: -1
 					},
 					data: {
 						custom: {
@@ -49,7 +109,6 @@
 								selected: selectedNodeId == graphNode.id
 							},
 							cb: (e: string, detail: any) => {
-								console.log(e, detail)
 								if (e == 'select') {
 									selectedNodeId = detail
 								} else if (e == 'add') {
@@ -72,6 +131,21 @@
 									})
 
 									createGraph()
+								} else if (e === 'node') {
+									const nextId = getNextId(nodes.map((n) => n.id))
+
+									const newNode = {
+										id: nextId,
+										label: nextId,
+										next: []
+									}
+
+									nodes[index].next.push(newNode)
+
+									nodes.push(newNode)
+
+									createGraph()
+								} else if (e === 'branch') {
 								}
 							}
 						}
@@ -120,13 +194,13 @@
 					highlightEdges={false}
 					locked
 					dataflow={false}
-					nodes={displayedNodes}
-					width={fullSize ? fullWidth : width}
+					nodes={layered?.nodes}
 					{edges}
 					{height}
 					{scroll}
 					nodeSelected={false}
 					background={false}
+					width={fullWidth}
 				/>
 			</Pane>
 			<Pane size={50}>

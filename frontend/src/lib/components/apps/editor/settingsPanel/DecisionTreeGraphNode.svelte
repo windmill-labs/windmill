@@ -2,12 +2,14 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { DecisionTreeNode } from '../component'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
 
 	export let node: DecisionTreeNode
 
 	let selected = false
+
+	let open: boolean = false
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -25,16 +27,12 @@
 	>
 		Tab: {node.label}
 	</Button>
-	<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 flex items-center">
-		<Button
-			color="light"
-			startIcon={{ icon: Plus }}
-			size="xs2"
-			variant="border"
-			btnClasses="w-6 h-6 rounded-full p-0"
-			on:click={() => {
-				dispatch('add', node.id)
-			}}
-		/>
+	<div
+		class={twMerge(
+			'absolute -bottom-10 left-1/2 transform -translate-x-1/2 flex items-center',
+			open ? 'z-20' : ''
+		)}
+	>
+		<InsertDecisionTreeNode bind:open on:node on:branch />
 	</div>
 </div>
