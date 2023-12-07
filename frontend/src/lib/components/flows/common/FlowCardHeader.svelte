@@ -71,25 +71,27 @@
 							}}><Unlock size={12} />hash</Button
 						>
 					{:else if latestHash}
-						<Button
-							title="Lock hash to always use this specific version"
-							color="light"
-							size="xs"
-							btnClasses="text-tertiary inline-flex gap-1 items-center"
-							on:click={() => {
-								if (flowModule?.value.type == 'script') {
-									flowModule.value.hash = latestHash
-								}
-							}}><Lock size={12} />hash</Button
-						>
-						<Button
-							title="Reload latest hash"
-							size="xs"
-							color="light"
-							on:click={() => dispatch('reload')}
-						>
-							<RefreshCw size={12} /></Button
-						>
+						<div class="flex">
+							<Button
+								title="Lock hash to always use this specific version"
+								color="light"
+								size="xs"
+								btnClasses="text-tertiary inline-flex gap-1 items-center"
+								on:click={() => {
+									if (flowModule?.value.type == 'script') {
+										flowModule.value.hash = latestHash
+									}
+								}}><Lock size={12} />hash</Button
+							>
+							<Button
+								title="Reload latest hash"
+								size="xs"
+								color="light"
+								on:click={() => dispatch('reload')}
+							>
+								<RefreshCw size={12} /></Button
+							>
+						</div>
 					{/if}
 					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
 				{:else if flowModule?.value.type === 'flow'}
