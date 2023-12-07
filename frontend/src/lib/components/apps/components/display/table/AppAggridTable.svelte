@@ -128,6 +128,7 @@
 	let extraConfig = resolvedConfig.extraConfig
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
 		extraConfig = resolvedConfig.extraConfig
+		api?.updateGridOptions({ ...extraConfig })
 	}
 
 	let api: GridApi<any> | undefined = undefined
@@ -259,11 +260,10 @@
 					class="ag-theme-alpine"
 					class:ag-theme-alpine-dark={$darkMode}
 				>
-					{#key extraConfig}
-						{#key resolvedConfig?.pagination}
-							{#if loaded}
-								<div bind:this={eGui} style:height="100%" />
-								<!-- <AgGridSvelte
+					{#key resolvedConfig?.pagination}
+						{#if loaded}
+							<div bind:this={eGui} style:height="100%" />
+							<!-- <AgGridSvelte
 									rowData={value}
 									columnDefs={resolvedConfig?.columnDefs}
 									pagination={resolvedConfig?.pagination}
@@ -311,10 +311,9 @@
 										api = e.api
 									}}
 								/> -->
-							{:else}
-								<Loader2 class="animate-spin" />
-							{/if}
-						{/key}
+						{:else}
+							<Loader2 class="animate-spin" />
+						{/if}
 					{/key}
 				</div>
 			</div>
