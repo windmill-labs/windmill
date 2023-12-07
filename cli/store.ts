@@ -14,7 +14,7 @@ function hash_string(str: string): number {
 }
 
 export async function getRootStore(): Promise<string> {
-  const store = dir("config") + "/windmill/";
+  const store = (dir("config") ?? dir("tmp") ?? "/tmp/") + "/windmill/";
   await ensureDir(store);
   return store;
 }

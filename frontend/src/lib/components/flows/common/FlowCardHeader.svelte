@@ -6,6 +6,7 @@
 	import { ScriptService, type FlowModule, type PathScript } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Lock, Unlock } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
@@ -17,7 +18,10 @@
 			path: value.path
 		})
 		latestHash = script.hash
+		dispatch('reload')
 	}
+
+	const dispatch = createEventDispatcher()
 
 	$: $workspaceStore &&
 		flowModule?.value.type === 'script' &&
