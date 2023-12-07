@@ -241,19 +241,13 @@
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
 
-	let oldSchemaRes = ''
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
 		if (typeof newSchemaRes === 'string') {
-			const newSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
-			if (newSchema && newSchemaRes !== oldSchemaRes) {
-				oldSchemaRes = newSchemaRes
-				dbSchema = newSchema
-				return
-			}
+			dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+		} else {
+			dbSchema = undefined
 		}
-		dbSchema = undefined
-		oldSchemaRes = ''
 	}
 
 	$: lang && args && $dbSchemas && updateSchema()
