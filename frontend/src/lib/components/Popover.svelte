@@ -4,7 +4,7 @@
 	import Portal from 'svelte-portal'
 	import { ExternalLink } from 'lucide-svelte'
 
-	export let placement: PopoverPlacement = 'auto'
+	export let placement: PopoverPlacement = 'bottom-end'
 	export let notClickable = false
 	export let popupClass = ''
 	export let disablePopup = false
@@ -16,7 +16,7 @@
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
 	const popperOptions: PopperOptions<{}> = {
-		placement: 'bottom-end',
+		placement,
 		strategy: 'fixed',
 		modifiers: [
 			{ name: 'offset', options: { offset: [8, 8] } },
