@@ -738,3 +738,29 @@ export function orderedYamlStringify(obj: any) {
 	const sortedObj = sortObjectKeys(obj)
 	return YAML.stringify(sortedObj)
 }
+
+function evalJs(expr: string) {
+	let template = `
+return function (fields) {
+"use strict";
+return ${expr.startsWith('return ') ? expr.substring(7) : expr}
+}
+`
+	let functor = Function(template)
+	return functor()
+}
+export function computeShow(argName: string, expr: string | undefined, args: any) {
+	if (expr) {
+		try {
+			let r = evalJs(expr)(args ?? {})
+			if (!r && args[argName] !== undefined) {
+				delete args[argName]
+			}
+			return r
+		} catch (e) {
+			console.error(`Impossible to eval ${expr}:`, e)
+			return true
+		}
+	}
+	return true
+}

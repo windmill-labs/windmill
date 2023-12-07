@@ -367,5 +367,6 @@
 		on:save={(e) => handleAddOrEditArgument(e.detail)}
 		bind:editing
 		bind:oldArgName
+		propsNames={Object.keys(schema.properties ?? {})}
 	/>
 </Portal>
