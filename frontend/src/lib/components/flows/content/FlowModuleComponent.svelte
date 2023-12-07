@@ -176,7 +176,14 @@
 
 {#if flowModule.value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
-		<FlowCard on:reload={() => reload(flowModule)} {noEditor} bind:flowModule>
+		<FlowCard
+			on:reload={() => {
+				forceReload++
+				reload(flowModule)
+			}}
+			{noEditor}
+			bind:flowModule
+		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
