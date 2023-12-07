@@ -4,7 +4,6 @@
 	import { ScriptService } from '$lib/gen'
 	import { getScriptByPath } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
 
 	export let path: string
 	export let hash: string | undefined = undefined
@@ -13,7 +12,6 @@
 	let language: SupportedLanguage
 
 	let notFound = false
-	const dispatch = createEventDispatcher()
 	async function loadCode(path: string, hash: string | undefined) {
 		try {
 			notFound = false
@@ -22,7 +20,6 @@
 				: await getScriptByPath(path!)
 			code = script.content
 			language = script.language
-			dispatch('reload')
 		} catch (e) {
 			notFound = true
 			console.error(e)
