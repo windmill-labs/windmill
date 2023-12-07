@@ -2,15 +2,18 @@
 	import { WorkerService } from '$lib/gen'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
+	import { onDestroy } from 'svelte'
 	export let tag: string
 
 	let noWorkerWithTag = false
+
+	let timeout: NodeJS.Timeout | undefined = undefined
 
 	async function lookForTag(): Promise<void> {
 		try {
 			const existsWorkerWithTag = await WorkerService.existsWorkerWithTag({ tag })
 			noWorkerWithTag = !existsWorkerWithTag
-			setTimeout(() => {
+			timeout = setTimeout(() => {
 				lookForTag()
 			}, 1000)
 		} catch (err) {
@@ -19,6 +22,12 @@
 	}
 
 	lookForTag()
+
+	onDestroy(() => {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+	})
 </script>
 
 {#if noWorkerWithTag}
