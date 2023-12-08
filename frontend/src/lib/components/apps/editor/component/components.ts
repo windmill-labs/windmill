@@ -574,6 +574,12 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: false
 			},
+			selectFirstRowByDefault: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true as boolean,
+				tooltip: 'Select the first row by default on start'
+			},
 			extraConfig: {
 				type: 'static',
 				fieldType: 'object',
