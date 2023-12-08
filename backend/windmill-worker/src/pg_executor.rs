@@ -31,7 +31,7 @@ use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::common::build_args_values;
 use crate::AuthedClientBackgroundTask;
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;
 use urlencoding::encode;
 
@@ -408,6 +408,9 @@ pub fn pg_cell_to_json_value(
         Type::INET => get_basic(row, column, column_i, |a: IpAddr| {
             Ok(JSONValue::String(a.to_string()))
         })?,
+        Type::INTERVAL => get_basic(row, column, column_i, |a: IntervalStr| {
+            Ok(JSONValue::String(a.0))
+        })?,
         Type::JSON | Type::JSONB => get_basic(row, column, column_i, |a: JSONValue| Ok(a))?,
         Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
             Ok(f64_to_json_number(a.into())?)
@@ -487,6 +490,28 @@ fn get_basic<'a, T: FromSql<'a>>(
     })?;
     raw_val.map_or(Ok(JSONValue::Null), val_to_json_val)
 }
+
+struct IntervalStr(String);
+
+impl<'a> FromSql<'a> for IntervalStr {
+    fn from_sql(
+        _: &Type,
+        mut raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let microseconds = raw.get_i64();
+        let days = raw.get_i32();
+        let months = raw.get_i32();
+        Ok(IntervalStr(format!(
+            "{:?} months {:?} days {:?} ms",
+            months, days, microseconds
+        )))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        matches!(ty, &Type::INTERVAL)
+    }
+}
+
 fn get_array<'a, T: FromSql<'a>>(
     row: &'a Row,
     column: &Column,
