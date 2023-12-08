@@ -202,8 +202,6 @@
 							fixedOverflowWidgets={true}
 							small
 							automaticLayout
-							deno={false}
-							subType="tailwind"
 						/>
 					</div>
 					{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
