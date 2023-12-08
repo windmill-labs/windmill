@@ -47,7 +47,7 @@
 			: [{ error: 'input was not an array' }]
 		if (api && loaded) {
 			let selected = api.getSelectedNodes()
-			if (selected && selected.length > 0) {
+			if (selected && selected.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
 				let data = { ...selected[0].data }
 				delete data['__index']
 				outputs?.selectedRow?.set(data)
@@ -83,8 +83,10 @@
 			delete data['__index']
 			if (selectedRowIndex !== rowIndex) {
 				selectedRowIndex = rowIndex
-				outputs?.selectedRow.set(data)
 				outputs?.selectedRowIndex.set(rowIndex)
+			}
+			if (!deepEqual(outputs?.selectedRow?.peak(), data)) {
+				outputs?.selectedRow.set(data)
 			}
 		}
 	}
@@ -159,7 +161,7 @@
 					onGridReady: (e) => {
 						outputs?.ready.set(true)
 						value = value
-						if (result && result.length > 0) {
+						if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
 							e.api.getRowNode('0')?.setSelected(true)
 						}
 						$componentControl[id] = {
@@ -171,17 +173,7 @@
 						api = e.api
 					},
 					onSelectionChanged: (e) => {
-						if (resolvedConfig?.multipleSelectable) {
-							const rows = e.api.getSelectedNodes()
-							if (rows != undefined) {
-								toggleRows(rows)
-							}
-						} else {
-							const row = e.api.getSelectedNodes()?.[0]
-							if (row != undefined) {
-								toggleRow(row)
-							}
-						}
+						onSelectionChanged(e.api)
 					},
 					getRowId: (data) => data.data['__index']
 				},
@@ -201,8 +193,25 @@
 		}
 	}
 
+	function onSelectionChanged(api: GridApi<any>) {
+		if (resolvedConfig?.multipleSelectable) {
+			const rows = api.getSelectedNodes()
+			if (rows != undefined) {
+				toggleRows(rows)
+			}
+		} else {
+			const row = api.getSelectedNodes()?.[0]
+			if (row != undefined) {
+				toggleRow(row)
+			}
+		}
+	}
+
 	function updateValue() {
 		api?.updateGridOptions({ rowData: value })
+		if (api) {
+			onSelectionChanged(api)
+		}
 	}
 	function updateOptions() {
 		api?.updateGridOptions({
