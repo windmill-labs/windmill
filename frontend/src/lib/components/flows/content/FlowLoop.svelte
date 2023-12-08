@@ -13,12 +13,14 @@
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
+	import { enterpriseLicense } from '$lib/stores'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
+	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -151,6 +153,7 @@
 					<Tab value="suspend">Suspend/Approval</Tab>
 					<Tab value="sleep">Sleep</Tab>
 					<Tab value="mock">Mock</Tab>
+					<Tab value="lifetime">Lifetime</Tab>
 
 					<svelte:fragment slot="content">
 						<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
@@ -179,6 +182,11 @@
 							<TabContent value="mock" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowModuleMock bind:flowModule={mod} />
+								</div>
+							</TabContent>
+							<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
+								<div class="p-4 overflow-y-auto">
+									<FlowModuleDeleteAfterUse bind:flowModule={mod} disabled={!$enterpriseLicense} />
 								</div>
 							</TabContent>
 						</div>
