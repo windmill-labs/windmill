@@ -756,9 +756,9 @@ async fn edit_auto_invite(
 
     let domain = if ea.invite_all.is_some_and(|x| x) {
         if  *CLOUD_HOSTED {
-        return Err(Error::BadRequest(
-            "invite_all is only available locally".to_string(),
-        ));
+            return Err(Error::BadRequest(
+                "invite_all is only available locally".to_string(),
+            ));
         } else {
             "*"
         }  

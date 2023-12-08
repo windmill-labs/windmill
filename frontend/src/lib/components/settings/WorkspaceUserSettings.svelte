@@ -276,7 +276,7 @@
 					await removeAllInvitesFromDomain()
 					await WorkspaceService.editAutoInvite({
 						workspace: $workspaceStore ?? '',
-						requestBody: { operator: e.detail }
+						requestBody: { operator: e.detail, invite_all: !isCloudHosted() }
 					})
 					loadSettings()
 					listInvites()
@@ -287,7 +287,6 @@
 			size="sm"
 			checked={auto_invite_domain != undefined}
 			on:change={async (e) => {
-				console.log(e.detail)
 				await removeAllInvitesFromDomain()
 				await WorkspaceService.editAutoInvite({
 					workspace: $workspaceStore ?? '',
