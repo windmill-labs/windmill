@@ -30,7 +30,7 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 lazy_static::lazy_static! {
     static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?$"#).unwrap();
 
-    static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
+    pub static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
     static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[(\w+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?"#).unwrap();
 }
 
