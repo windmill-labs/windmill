@@ -19,7 +19,8 @@
 		OauthService,
 		Script,
 		WorkspaceService,
-		HelpersService
+		HelpersService,
+		JobService
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -30,8 +31,8 @@
 		workspaceStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
-	import { Scroll, Slack } from 'lucide-svelte'
+	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
+	import { Scroll, Slack, XCircle, RotateCw, CheckCircle2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -54,7 +55,13 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let s3ResourceInitialPath: string | undefined = undefined
-	let gitSyncResourceInitialPath: string | undefined = undefined
+	let gitSyncResourcePath: string | undefined = undefined
+	let gitSyncTestJob:
+		| {
+				jobId: string
+				status: 'running' | 'success' | 'failure'
+		  }
+		| undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -181,10 +188,10 @@
 		}
 	}
 
-	async function editWindmillGitSyncSettings(gitRepoResourcePath: string): Promise<void> {
-		gitSyncResourceInitialPath = gitRepoResourcePath
-		if (gitRepoResourcePath) {
-			let resourcePathWithPrefix = `$res:${gitRepoResourcePath}`
+	async function editWindmillGitSyncSettings(newGitRepoResourcePath: string): Promise<void> {
+		gitSyncResourcePath = newGitRepoResourcePath
+		if (newGitRepoResourcePath) {
+			let resourcePathWithPrefix = `$res:${newGitRepoResourcePath}`
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -240,7 +247,7 @@
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
 				: undefined
-		gitSyncResourceInitialPath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
+		gitSyncResourcePath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
 	}
 
 	$: {
@@ -281,6 +288,47 @@
 			scriptPath.startsWith('hub/') &&
 			scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
 		)
+	}
+
+	async function runGitSyncTestJob(gitRepoResourcePath: string | undefined) {
+		if (gitRepoResourcePath === undefined) {
+			return
+		}
+		let jobId = await JobService.runScriptByPath({
+			workspace: $workspaceStore!,
+			path: 'hub/7841/git-repo-test-read-write-windmill',
+			requestBody: {
+				repo_url_resource_path: gitRepoResourcePath
+			}
+		})
+		gitSyncTestJob = {
+			jobId: jobId,
+			status: 'running'
+		}
+		tryEvery({
+			tryCode: async () => {
+				const testResult = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: jobId
+				})
+				gitSyncTestJob!.status = testResult.success ? 'success' : 'failure'
+			},
+			timeoutCode: async () => {
+				try {
+					await JobService.cancelQueuedJob({
+						workspace: $workspaceStore!,
+						id: jobId,
+						requestBody: {
+							reason: 'Git sync test job timed out after 5s'
+						}
+					})
+				} catch (err) {
+					console.error(err)
+				}
+			},
+			interval: 500,
+			timeout: 5000
+		})
 	}
 </script>
 
@@ -681,16 +729,38 @@
 				<br />
 				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
-			<div class="mt-5 mb-5 flex gap-1">
+			<div class="flex mt-5 mb-1 gap-1">
 				{#key s3ResourceInitialPath}
 					<ResourcePicker
 						resourceType="git_repository"
-						initialValue={gitSyncResourceInitialPath}
+						initialValue={gitSyncResourcePath}
 						on:change={(ev) => {
 							editWindmillGitSyncSettings(ev.detail)
 						}}
 					/>
+					<Button
+						disabled={gitSyncResourcePath === undefined}
+						btnClasses="w-32 text-center"
+						color="dark"
+						on:click={() => runGitSyncTestJob(gitSyncResourcePath)}
+						size="xs">Test connection</Button
+					>
 				{/key}
+			</div>
+			<div class="flex mb-5 text-normal text-2xs gap-1">
+				{#if gitSyncTestJob !== undefined}
+					{#if gitSyncTestJob?.status === 'running'}
+						<RotateCw size={14} />
+					{:else if gitSyncTestJob?.status === 'success'}
+						<CheckCircle2 size={14} class="text-green-600" />
+					{:else}
+						<XCircle size={14} class="text-red-700" />
+					{/if}
+					Git sync resource checked via Windmill job
+					<a target="_blank" href={`/run/${gitSyncTestJob?.jobId}?workspace=${$workspaceStore}`}>
+						{gitSyncTestJob?.jobId}
+					</a>
+				{/if}
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
