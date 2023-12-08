@@ -8,7 +8,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import { RawScript, type FlowModule, Script } from '$lib/gen'
+	import { type FlowModule, Script } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -259,8 +259,8 @@
 										bind:this={editor}
 										class="h-full relative"
 										bind:code={flowModule.value.content}
-										deno={flowModule.value.language === RawScript.language.DENO}
 										lang={scriptLangToEditorLang(flowModule.value.language)}
+										scriptLang={flowModule.value.language}
 										automaticLayout={true}
 										cmdEnterAction={async () => {
 											selected = 'test'

@@ -307,7 +307,7 @@
 						}}
 						class="flex flex-1 h-full !overflow-visible"
 						lang={scriptLangToEditorLang(lang)}
-						deno={lang == 'deno'}
+						scriptLang={lang}
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
