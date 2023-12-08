@@ -259,8 +259,8 @@
 										bind:this={editor}
 										class="h-full relative"
 										bind:code={flowModule.value.content}
-										deno={flowModule.value.language === RawScript.language.DENO}
 										lang={scriptLangToEditorLang(flowModule.value.language)}
+										scriptLang={flowModule.value.language}
 										automaticLayout={true}
 										cmdEnterAction={async () => {
 											selected = 'test'

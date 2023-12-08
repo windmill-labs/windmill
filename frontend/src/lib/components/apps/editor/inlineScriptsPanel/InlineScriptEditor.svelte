@@ -254,12 +254,12 @@
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
-						deno={inlineScript.language == 'deno'}
 						path={inlineScript.path}
 						bind:this={editor}
 						small
 						class="flex flex-1 grow h-full"
 						lang={scriptLangToEditorLang(inlineScript?.language)}
+						scriptLang={inlineScript.language}
 						bind:code={inlineScript.content}
 						fixedOverflowWidgets={true}
 						cmdEnterAction={async () => {
