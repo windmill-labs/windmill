@@ -71,6 +71,7 @@
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
+	let advancedRuntimeSelected = 'concurrency'
 	let s3Kind = 'push'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
@@ -349,6 +350,7 @@
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
 										<Tab value="runtime">Runtime</Tab>
+										<Tab value="cache">Cache</Tab>
 										<Tab value="early-stop">Early Stop</Tab>
 										<Tab value="suspend">Suspend</Tab>
 										<Tab value="sleep">Sleep</Tab>
@@ -359,10 +361,18 @@
 										{/if}
 									{/if}
 								</Tabs>
+								{#if advancedSelected === 'runtime'}
+									<Tabs bind:selected={advancedRuntimeSelected}>
+										<Tab value="concurrency">Concurrency</Tab>
+										<Tab value="timeout">Timeout</Tab>
+										<Tab value="priority">Priority</Tab>
+										<Tab value="lifetime">Lifetime</Tab>
+									</Tabs>
+								{/if}
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
 									{#if advancedSelected === 'retries'}
 										<FlowRetries bind:flowModule />
-									{:else if advancedSelected === 'runtime'}
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
@@ -402,12 +412,11 @@
 												</Alert>
 											{/if}
 										</Section>
-										<div>
-											<FlowModuleCache bind:flowModule />
-										</div>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
 										<div>
 											<FlowModuleTimeout bind:flowModule />
 										</div>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'priority'}
 										<Section label="Priority" class="flex flex-col gap-4">
 											<!-- TODO: Add EE-only badge when we have it -->
 											<Toggle
@@ -447,8 +456,13 @@
 												</svelte:fragment>
 											</Toggle>
 										</Section>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
 										<div>
 											<FlowModuleDeleteAfterUse bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'cache'}
+										<div>
+											<FlowModuleCache bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'early-stop'}
 										<FlowModuleEarlyStop bind:flowModule />

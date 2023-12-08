@@ -588,6 +588,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             "Flow job completed with error".to_string()
         };
 
+        #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
             // run the cleanup step only when the root job is complete
             let cleanup_module = retrieve_cleanup_module(flow, db).await?;

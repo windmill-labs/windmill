@@ -6,6 +6,7 @@
 	import Section from '$lib/components/Section.svelte'
 
 	export let flowModule: FlowModule
+	export let disabled: boolean = false
 </script>
 
 <Section label="Delete after use">
@@ -18,10 +19,16 @@
 			<br />
 			<br />
 			The deletion is irreversible.
+			{#if disabled}
+				<br />
+				<br />
+				This option is only available on Windmill Enterprise Edition.
+			{/if}
 		</Tooltip>
 	</svelte:fragment>
 
 	<Toggle
+		{disabled}
 		size="sm"
 		checked={Boolean(flowModule.delete_after_use)}
 		on:change={() => {
@@ -32,7 +39,7 @@
 			}
 		}}
 		options={{
-			right: 'Delete logs, arguments and results after use'
+			right: 'Delete logs, arguments and results after the flow is complete'
 		}}
 	/>
 </Section>

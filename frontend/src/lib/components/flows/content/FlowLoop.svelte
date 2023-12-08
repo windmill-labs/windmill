@@ -13,6 +13,7 @@
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
+	import { enterpriseLicense } from '$lib/stores'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
@@ -185,7 +186,7 @@
 							</TabContent>
 							<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleDeleteAfterUse bind:flowModule={mod} />
+									<FlowModuleDeleteAfterUse bind:flowModule={mod} disabled={!$enterpriseLicense} />
 								</div>
 							</TabContent>
 						</div>

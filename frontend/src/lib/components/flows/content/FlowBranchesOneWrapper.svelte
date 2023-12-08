@@ -13,6 +13,7 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import SplitPanesWrapper from '../../splitPanes/SplitPanesWrapper.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 	// import FlowRetries from './FlowRetries.svelte'
 
 	export let flowModule: FlowModule
@@ -96,7 +97,7 @@
 									</TabContent>
 									<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
-											<FlowModuleDeleteAfterUse bind:flowModule />
+											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
 										</div>
 									</TabContent>
 								</div>

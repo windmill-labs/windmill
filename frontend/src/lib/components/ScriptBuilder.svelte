@@ -713,18 +713,25 @@
 									<svelte:fragment slot="header">
 										<Tooltip>
 											WARNING: This settings ONLY applies to synchronous webhooks or when the script
-											used within a flow.
+											is used within a flow. If used individually, this script must be triggered
+											using a synchronous endpoint to have the desired effect.
 											<br />
 											<br />
 											The logs, arguments and results of the job will be completely deleted from Windmill
-											once the it is complete and the result has been returned.
+											once it is complete and the result has been returned.
 											<br />
 											<br />
 											The deletion is irreversible.
+											{#if !$enterpriseLicense}
+												<br />
+												<br />
+												This option is only available on Windmill Enterprise Edition.
+											{/if}
 										</Tooltip>
 									</svelte:fragment>
 									<div class="flex gap-2 shrink flex-col">
 										<Toggle
+											disabled={!$enterpriseLicense}
 											size="sm"
 											checked={Boolean(script.delete_after_use)}
 											on:change={() => {
