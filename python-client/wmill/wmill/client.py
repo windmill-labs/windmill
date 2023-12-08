@@ -21,7 +21,7 @@ JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
 class Windmill:
-    def __init__(self, base_url=None, token=None):
+    def __init__(self, base_url=None, token=None, workspace=None):
         base = base_url or os.environ.get("BASE_INTERNAL_URL")
 
         self.base_url = f"{base}/api"
@@ -31,8 +31,10 @@ class Windmill:
             "Authorization": f"Bearer {self.token}",
         }
         self.client = self.get_client()
-        self.workspace = os.environ.get("WM_WORKSPACE")
+        self.workspace = workspace or os.environ.get("WM_WORKSPACE")
         self.path = os.environ.get("WM_JOB_PATH")
+
+        assert self.workspace, f"workspace required as an argument or as WM_WORKSPACE environment variable"
 
     def get_client(self) -> httpx.Client:
         return httpx.Client(
