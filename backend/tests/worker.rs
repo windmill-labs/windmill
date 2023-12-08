@@ -1084,6 +1084,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1119,6 +1120,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             mock: None,
                             timeout: None,
                             priority: None,
+                            delete_after_use: None,
                         }],
                     },
                     stop_after_if: Default::default(),
@@ -1130,6 +1132,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
             ],
             same_worker: false,
@@ -1230,6 +1233,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1276,6 +1280,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 mock: None,
                                 timeout: None,
                                 priority: None,
+                                delete_after_use: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -1308,6 +1313,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 mock: None,
                                 timeout: None,
                                 priority: None,
+                                delete_after_use: None
                             },
                         ],
                     },
@@ -1320,26 +1326,26 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None
                 },
                 FlowModule {
                     id: "c".to_string(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: [
-
-                        (
-                            "loops".to_string(),
-                            InputTransform::Javascript { expr: "results.b".to_string() },
-                        ),
-                        (
-                            "path".to_string(),
-                            InputTransform::Static { value: json!("outer.txt") },
-                        ),
-                        (
-                            "path2".to_string(),
-                            InputTransform::Static { value: json!("inner.txt") },
-                        ),
-                    ]
-                    .into(),
+                            (
+                                "loops".to_string(),
+                                InputTransform::Javascript { expr: "results.b".to_string() },
+                            ),
+                            (
+                                "path".to_string(),
+                                InputTransform::Static { value: json!("outer.txt") },
+                            ),
+                            (
+                                "path2".to_string(),
+                                InputTransform::Static { value: json!("inner.txt") },
+                            ),
+                        ]
+                        .into(),
                         language: ScriptLang::Deno,
                         content: r#"export async function main(path: string, loops: string[], path2: string) {
                             return await Deno.readTextFile(`./shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`./shared/${path2}`);
@@ -1360,6 +1366,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
             ],
             same_worker: true,

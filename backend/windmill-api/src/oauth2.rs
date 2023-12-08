@@ -873,6 +873,7 @@ async fn slack_command(
                     language,
                     dedicated_worker,
                     priority,
+                    _delete_after_use,
                 ) = windmill_common::get_latest_deployed_hash_for_path(
                     &db,
                     &settings.workspace_id,
