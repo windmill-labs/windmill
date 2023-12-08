@@ -193,7 +193,7 @@
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
 					on:toggleRetry={() => selectAdvanced('retries')}
-					on:toggleConcurrency={() => selectAdvanced('concurrency')}
+					on:toggleConcurrency={() => selectAdvanced('runtime')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
