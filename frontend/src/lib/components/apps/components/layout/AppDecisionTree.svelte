@@ -69,6 +69,8 @@
 			currentNodeId = previousNode.id
 		}
 	}
+
+	let lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
 </script>
 
 {#each nodes ?? [] as node}
@@ -126,7 +128,9 @@
 			size="xs2"
 			color="dark"
 			endIcon={{ icon: ArrowRight }}
-			disabled={resolvedConditions[currentNodeId].every((condition) => !condition)}>Next</Button
+			disabled={resolvedConditions[currentNodeId].every((condition) => !condition)}
 		>
+			{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
+		</Button>
 	</div>
 </div>

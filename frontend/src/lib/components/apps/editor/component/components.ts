@@ -173,6 +173,7 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 export type DecisionTreeNode = {
 	id: string
 	label: string
+	required: RichConfiguration | undefined
 	next: Array<{
 		id: string
 		condition?: RichConfiguration | undefined
@@ -2917,6 +2918,11 @@ This is a paragraph.
 				{
 					id: 'a',
 					label: 'a',
+					required: {
+						type: 'evalv2',
+						expr: 'false',
+						fieldType: 'boolean'
+					},
 					next: [
 						{
 							id: 'b',
@@ -2939,6 +2945,11 @@ This is a paragraph.
 				{
 					id: 'b',
 					label: 'b',
+					required: {
+						type: 'evalv2',
+						expr: 'false',
+						fieldType: 'boolean'
+					},
 					next: [
 						{
 							id: 'c',
@@ -2953,6 +2964,11 @@ This is a paragraph.
 				{
 					id: 'd',
 					label: 'd',
+					required: {
+						type: 'evalv2',
+						expr: 'false',
+						fieldType: 'boolean'
+					},
 					next: [
 						{
 							id: 'e',
@@ -2967,6 +2983,11 @@ This is a paragraph.
 				{
 					id: 'e',
 					label: 'e',
+					required: {
+						type: 'evalv2',
+						expr: 'false',
+						fieldType: 'boolean'
+					},
 					next: [
 						{
 							id: 'c',
@@ -2981,6 +3002,11 @@ This is a paragraph.
 				{
 					id: 'c',
 					label: 'c',
+					required: {
+						type: 'evalv2',
+						expr: 'false',
+						fieldType: 'boolean'
+					},
 					next: []
 				}
 			] as DecisionTreeNode[]

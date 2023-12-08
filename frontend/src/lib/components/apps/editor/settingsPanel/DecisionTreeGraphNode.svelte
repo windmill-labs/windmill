@@ -8,6 +8,7 @@
 
 	export let node: DecisionTreeNode
 	export let selected = false
+	export let editable: boolean = true
 
 	let open: boolean = false
 
@@ -31,14 +32,16 @@
 			dispatch('select', node.id)
 		}}
 	>
-		Tab: {node.label}
+		{node.label}
 	</Button>
-	<div
-		class={twMerge(
-			'absolute -bottom-10 left-1/2 transform -translate-x-1/2 flex items-center',
-			open ? 'z-20' : ''
-		)}
-	>
-		<InsertDecisionTreeNode bind:open on:node on:branch />
-	</div>
+	{#if node.id !== 'end' && editable}
+		<div
+			class={twMerge(
+				'absolute -bottom-10 left-1/2 transform -translate-x-1/2 flex items-center',
+				open ? 'z-20' : ''
+			)}
+		>
+			<InsertDecisionTreeNode bind:open on:node on:branch canBranch={node.next.length > 1} />
+		</div>
+	{/if}
 </div>
