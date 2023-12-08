@@ -127,7 +127,8 @@
 		mounted = true
 	})
 
-	$: selectedRowIndex === -1 &&
+	$: resolvedConfig?.selectFirstRowByDefault != false &&
+		selectedRowIndex === -1 &&
 		Array.isArray(result) &&
 		result.length > 0 &&
 		// We need to wait until the component is mounted so the world is created
@@ -208,7 +209,9 @@
 
 		if (result) {
 			//console.log('rerendering table', result[0])
-			toggleRow({ original: filteredResult[0] }, true)
+			if (resolvedConfig?.selectFirstRowByDefault != false) {
+				toggleRow({ original: filteredResult[0] }, true)
+			}
 		}
 
 		if (outputs.page.peak()) {
