@@ -664,10 +664,11 @@
 			/>
 			<div class="flex flex-col gap-1">
 				<div class="text-tertiary text-xs">
-					Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows and apps to the repository on each deploy.
+					Connect the Windmill workspace to a Git repository to automatically commit and push
+					scripts, flows and apps to the repository on each deploy.
 				</div>
 			</div>
-			<br/>
+			<br />
 			{#if !$enterpriseLicense}
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
@@ -677,6 +678,8 @@
 				All scripts, flows and apps located in the workspace will be pushed to the Git repository,
 				except the ones that are saved in private user folders (i.e. where the path starts with
 				`u/`, use those with `f/` instead).
+				<br />
+				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
 			<div class="mt-5 mb-5 flex gap-1">
 				{#key s3ResourceInitialPath}
@@ -717,8 +720,10 @@
 					<pre class="overflow-auto max-h-screen"
 						><code
 							>> wmill workspace add WORKSPACE_NAME WORKSPACE_ID WINDMILL_URL
+> echo 'u/' > .wmillignore
 > wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
-> git add -A git commit -m 'Initial commit'
+> git add -A
+> git commit -m 'Initial commit'
 > git push</code
 						></pre
 					>
