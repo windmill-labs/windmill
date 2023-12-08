@@ -1,17 +1,23 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { DecisionTreeNode } from '../component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let node: DecisionTreeNode
-
-	let selected = false
+	export let selected = false
 
 	let open: boolean = false
 
 	const dispatch = createEventDispatcher()
+
+	const { selectedNodeId } = getContext<{
+		selectedNodeId: Writable<string | undefined>
+	}>('DecisionTreeEditor')
+
+	$: selected = $selectedNodeId === node.id
 </script>
 
 <div class="relative w-[274px]">

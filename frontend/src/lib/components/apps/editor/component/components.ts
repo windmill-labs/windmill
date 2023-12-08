@@ -2955,6 +2955,20 @@ This is a paragraph.
 					label: 'd',
 					next: [
 						{
+							id: 'e',
+							condition: {
+								type: 'evalv2',
+								expr: 'true',
+								fieldType: 'boolean'
+							}
+						}
+					]
+				},
+				{
+					id: 'e',
+					label: 'e',
+					next: [
+						{
 							id: 'c',
 							condition: {
 								type: 'evalv2',

@@ -28,9 +28,8 @@
 		<button
 			class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 			on:pointerdown={() => {
-				//close()
+				close()
 
-				debugger
 				dispatch('node')
 			}}
 			role="menuitem"
