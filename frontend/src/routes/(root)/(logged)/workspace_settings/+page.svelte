@@ -369,7 +369,7 @@
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-md font-semibold"> Connect workspace to Slack </div>
 					<div class="text-tertiary text-xs">
-						Connect your windmill workspace to your slack workspace to trigger a script or a flow
+						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
 						with a '/windmill' command or to configure Slack error handlers.
 					</div>
 				</div>
@@ -660,7 +660,14 @@
 				title="Git sync"
 				primary={false}
 				tooltip="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows and apps to the repository on each deploy."
+				documentationLink="https://www.windmill.dev/docs/advanced/git_sync"
 			/>
+			<div class="flex flex-col gap-1">
+				<div class="text-tertiary text-xs">
+					Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows and apps to the repository on each deploy.
+				</div>
+			</div>
+			<br/>
 			{#if !$enterpriseLicense}
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
@@ -669,7 +676,7 @@
 			<Alert type="info" title="Script, flows and apps in the user private folders will be ignored">
 				All scripts, flows and apps located in the workspace will be pushed to the Git repository,
 				except the ones that are saved in private user folders (i.e. where the path starts with
-				`u/`).
+				`u/`, use those with `f/` instead).
 			</Alert>
 			<div class="mt-5 mb-5 flex gap-1">
 				{#key s3ResourceInitialPath}
