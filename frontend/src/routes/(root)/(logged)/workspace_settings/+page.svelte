@@ -196,7 +196,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						script_path: 'hub/7839/sync-script-to-git-repo-windmill',
+						script_path: 'hub/7844/sync-script-to-git-repo-windmill',
 						git_repo_resource_path: resourcePathWithPrefix
 					}
 				}
@@ -296,7 +296,7 @@
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
-			path: 'hub/7841/git-repo-test-read-write-windmill',
+			path: 'hub/7846/git-repo-test-read-write-windmill',
 			requestBody: {
 				repo_url_resource_path: gitRepoResourcePath
 			}
