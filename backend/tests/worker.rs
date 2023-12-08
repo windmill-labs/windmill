@@ -2804,10 +2804,9 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) {
         }),
     }).run_until_complete(&db, port).await;
 
-    assert_eq!(
-        first_run_result.json_result().unwrap(),
-        restarted_flow_result.json_result().unwrap()
-    );
+    let first_run_result_int = serde_json::from_value::<i32>(first_run_result.json_result().unwrap()).expect("first_run_result was not an int");
+    let restarted_flow_result_int = serde_json::from_value::<i32>(restarted_flow_result.json_result().unwrap()).expect("restarted_flow_result was not an int");
+    assert_eq!(first_run_result_int, restarted_flow_result_int);
 }
 
 #[sqlx::test(fixtures("base"))]
