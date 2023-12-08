@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH uuid_table as (\n            select gen_random_uuid() as uuid from generate_series(1, $11)\n        )\n        INSERT INTO queue \n            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s)\n            (SELECT uuid, $1, $2, $3, $4, ('{ \"uuid\": \"' || uuid || '\" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13 FROM uuid_table) \n        RETURNING id",
+  "query": "WITH uuid_table as (\n            select gen_random_uuid() as uuid from generate_series(1, $11)\n        )\n        INSERT INTO queue \n            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout)\n            (SELECT uuid, $1, $2, $3, $4, ('{ \"uuid\": \"' || uuid || '\" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14 FROM uuid_table) \n        RETURNING id",
   "describe": {
     "columns": [
       {
@@ -66,6 +66,7 @@
         "Varchar",
         "Int4",
         "Int4",
+        "Int4",
         "Int4"
       ]
     },
@@ -73,5 +74,5 @@
       false
     ]
   },
-  "hash": "a9915d3c72a278ff08fbe6571c2a4fc993507e255004107345b7151322e063de"
+  "hash": "0a686ca61444d7ad7484071727aa039a6ea6697e5a49a633b767c052aa3e0a18"
 }

@@ -22,9 +22,10 @@ use windmill_common::{
     error,
     global_settings::{
         BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
@@ -34,8 +35,8 @@ use windmill_common::{
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
-    PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
+    NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "enterprise")]
@@ -76,7 +77,6 @@ lazy_static::lazy_static! {
     ).unwrap();
 
     static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
-
 }
 
 pub async fn initial_load(
@@ -311,6 +311,21 @@ pub async fn reload_retention_period_setting(db: &DB) {
     .await
     {
         tracing::error!("Error reloading retention period: {:?}", e)
+    }
+}
+
+pub async fn reload_job_default_timeout_setting(db: &DB) {
+    if let Err(e) = reload_setting(
+        db,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        "JOB_DEFAULT_TIMEOUT_SECS",
+        60 * 60, // one hour
+        JOB_DEFAULT_TIMEOUT.clone(),
+        |x| x,
+    )
+    .await
+    {
+        tracing::error!("Error reloading job default timeout: {:?}", e)
     }
 }
 

@@ -335,10 +335,11 @@ pub async fn script_path_to_payload(
     script_path: &str,
     db: &DB,
     w_id: &str,
-) -> error::Result<(JobPayload, Option<Tag>, Option<bool>)> {
-    let (job_payload, tag, delete_after_use) = if script_path.starts_with("hub/") {
+) -> error::Result<(JobPayload, Option<Tag>, Option<bool>, Option<i32>)> {
+    let (job_payload, tag, delete_after_use, script_timeout) = if script_path.starts_with("hub/") {
         (
             JobPayload::ScriptHub { path: script_path.to_owned() },
+            None,
             None,
             None,
         )
@@ -353,6 +354,7 @@ pub async fn script_path_to_payload(
             dedicated_worker,
             priority,
             delete_after_use,
+            script_timeout,
         ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
@@ -367,9 +369,10 @@ pub async fn script_path_to_payload(
             },
             tag,
             delete_after_use,
+            script_timeout,
         )
     };
-    Ok((job_payload, tag, delete_after_use))
+    Ok((job_payload, tag, delete_after_use, script_timeout))
 }
 
 pub async fn script_hash_to_tag_and_limits<'c>(
@@ -385,9 +388,10 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     Option<bool>,
     Option<i16>,
     Option<bool>,
+    Option<i32>,
 )> {
     let script = sqlx::query!(
-        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -407,6 +411,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script.dedicated_worker,
         script.priority,
         script.delete_after_use,
+        script.timeout,
     ))
 }
 
@@ -415,7 +420,7 @@ pub async fn get_payload_tag_from_prefixed_path(
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>), Error> {
-    let (payload, tag, _) = if path.starts_with("script/") {
+    let (payload, tag, _, _) = if path.starts_with("script/") {
         script_path_to_payload(path.strip_prefix("script/").unwrap(), &db, w_id).await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
@@ -429,7 +434,7 @@ pub async fn get_payload_tag_from_prefixed_path(
         let (tag, dedicated_worker) = r
             .map(|x| (x.tag, x.dedicated_worker))
             .unwrap_or_else(|| (None, None));
-        (JobPayload::Flow { path, dedicated_worker }, tag, None)
+        (JobPayload::Flow { path, dedicated_worker }, tag, None, None)
     } else {
         return Err(Error::BadRequest(format!(
             "path must start with script/ or flow/ (got {})",
