@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.223.1](https://github.com/windmill-labs/windmill/compare/v1.223.0...v1.223.1) (2023-12-08)
+
+
+### Bug Fixes
+
+* improve aggrid selectedRow output + make first selectedRow configurable ([651d998](https://github.com/windmill-labs/windmill/commit/651d99824d1932a48fdb9ffd5dff944fa2c2c8aa))
+
 ## [1.223.0](https://github.com/windmill-labs/windmill/compare/v1.222.0...v1.223.0) (2023-12-08)
 
 
