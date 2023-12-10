@@ -29,6 +29,7 @@ pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: FlowStatusModuleWParent,
+    #[serde(default)]
     pub cleanup_module: FlowCleanupModule,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_retry_default")]
@@ -97,13 +98,11 @@ pub struct FlowStatusModuleWParent {
     pub module_status: FlowStatusModule,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct FlowCleanupModule {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub flow_jobs_to_clean: Vec<Uuid>,
-    #[serde(flatten)]
-    pub module_status: FlowStatusModule,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -228,16 +227,7 @@ impl FlowStatus {
                         .unwrap_or_else(|| "failure".to_string()),
                 },
             },
-            cleanup_module: FlowCleanupModule {
-                flow_jobs_to_clean: vec![],
-                module_status: FlowStatusModule::WaitingForPriorSteps {
-                    id: f
-                        .failure_module
-                        .as_ref()
-                        .map(|x| x.id.clone())
-                        .unwrap_or_else(|| "cleanup".to_string()),
-                },
-            },
+            cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,
         }

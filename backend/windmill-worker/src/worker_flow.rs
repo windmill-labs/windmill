@@ -27,7 +27,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowCleanupModule, FlowStatusModuleWParent, Iterator, JobResult,
+    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
 use windmill_common::flows::add_virtual_items_if_necessary;
 use windmill_common::jobs::{
@@ -168,7 +168,15 @@ pub async fn update_flow_status_after_job_completion_internal<
     rsmq: Option<R>,
     worker_name: &str,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
-    let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult, is_failure_step) = {
+    let (
+        should_continue_flow,
+        flow_job,
+        stop_early,
+        skip_if_stop_early,
+        nresult,
+        is_failure_step,
+        cleanup_module,
+    ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
         let old_status_json = sqlx::query_scalar!(
@@ -574,6 +582,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             skip_if_stop_early,
             nresult,
             is_failure_step,
+            old_status.cleanup_module,
         )
     };
 
@@ -591,8 +600,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
             // run the cleanup step only when the root job is complete
-            let cleanup_module = retrieve_cleanup_module(flow, db).await?;
-            if cleanup_module.flow_jobs_to_clean.len() > 0 {
+            if !cleanup_module.flow_jobs_to_clean.is_empty() {
                 tracing::debug!(
                     "Cleaning up jobs arguments, result and logs as they were marked as delete_after_use {:?}",
                     cleanup_module.flow_jobs_to_clean
@@ -837,26 +845,26 @@ async fn has_failure_module<'c>(
     .map(|v| v.unwrap_or(false))
 }
 
-async fn retrieve_cleanup_module<'c>(flow_uuid: Uuid, db: &DB) -> Result<FlowCleanupModule, Error> {
-    tracing::warn!("Retrieving cleanup module of flow {}", flow_uuid);
-    let raw_value = sqlx::query_scalar!(
-        "SELECT flow_status->'cleanup_module' as cleanup_module
-        FROM queue
-        WHERE id = $1",
-        flow_uuid,
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of cleanup module: {e}")))?;
+// async fn retrieve_cleanup_module<'c>(flow_uuid: Uuid, db: &DB) -> Result<FlowCleanupModule, Error> {
+//     tracing::warn!("Retrieving cleanup module of flow {}", flow_uuid);
+//     let raw_value = sqlx::query_scalar!(
+//         "SELECT flow_status->'cleanup_module' as cleanup_module
+//         FROM queue
+//         WHERE id = $1",
+//         flow_uuid,
+//     )
+//     .fetch_one(db)
+//     .await
+//     .map_err(|e| Error::InternalErr(format!("error during retrieval of cleanup module: {e}")))?;
 
-    raw_value
-        .clone()
-        .and_then(|rv| serde_json::from_value::<FlowCleanupModule>(rv).ok())
-        .ok_or(Error::InternalErr(format!(
-            "Unable to parse flow cleanup module {:?}",
-            raw_value
-        )))
-}
+//     raw_value
+//         .clone()
+//         .and_then(|rv| serde_json::from_value::<FlowCleanupModule>(rv).ok())
+//         .ok_or(Error::InternalErr(format!(
+//             "Unable to parse flow cleanup module {:?}",
+//             raw_value
+//         )))
+// }
 
 fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
     (status.fail_count <= MAX_RETRY_ATTEMPTS)

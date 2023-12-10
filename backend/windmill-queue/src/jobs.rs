@@ -2449,12 +2449,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                                 id: "failure".to_string(),
                             },
                         },
-                        cleanup_module: FlowCleanupModule {
-                            module_status: FlowStatusModule::WaitingForPriorSteps {
-                                id: "cleanup".to_string(),
-                            },
-                            flow_jobs_to_clean: vec![],
-                        },
+                        cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
                         // retry status is reset
                         retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
                         // TODO: for now, flows with approval conditions aren't supported for restart
@@ -2540,12 +2535,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         id: "failure".to_string(),
                     },
                 },
-                cleanup_module: FlowCleanupModule {
-                    module_status: FlowStatusModule::WaitingForPriorSteps {
-                        id: "cleanup".to_string(),
-                    },
-                    flow_jobs_to_clean: vec![],
-                },
+                cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
                 // retry status is reset
                 retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
                 // TODO: for now, flows with approval conditions aren't supported for restart
