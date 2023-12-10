@@ -51,7 +51,12 @@
 				await Promise.all(
 					Object.entries(settings).map(
 						async ([_, y]) =>
-							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
+							await Promise.all(
+								y.map(async (x) => [
+									x.key,
+									(await getValue(x.key, x.storage)) ?? x.defaultValue?.()
+								])
+							)
 					)
 				)
 			).flat()
@@ -452,8 +457,7 @@
 
 											{#if hasError}
 												<span class="text-red-500 text-xs">
-													Base url must start with http:// or https:// and must NOT end with a
-													trailing slash.
+													{setting.error ?? ''}
 												</span>
 											{/if}
 										{:else}
