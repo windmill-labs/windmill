@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.224.0](https://github.com/windmill-labs/windmill/compare/v1.223.1...v1.224.0) (2023-12-10)
+
+
+### Features
+
+* add authelia sso support ([#2824](https://github.com/windmill-labs/windmill/issues/2824)) ([6fefdb5](https://github.com/windmill-labs/windmill/commit/6fefdb5438d0fd7546759d93b5f4465731a4cac5))
+* embedded server only get killed after last job of worker ([4f4ca26](https://github.com/windmill-labs/windmill/commit/4f4ca264aef3e1d3ee4748593f0ebcb425d333ef))
+
+
+### Bug Fixes
+
+* make cleanup_module backcompatible ([58c4c0b](https://github.com/windmill-labs/windmill/commit/58c4c0b5c2b009ff56e3eb6bd19e766dbff4cf54))
+
 ## [1.223.1](https://github.com/windmill-labs/windmill/compare/v1.223.0...v1.223.1) (2023-12-08)
 
 
