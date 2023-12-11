@@ -14,8 +14,9 @@
 	{#if canBranch}
 		<div class="absolute -top-8 -right-16">
 			<button
-				title="Add step"
+				title="Add branche"
 				type="button"
+				on:click={() => dispatch('addBranch')}
 				class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 			>
 				<GitBranch class="mx-[5px]" size={15} />

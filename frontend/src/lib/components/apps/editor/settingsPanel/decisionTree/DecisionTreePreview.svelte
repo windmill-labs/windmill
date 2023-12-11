@@ -11,7 +11,7 @@
 	import type { Writable } from 'svelte/store'
 	import type { DecisionTreeNode } from '../../component'
 	import { Alert } from '$lib/components/common'
-	import { addBranch, addNode, insertFirstNode, removeNode } from './utils'
+	import { addBranch, addNewBranch, addNode, insertFirstNode, removeNode } from './utils'
 
 	export let nodes: DecisionTreeNode[]
 	export let minHeight: number = 0
@@ -211,6 +211,9 @@
 								} else if (e === 'delete') {
 									nodes = removeNode(nodes, graphNode)
 
+									dispatch('render')
+								} else if (e === 'addBranch') {
+									nodes = addNewBranch(nodes, graphNode)
 									dispatch('render')
 								}
 							}

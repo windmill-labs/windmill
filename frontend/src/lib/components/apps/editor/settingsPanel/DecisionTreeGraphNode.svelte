@@ -21,6 +21,7 @@
 		nodeInsert: void
 		branchInsert: void
 		delete: void
+		addBranch: void
 	}>()
 
 	const { selectedNodeId } = getContext<{
@@ -73,6 +74,9 @@ hover:border-red-700 {selected ? '' : '!hidden'}"
 				}}
 				on:branch={() => {
 					dispatch('branchInsert')
+				}}
+				on:addBranch={() => {
+					dispatch('addBranch')
 				}}
 				canBranch={node.next.length > 1}
 				canInsertBranch={!isHead}

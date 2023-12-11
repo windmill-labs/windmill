@@ -101,6 +101,12 @@ export function removeNode(nodes: DecisionTreeNode[], nodeToRemove: DecisionTree
 
 	const parentNode = nodes.find((n) => n.next.find((next) => next.id == nodeToRemove.id))
 
+	if (!parentNode && nodeToRemove.next.length == 1) {
+		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
+
+		return nodes
+	}
+
 	if (parentNode?.next.length == 1) {
 		parentNode.next = nodeToRemove.next
 
@@ -179,6 +185,52 @@ export function insertFirstNode(nodes: DecisionTreeNode[]) {
 	}
 
 	nodes.unshift(newNode)
+
+	return nodes
+}
+
+export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeNode) {
+	const nextId = getNextId(nodes.map((node) => node.id))
+
+	const collapseNode = findCollapseNode(nodes, startNode.id)
+
+	const newNode: DecisionTreeNode = {
+		id: nextId,
+		label: nextId,
+		next: [
+			{
+				id: collapseNode ?? '',
+				condition: {
+					type: 'evalv2',
+					expr: 'true',
+					fieldType: 'boolean'
+				} as RichConfiguration
+			}
+		],
+		required: {
+			type: 'evalv2',
+			expr: 'true',
+			fieldType: 'boolean'
+		} as RichConfiguration
+	}
+
+	nodes.push(newNode)
+
+	nodes = nodes.map((node) => {
+		if (node.id === startNode?.id) {
+			node.next.push({
+				id: newNode.id,
+				condition: {
+					type: 'evalv2',
+					expr: 'true',
+					fieldType: 'boolean'
+				} as RichConfiguration
+			})
+		}
+		return node
+	})
+
+	debugger
 
 	return nodes
 }
