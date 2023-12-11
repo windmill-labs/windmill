@@ -161,6 +161,8 @@
 								on:newBranch={(e) => node?.data?.custom?.cb?.('newBranch', e.detail)}
 								on:deleteBranch={(e) => node?.data?.custom?.cb?.('deleteBranch', e.detail)}
 								on:move={(e) => node?.data?.custom?.cb?.('move', e.detail)}
+								on:nodeInsert={(e) => node?.data?.custom?.cb?.('nodeInsert', e.detail)}
+								on:branchInsert={(e) => node?.data?.custom?.cb?.('branchInsert', e.detail)}
 								{...node.data.custom.props}
 							/>
 						</Node>

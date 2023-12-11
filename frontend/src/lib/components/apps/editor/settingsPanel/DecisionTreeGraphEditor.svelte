@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { Network, Trash } from 'lucide-svelte'
+	import { Network, Plus, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
@@ -11,6 +11,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { writable } from 'svelte/store'
 	import DecisionTreePreview from './decisionTree/DecisionTreePreview.svelte'
+	import { addBranch, removeNode } from './decisionTree/utils'
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
@@ -28,21 +29,7 @@
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
 
-	function deleteNode(node: DecisionTreeNode) {
-		const nodeToDelete = nodes.find((n) => n.id == node.id)
-		const parentNode = nodes.find((n) => n.next.find((next) => next.id == node.id))
-
-		// Delete node, and make connections between parent and children
-		if (nodeToDelete && parentNode) {
-			parentNode.next = parentNode.next.filter((next) => next.id != node.id)
-			nodeToDelete.next.forEach((next) => {
-				parentNode.next.push(next)
-			})
-			nodes = nodes.filter((n) => n.id != node.id)
-		}
-	}
-
-	let configWidth = 0
+	let renderCount = 0
 </script>
 
 <Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
@@ -55,7 +42,18 @@
 		<Splitpanes>
 			<Pane size={50}>
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
-					<DecisionTreePreview {nodes} {minHeight} {rebuildOnChange} {paneHeight} {paneWidth} />
+					{#key renderCount}
+						<DecisionTreePreview
+							bind:nodes
+							{minHeight}
+							{rebuildOnChange}
+							{paneHeight}
+							{paneWidth}
+							on:render={() => {
+								renderCount++
+							}}
+						/>
+					{/key}
 				</div>
 			</Pane>
 			<Pane size={50}>
@@ -66,11 +64,20 @@
 								<Button
 									size="xs"
 									color="light"
-									startIcon={{ icon: Network }}
+									startIcon={{ icon: Trash }}
 									variant="border"
 									on:click={() => {
-										selectedNode && deleteNode(selectedNode)
+										nodes = removeNode(nodes, selectedNode)
+										renderCount++
 									}}
+									disabled={!Boolean(
+										nodes.find((n) => n.next.find((next) => next.id == selectedNode?.id))
+									) ||
+										nodes.filter((n) =>
+											n.next.find((nn) => {
+												return nn.id == selectedNode?.id
+											})
+										)?.length > 1}
 								>
 									Delete node
 								</Button>
@@ -81,6 +88,22 @@
 									This node goes to the node {selectedNode.next[0].id} if the following You can add a
 									new node by clicking on the "Add step" button in the top right corner of the node.
 								</Alert>
+
+								<div class="flex flex-start">
+									<Button
+										size="xs"
+										color="dark"
+										startIcon={{ icon: Plus }}
+										on:click={() => {
+											if (selectedNode) {
+												nodes = addBranch(nodes, selectedNode)
+												renderCount++
+											}
+										}}
+									>
+										Add branch
+									</Button>
+								</div>
 							{:else}
 								{#each selectedNode.next as subNode (subNode.id)}
 									{#if selectedNode.required}
@@ -104,9 +127,6 @@
 													displayType={false}
 												/>
 											</div>
-											<Button size="xs" color="red" startIcon={{ icon: Trash }} variant="border">
-												Delete
-											</Button>
 										</div>
 									{/if}
 								{/each}
@@ -114,7 +134,13 @@
 
 							{#if selectedNode.next.length > 1}
 								<div class="flex flex-row gap-2 mt-4">
-									<Button size="xs" color="light" startIcon={{ icon: Network }} variant="border">
+									<Button
+										size="xs"
+										color="light"
+										startIcon={{ icon: Network }}
+										variant="border"
+										on:click={() => {}}
+									>
 										Add branch
 									</Button>
 								</div>
@@ -122,7 +148,7 @@
 
 							{#if selectedNode.required}
 								<InputsSpecEditor
-									key={`Required`}
+									key={`Can proceed to next step if:`}
 									bind:componentInput={selectedNode.required}
 									id={'sad'}
 									userInputEnabled={false}
@@ -147,7 +173,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="p-2 flex flex-col gap-2" bind:clientWidth={configWidth}>
+<div class="p-2 flex flex-col gap-2">
 	<Button
 		tooltip="Decision tree graph editor"
 		on:click={() => {
@@ -159,13 +185,4 @@
 	>
 		Graph editor
 	</Button>
-
-	<DecisionTreePreview
-		{nodes}
-		{minHeight}
-		{rebuildOnChange}
-		paneHeight={500}
-		paneWidth={configWidth - 16}
-		editable={false}
-	/>
 </div>

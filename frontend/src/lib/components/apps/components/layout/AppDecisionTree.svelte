@@ -30,6 +30,10 @@
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 
 	let resolvedConditions: Record<string, boolean[]> = nodes.reduce((acc, node) => {
+		if (!acc) {
+			acc = {}
+		}
+
 		acc[node.id] = []
 		return acc
 	}, {})
@@ -40,10 +44,14 @@
 	function next() {
 		const resolvedNodeConditions = resolvedConditions[currentNodeId]
 
+		let found: boolean = false
 		resolvedNodeConditions.forEach((condition, index) => {
+			if (found) return
+
 			const node = nodes.find((node) => node.id == currentNodeId)
 
 			if (condition && node) {
+				found = true
 				currentNodeId = node.next[index].id
 
 				console.log(currentNodeId)
@@ -55,8 +63,6 @@
 			}
 		})
 	}
-
-	$: console.log($focusedGrid)
 
 	function prev() {
 		// Find the previous node
@@ -128,7 +134,7 @@
 			size="xs2"
 			color="dark"
 			endIcon={{ icon: ArrowRight }}
-			disabled={resolvedConditions[currentNodeId].every((condition) => !condition)}
+			disabled={resolvedConditions?.[currentNodeId]?.every((condition) => !condition)}
 		>
 			{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
 		</Button>

@@ -5,6 +5,7 @@
 
 	export let open: boolean | undefined = undefined
 	export let canBranch: boolean = false
+	export let canInsertBranch: boolean = true
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -41,9 +42,9 @@
 				<button
 					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
 					on:pointerdown={() => {
-						close()
-
 						dispatch('node')
+
+						close()
 					}}
 					role="menuitem"
 					tabindex="-1"
@@ -51,18 +52,20 @@
 					<ArrowDown size={14} />
 					Node
 				</button>
-				<button
-					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
-					on:pointerdown={() => {
-						close()
-						dispatch('branch')
-					}}
-					role="menuitem"
-					tabindex="-1"
-				>
-					<Split size={14} class="rotate-180" />
-					Branche
-				</button>
+				{#if canInsertBranch}
+					<button
+						class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
+						on:pointerdown={() => {
+							dispatch('branch')
+							close()
+						}}
+						role="menuitem"
+						tabindex="-1"
+					>
+						<Split size={14} class="rotate-180" />
+						Branche
+					</button>
+				{/if}
 			</div>
 		</Menu>
 	{/if}

@@ -2,7 +2,7 @@
 	import Svelvet from '$lib/components/graph/svelvet/container/views/Svelvet.svelte'
 	import type { UserEdgeType } from '$lib/components/graph/svelvet/types'
 	import { NODE, type Node } from '$lib/components/graph'
-	import { getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
 	import { deepEqual } from 'fast-equals'
 
@@ -11,6 +11,7 @@
 	import type { Writable } from 'svelte/store'
 	import type { DecisionTreeNode } from '../../component'
 	import { Alert } from '$lib/components/common'
+	import { addBranch, addNode, insertFirstNode, removeNode } from './utils'
 
 	export let nodes: DecisionTreeNode[]
 	export let minHeight: number = 0
@@ -23,6 +24,8 @@
 	let edges: UserEdgeType[] = []
 	let fullWidth: number = 0
 	let scroll = false
+
+	const dispatch = createEventDispatcher()
 
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
@@ -137,11 +140,16 @@
 										fieldType: 'boolean'
 									}
 								}
-							}
+							},
+							isHead: true,
+							canDelete: false
 						},
 						cb: (e: string, detail: any) => {
 							if (e == 'select') {
 								$selectedNodeId = detail
+							} else if (e === 'nodeInsert') {
+								nodes = insertFirstNode(nodes)
+								dispatch('render')
 							}
 						}
 					}
@@ -172,13 +180,10 @@
 
 				/*
 
+				
 				const hasSiblings = parentIds.length === 1 && nextMap[parentIds[0]].length > 1
-
-
-
-		
-
 				*/
+
 				displayedNodes.push({
 					type: 'node',
 					id: graphNode.id,
@@ -191,11 +196,22 @@
 							component: DecisionTreeGraphNode,
 							props: {
 								node: graphNode,
-								editable: editable
+								editable: editable,
+								canDelete: graphNode.next.length === 1
 							},
 							cb: (e: string, detail: any) => {
 								if (e == 'select') {
 									$selectedNodeId = detail
+								} else if (e == 'nodeInsert') {
+									nodes = addNode(nodes, graphNode)
+									dispatch('render')
+								} else if (e === 'branchInsert') {
+									nodes = addBranch(nodes, graphNode)
+									dispatch('render')
+								} else if (e === 'delete') {
+									nodes = removeNode(nodes, graphNode)
+
+									dispatch('render')
 								}
 							}
 						}
@@ -241,7 +257,8 @@
 								id: 'end',
 								label: 'End',
 								next: []
-							}
+							},
+							canDelete: false
 						},
 						cb: (e: string, detail: any) => {
 							if (e == 'select') {
@@ -273,8 +290,6 @@
 
 			displayedNodes = layered.nodes
 			fullWidth = layered.width
-
-			console.log('displayedNodes', displayedNodes)
 		} catch (e) {
 			console.error(e)
 		}
@@ -296,7 +311,7 @@
 	{scroll}
 	nodeSelected={false}
 	background={false}
-	width={paneWidth}
+	width={paneWidth - 1}
 />
 {#if !editable}
 	<Alert type="info" title="Debug nodes" size="xs">Click on a node to debug its content.</Alert>
