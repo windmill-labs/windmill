@@ -42,7 +42,8 @@ lazy_static::lazy_static! {
         cache_clear: Default::default(),
         init_bash: Default::default(),
         additional_python_paths: Default::default(),
-        pip_local_dependencies: Default::default()
+        pip_local_dependencies: Default::default(),
+        env_vars: Default::default(),
     }));
 
     pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default(), timeout_wait_result: 20 }));
@@ -273,6 +274,33 @@ pub async fn load_worker_config(
     }
     tracing::debug!("Custom tags priority set: {:?}", priority_tags_sorted);
 
+    let hardcoded_env_vars = config.hardcoded_env_vars.unwrap_or_default().clone();
+    let resolved_env_vars: HashMap<String, String> = hardcoded_env_vars
+        .keys()
+        .map(|x| x.to_string())
+        .chain(config.whitelist_envs.unwrap_or_default())
+        .chain(
+            std::env::var("WHITELIST_ENVS")
+                .ok()
+                .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
+                .unwrap_or_default()
+                .into_iter(),
+        )
+        .sorted()
+        .unique()
+        .map(|envvar_name| {
+            (
+                envvar_name.clone(),
+                hardcoded_env_vars
+                    .get::<String>(&envvar_name)
+                    .map(|v| v.to_owned())
+                    .unwrap_or_else(|| {
+                        std::env::var(envvar_name.clone()).unwrap_or("".to_string())
+                    }),
+            )
+        })
+        .collect();
+
     Ok(WorkerConfig {
         worker_tags,
         priority_tags_sorted,
@@ -297,6 +325,7 @@ pub async fn load_worker_config(
                 .ok()
                 .map(|x| x.split(':').map(|x| x.to_string()).collect())
         }),
+        env_vars: resolved_env_vars,
     })
 }
 
@@ -315,6 +344,8 @@ pub struct WorkerConfigOpt {
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
+    pub hardcoded_env_vars: Option<HashMap<String, String>>,
+    pub whitelist_envs: Option<Vec<String>>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -327,6 +358,8 @@ impl Default for WorkerConfigOpt {
             cache_clear: Default::default(),
             additional_python_paths: Default::default(),
             pip_local_dependencies: Default::default(),
+            hardcoded_env_vars: Default::default(),
+            whitelist_envs: Default::default(),
         }
     }
 }
@@ -340,6 +373,7 @@ pub struct WorkerConfig {
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
+    pub env_vars: HashMap<String, String>,
 }
 
 #[derive(PartialEq, Debug, Clone)]

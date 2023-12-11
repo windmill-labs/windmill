@@ -8,6 +8,7 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { emptyString } from '$lib/utils'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
@@ -33,6 +34,8 @@
 		priority_tags?: Map<string, number>
 		cache_clear?: number
 		init_bash?: string
+		hardcoded_env_vars?: Map<string, string>
+		whitelist_envs?: string[]
 	} = {}
 
 	function loadNConfig() {
@@ -48,9 +51,24 @@
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
+		if (nconfig.whitelist_envs === undefined) {
+			nconfig.whitelist_envs = []
+		}
+		if (nconfig.hardcoded_env_vars === undefined) {
+			nconfig.hardcoded_env_vars = new Map<string, string>()
+		} else {
+			addedEnvVars = []
+			for (const [key, value] of Object.entries(nconfig.hardcoded_env_vars)) {
+				addedEnvVars.push({ key, value })
+			}
+		}
 	}
 
 	let selectedPriorityTags: string[] = []
+	let addedEnvVars: {
+		key: string
+		value: string
+	}[] = []
 
 	const defaultTags = [
 		'deno',
@@ -75,6 +93,7 @@
 	]
 
 	let newTag: string = ''
+	let newEnvVar: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
 	$: {
 		selectedPriorityTags = []
@@ -339,6 +358,94 @@
 		<div class="mt-4" />
 
 		<Section
+			label="Worker Environment Variables"
+			tooltip="Add static and dynamic to workers. Dynamic environment variables will be loaded directly from the host while static environment variables will be injected as they are."
+		>
+			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w-md">
+				{#each addedEnvVars as envvar, i}
+					<div class="flex flex-wrap">
+						<div class="flex gap-0.5 items-center">
+							<input type="text" placeholder="ENV_VAR_NAME" bind:value={envvar.key} />
+							<input type="text" placeholder="env var value" bind:value={envvar.value} />
+							<button
+								class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200 right-2"
+								aria-label="Clear"
+								on:click={() => {
+									if (nconfig.hardcoded_env_vars?.[envvar.key] !== undefined) {
+										delete nconfig.hardcoded_env_vars[envvar.key]
+									}
+									addedEnvVars.splice(i, 1)
+									addedEnvVars = [...addedEnvVars]
+									dirty = true
+								}}
+							>
+								<X size={14} />
+							</button>
+						</div>
+					</div>
+				{/each}
+				<Button
+					variant="contained"
+					color="blue"
+					size="xs"
+					on:click={() => {
+						addedEnvVars.push({ key: '', value: '' })
+						addedEnvVars = [...addedEnvVars]
+						dirty = true
+					}}
+				>
+					Add static Environment Variable
+				</Button>
+			</div>
+
+			{#if nconfig?.whitelist_envs !== undefined}
+				<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
+					{#each nconfig.whitelist_envs as envvar}
+						<div class="flex gap-0.5 items-center"
+							><div class="text-2xs p-1 rounded border text-primary">{envvar}</div>
+							<button
+								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+								aria-label="Remove item"
+								on:click|preventDefault|stopPropagation={() => {
+									if (nconfig !== undefined) {
+										dirty = true
+										nconfig.whitelist_envs =
+											nconfig?.whitelist_envs?.filter((t) => t != envvar) ?? []
+									}
+								}}
+							>
+								<X size={12} />
+							</button></div
+						>
+					{/each}
+				</div>
+				<div class="max-w-md">
+					<input type="text" placeholder="new env var" bind:value={newEnvVar} />
+					<div class="mt-1" />
+					<Button
+						variant="contained"
+						color="blue"
+						size="xs"
+						disabled={newEnvVar == '' || nconfig.whitelist_envs?.includes(newEnvVar)}
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.whitelist_envs = [
+									...(nconfig?.whitelist_envs ?? []),
+									newEnvVar.replaceAll(' ', '_').toUpperCase()
+								]
+								newEnvVar = ''
+								dirty = true
+							}
+						}}
+					>
+						Add dynamic Environment Variable
+					</Button>
+				</div>
+			{/if}
+		</Section>
+		<div class="mt-4" />
+
+		<Section
 			label="Init Script"
 			tooltip="Bash scripts run at start of the workers. More lightweight than having to require the worker images at the cost of being run on every start."
 		>
@@ -384,6 +491,11 @@
 						variant="contained"
 						color="dark"
 						on:click={async () => {
+							addedEnvVars.forEach((envvar) => {
+								if (nconfig.hardcoded_env_vars !== undefined && !emptyString(envvar.key)) {
+									nconfig.hardcoded_env_vars[envvar.key] = envvar.value
+								}
+							})
 							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
 							sendUserToast('Configuration set')
 							dispatch('reload')
