@@ -274,11 +274,11 @@ pub async fn load_worker_config(
     }
     tracing::debug!("Custom tags priority set: {:?}", priority_tags_sorted);
 
-    let hardcoded_env_vars = config.hardcoded_env_vars.unwrap_or_default().clone();
-    let resolved_env_vars: HashMap<String, String> = hardcoded_env_vars
+    let env_vars_static = config.env_vars_static.unwrap_or_default().clone();
+    let resolved_env_vars: HashMap<String, String> = env_vars_static
         .keys()
         .map(|x| x.to_string())
-        .chain(config.whitelist_envs.unwrap_or_default())
+        .chain(config.env_vars_allowlist.unwrap_or_default())
         .chain(
             std::env::var("WHITELIST_ENVS")
                 .ok()
@@ -291,7 +291,7 @@ pub async fn load_worker_config(
         .map(|envvar_name| {
             (
                 envvar_name.clone(),
-                hardcoded_env_vars
+                env_vars_static
                     .get::<String>(&envvar_name)
                     .map(|v| v.to_owned())
                     .unwrap_or_else(|| {
@@ -344,8 +344,8 @@ pub struct WorkerConfigOpt {
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
-    pub hardcoded_env_vars: Option<HashMap<String, String>>,
-    pub whitelist_envs: Option<Vec<String>>,
+    pub env_vars_static: Option<HashMap<String, String>>,
+    pub env_vars_allowlist: Option<Vec<String>>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -358,8 +358,8 @@ impl Default for WorkerConfigOpt {
             cache_clear: Default::default(),
             additional_python_paths: Default::default(),
             pip_local_dependencies: Default::default(),
-            hardcoded_env_vars: Default::default(),
-            whitelist_envs: Default::default(),
+            env_vars_static: Default::default(),
+            env_vars_allowlist: Default::default(),
         }
     }
 }

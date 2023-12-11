@@ -34,8 +34,8 @@
 		priority_tags?: Map<string, number>
 		cache_clear?: number
 		init_bash?: string
-		hardcoded_env_vars?: Map<string, string>
-		whitelist_envs?: string[]
+		env_vars_static?: Map<string, string>
+		env_vars_allowlist?: string[]
 	} = {}
 
 	function loadNConfig() {
@@ -51,14 +51,14 @@
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
-		if (nconfig.whitelist_envs === undefined) {
-			nconfig.whitelist_envs = []
+		if (nconfig.env_vars_allowlist === undefined) {
+			nconfig.env_vars_allowlist = []
 		}
-		if (nconfig.hardcoded_env_vars === undefined) {
-			nconfig.hardcoded_env_vars = new Map<string, string>()
+		if (nconfig.env_vars_static === undefined) {
+			nconfig.env_vars_static = new Map<string, string>()
 		} else {
 			addedEnvVars = []
-			for (const [key, value] of Object.entries(nconfig.hardcoded_env_vars)) {
+			for (const [key, value] of Object.entries(nconfig.env_vars_static)) {
 				addedEnvVars.push({ key, value })
 			}
 		}
@@ -359,20 +359,20 @@
 
 		<Section
 			label="Worker Environment Variables"
-			tooltip="Add static and dynamic to workers. Dynamic environment variables will be loaded directly from the host while static environment variables will be injected as they are."
+			tooltip="Add static and dynamic environment variables to workers. Dynamic environment variable values will be loaded from the host environment variables while static environment variables will be set directly from their values below."
 		>
 			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w-md">
 				{#each addedEnvVars as envvar, i}
 					<div class="flex flex-wrap">
 						<div class="flex gap-0.5 items-center">
 							<input type="text" placeholder="ENV_VAR_NAME" bind:value={envvar.key} />
-							<input type="text" placeholder="env var value" bind:value={envvar.value} />
+							<input type="text" placeholder="value" bind:value={envvar.value} />
 							<button
 								class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200 right-2"
 								aria-label="Clear"
 								on:click={() => {
-									if (nconfig.hardcoded_env_vars?.[envvar.key] !== undefined) {
-										delete nconfig.hardcoded_env_vars[envvar.key]
+									if (nconfig.env_vars_static?.[envvar.key] !== undefined) {
+										delete nconfig.env_vars_static[envvar.key]
 									}
 									addedEnvVars.splice(i, 1)
 									addedEnvVars = [...addedEnvVars]
@@ -398,9 +398,9 @@
 				</Button>
 			</div>
 
-			{#if nconfig?.whitelist_envs !== undefined}
+			{#if nconfig?.env_vars_allowlist !== undefined}
 				<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
-					{#each nconfig.whitelist_envs as envvar}
+					{#each nconfig.env_vars_allowlist as envvar}
 						<div class="flex gap-0.5 items-center"
 							><div class="text-2xs p-1 rounded border text-primary">{envvar}</div>
 							<button
@@ -409,8 +409,8 @@
 								on:click|preventDefault|stopPropagation={() => {
 									if (nconfig !== undefined) {
 										dirty = true
-										nconfig.whitelist_envs =
-											nconfig?.whitelist_envs?.filter((t) => t != envvar) ?? []
+										nconfig.env_vars_allowlist =
+											nconfig?.env_vars_allowlist?.filter((t) => t !== envvar) ?? []
 									}
 								}}
 							>
@@ -420,17 +420,17 @@
 					{/each}
 				</div>
 				<div class="max-w-md">
-					<input type="text" placeholder="new env var" bind:value={newEnvVar} />
+					<input type="text" placeholder="ENV_VAR_NAME" bind:value={newEnvVar} />
 					<div class="mt-1" />
 					<Button
 						variant="contained"
 						color="blue"
 						size="xs"
-						disabled={newEnvVar == '' || nconfig.whitelist_envs?.includes(newEnvVar)}
+						disabled={newEnvVar == '' || nconfig.env_vars_allowlist?.includes(newEnvVar)}
 						on:click={() => {
 							if (nconfig != undefined) {
-								nconfig.whitelist_envs = [
-									...(nconfig?.whitelist_envs ?? []),
+								nconfig.env_vars_allowlist = [
+									...(nconfig?.env_vars_allowlist ?? []),
 									newEnvVar.replaceAll(' ', '_').toUpperCase()
 								]
 								newEnvVar = ''
@@ -492,8 +492,8 @@
 						color="dark"
 						on:click={async () => {
 							addedEnvVars.forEach((envvar) => {
-								if (nconfig.hardcoded_env_vars !== undefined && !emptyString(envvar.key)) {
-									nconfig.hardcoded_env_vars[envvar.key] = envvar.value
+								if (nconfig.env_vars_static !== undefined && !emptyString(envvar.key)) {
+									nconfig.env_vars_static[envvar.key] = envvar.value
 								}
 							})
 							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
