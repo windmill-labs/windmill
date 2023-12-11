@@ -14,7 +14,7 @@ use axum::{
     Router,
 };
 use magic_crypt::MagicCryptTrait;
-use serde_json::json;
+use serde_json::value::RawValue;
 use tokio::sync::RwLock;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error};
@@ -274,14 +274,19 @@ async fn proxy(
 
     if user.is_some() {
         tracing::debug!("Adding user to request body");
-        let mut parsed_body = serde_json::from_slice::<serde_json::Value>(&body)
+        let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
             .map_err(|e| Error::InternalErr(format!("Failed to parse request body: {}", e)))?;
-        let body_object = parsed_body
-            .as_object_mut()
-            .ok_or_else(|| Error::InternalErr("Request body must be a JSON object".to_string()))?;
-        body_object.insert("user".to_string(), json!(user));
-        body = serde_json::to_vec(&body_object)
-            .map_err(|e| Error::InternalErr(format!("Failed to serialize request body: {}", e)))?
+
+        let user_json_string = serde_json::Value::String(user.unwrap()).to_string(); // makes sure to escape characters
+
+        json_body.insert(
+            "user".to_string(),
+            RawValue::from_string(user_json_string)
+                .map_err(|e| Error::InternalErr(format!("Failed to parse user: {}", e)))?,
+        );
+
+        body = serde_json::to_vec(&json_body)
+            .map_err(|e| Error::InternalErr(format!("Failed to reserialize request body: {}", e)))?
             .into();
     }
 
