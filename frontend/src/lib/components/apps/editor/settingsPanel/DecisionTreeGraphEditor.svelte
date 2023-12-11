@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { Network, X } from 'lucide-svelte'
+	import { Network, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
@@ -104,13 +104,9 @@
 													displayType={false}
 												/>
 											</div>
-											<Button
-												size="xs"
-												color="red"
-												startIcon={{ icon: X }}
-												variant="border"
-												iconOnly
-											/>
+											<Button size="xs" color="red" startIcon={{ icon: Trash }} variant="border">
+												Delete
+											</Button>
 										</div>
 									{/if}
 								{/each}

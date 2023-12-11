@@ -115,8 +115,6 @@
 			displayedNodes = []
 			edges = []
 
-			// Add start node
-
 			displayedNodes.push({
 				type: 'node',
 				id: 'start',
@@ -157,8 +155,6 @@
 				loopDepth: 0
 			})
 
-			// Add edges from start node to first node
-
 			edges.push({
 				id: `start-${nodes[0].id}`,
 				source: 'start',
@@ -167,7 +163,22 @@
 				edgeColor: '#999'
 			})
 
+			const nextMap: { [key: string]: string[] } = {}
+
 			nodes?.forEach((graphNode, index) => {
+				const parentIds = computeParentIds(nodes, graphNode)
+
+				nextMap[graphNode.id] = graphNode.next.map((nextNode) => nextNode.id)
+
+				/*
+
+				const hasSiblings = parentIds.length === 1 && nextMap[parentIds[0]].length > 1
+
+
+
+		
+
+				*/
 				displayedNodes.push({
 					type: 'node',
 					id: graphNode.id,
@@ -194,7 +205,7 @@
 					borderColor: '#999',
 					sourcePosition: 'bottom',
 					targetPosition: 'top',
-					parentIds: computeParentIds(nodes, graphNode),
+					parentIds: parentIds,
 					loopDepth: 0
 				})
 
@@ -208,8 +219,6 @@
 					})
 				})
 			})
-
-			// Add end node
 
 			const lastNodesIds = nodes
 				.filter((node) => {
@@ -249,9 +258,6 @@
 				parentIds: lastNodesIds,
 				loopDepth: 0
 			})
-
-			// Add edges from last node to end node
-			// We need to find every last node, and add an edge to the end node
 
 			lastNodesIds.forEach((lastNodeId) => {
 				edges.push({
