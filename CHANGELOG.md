@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.224.1](https://github.com/windmill-labs/windmill/compare/v1.224.0...v1.224.1) (2023-12-11)
+
+
+### Bug Fixes
+
+* **frontend:** add truncate to DrawerContent ([#2830](https://github.com/windmill-labs/windmill/issues/2830)) ([69abe27](https://github.com/windmill-labs/windmill/commit/69abe27662c801d9ecbe2d31a51142e84d7dcfa2))
+* sql types completions when monaco initialized ([#2831](https://github.com/windmill-labs/windmill/issues/2831)) ([64a4528](https://github.com/windmill-labs/windmill/commit/64a452826f3e00aaea6b5205c908f117327398c4))
+
 ## [1.224.0](https://github.com/windmill-labs/windmill/compare/v1.223.1...v1.224.0) (2023-12-10)
 
 
