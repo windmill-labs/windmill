@@ -89,7 +89,7 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     let custom_tags = process_custom_tags(tags);
 
     tracing::info!(
-        "Loaded setting custom tags, common: {:?}, per-workspace: {:?}",
+        "Loaded setting custom_tags, common: {:?}, per-workspace: {:?}",
         custom_tags.0,
         custom_tags.1,
     );

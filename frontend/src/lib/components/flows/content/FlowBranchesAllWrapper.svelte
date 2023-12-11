@@ -12,6 +12,8 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	export let noEditor: boolean
 	export let flowModule: FlowModule
@@ -70,6 +72,7 @@
 							<Tab value="suspend">Suspend/Approval</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
+							<Tab value="lifetime">Lifetime</Tab>
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-surface">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
@@ -90,6 +93,11 @@
 									<TabContent value="mock" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleMock bind:flowModule />
+										</div>
+									</TabContent>
+									<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
 										</div>
 									</TabContent>
 								</div>

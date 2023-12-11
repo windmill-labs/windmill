@@ -19,6 +19,7 @@
 	import { AlertTriangle, Plus } from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
+	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -50,7 +51,12 @@
 				await Promise.all(
 					Object.entries(settings).map(
 						async ([_, y]) =>
-							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
+							await Promise.all(
+								y.map(async (x) => [
+									x.key,
+									(await getValue(x.key, x.storage)) ?? x.defaultValue?.()
+								])
+							)
 					)
 				)
 			).flat()
@@ -217,8 +223,9 @@
 								<OAuthSetting name="jumpcloud" bind:value={oauths['jumpcloud']} />
 								<KeycloakSetting bind:value={oauths['keycloak']} />
 								<AuthentikSetting bind:value={oauths['authentik']} />
+								<AutheliaSetting bind:value={oauths['authelia']} />
 								{#each Object.keys(oauths) as k}
-									{#if !['authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && 'login_config' in oauths[k]}
+									{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && 'login_config' in oauths[k]}
 										{#if oauths[k]}
 											<div class="flex flex-col gap-2 pb-4">
 												<div class="flex flex-row items-center gap-2">
@@ -283,7 +290,7 @@
 							<div class="py-1" />
 
 							{#each Object.keys(oauths) as k}
-								{#if !['authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && !('login_config' in oauths[k])}
+								{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack'].includes(k) && !('login_config' in oauths[k])}
 									{#if oauths[k]}
 										<div class="flex flex-col gap-2 pb-4">
 											<div class="flex flex-row items-center gap-2">
@@ -450,8 +457,7 @@
 
 											{#if hasError}
 												<span class="text-red-500 text-xs">
-													Base url must start with http:// or https:// and must NOT end with a
-													trailing slash.
+													{setting.error ?? ''}
 												</span>
 											{/if}
 										{:else}

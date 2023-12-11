@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue } from '$lib/utils'
+	import { allTrue, computeShow } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -115,7 +115,7 @@
 								bind:extra={schema.properties[argName]}
 								simpleTooltip={schemaFieldTooltip[argName]}
 							/>
-						{:else}
+						{:else if computeShow(argName, schema?.properties[argName].showExpr, args)}
 							<ArgInput
 								{disablePortal}
 								{resourceTypes}

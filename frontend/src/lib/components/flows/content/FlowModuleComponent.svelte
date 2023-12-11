@@ -8,7 +8,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import { RawScript, type FlowModule, Script } from '$lib/gen'
+	import { type FlowModule, Script } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -19,6 +19,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
+	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
@@ -70,6 +71,7 @@
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
+	let advancedRuntimeSelected = 'concurrency'
 	let s3Kind = 'push'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
@@ -176,7 +178,14 @@
 
 {#if flowModule.value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
-		<FlowCard on:reload={() => reload(flowModule)} {noEditor} bind:flowModule>
+		<FlowCard
+			on:reload={() => {
+				forceReload++
+				reload(flowModule)
+			}}
+			{noEditor}
+			bind:flowModule
+		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
@@ -252,8 +261,8 @@
 										bind:this={editor}
 										class="h-full relative"
 										bind:code={flowModule.value.content}
-										deno={flowModule.value.language === RawScript.language.DENO}
 										lang={scriptLangToEditorLang(flowModule.value.language)}
+										scriptLang={flowModule.value.language}
 										automaticLayout={true}
 										cmdEnterAction={async () => {
 											selected = 'test'
@@ -296,11 +305,7 @@
 							{#if !noEditor}
 								<div class="border-t">
 									{#key forceReload}
-										<FlowModuleScript
-											on:reload={() => reload(flowModule)}
-											path={flowModule.value.path}
-											hash={flowModule.value.hash}
-										/>
+										<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
 									{/key}
 								</div>
 							{/if}
@@ -344,46 +349,30 @@
 								<Tabs bind:selected={advancedSelected}>
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
+										<Tab value="runtime">Runtime</Tab>
 										<Tab value="cache">Cache</Tab>
-										<Tab value="concurrency">Concurrency</Tab>
 										<Tab value="early-stop">Early Stop</Tab>
 										<Tab value="suspend">Suspend</Tab>
 										<Tab value="sleep">Sleep</Tab>
 										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
-										<Tab value="timeout">Timeout</Tab>
-										<Tab value="priority">Priority</Tab>
 										{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
 											<Tab value="s3">S3</Tab>
 										{/if}
 									{/if}
 								</Tabs>
+								{#if advancedSelected === 'runtime'}
+									<Tabs bind:selected={advancedRuntimeSelected}>
+										<Tab value="concurrency">Concurrency</Tab>
+										<Tab value="timeout">Timeout</Tab>
+										<Tab value="priority">Priority</Tab>
+										<Tab value="lifetime">Lifetime</Tab>
+									</Tabs>
+								{/if}
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
 									{#if advancedSelected === 'retries'}
 										<FlowRetries bind:flowModule />
-									{:else if advancedSelected === 'early-stop'}
-										<FlowModuleEarlyStop bind:flowModule />
-									{:else if advancedSelected === 'suspend'}
-										<div>
-											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'sleep'}
-										<div>
-											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'cache'}
-										<div>
-											<FlowModuleCache bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'mock'}
-										<div>
-											<FlowModuleMock bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'timeout'}
-										<div>
-											<FlowModuleTimeout bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'concurrency'}
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
@@ -423,22 +412,11 @@
 												</Alert>
 											{/if}
 										</Section>
-									{:else if advancedSelected === 'same_worker'}
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
 										<div>
-											<Alert type="info" title="Share a directory between steps">
-												If shared directory is set, will share a folder that will be mounted on
-												`./shared` for each of them to pass data between each other.
-											</Alert>
-											<Button
-												btnClasses="mt-4"
-												on:click={() => {
-													$selectedId = 'settings-same-worker'
-												}}
-											>
-												Set shared directory in the flow settings
-											</Button>
+											<FlowModuleTimeout bind:flowModule />
 										</div>
-									{:else if advancedSelected === 'priority'}
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'priority'}
 										<Section label="Priority" class="flex flex-col gap-4">
 											<!-- TODO: Add EE-only badge when we have it -->
 											<Toggle
@@ -478,6 +456,43 @@
 												</svelte:fragment>
 											</Toggle>
 										</Section>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
+										<div>
+											<FlowModuleDeleteAfterUse bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'cache'}
+										<div>
+											<FlowModuleCache bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'early-stop'}
+										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'suspend'}
+										<div>
+											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'sleep'}
+										<div>
+											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'mock'}
+										<div>
+											<FlowModuleMock bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'same_worker'}
+										<div>
+											<Alert type="info" title="Share a directory between steps">
+												If shared directory is set, will share a folder that will be mounted on
+												`./shared` for each of them to pass data between each other.
+											</Alert>
+											<Button
+												btnClasses="mt-4"
+												on:click={() => {
+													$selectedId = 'settings-same-worker'
+												}}
+											>
+												Set shared directory in the flow settings
+											</Button>
+										</div>
 									{:else if advancedSelected === 's3'}
 										<div>
 											<h2 class="pb-4">

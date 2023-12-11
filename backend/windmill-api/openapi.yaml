@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.221.0
+  version: 1.224.0
   title: Windmill API
 
   contact:
@@ -6027,6 +6027,26 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/WorkerPing"
+
+  /workers/exists_worker_with_tag:
+    get:
+      summary: exists worker with tag
+      operationId: existsWorkerWithTag
+      tags:
+        - worker
+      parameters:
+        - name: tag
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: whether a worker with the tag exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /configs/list_worker_groups:
     get:

@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
-	import { allTrue } from '$lib/utils'
+	import { allTrue, computeShow } from '$lib/utils'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
@@ -55,33 +55,12 @@
 			schema.properties = n
 		}
 	}
-
-	function computeHide(expr: string | undefined) {
-		if (expr) {
-			try {
-				let template = `
-			return async function (values) {
-"use strict";
-${expr.startsWith('return ') ? expr.substring(7) : expr}
-}
-`
-				console.log(template)
-				let functor = Function(template)
-				let r = functor()(args)
-				return r
-			} catch (e) {
-				console.error(`Impossible to eval ${expr}:`, e)
-				return false
-			}
-		}
-		return false
-	}
 </script>
 
 <div class={twMerge('w-full flex flex-col px-0.5 pb-2', largeGap ? 'gap-8' : 'gap-2')}>
 	{#each Object.keys(schema.properties ?? {}) as argName (argName)}
 		{#if typeof args == 'object' && schema?.properties[argName] && args}
-			{#if !computeHide(schema?.properties[argName].hideExpr) || true}
+			{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 				<LightweightArgInput
 					label={argName}
 					description={schema.properties[argName].description}

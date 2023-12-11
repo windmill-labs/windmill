@@ -214,7 +214,8 @@
 					cache_ttl: script.cache_ttl,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
-					restart_unless_cancelled: script.restart_unless_cancelled
+					restart_unless_cancelled: script.restart_unless_cancelled,
+					delete_after_use: script.delete_after_use
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -289,7 +290,8 @@
 						cache_ttl: script.cache_ttl,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
-						restart_unless_cancelled: script.restart_unless_cancelled
+						restart_unless_cancelled: script.restart_unless_cancelled,
+						delete_after_use: script.delete_after_use
 					}
 				})
 			}
@@ -706,6 +708,44 @@
 											do not spawn a full runtime</Tooltip
 										>
 									</svelte:fragment>
+								</Section>
+								<Section label="Delete after use">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											WARNING: This settings ONLY applies to synchronous webhooks or when the script
+											is used within a flow. If used individually, this script must be triggered
+											using a synchronous endpoint to have the desired effect.
+											<br />
+											<br />
+											The logs, arguments and results of the job will be completely deleted from Windmill
+											once it is complete and the result has been returned.
+											<br />
+											<br />
+											The deletion is irreversible.
+											{#if !$enterpriseLicense}
+												<br />
+												<br />
+												This option is only available on Windmill Enterprise Edition.
+											{/if}
+										</Tooltip>
+									</svelte:fragment>
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											disabled={!$enterpriseLicense}
+											size="sm"
+											checked={Boolean(script.delete_after_use)}
+											on:change={() => {
+												if (script.delete_after_use) {
+													script.delete_after_use = undefined
+												} else {
+													script.delete_after_use = true
+												}
+											}}
+											options={{
+												right: 'Delete logs, arguments and results after use'
+											}}
+										/>
+									</div>
 								</Section>
 								{#if !isCloudHosted()}
 									<Section label="High priority script" eeOnly>

@@ -329,9 +329,10 @@ pub async fn get_path_tag_limits_cache_for_hash(
     ScriptLang,
     Option<bool>,
     Option<i16>,
+    Option<bool>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -351,6 +352,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
         script.language,
         script.dedicated_worker,
         script.priority,
+        script.delete_after_use,
     ))
 }
 
@@ -1812,7 +1814,8 @@ pub async fn run_job_by_path(
 
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
+    let (job_payload, tag, _delete_after_use) =
+        script_path_to_payload(script_path, &db, &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
@@ -1997,6 +2000,18 @@ async fn run_wait_result<T>(
     }
 }
 
+async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE completed_job
+        SET logs = '##DELETED##', args = '{}'::jsonb, result = '{}'::jsonb
+        WHERE id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
         let count = sqlx::query_scalar!(
@@ -2073,7 +2088,8 @@ pub async fn run_wait_result_job_by_path_get(
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
+    let (job_payload, tag, delete_after_use) =
+        script_path_to_payload(script_path, &db, &w_id).await?;
     check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
@@ -2103,7 +2119,11 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, Path((w_id, script_path)), None).await
+    let wait_result = run_wait_result(&db, uuid, Path((w_id, script_path)), None).await;
+    if delete_after_use.unwrap_or(false) {
+        delete_job_metadata_after_use(&db, uuid).await?;
+    }
+    return wait_result;
 }
 
 pub async fn run_wait_result_flow_by_path_get(
@@ -2185,7 +2205,8 @@ async fn run_wait_result_script_by_path_internal(
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
+    let (job_payload, tag, delete_after_use) =
+        script_path_to_payload(script_path, &db, &w_id).await?;
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
@@ -2216,7 +2237,11 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, Path((w_id, script_path)), None).await
+    let wait_result = run_wait_result(&db, uuid, Path((w_id, script_path)), None).await;
+    if delete_after_use.unwrap_or(false) {
+        delete_job_metadata_after_use(&db, uuid).await?;
+    }
+    return wait_result;
 }
 
 pub async fn run_wait_result_script_by_hash(
@@ -2243,6 +2268,7 @@ pub async fn run_wait_result_script_by_hash(
         language,
         dedicated_worker,
         priority,
+        delete_after_use,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
@@ -2284,7 +2310,11 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, Path((w_id, script_hash)), None).await
+    let wait_result = run_wait_result(&db, uuid, Path((w_id, script_hash)), None).await;
+    if delete_after_use.unwrap_or(false) {
+        delete_job_metadata_after_use(&db, uuid).await?;
+    }
+    return wait_result;
 }
 
 pub async fn run_wait_result_flow_by_path(
@@ -2465,6 +2495,7 @@ async fn add_batch_jobs(
                     language,
                     dedicated_worker,
                     _priority,
+                    _delete_after_use,
                 ) = get_latest_deployed_hash_for_path(&db, &w_id, &path).await?;
                 (
                     Some(script_hash),
@@ -2656,6 +2687,7 @@ pub async fn run_job_by_hash(
         language,
         dedicated_worker,
         priority,
+        _delete_after_use, // not taken into account in async endpoints
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 

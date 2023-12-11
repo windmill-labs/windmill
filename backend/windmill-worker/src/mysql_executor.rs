@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use base64::Engine;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
@@ -9,7 +11,7 @@ use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
 };
-use windmill_parser_sql::parse_mysql_sig;
+use windmill_parser_sql::{parse_mysql_sig, RE_ARG_MYSQL_NAMED};
 
 use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
@@ -63,14 +65,19 @@ pub async fn do_mysql(
     let pool = mysql_async::Pool::new(opts);
     let mut conn = pool.get_conn().await.map_err(to_anyhow)?;
 
-    let mut statement_values: Vec<mysql_async::Value> = vec![];
-
     let sig = parse_mysql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(&query).count() > 0;
+
+    let mut statement_values: Params = match using_named_params {
+        true => Params::Named(HashMap::new()),
+        false => Params::Positional(vec![]),
+    };
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
+        let arg_n = arg.clone().name;
         let mysql_v = match job
             .args
             .as_ref()
@@ -83,6 +90,14 @@ pub async fn do_mysql(
         {
             Value::Null => mysql_async::Value::NULL,
             Value::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
+            Value::String(s)
+                if arg_t == "timestamp"
+                    || arg_t == "datetime"
+                    || arg_t == "date"
+                    || arg_t == "time" =>
+            {
+                string_date_to_mysql_date(&s)
+            }
             Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
             Value::Number(n)
                 if n.is_i64() && (arg_t == "int" || arg_t == "integer" || arg_t == "smallint") =>
@@ -103,10 +118,23 @@ pub async fn do_mysql(
                 )))
             }
         };
-        statement_values.push(mysql_v);
+        match &mut statement_values {
+            Params::Positional(v) => v.push(mysql_v),
+            Params::Named(m) => {
+                m.insert(arg_n.into_bytes(), mysql_v);
+            }
+            _ => {}
+        }
     }
     let rows: Vec<Row> = conn
-        .exec(query, Params::Positional(statement_values))
+        .exec(
+            query,
+            match statement_values {
+                Params::Positional(v) => Params::Positional(v),
+                Params::Named(m) => Params::Named(m),
+                _ => Params::Empty,
+            },
+        )
         .await
         .map_err(to_anyhow)?;
     let rows = rows
@@ -120,6 +148,26 @@ pub async fn do_mysql(
 
     // And then check that we got back the same string we sent over.
     return Ok(windmill_common::worker::to_raw_value(&json!(rows)));
+}
+
+fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
+    // 2023-12-01T16:18:00.000Z
+    let re = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
+    let caps = re.captures(s);
+
+    if let Some(caps) = caps {
+        mysql_async::Value::Date(
+            caps.get(1).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(2).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(3).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(4).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(5).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(6).unwrap().as_str().parse().unwrap_or_default(),
+            caps.get(7).unwrap().as_str().parse().unwrap_or_default(),
+        )
+    } else {
+        mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
+    }
 }
 
 fn convert_row_to_value(row: Row) -> serde_json::Value {
@@ -150,8 +198,10 @@ fn convert_mysql_value_to_json(v: mysql_async::Value, c: ColumnType) -> serde_js
         mysql_async::Value::UInt(n) => json!(n),
         mysql_async::Value::Float(n) => json!(n),
         mysql_async::Value::Double(n) => json!(n),
-        d @ mysql_async::Value::Date(_, _, _, _, _, _, _) => json!(d.as_sql(true)),
-        t @ mysql_async::Value::Time(_, _, _, _, _, _) => json!(t.as_sql(true)),
+        d @ mysql_async::Value::Date(_, _, _, _, _, _, _) => {
+            json!(d.as_sql(true).trim_matches('\''))
+        }
+        t @ mysql_async::Value::Time(_, _, _, _, _, _) => json!(t.as_sql(true).trim_matches('\'')),
         _ => match c {
             ColumnType::MYSQL_TYPE_FLOAT | ColumnType::MYSQL_TYPE_DOUBLE => {
                 conversion_error(f64::from_value_opt(v))

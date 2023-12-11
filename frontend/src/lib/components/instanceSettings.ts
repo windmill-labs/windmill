@@ -18,6 +18,8 @@ export interface Setting {
 		| 'license_key'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
+	error?: string
+	defaultValue?: () => any
 }
 
 export type SettingStorage = 'setting' | 'config'
@@ -32,7 +34,8 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://windmill.com',
 			storage: 'setting',
 			isValid: (value: string | undefined) =>
-				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true
+				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true,
+			defaultValue: () => window.location.origin
 		},
 		{
 			label: 'Request Size Limit In MB',

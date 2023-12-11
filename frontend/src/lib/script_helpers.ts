@@ -143,9 +143,9 @@ export const POSTGRES_INIT_CODE = `-- $1 name1 = default arg
 INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *
 `
 
-export const MYSQL_INIT_CODE = `-- ? name1 (text) = default arg
--- ? name2 (int)
-INSERT INTO demo VALUES (?, ?)
+export const MYSQL_INIT_CODE = `-- :name1 (text) = default arg
+-- :name2 (int)
+INSERT INTO demo VALUES (:name1, :name2)
 `
 
 export const BIGQUERY_INIT_CODE = `-- @name1 (string) = default arg

@@ -19,7 +19,8 @@
 		OauthService,
 		Script,
 		WorkspaceService,
-		HelpersService
+		HelpersService,
+		JobService
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -30,8 +31,8 @@
 		workspaceStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { setQueryWithoutLoad, emptyString } from '$lib/utils'
-	import { Scroll, Slack } from 'lucide-svelte'
+	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
+	import { Scroll, Slack, XCircle, RotateCw, CheckCircle2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -54,7 +55,13 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let s3ResourceInitialPath: string | undefined = undefined
-	let gitSyncResourceInitialPath: string | undefined = undefined
+	let gitSyncResourcePath: string | undefined = undefined
+	let gitSyncTestJob:
+		| {
+				jobId: string
+				status: 'running' | 'success' | 'failure'
+		  }
+		| undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -181,15 +188,15 @@
 		}
 	}
 
-	async function editWindmillGitSyncSettings(gitRepoResourcePath: string): Promise<void> {
-		gitSyncResourceInitialPath = gitRepoResourcePath
-		if (gitRepoResourcePath) {
-			let resourcePathWithPrefix = `$res:${gitRepoResourcePath}`
+	async function editWindmillGitSyncSettings(newGitRepoResourcePath: string): Promise<void> {
+		gitSyncResourcePath = newGitRepoResourcePath
+		if (newGitRepoResourcePath) {
+			let resourcePathWithPrefix = `$res:${newGitRepoResourcePath}`
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						script_path: 'hub/7839/sync-script-to-git-repo-windmill',
+						script_path: 'hub/7844/sync-script-to-git-repo-windmill',
 						git_repo_resource_path: resourcePathWithPrefix
 					}
 				}
@@ -240,7 +247,7 @@
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
 				: undefined
-		gitSyncResourceInitialPath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
+		gitSyncResourcePath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
 	}
 
 	$: {
@@ -281,6 +288,47 @@
 			scriptPath.startsWith('hub/') &&
 			scriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
 		)
+	}
+
+	async function runGitSyncTestJob(gitRepoResourcePath: string | undefined) {
+		if (gitRepoResourcePath === undefined) {
+			return
+		}
+		let jobId = await JobService.runScriptByPath({
+			workspace: $workspaceStore!,
+			path: 'hub/7846/git-repo-test-read-write-windmill',
+			requestBody: {
+				repo_url_resource_path: gitRepoResourcePath
+			}
+		})
+		gitSyncTestJob = {
+			jobId: jobId,
+			status: 'running'
+		}
+		tryEvery({
+			tryCode: async () => {
+				const testResult = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: jobId
+				})
+				gitSyncTestJob!.status = testResult.success ? 'success' : 'failure'
+			},
+			timeoutCode: async () => {
+				try {
+					await JobService.cancelQueuedJob({
+						workspace: $workspaceStore!,
+						id: jobId,
+						requestBody: {
+							reason: 'Git sync test job timed out after 5s'
+						}
+					})
+				} catch (err) {
+					console.error(err)
+				}
+			},
+			interval: 500,
+			timeout: 5000
+		})
 	}
 </script>
 
@@ -369,7 +417,7 @@
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-md font-semibold"> Connect workspace to Slack </div>
 					<div class="text-tertiary text-xs">
-						Connect your windmill workspace to your slack workspace to trigger a script or a flow
+						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
 						with a '/windmill' command or to configure Slack error handlers.
 					</div>
 				</div>
@@ -660,7 +708,15 @@
 				title="Git sync"
 				primary={false}
 				tooltip="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows and apps to the repository on each deploy."
+				documentationLink="https://www.windmill.dev/docs/advanced/git_sync"
 			/>
+			<div class="flex flex-col gap-1">
+				<div class="text-tertiary text-xs">
+					Connect the Windmill workspace to a Git repository to automatically commit and push
+					scripts, flows and apps to the repository on each deploy.
+				</div>
+			</div>
+			<br />
 			{#if !$enterpriseLicense}
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
@@ -669,18 +725,42 @@
 			<Alert type="info" title="Script, flows and apps in the user private folders will be ignored">
 				All scripts, flows and apps located in the workspace will be pushed to the Git repository,
 				except the ones that are saved in private user folders (i.e. where the path starts with
-				`u/`).
+				`u/`, use those with `f/` instead).
+				<br />
+				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
-			<div class="mt-5 mb-5 flex gap-1">
+			<div class="flex mt-5 mb-1 gap-1">
 				{#key s3ResourceInitialPath}
 					<ResourcePicker
 						resourceType="git_repository"
-						initialValue={gitSyncResourceInitialPath}
+						initialValue={gitSyncResourcePath}
 						on:change={(ev) => {
 							editWindmillGitSyncSettings(ev.detail)
 						}}
 					/>
+					<Button
+						disabled={gitSyncResourcePath === undefined}
+						btnClasses="w-32 text-center"
+						color="dark"
+						on:click={() => runGitSyncTestJob(gitSyncResourcePath)}
+						size="xs">Test connection</Button
+					>
 				{/key}
+			</div>
+			<div class="flex mb-5 text-normal text-2xs gap-1">
+				{#if gitSyncTestJob !== undefined}
+					{#if gitSyncTestJob?.status === 'running'}
+						<RotateCw size={14} />
+					{:else if gitSyncTestJob?.status === 'success'}
+						<CheckCircle2 size={14} class="text-green-600" />
+					{:else}
+						<XCircle size={14} class="text-red-700" />
+					{/if}
+					Git sync resource checked via Windmill job
+					<a target="_blank" href={`/run/${gitSyncTestJob?.jobId}?workspace=${$workspaceStore}`}>
+						{gitSyncTestJob?.jobId}
+					</a>
+				{/if}
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
@@ -710,8 +790,10 @@
 					<pre class="overflow-auto max-h-screen"
 						><code
 							>> wmill workspace add WORKSPACE_NAME WORKSPACE_ID WINDMILL_URL
+> echo 'u/' > .wmillignore
 > wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
-> git add -A git commit -m 'Initial commit'
+> git add -A
+> git commit -m 'Initial commit'
 > git push</code
 						></pre
 					>

@@ -228,9 +228,10 @@ pub async fn get_latest_deployed_hash_for_path(
     ScriptLang,
     Option<bool>,
     Option<i16>,
+    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -250,6 +251,7 @@ pub async fn get_latest_deployed_hash_for_path(
         script.language,
         script.dedicated_worker,
         script.priority,
+        script.delete_after_use,
     ))
 }
 

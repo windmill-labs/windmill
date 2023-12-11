@@ -24,6 +24,11 @@
 				'Find "API Token"'
 			]
 		},
+		git_repository: {
+			instructions: [
+				'Only token-based authentication it supported for this resource type right now. When authentication is needed, the username and token can be included directly in the URL (i.e. https://[USERNAME]:[TOKEN]@github.com/[ORG|USER]/[REPO_NAME].git).'
+			]
+		},
 		mailchimp: {
 			img: '/mailchimp_connect.png',
 			instructions: [

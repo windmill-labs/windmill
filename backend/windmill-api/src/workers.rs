@@ -26,6 +26,7 @@ use crate::db::ApiAuthed;
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_worker_pings))
+        .route("/exists_worker_with_tag", get(exists_worker_with_tag))
         .route("/custom_tags", get(get_custom_tags))
 }
 
@@ -66,6 +67,27 @@ async fn list_worker_pings(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+#[derive(Serialize, Deserialize)]
+struct TagQuery {
+    tag: String,
+}
+
+async fn exists_worker_with_tag(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Query(tag_query): Query<TagQuery>,
+) -> JsonResult<bool> {
+    let mut tx = user_db.begin(&authed).await?;
+    let row = sqlx::query!(
+        "SELECT EXISTS(SELECT 1 FROM worker_ping WHERE custom_tags @> $1 AND ping_at > now() - interval '1 minute')",
+        &[tag_query.tag]
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(row.exists.unwrap_or(false)))
 }
 
 async fn get_custom_tags() -> Json<Vec<String>> {

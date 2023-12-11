@@ -44,7 +44,7 @@
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
-	import { UserService } from '$lib/gen'
+	import { Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
@@ -52,6 +52,13 @@
 	import { editorCodeCompletion } from './copilot/completion'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import {
+		BIGQUERY_TYPES,
+		MSSQL_TYPES,
+		MYSQL_TYPES,
+		POSTGRES_TYPES,
+		SNOWFLAKE_TYPES
+	} from '$lib/consts'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -66,7 +73,6 @@
 		| 'graphql'
 		| 'powershell'
 		| 'css'
-	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -90,6 +96,7 @@
 	export let useWebsockets: boolean = true
 	export let listenEmptyChanges = false
 	export let small = false
+	export let scriptLang: Preview.language
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -119,7 +126,7 @@
 
 	let destroyed = false
 	const uri =
-		lang == 'typescript' && deno
+		lang == 'typescript' && scriptLang === 'deno'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -239,21 +246,72 @@
 
 	let command: Disposable | undefined = undefined
 
+	let sqlTypeCompletor: Disposable | undefined = undefined
+
+	$: lang === 'sql' && scriptLang ? addSqlTypeCompletor() : sqlTypeCompletor?.dispose()
+
+	function addSqlTypeCompletor() {
+		if (sqlTypeCompletor) {
+			sqlTypeCompletor.dispose()
+		}
+		sqlTypeCompletor = languages.registerCompletionItemProvider('sql', {
+			triggerCharacters: scriptLang === 'postgresql' ? [':'] : ['('],
+			provideCompletionItems: function (model, position) {
+				const lineUntilPosition = model.getValueInRange({
+					startLineNumber: position.lineNumber,
+					startColumn: 1,
+					endLineNumber: position.lineNumber,
+					endColumn: position.column
+				})
+				let suggestions: languages.CompletionItem[] = []
+				if (
+					scriptLang === 'postgresql'
+						? lineUntilPosition.endsWith('::')
+						: lineUntilPosition.match(/^-- .* \(/)
+				) {
+					const word = model.getWordUntilPosition(position)
+					const range = {
+						startLineNumber: position.lineNumber,
+						endLineNumber: position.lineNumber,
+						startColumn: word.startColumn,
+						endColumn: word.endColumn
+					}
+					suggestions = (
+						scriptLang === 'postgresql'
+							? POSTGRES_TYPES
+							: scriptLang === 'mysql'
+							? MYSQL_TYPES
+							: scriptLang === 'snowflake'
+							? SNOWFLAKE_TYPES
+							: scriptLang === 'bigquery'
+							? BIGQUERY_TYPES
+							: scriptLang === 'mssql'
+							? MSSQL_TYPES
+							: []
+					).map((t) => ({
+						label: t,
+						kind: languages.CompletionItemKind.Function,
+						insertText: t,
+						range: range,
+						sortText: 'a'
+					}))
+				}
+				return {
+					suggestions
+				}
+			}
+		})
+	}
+
 	let sqlSchemaCompletor: Disposable | undefined = undefined
 
-	let oldSchemaRes = ''
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
 		if (typeof newSchemaRes === 'string') {
-			const newSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
-			if (newSchema && newSchemaRes !== oldSchemaRes) {
-				oldSchemaRes = newSchemaRes
-				dbSchema = newSchema
-				return
-			}
+			dbSchema = $dbSchemas[newSchemaRes.replace('$res:', '')]
+		} else {
+			dbSchema = undefined
 		}
-		dbSchema = undefined
-		oldSchemaRes = ''
 	}
 
 	$: lang && args && $dbSchemas && updateSchema()
@@ -622,7 +680,7 @@
 
 		let encodedImportMap = ''
 		if (useWebsockets) {
-			if (lang == 'typescript' && deno) {
+			if (lang == 'typescript' && scriptLang === 'deno') {
 				let expiration = new Date()
 				expiration.setHours(expiration.getHours() + 2)
 				const token = await UserService.createToken({
@@ -688,7 +746,7 @@
 						]
 					}
 				)
-			} else if (lang === 'typescript' && !deno) {
+			} else if (lang === 'typescript' && scriptLang !== 'deno') {
 				await connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/bun`,
 					'bun',
@@ -1018,6 +1076,7 @@
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 		copilotCompletor && copilotCompletor.dispose()
+		sqlTypeCompletor && sqlTypeCompletor.dispose()
 	})
 </script>
 

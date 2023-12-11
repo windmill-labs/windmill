@@ -5,7 +5,7 @@
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { ScriptService, type FlowModule, type PathScript } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Lock, Unlock } from 'lucide-svelte'
+	import { Lock, RefreshCw, Unlock } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	export let flowModule: FlowModule | undefined = undefined
@@ -18,7 +18,6 @@
 			path: value.path
 		})
 		latestHash = script.hash
-		dispatch('reload')
 	}
 
 	const dispatch = createEventDispatcher()
@@ -56,6 +55,7 @@
 									if (flowModule?.value.type == 'script') {
 										flowModule.value.hash = latestHash
 									}
+									dispatch('reload')
 								}}>Update to latest hash</Button
 							>
 						{/if}
@@ -71,17 +71,27 @@
 							}}><Unlock size={12} />hash</Button
 						>
 					{:else if latestHash}
-						<Button
-							title="Lock hash to always use this specific version"
-							color="light"
-							size="xs"
-							btnClasses="text-tertiary inline-flex gap-1 items-center"
-							on:click={() => {
-								if (flowModule?.value.type == 'script') {
-									flowModule.value.hash = latestHash
-								}
-							}}><Lock size={12} />hash</Button
-						>
+						<div class="flex">
+							<Button
+								title="Lock hash to always use this specific version"
+								color="light"
+								size="xs"
+								btnClasses="text-tertiary inline-flex gap-1 items-center"
+								on:click={() => {
+									if (flowModule?.value.type == 'script') {
+										flowModule.value.hash = latestHash
+									}
+								}}><Lock size={12} />hash</Button
+							>
+							<Button
+								title="Reload latest hash"
+								size="xs"
+								color="light"
+								on:click={() => dispatch('reload')}
+							>
+								<RefreshCw size={12} /></Button
+							>
+						</div>
 					{/if}
 					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
 				{:else if flowModule?.value.type === 'flow'}

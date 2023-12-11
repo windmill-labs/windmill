@@ -591,6 +591,12 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: false
 			},
+			selectFirstRowByDefault: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true as boolean,
+				tooltip: 'Select the first row by default on start'
+			},
 			extraConfig: {
 				type: 'static',
 				fieldType: 'object',
@@ -1545,6 +1551,12 @@ This is a paragraph.
 					value: {},
 					tooltip:
 						'any configuration that can be passed to the tanstack table component as initial state (https://tanstack.com/table/v8/docs/api/core/table#initialstate)'
+				},
+				selectFirstRowByDefault: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true as boolean,
+					tooltip: 'Select the first row by default on start'
 				}
 			},
 			componentInput: {

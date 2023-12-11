@@ -61,24 +61,39 @@ lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
     // -- $1 name (type) = default
-    static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    pub static ref RE_ARG_MYSQL_NAMED: Regex = Regex::new(r#"(?m)^-- :([a-z_][a-z0-9_]*) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
-    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- @name (type) = default
-    static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
-    static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
 
-    static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+    static ref RE_ARG_MSSQL: Regex = Regex::new(r#"(?m)^-- @(?:P|p)\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
 }
 
+fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value> {
+    match parsed_typ {
+        _ if default.to_lowercase() == "null" => None,
+        Typ::Int => default.parse::<i64>().ok().map(|x| json!(x)),
+        Typ::Float => default.parse::<f64>().ok().map(|x| json!(x)),
+        Typ::Bool => default.parse::<bool>().ok().map(|x| json!(x)),
+        Typ::Str(_) if default.len() >= 2 && default.starts_with("'") && default.ends_with("'") => {
+            Some(json!(&default[1..default.len() - 1]))
+        }
+        _ => Some(json!(default)),
+    }
+}
 fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args: Vec<Arg> = vec![];
 
-    for cap in RE_ARG_MYSQL.captures_iter(code) {
+    let mut using_named_args = false;
+    for cap in RE_ARG_MYSQL_NAMED.captures_iter(code) {
+        using_named_args = true;
         let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
         let typ = cap
             .get(2)
@@ -88,11 +103,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         let has_default = default.is_some();
         let parsed_typ = parse_mysql_typ(typ.as_str());
 
-        let parsed_default = default.and_then(|x| match parsed_typ {
-            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
-            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
-            _ => Some(json!(x)),
-        });
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
         args.push(Arg {
             name,
             typ: parsed_typ,
@@ -100,6 +111,30 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
         });
+    }
+
+    if !using_named_args {
+        // backwards compatibility
+        for cap in RE_ARG_MYSQL.captures_iter(code) {
+            let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+            let typ = cap
+                .get(2)
+                .map(|x| x.as_str().to_string().to_lowercase())
+                .unwrap();
+            let default = cap.get(3).map(|x| x.as_str().to_string());
+            let has_default = default.is_some();
+            let parsed_typ = parse_mysql_typ(typ.as_str());
+
+            let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
+            args.push(Arg {
+                name,
+                typ: parsed_typ,
+                default: parsed_default,
+                otyp: Some(typ),
+                has_default,
+            });
+        }
     }
 
     Ok(Some(args))
@@ -141,11 +176,8 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         let default = cap.get(3).map(|x| x.as_str().to_string());
         let has_default = default.is_some();
         let oarg = args[(i.unwrap() - 1) as usize].clone();
-        let parsed_default = default.and_then(|x| match oarg.typ {
-            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
-            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
-            _ => Some(json!(x)),
-        });
+        let parsed_default = default.and_then(|x| parsed_default(&oarg.typ, x));
+
         args[(i.unwrap() - 1) as usize] =
             Arg { name, typ: oarg.typ, default: parsed_default, otyp: oarg.otyp, has_default };
     }
@@ -166,11 +198,8 @@ fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         let has_default = default.is_some();
         let parsed_typ = parse_bigquery_typ(typ.as_str());
 
-        let parsed_default = default.and_then(|x| match parsed_typ {
-            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
-            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
-            _ => Some(json!(x)),
-        });
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
         args.push(Arg {
             name,
             typ: parsed_typ,
@@ -196,11 +225,8 @@ fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         let has_default = default.is_some();
         let parsed_typ = parse_snowflake_typ(typ.as_str());
 
-        let parsed_default = default.and_then(|x| match parsed_typ {
-            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
-            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
-            _ => Some(json!(x)),
-        });
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
         args.push(Arg {
             name,
             typ: parsed_typ,
@@ -226,11 +252,8 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         let has_default = default.is_some();
         let parsed_typ = parse_mssql_typ(typ.as_str());
 
-        let parsed_default = default.and_then(|x| match parsed_typ {
-            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
-            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
-            _ => Some(json!(x)),
-        });
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
         args.push(Arg {
             name,
             typ: parsed_typ,
@@ -251,6 +274,7 @@ pub fn parse_mysql_typ(typ: &str) -> Typ {
         "int" | "uint" | "integer" => Typ::Int,
         "bool" | "bit" => Typ::Bool,
         "double precision" | "float" | "real" | "dec" | "fixed" => Typ::Float,
+        "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
         _ => Typ::Str(None),
     }
 }
