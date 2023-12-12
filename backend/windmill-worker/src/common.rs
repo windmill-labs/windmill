@@ -2,6 +2,7 @@ use async_recursion::async_recursion;
 use itertools::Itertools;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
+use prometheus::DEFAULT_BUCKETS;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -737,21 +738,6 @@ async fn resolve_job_timeout(
         *MAX_TIMEOUT_DURATION
     };
 
-    // compute default timeout
-    let default_timeout = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
-        0 => global_max_timeout_duration,
-        default_timeout_secs
-            if Duration::from_secs(default_timeout_secs as u64) < global_max_timeout_duration =>
-        {
-            Duration::from_secs(default_timeout_secs as u64)
-        }
-        default_timeout_secs => {
-            warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the global max timeout will be used instead"));
-            tracing::warn!(warn_msg);
-            global_max_timeout_duration
-        }
-    };
-
     match custom_timeout_secs {
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
@@ -763,7 +749,24 @@ async fn resolve_job_timeout(
             tracing::warn!(warn_msg);
             (global_max_timeout_duration, warn_msg)
         }
-        None => (default_timeout, warn_msg),
+        None => {
+            // fallback to default timeout or max if not set
+            let default_timeout = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
+                None => global_max_timeout_duration,
+                Some(default_timeout_secs)
+                    if Duration::from_secs(default_timeout_secs as u64)
+                        < global_max_timeout_duration =>
+                {
+                    Duration::from_secs(default_timeout_secs as u64)
+                }
+                Some(default_timeout_secs) => {
+                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the global max timeout will be used instead"));
+                    tracing::warn!(warn_msg);
+                    global_max_timeout_duration
+                }
+            };
+            (default_timeout, warn_msg)
+        }
     }
 }
 

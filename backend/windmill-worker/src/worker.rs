@@ -241,7 +241,7 @@ lazy_static::lazy_static! {
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-    pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<i32>> = Arc::new(RwLock::new(0));
+    pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
     pub static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
         .ok()
