@@ -573,12 +573,12 @@ pub async fn start_worker(
         None,
     )
     .await;
-    let context_envs = build_envs_map(context.to_vec());
+    let context_envs = build_envs_map(context.to_vec()).await;
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
             return Err(error::Error::ExecutionErr(
-                format!("Invalid requirements, expectd to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
+                format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;

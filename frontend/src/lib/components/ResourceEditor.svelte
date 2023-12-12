@@ -157,7 +157,7 @@
 							right: 'As JSON'
 						}}
 					/>
-					<TestConnection resource_type={resourceToEdit?.resource_type} {args} />
+					<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
 				</div>
 				<div class="text-sm">
 					{#if loadingSchema}

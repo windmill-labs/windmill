@@ -248,9 +248,11 @@
 
 	let sqlTypeCompletor: Disposable | undefined = undefined
 
-	$: lang === 'sql' && scriptLang ? addSqlTypeCompletor() : sqlTypeCompletor?.dispose()
+	$: initialized && lang === 'sql' && scriptLang
+		? addSqlTypeCompletions()
+		: sqlTypeCompletor?.dispose()
 
-	function addSqlTypeCompletor() {
+	function addSqlTypeCompletions() {
 		if (sqlTypeCompletor) {
 			sqlTypeCompletor.dispose()
 		}

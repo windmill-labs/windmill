@@ -98,6 +98,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: 'No workaround around this'
+		},
+		{
+			label: 'Azure OpenAI base path',
+			description:
+				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}',
+			key: 'openai_azure_base_path',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only:
+				'You can still set this setting by using OPENAI_AZURE_BASE_PATH as env variable to the server containers'
 		}
 	],
 	SMTP: [
