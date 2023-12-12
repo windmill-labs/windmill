@@ -2,7 +2,6 @@ use async_recursion::async_recursion;
 use itertools::Itertools;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
-use prometheus::DEFAULT_BUCKETS;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::value::RawValue;

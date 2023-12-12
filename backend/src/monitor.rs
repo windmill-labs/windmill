@@ -274,7 +274,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn reload_extra_pip_index_url_setting(db: &DB) {
-    if let Err(e) = reload_option_string_setting(
+    if let Err(e) = reload_option_setting(
         db,
         EXTRA_PIP_INDEX_URL_SETTING,
         "PIP_EXTRA_INDEX_URL",
@@ -287,7 +287,7 @@ pub async fn reload_extra_pip_index_url_setting(db: &DB) {
 }
 
 pub async fn reload_npm_config_registry_setting(db: &DB) {
-    if let Err(e) = reload_option_string_setting(
+    if let Err(e) = reload_option_setting(
         db,
         NPM_CONFIG_REGISTRY_SETTING,
         "NPM_CONFIG_REGISTRY",
@@ -315,13 +315,11 @@ pub async fn reload_retention_period_setting(db: &DB) {
 }
 
 pub async fn reload_job_default_timeout_setting(db: &DB) {
-    if let Err(e) = reload_setting(
+    if let Err(e) = reload_option_setting(
         db,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         "JOB_DEFAULT_TIMEOUT_SECS",
-        60 * 60, // one hour
         JOB_DEFAULT_TIMEOUT.clone(),
-        |x| x,
     )
     .await
     {
@@ -374,11 +372,11 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-pub async fn reload_option_string_setting(
+pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     db: &DB,
     setting_name: &str,
     std_env_var: &str,
-    lock: Arc<RwLock<Option<String>>>,
+    lock: Arc<RwLock<Option<T>>>,
 ) -> error::Result<()> {
     let q = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",
@@ -387,10 +385,12 @@ pub async fn reload_option_string_setting(
     .fetch_optional(db)
     .await?;
 
-    let mut value = std::env::var(std_env_var).ok();
+    let mut value = std::env::var(std_env_var)
+        .ok()
+        .and_then(|x| x.parse::<T>().ok());
 
     if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<T>(q.value.clone()) {
             tracing::info!(
                 "Loaded setting {setting_name} from db config: {:#?}",
                 &q.value
