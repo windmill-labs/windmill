@@ -16,6 +16,7 @@
 		addBranch,
 		addNewBranch,
 		addNode,
+		getParents,
 		insertFirstNode,
 		removeBranch,
 		removeNode
@@ -99,6 +100,50 @@
 		)
 	}
 
+	function buildEndNode() {
+		const lastNodesIds = nodes
+			.filter((node) => {
+				return node.next.length == 0
+			})
+			.map((node) => node.id)
+
+		displayedNodes.push(
+			createNode({
+				id: 'end',
+				data: {
+					custom: {
+						component: DecisionTreeGraphNode,
+						props: {
+							node: {
+								id: 'end',
+								label: 'End',
+								next: []
+							},
+							canDelete: false,
+							isHead: true
+						},
+						cb: (e: string, detail: any) => {
+							if (e == 'select') {
+								$selectedNodeId = detail
+							}
+						}
+					}
+				},
+				parentIds: lastNodesIds
+			})
+		)
+
+		lastNodesIds.forEach((lastNodeId) => {
+			edges.push(
+				createEdge({
+					id: `${lastNodeId}-end`,
+					source: lastNodeId,
+					target: 'end'
+				})
+			)
+		})
+	}
+
 	function nodeCallbackHandler(
 		event: string,
 		detail: string,
@@ -132,8 +177,8 @@
 	}
 
 	function buildGraphNodes() {
-		nodes?.forEach((graphNode, index) => {
-			const parentIds = computeParentIds(nodes, graphNode)
+		nodes?.forEach((graphNode) => {
+			const parentIds = getParents(nodes, graphNode)
 			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
 			const hasParentBranches = parentNext ? parentNext.length > 1 : false
 
@@ -295,99 +340,32 @@
 		}
 	}
 
-	function computeParentIds(nodes: DecisionTreeNode[], node: DecisionTreeNode): string[] {
-		let parentIds: string[] = []
-
-		nodes.forEach((n) => {
-			n.next.forEach((nextNode) => {
-				if (nextNode.id == node.id) {
-					parentIds.push(n.id)
-				}
-			})
-		})
-
-		// if first node, add start node as parent
-		if (node.id == nodes[0].id) {
-			parentIds.push('start')
-		}
-
-		return parentIds
-	}
-
 	function resetGraphData() {
 		displayedNodes = []
 		edges = []
 	}
 
-	async function createGraph() {
+	function createGraph() {
 		try {
 			resetGraphData()
 			buildStartNode()
 			buildGraphNodes()
-
-			const lastNodesIds = nodes
-				.filter((node) => {
-					return node.next.length == 0
-				})
-				.map((node) => node.id)
-
-			displayedNodes.push({
-				type: 'node',
-				id: 'end',
-				position: {
-					x: -1,
-					y: -1
-				},
-				data: {
-					custom: {
-						component: DecisionTreeGraphNode,
-						props: {
-							node: {
-								id: 'end',
-								label: 'End',
-								next: []
-							},
-							canDelete: false,
-							isHead: true
-						},
-						cb: (e: string, detail: any) => {
-							if (e == 'select') {
-								$selectedNodeId = detail
-							}
-						}
-					}
-				},
-				width: NODE.width,
-				height: NODE.height,
-				borderColor: '#999',
-				sourcePosition: 'bottom',
-				targetPosition: 'top',
-				parentIds: lastNodesIds,
-				loopDepth: 0
-			})
-
-			lastNodesIds.forEach((lastNodeId) => {
-				edges.push({
-					id: `${lastNodeId}-end`,
-					source: lastNodeId,
-					target: 'end',
-					label: '',
-					edgeColor: '#999'
-				})
-			})
-
-			const layered = layoutNodes(displayedNodes)
-
-			displayedNodes = layered.nodes
+			buildEndNode()
+			applyLayoutToNodes()
 		} catch (e) {
 			console.error(e)
 		}
 	}
 
+	function applyLayoutToNodes() {
+		const layered = layoutNodes(displayedNodes)
+		displayedNodes = layered.nodes
+	}
+
 	let mounted = false
 
-	onMount(async () => {
-		await createGraph()
+	onMount(() => {
+		createGraph()
 		mounted = true
 	})
 </script>

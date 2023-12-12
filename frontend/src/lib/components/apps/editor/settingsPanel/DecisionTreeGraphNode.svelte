@@ -51,9 +51,11 @@
 
 	{#if canDelete}
 		<button
-			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary
-border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
-hover:border-red-700 {selected ? '' : '!hidden'}"
+			class={twMerge(
+				'absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary',
+				'border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white hover:border-red-700',
+				selected ? '' : '!hidden'
+			)}
 			on:click|preventDefault|stopPropagation={() => dispatch('delete')}
 		>
 			<X class="mx-[3px]" size={14} strokeWidth={2} />

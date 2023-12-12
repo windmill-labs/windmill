@@ -226,3 +226,22 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 
 	return nodes
 }
+
+export function getParents(nodes: DecisionTreeNode[], node: DecisionTreeNode): string[] {
+	let parentIds: string[] = []
+
+	nodes.forEach((n) => {
+		n.next.forEach((nextNode) => {
+			if (nextNode.id == node.id) {
+				parentIds.push(n.id)
+			}
+		})
+	})
+
+	// if first node, add start node as parent
+	if (node.id == nodes[0].id) {
+		parentIds.push('start')
+	}
+
+	return parentIds
+}
