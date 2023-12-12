@@ -10,7 +10,6 @@
 
 	export let node: DecisionTreeNode
 	export let selected = false
-	export let editable: boolean = true
 	export let isHead: boolean = false
 	export let canDelete: boolean = true
 
@@ -62,7 +61,7 @@
 		</button>
 	{/if}
 
-	{#if node.id !== 'end' && editable}
+	{#if node.id !== 'end'}
 		<div
 			class={twMerge(
 				'absolute -bottom-10 left-1/2 transform -translate-x-1/2 flex items-center',

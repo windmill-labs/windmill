@@ -46,6 +46,7 @@
 					{#key renderCount}
 						<DecisionTreePreview
 							bind:nodes
+							bind:component
 							{rebuildOnChange}
 							{paneHeight}
 							{paneWidth}

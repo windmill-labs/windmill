@@ -10,8 +10,7 @@
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
 
 	import type { Writable } from 'svelte/store'
-	import type { DecisionTreeNode } from '../../component'
-	import { Alert } from '$lib/components/common'
+	import type { AppComponent, DecisionTreeNode } from '../../component'
 	import {
 		addBranch,
 		addNewBranch,
@@ -22,12 +21,14 @@
 		removeNode
 	} from './utils'
 	import { createEdge, createNode } from './nodeHelpers'
+	import type { AppViewerContext } from '$lib/components/apps/types'
+	import { deleteGridItem } from '../../appUtils'
 
 	export let nodes: DecisionTreeNode[]
 	export let rebuildOnChange: any = undefined
 	export let paneWidth = 0
 	export let paneHeight = 0
-	export let editable: boolean = true
+	export let component: AppComponent
 
 	let displayedNodes: Node[] = []
 	let edges: UserEdgeType[] = []
@@ -38,10 +39,6 @@
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
 	}>('DecisionTreeEditor')
-
-	$: {
-		createGraph()
-	}
 
 	$: rebuildOnChange && triggerRebuild()
 
@@ -54,7 +51,6 @@
 		}
 	}
 
-	// Create a start node to connect the first node.
 	function buildStartNode() {
 		const startNodeConfig = {
 			id: 'start',
@@ -77,14 +73,7 @@
 						canDelete: false,
 						isHead: true
 					},
-					cb: (e: string, detail: any) => {
-						if (e == 'select') {
-							$selectedNodeId = detail
-						} else if (e === 'nodeInsert') {
-							nodes = insertFirstNode(nodes)
-							dispatch('render')
-						}
-					}
+					cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, nodes[0], [])
 				}
 			}
 		}
@@ -99,6 +88,7 @@
 			})
 		)
 	}
+	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function buildEndNode() {
 		const lastNodesIds = nodes
@@ -144,6 +134,40 @@
 		})
 	}
 
+	function addSubGrid() {
+		const numberOfPanes = nodes.length
+		if (!$app.subgrids) {
+			$app.subgrids = {}
+		}
+		$app.subgrids[`${component.id}-${numberOfPanes}`] = []
+		component.numberOfSubgrids = nodes.length + 1
+	}
+
+	function deleteSubgrid(index: number) {
+		let subgrid = `${component.id}-${index}`
+
+		if (!$app.subgrids![subgrid]) {
+			return
+		}
+
+		for (const item of $app!.subgrids![subgrid]) {
+			const components = deleteGridItem($app, item.data, subgrid)
+			for (const key in components) {
+				delete $runnableComponents[key]
+			}
+		}
+		$runnableComponents = $runnableComponents
+		for (let i = index; i < nodes.length - 1; i++) {
+			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+		}
+		nodes.splice(index, 1)
+		delete $app!.subgrids![`${component.id}-${nodes.length}`]
+
+		nodes = nodes
+		component.numberOfSubgrids = nodes.length
+		$app = $app
+	}
+
 	function nodeCallbackHandler(
 		event: string,
 		detail: string,
@@ -155,12 +179,17 @@
 				$selectedNodeId = detail
 				break
 			case 'nodeInsert':
+				addSubGrid()
 				nodes = addNode(nodes, graphNode)
 				break
 			case 'branchInsert':
 				nodes = addBranch(nodes, graphNode)
 				break
 			case 'delete':
+				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode.id)
+				if (graphhNodeIndex > -1) {
+					deleteSubgrid(graphhNodeIndex)
+				}
 				nodes = removeNode(nodes, graphNode)
 				break
 			case 'addBranch':
@@ -168,7 +197,8 @@
 				break
 			case 'removeBranch':
 				nodes = removeBranch(nodes, graphNode, parentIds[0])
-
+			case 'firstNodeInsert':
+				nodes = insertFirstNode(nodes)
 				break
 			default:
 				break
@@ -192,7 +222,6 @@
 							component: DecisionTreeGraphHeader,
 							props: {
 								node: graphNode,
-								editable: editable,
 								canDelete: true,
 								isHead: true
 							},
@@ -211,28 +240,10 @@
 							component: DecisionTreeGraphNode,
 							props: {
 								node: graphNode,
-								editable: editable,
 								canDelete: graphNode.next.length === 1,
 								isHead: graphNode.next.length === 0
 							},
-							cb: (e: string, detail: any) => {
-								if (e == 'select') {
-									$selectedNodeId = detail
-								} else if (e == 'nodeInsert') {
-									nodes = addNode(nodes, graphNode)
-									dispatch('render')
-								} else if (e === 'branchInsert') {
-									nodes = addBranch(nodes, graphNode)
-									dispatch('render')
-								} else if (e === 'delete') {
-									nodes = removeNode(nodes, graphNode)
-
-									dispatch('render')
-								} else if (e === 'addBranch') {
-									nodes = addNewBranch(nodes, graphNode)
-									dispatch('render')
-								}
-							}
+							cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 						}
 					},
 					parentIds: [branchHeaderId]
@@ -266,7 +277,6 @@
 								component: DecisionTreeGraphNode,
 								props: {
 									node: graphNode,
-									editable: editable,
 									canDelete: graphNode.next.length === 1,
 									isHead: graphNode.next.length === 0
 								},
@@ -384,7 +394,4 @@
 		background={false}
 		width={paneWidth}
 	/>
-{/if}
-{#if !editable}
-	<Alert type="info" title="Debug nodes" size="xs">Click on a node to debug its content.</Alert>
 {/if}
