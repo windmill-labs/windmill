@@ -835,7 +835,7 @@ pub async fn start_worker(
     .await
     .to_vec();
 
-    let context_envs = build_envs_map(context);
+    let context_envs = build_envs_map(context).await;
     let additional_python_paths = handle_python_deps(
         job_dir,
         requirements_o,
