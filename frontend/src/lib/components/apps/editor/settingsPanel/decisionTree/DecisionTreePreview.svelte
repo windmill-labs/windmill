@@ -21,7 +21,6 @@
 
 	let displayedNodes: Node[] = []
 	let edges: UserEdgeType[] = []
-	let fullWidth: number = 0
 	let scroll = false
 
 	const dispatch = createEventDispatcher()
@@ -77,12 +76,7 @@
 					id: des.data.id,
 					position: {
 						x: des.x
-							? des.data.loopDepth * 50 +
-							  des.x +
-							  fullWidth / 2 -
-							  boxSize.width / 2 -
-							  NODE.width / 2 +
-							  300
+							? des.data.loopDepth * 50 + des.x + paneWidth / 2 - boxSize.width / 2 - NODE.width / 2
 							: 0,
 						y: des.y || 0
 					}
@@ -293,7 +287,6 @@
 			const layered = layoutNodes(displayedNodes)
 
 			displayedNodes = layered.nodes
-			fullWidth = layered.width
 		} catch (e) {
 			console.error(e)
 		}
@@ -319,7 +312,7 @@
 		{scroll}
 		nodeSelected={false}
 		background={false}
-		width={paneWidth - 1}
+		width={paneWidth}
 	/>
 {/if}
 {#if !editable}
