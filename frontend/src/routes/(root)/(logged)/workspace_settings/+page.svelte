@@ -198,7 +198,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						script_path: 'hub/7844/sync-script-to-git-repo-windmill',
+						script_path: 'hub/7848/sync-script-to-git-repo-windmill',
 						git_repo_resource_path: resourcePathWithPrefix
 					}
 				}
@@ -732,7 +732,10 @@
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
 			{/if}
-			<Alert type="info" title="Script, flows and apps in the user private folders will be ignored">
+			<Alert
+				type="info"
+				title="Scripts, flows and apps in the user private folders will be ignored"
+			>
 				All scripts, flows and apps located in the workspace will be pushed to the Git repository,
 				except the ones that are saved in private user folders (i.e. where the path starts with
 				`u/`, use those with `f/` instead).
@@ -769,7 +772,7 @@
 					Git sync resource checked via Windmill job
 					<a target="_blank" href={`/run/${gitSyncTestJob?.jobId}?workspace=${$workspaceStore}`}>
 						{gitSyncTestJob?.jobId}
-					</a>
+					</a>WARNING: Only read permissions are verified.
 				{/if}
 			</div>
 
