@@ -205,8 +205,6 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 
 	const collapseNode = findCollapseNode(nodes, startNode.id)
 
-	debugger
-
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,

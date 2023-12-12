@@ -14,7 +14,6 @@
 	import { addBranch, addNewBranch, addNode, insertFirstNode, removeNode } from './utils'
 
 	export let nodes: DecisionTreeNode[]
-	export let minHeight: number = 0
 	export let rebuildOnChange: any = undefined
 	export let paneWidth = 0
 	export let paneHeight = 0
@@ -141,8 +140,8 @@
 									}
 								}
 							},
-							isHead: true,
-							canDelete: false
+							canDelete: false,
+							isHead: true
 						},
 						cb: (e: string, detail: any) => {
 							if (e == 'select') {
@@ -197,7 +196,8 @@
 							props: {
 								node: graphNode,
 								editable: editable,
-								canDelete: graphNode.next.length === 1
+								canDelete: graphNode.next.length === 1,
+								isHead: graphNode.next.length === 0
 							},
 							cb: (e: string, detail: any) => {
 								if (e == 'select') {
@@ -261,7 +261,8 @@
 								label: 'End',
 								next: []
 							},
-							canDelete: false
+							canDelete: false,
+							isHead: true
 						},
 						cb: (e: string, detail: any) => {
 							if (e == 'select') {
@@ -298,24 +299,29 @@
 		}
 	}
 
+	let mounted = false
+
 	onMount(async () => {
 		await createGraph()
+		mounted = true
 	})
 </script>
 
-<Svelvet
-	download={false}
-	highlightEdges={false}
-	locked
-	dataflow={false}
-	nodes={displayedNodes}
-	{edges}
-	height={paneHeight}
-	{scroll}
-	nodeSelected={false}
-	background={false}
-	width={paneWidth - 1}
-/>
+{#if mounted}
+	<Svelvet
+		download={false}
+		highlightEdges={false}
+		locked
+		dataflow={false}
+		nodes={displayedNodes}
+		{edges}
+		height={paneHeight}
+		{scroll}
+		nodeSelected={false}
+		background={false}
+		width={paneWidth - 1}
+	/>
+{/if}
 {#if !editable}
 	<Alert type="info" title="Debug nodes" size="xs">Click on a node to debug its content.</Alert>
 {/if}

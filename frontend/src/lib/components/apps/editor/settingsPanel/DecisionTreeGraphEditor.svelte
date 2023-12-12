@@ -17,7 +17,6 @@
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
-	export let minHeight: number = 0
 	export let rebuildOnChange: any = undefined
 
 	let drawer: Drawer | undefined = undefined
@@ -42,12 +41,11 @@
 		tooltip="Decision tree graph editor"
 	>
 		<Splitpanes>
-			<Pane size={50}>
+			<Pane size={60}>
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
 					{#key renderCount}
 						<DecisionTreePreview
 							bind:nodes
-							{minHeight}
 							{rebuildOnChange}
 							{paneHeight}
 							{paneWidth}
@@ -58,7 +56,7 @@
 					{/key}
 				</div>
 			</Pane>
-			<Pane size={50}>
+			<Pane size={40}>
 				<div class="h-full w-full bg-surface p-4 flex flex-col gap-6">
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">

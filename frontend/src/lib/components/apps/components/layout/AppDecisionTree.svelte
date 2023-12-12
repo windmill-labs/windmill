@@ -39,6 +39,10 @@
 		return acc
 	}, resolvedNext || {})
 
+	$: if (!nodes.map((n) => n.id).includes(currentNodeId)) {
+		currentNodeId = nodes[0].id
+	}
+
 	let selectedConditionIndex = 0
 
 	let currentNodeId = nodes[0].id
@@ -136,7 +140,9 @@
 	</div>
 
 	<div class="h-8 flex flex-row gap-2 justify-end items-center px-2">
-		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
+		{#if nodes[0].id !== currentNodeId}
+			<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
+		{/if}
 		<span class="text-xs text-primary">Tab: {currentNodeId}</span>
 		<Button
 			on:click={next}
