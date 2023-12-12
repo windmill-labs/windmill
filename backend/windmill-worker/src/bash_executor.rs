@@ -12,7 +12,7 @@ const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 lazy_static::lazy_static! {
-    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"Import-Module\s+(?:-Name\s+)?"?([^-\s"]+)"?"#).unwrap();
+    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^-\s"]+)"?"#).unwrap();
 }
 
 use crate::{
@@ -219,7 +219,7 @@ pub async fn handle_powershell_job(
                     .split('/')
                     .last()
                     .unwrap_or_default()
-                    .to_string()
+                    .to_lowercase()
             })
         })
         .collect::<Vec<String>>();
@@ -229,7 +229,7 @@ pub async fn handle_powershell_job(
     for line in content.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let module = cap.get(1).unwrap().as_str();
-            if !installed_modules.contains(&module.to_string()) {
+            if !installed_modules.contains(&module.to_lowercase()) {
                 logs.push_str(&format!("{} not found in cache\n", module.to_string()));
                 // instead of using Install-Module, we use Save-Module so that we can specify the installation path
                 install_string.push_str(&format!(
@@ -269,21 +269,24 @@ pub async fn handle_powershell_job(
         .await?;
     }
 
+    // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
+    let profile = "\\$PSModuleAutoloadingPreference = 'None'
+\\$PSModulePathBackup = \\$env:PSModulePath
+\\$env:PSModulePath = (\\$Env:PSModulePath -split ':')[-1]
+Get-Module -ListAvailable | Import-Module
+\\$env:PSModulePath = \"/tmp/windmill/cache/powershell:\\$env:PSModulePathBackup\"";
+    // make sure param() is first
     let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
-
-    // add /tmp/windmill/cache to PSModulePath at the beginning of the powershell script but param() has to be first
     let content: String = if let Some(param_match) = param_match {
         let param_match = param_match.as_str();
         format!(
-            "{}\n\\$env:PSModulePath = \"/tmp/windmill/cache/powershell:\\$env:PSModulePath\"\n{}",
+            "{}\n{}\n{}",
             param_match,
+            profile,
             content.replace(param_match, "")
         )
     } else {
-        format!(
-            "param()\n$env:PSModulePath = \"/tmp/windmill/cache/powershell:$env:PSModulePath\"\n{}",
-            content
-        )
+        format!("{}\n{}", profile, content)
     };
 
     write_file(job_dir, "main.sh", &format!("set -e\ncat > script.ps1 << EOF\n{content}\nEOF\npwsh -File script.ps1 {pwsh_args}\necho \"\"\nsleep 0.02")).await?;
