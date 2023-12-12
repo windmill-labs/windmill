@@ -71,6 +71,9 @@
 		"yootils": "^0.3.1"
 	},
 	"overrides": {
+		"@typescript/ata": {
+			"typescript": "$typescript"
+		},
 		"@rgossiaux/svelte-headlessui": {
 			"svelte": "$svelte"
 		},
@@ -97,6 +100,7 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.9",
+		"@typescript/ata": "^0.9.4",
 		"ag-grid-community": "^31.0.0",
 		"ag-grid-enterprise": "^31.0.0",
 		"ansi_up": "^5.2.1",

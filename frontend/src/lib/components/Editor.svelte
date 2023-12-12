@@ -33,6 +33,7 @@
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
 	import { dbSchemas, type DBSchema, copilotInfo, codeCompletionSessionEnabled } from '$lib/stores'
+	import { setupTypeAcquisition } from '@typescript/ata'
 
 	import {
 		createHash as randomHash,
@@ -747,6 +748,23 @@
 					}
 				)
 			} else if (lang === 'typescript' && scriptLang !== 'deno') {
+				ata = setupTypeAcquisition({
+					projectName: 'TypeScript Playground',
+					typescript: ts,
+					logger: console,
+					delegate: {
+						receivedFile: addLibraryToRuntime,
+						progress: (downloaded: number, total: number) => {
+							// console.log({ dl, ttl })
+						},
+						started: () => {
+							console.log('ATA start')
+						},
+						finished: (f) => {
+							console.log('ATA done')
+						}
+					}
+				})
 				await connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/bun`,
 					'bun',
