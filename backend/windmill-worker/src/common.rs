@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -47,7 +47,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, WHITELIST_ENVS,
+    MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -368,17 +368,16 @@ pub async fn get_reserved_variables(
     .await
     .to_vec();
 
-    Ok(build_envs_map(variables))
+    Ok(build_envs_map(variables).await)
 }
 
-pub fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String, String> {
+pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String, String> {
     let mut r: HashMap<String, String> =
         context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
-    if let Some(ref envs) = *WHITELIST_ENVS {
-        for e in envs {
-            r.insert(e.0.clone(), e.1.clone());
-        }
+    let envs = WORKER_CONFIG.read().await.clone().env_vars;
+    for env in envs {
+        r.insert(env.0.clone(), env.1.clone());
     }
 
     r
