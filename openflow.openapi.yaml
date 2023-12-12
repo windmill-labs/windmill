@@ -80,6 +80,10 @@ components:
               type: integer
             seconds:
               type: integer
+            random_factor:
+              type: integer
+              minimum: 0
+              maximum: 100
 
     FlowModule:
       type: object

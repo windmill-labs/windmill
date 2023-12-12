@@ -1035,7 +1035,12 @@ mod tests {
         assert_eq!(
             Retry {
                 constant: Default::default(),
-                exponential: ExponentialDelay { attempts: 0, multiplier: 1, seconds: 123 }
+                exponential: ExponentialDelay {
+                    attempts: 0,
+                    multiplier: 1,
+                    seconds: 123,
+                    random_factor: None
+                }
             },
             serde_json::from_str(
                 r#"
@@ -1053,7 +1058,12 @@ mod tests {
     fn retry_exponential() {
         let retry = Retry {
             constant: ConstantDelay::default(),
-            exponential: ExponentialDelay { attempts: 3, multiplier: 4, seconds: 3 },
+            exponential: ExponentialDelay {
+                attempts: 3,
+                multiplier: 4,
+                seconds: 3,
+                random_factor: None,
+            },
         };
         assert_eq!(
             vec![
@@ -1074,7 +1084,12 @@ mod tests {
     fn retry_both() {
         let retry = Retry {
             constant: ConstantDelay { attempts: 2, seconds: 4 },
-            exponential: ExponentialDelay { attempts: 2, multiplier: 1, seconds: 3 },
+            exponential: ExponentialDelay {
+                attempts: 2,
+                multiplier: 1,
+                seconds: 3,
+                random_factor: None,
+            },
         };
         assert_eq!(
             vec![
