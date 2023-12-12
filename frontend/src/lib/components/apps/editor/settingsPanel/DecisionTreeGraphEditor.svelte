@@ -12,6 +12,8 @@
 	import { writable } from 'svelte/store'
 	import DecisionTreePreview from './decisionTree/DecisionTreePreview.svelte'
 	import { addBranch, removeNode } from './decisionTree/utils'
+	import Label from '$lib/components/Label.svelte'
+	import { debounce } from '$lib/utils'
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
@@ -70,18 +72,24 @@
 										nodes = removeNode(nodes, selectedNode)
 										renderCount++
 									}}
-									disabled={!Boolean(
-										nodes.find((n) => n.next.find((next) => next.id == selectedNode?.id))
-									) ||
-										nodes.filter((n) =>
-											n.next.find((nn) => {
-												return nn.id == selectedNode?.id
-											})
-										)?.length > 1}
+									disabled={selectedNode?.next?.length > 1}
 								>
 									Delete node
 								</Button>
 							</svelte:fragment>
+
+							<Label label="Label">
+								<input
+									type="text"
+									class="input input-primary input-bordered"
+									bind:value={selectedNode.label}
+									on:input={() => {
+										debounce(() => {
+											renderCount++
+										}, 300)()
+									}}
+								/>
+							</Label>
 
 							{#if Array.isArray(selectedNode.next) && selectedNode.next.length === 1}
 								<Alert type="info" title="This node has only one next node">
@@ -106,24 +114,24 @@
 								</div>
 							{:else}
 								{#each selectedNode.next as subNode (subNode.id)}
-									{#if selectedNode.required}
+									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow">
 												<InputsSpecEditor
 													key={`Goes to ${subNode.id} if:`}
-													bind:componentInput={selectedNode.required}
+													bind:componentInput={subNode.condition}
 													id={subNode.id}
 													userInputEnabled={false}
 													shouldCapitalize={true}
 													resourceOnly={false}
-													fieldType={selectedNode.required?.['fieldType']}
-													subFieldType={selectedNode.required?.['subFieldType']}
-													format={selectedNode.required?.['format']}
-													selectOptions={selectedNode.required?.['selectOptions']}
-													tooltip={selectedNode.required?.['tooltip']}
-													fileUpload={selectedNode.required?.['fileUpload']}
-													placeholder={selectedNode.required?.['placeholder']}
-													customTitle={selectedNode.required?.['customTitle']}
+													fieldType={subNode.condition?.['fieldType']}
+													subFieldType={subNode.condition?.['subFieldType']}
+													format={subNode.condition?.['format']}
+													selectOptions={subNode.condition?.['selectOptions']}
+													tooltip={subNode.condition?.['tooltip']}
+													fileUpload={subNode.condition?.['fileUpload']}
+													placeholder={subNode.condition?.['placeholder']}
+													customTitle={subNode.condition?.['customTitle']}
 													displayType={false}
 												/>
 											</div>

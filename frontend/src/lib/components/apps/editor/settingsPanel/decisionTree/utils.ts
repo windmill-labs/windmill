@@ -151,10 +151,21 @@ function findCollapseNode(tree: DecisionTreeNode[], startId: string): string | n
 
 	dfs(startId, [])
 
-	const lastNodes = paths.map((path) => path[path.length - 1])
+	paths = paths.map((path) => path.slice(1))
 
-	if (lastNodes.every((lastNode) => lastNode === lastNodes[0])) {
-		return lastNodes[0]
+	return findFirstCommonLetter(paths)
+}
+
+function findFirstCommonLetter(arrays) {
+	const first = arrays[0]
+	const rest = arrays.slice(1)
+
+	for (let i = 0; i < first.length; i++) {
+		const letter = first[i]
+
+		if (rest.every((array) => array.includes(letter))) {
+			return letter
+		}
 	}
 
 	return null
@@ -194,6 +205,8 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 
 	const collapseNode = findCollapseNode(nodes, startNode.id)
 
+	debugger
+
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,
@@ -229,8 +242,6 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 		}
 		return node
 	})
-
-	debugger
 
 	return nodes
 }

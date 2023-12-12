@@ -43,9 +43,9 @@
 			dispatch('select', node.id)
 		}}
 	>
-		<div class="grow text-xs font-normal"> Lorem ipsum </div>
+		<div class="grow text-xs font-normal"> {node.label} </div>
 		<Badge color="indigo">
-			{node.label}
+			{node.id}
 		</Badge>
 	</Button>
 

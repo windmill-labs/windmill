@@ -29,14 +29,16 @@
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 
-	let resolvedConditions: Record<string, boolean[]> = nodes.reduce((acc, node) => {
-		if (!acc) {
-			acc = {}
-		}
-
-		acc[node.id] = []
+	$: resolvedConditions = nodes.reduce((acc, node) => {
+		acc[node.id] = acc[node.id] || []
 		return acc
-	}, {})
+	}, resolvedConditions || {})
+
+	$: resolvedNext = nodes.reduce((acc, node) => {
+		acc[node.id] = acc[node.id] || false
+		return acc
+	}, resolvedNext || {})
+
 	let selectedConditionIndex = 0
 
 	let currentNodeId = nodes[0].id
@@ -45,6 +47,7 @@
 		const resolvedNodeConditions = resolvedConditions[currentNodeId]
 
 		let found: boolean = false
+
 		resolvedNodeConditions.forEach((condition, index) => {
 			if (found) return
 
@@ -53,8 +56,6 @@
 			if (condition && node) {
 				found = true
 				currentNodeId = node.next[index].id
-
-				console.log(currentNodeId)
 
 				$focusedGrid = {
 					parentComponentId: id,
@@ -65,8 +66,6 @@
 	}
 
 	function prev() {
-		// Find the previous node
-
 		const previousNode = nodes.find((node) => {
 			return node.next.find((next) => next.id == currentNodeId)
 		})
@@ -79,18 +78,28 @@
 	let lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
 </script>
 
-{#each nodes ?? [] as node}
-	{#each node.next ?? [] as next, conditionIndex}
-		{#if next.condition}
-			<InputValue
-				key="conditions"
-				{id}
-				input={next.condition}
-				bind:value={resolvedConditions[node.id][conditionIndex]}
-			/>
+{#if Object.keys(resolvedConditions).length === nodes.length}
+	{#each nodes ?? [] as node (node.id)}
+		{#each node.next ?? [] as next, conditionIndex}
+			{#if next.condition}
+				<InputValue
+					key="conditions"
+					{id}
+					input={next.condition}
+					bind:value={resolvedConditions[node.id][conditionIndex]}
+				/>
+			{/if}
+		{/each}
+	{/each}
+{/if}
+
+{#if Object.keys(resolvedConditions).length === nodes.length}
+	{#each nodes ?? [] as node (node.id)}
+		{#if node.required}
+			<InputValue key="conditions" {id} input={node.required} bind:value={resolvedNext[node.id]} />
 		{/if}
 	{/each}
-{/each}
+{/if}
 
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle
@@ -134,7 +143,8 @@
 			size="xs2"
 			color="dark"
 			endIcon={{ icon: ArrowRight }}
-			disabled={resolvedConditions?.[currentNodeId]?.every((condition) => !condition)}
+			disabled={resolvedConditions?.[currentNodeId].length > 1 &&
+				resolvedConditions?.[currentNodeId]?.every((condition) => !condition)}
 		>
 			{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
 		</Button>
