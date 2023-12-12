@@ -47,7 +47,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
