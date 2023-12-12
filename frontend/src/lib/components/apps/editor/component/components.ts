@@ -2923,20 +2923,9 @@ This is a paragraph.
 			container: { class: '', style: '' }
 		},
 		initialData: {
-			configuration: {
-				endtitle: {
-					type: 'static',
-					value: 'Thank you!',
-					fieldType: 'text'
-				},
-				endDescription: {
-					type: 'static',
-					value: 'You have reached the end of the decision tree.',
-					fieldType: 'text'
-				}
-			},
+			configuration: {},
 			componentInput: undefined,
-			numberOfSubgrids: 2,
+			numberOfSubgrids: 5,
 			nodes: [
 				{
 					id: 'a',

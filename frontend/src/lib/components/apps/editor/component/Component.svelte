@@ -702,7 +702,6 @@
 				id={component.id}
 				nodes={component.nodes}
 				customCss={component.customCss}
-				configuration={component.configuration}
 				{componentContainerHeight}
 				{render}
 			/>

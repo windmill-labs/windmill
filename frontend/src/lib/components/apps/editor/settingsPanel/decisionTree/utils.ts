@@ -103,29 +103,53 @@ export function removeNode(nodes: DecisionTreeNode[], nodeToRemove: DecisionTree
 
 	if (!parentNode && nodeToRemove.next.length == 1) {
 		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
-
-		return nodes
-	}
-
-	if (parentNode?.next.length == 1) {
+	} else if (parentNode && parentNode?.next.length === 1) {
 		parentNode.next = nodeToRemove.next
+
+		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
+	} else if (parentNode && parentNode?.next.length > 1) {
+		parentNode.next = parentNode.next.filter((next) => next.id != nodeToRemove.id)
+		parentNode.next = [...parentNode.next, ...nodeToRemove.next]
+
+		// Filter out duplicates
+		parentNode.next = parentNode.next.filter(
+			(next, index, self) => index === self.findIndex((t) => t.id === next.id)
+		)
 
 		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
 	}
 
-	if (parentNode && parentNode?.next.length > 1) {
-		const collapseNode = findCollapseNode(nodes, parentNode.id)
+	return nodes
+}
 
-		if (nodeToRemove.next.find((next) => next.id == collapseNode)) {
-			parentNode.next = parentNode.next.filter((next) => next.id != nodeToRemove.id)
-			nodes = nodes.filter((n) => n.id != nodeToRemove.id)
-		} else {
-			parentNode.next = parentNode.next.filter((next) => next.id != nodeToRemove.id)
-			nodeToRemove.next.forEach((next) => {
-				parentNode.next.push(next)
-			})
-			nodes = nodes.filter((n) => n.id != nodeToRemove.id)
+export function removeBranch(
+	nodes: DecisionTreeNode[],
+	firsNodeInBranch: DecisionTreeNode | undefined,
+	parentNodeId: string
+) {
+	const parentNode = nodes.find((n) => n.id == parentNodeId)
+	const collapseNode = findCollapseNode(nodes, parentNodeId)
+
+	if (!parentNode || !collapseNode) {
+		return nodes
+	}
+
+	parentNode.next = parentNode.next.filter((next) => next.id != firsNodeInBranch?.id)
+
+	if (firsNodeInBranch && firsNodeInBranch.id !== collapseNode) {
+		// Iterate over all subnodes and remove them until we reach the collapse node
+		const dfs = (nodeId: string) => {
+			const node = nodes.find((n) => n.id == nodeId)
+			if (node) {
+				node.next.forEach((next) => {
+					if (next.id !== collapseNode) {
+						dfs(next.id)
+					}
+				})
+				nodes = nodes.filter((n) => n.id != nodeId)
+			}
 		}
+		dfs(firsNodeInBranch?.id)
 	}
 
 	return nodes
