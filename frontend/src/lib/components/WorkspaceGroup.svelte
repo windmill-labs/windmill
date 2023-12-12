@@ -51,23 +51,29 @@
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
+		customEnvVars = []
 		if (nconfig.env_vars_allowlist === undefined) {
 			nconfig.env_vars_allowlist = []
+		} else {
+			for (const key of nconfig.env_vars_allowlist) {
+				customEnvVars.push({ key, type: 'dynamic', value: undefined })
+			}
 		}
 		if (nconfig.env_vars_static === undefined) {
 			nconfig.env_vars_static = new Map<string, string>()
 		} else {
-			addedEnvVars = []
 			for (const [key, value] of Object.entries(nconfig.env_vars_static)) {
-				addedEnvVars.push({ key, value })
+				customEnvVars.push({ key, type: 'static', value })
 			}
 		}
+		customEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
 	}
 
 	let selectedPriorityTags: string[] = []
-	let addedEnvVars: {
+	let customEnvVars: {
 		key: string
-		value: string
+		type: 'static' | 'dynamic'
+		value: string | undefined
 	}[] = []
 
 	const defaultTags = [
@@ -93,7 +99,6 @@
 	]
 
 	let newTag: string = ''
-	let newEnvVar: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
 	$: {
 		selectedPriorityTags = []
@@ -226,7 +231,7 @@
 							>
 						{/each}
 					</div>
-					<div class="max-w-md">
+					<div class="max-w">
 						<input type="text" placeholder="new tag" bind:value={newTag} />
 						<div class="mt-1" />
 						<Button
@@ -289,7 +294,7 @@
 							Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
 						</Button>
 					</div>
-					<div class="max-w-md mt-2 items-center gap-1 pt-2">
+					<div class="max-w mt-2 items-center gap-1 pt-2">
 						{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
 							<Label label="High-priority tags">
 								<svelte:fragment slot="header">
@@ -361,27 +366,50 @@
 			label="Worker Environment Variables"
 			tooltip="Add static and dynamic environment variables to workers. Dynamic environment variable values will be loaded from the host environment variables while static environment variables will be set directly from their values below."
 		>
-			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w-md">
-				{#each addedEnvVars as envvar, i}
-					<div class="flex flex-wrap">
-						<div class="flex gap-0.5 items-center">
-							<input type="text" placeholder="ENV_VAR_NAME" bind:value={envvar.key} />
-							<input type="text" placeholder="value" bind:value={envvar.value} />
-							<button
-								class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200 right-2"
-								aria-label="Clear"
-								on:click={() => {
-									if (nconfig.env_vars_static?.[envvar.key] !== undefined) {
-										delete nconfig.env_vars_static[envvar.key]
-									}
-									addedEnvVars.splice(i, 1)
-									addedEnvVars = [...addedEnvVars]
-									dirty = true
-								}}
-							>
-								<X size={14} />
-							</button>
-						</div>
+			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
+				{#each customEnvVars as envvar, i}
+					<div class="flex gap-1 items-center">
+						<input type="text" placeholder="ENV_VAR_NAME" bind:value={envvar.key} />
+						<ToggleButtonGroup
+							class="w-128"
+							bind:selected={envvar.type}
+							on:selected={(e) => {
+								dirty = true
+								if (e.detail === 'dynamic') {
+									envvar.value = undefined
+								}
+							}}
+						>
+							<ToggleButton position="left" value="dynamic" label="Dynamic" />
+							<ToggleButton position="right" value="static" label="Static" />
+						</ToggleButtonGroup>
+						<input
+							type="text"
+							disabled={envvar.type === 'dynamic'}
+							placeholder={envvar.type === 'dynamic'
+								? 'value read from worker env var'
+								: 'static value'}
+							bind:value={envvar.value}
+						/>
+						<button
+							class="rounded-full bg-surface/60 hover:bg-gray-200"
+							aria-label="Clear"
+							on:click={() => {
+								if (nconfig.env_vars_static?.[envvar.key] !== undefined) {
+									delete nconfig.env_vars_static[envvar.key]
+								}
+								if (nconfig.env_vars_allowlist?.includes(envvar.key)) {
+									nconfig.env_vars_allowlist = nconfig.env_vars_allowlist.filter(
+										(k) => k != envvar.key
+									)
+								}
+								customEnvVars.splice(i, 1)
+								customEnvVars = [...customEnvVars]
+								dirty = true
+							}}
+						>
+							<X size={14} />
+						</button>
 					</div>
 				{/each}
 				<Button
@@ -389,59 +417,14 @@
 					color="blue"
 					size="xs"
 					on:click={() => {
-						addedEnvVars.push({ key: '', value: '' })
-						addedEnvVars = [...addedEnvVars]
+						customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
+						customEnvVars = [...customEnvVars]
 						dirty = true
 					}}
 				>
-					Add static Environment Variable
+					Add Environment Variable
 				</Button>
 			</div>
-
-			{#if nconfig?.env_vars_allowlist !== undefined}
-				<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
-					{#each nconfig.env_vars_allowlist as envvar}
-						<div class="flex gap-0.5 items-center"
-							><div class="text-2xs p-1 rounded border text-primary">{envvar}</div>
-							<button
-								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-								aria-label="Remove item"
-								on:click|preventDefault|stopPropagation={() => {
-									if (nconfig !== undefined) {
-										dirty = true
-										nconfig.env_vars_allowlist =
-											nconfig?.env_vars_allowlist?.filter((t) => t !== envvar) ?? []
-									}
-								}}
-							>
-								<X size={12} />
-							</button></div
-						>
-					{/each}
-				</div>
-				<div class="max-w-md">
-					<input type="text" placeholder="ENV_VAR_NAME" bind:value={newEnvVar} />
-					<div class="mt-1" />
-					<Button
-						variant="contained"
-						color="blue"
-						size="xs"
-						disabled={newEnvVar == '' || nconfig.env_vars_allowlist?.includes(newEnvVar)}
-						on:click={() => {
-							if (nconfig != undefined) {
-								nconfig.env_vars_allowlist = [
-									...(nconfig?.env_vars_allowlist ?? []),
-									newEnvVar.replaceAll(' ', '_').toUpperCase()
-								]
-								newEnvVar = ''
-								dirty = true
-							}
-						}}
-					>
-						Add dynamic Environment Variable
-					</Button>
-				</div>
-			{/if}
 		</Section>
 		<div class="mt-4" />
 
@@ -491,9 +474,17 @@
 						variant="contained"
 						color="dark"
 						on:click={async () => {
-							addedEnvVars.forEach((envvar) => {
-								if (nconfig.env_vars_static !== undefined && !emptyString(envvar.key)) {
-									nconfig.env_vars_static[envvar.key] = envvar.value
+							customEnvVars.forEach((envvar) => {
+								if (
+									nconfig.env_vars_static !== undefined &&
+									nconfig.env_vars_allowlist !== undefined &&
+									!emptyString(envvar.key)
+								) {
+									if (envvar.type === 'dynamic') {
+										nconfig.env_vars_allowlist.push(envvar.key)
+									} else {
+										nconfig.env_vars_static[envvar.key] = envvar.value
+									}
 								}
 							})
 							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
