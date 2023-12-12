@@ -20,7 +20,8 @@
 		Script,
 		WorkspaceService,
 		HelpersService,
-		JobService
+		JobService,
+		ResourceService
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -72,6 +73,7 @@
 			| 'webhook'
 			| 'deploy_to'
 			| 'error_handler') ?? 'users'
+	let usingOpenaiClientCredentialsOauth = false
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -248,6 +250,12 @@
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
 				: undefined
 		gitSyncResourcePath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
+
+		// check openai_client_credentials_oauth
+		const resourceTypes = await ResourceService.listResourceTypeNames({
+			workspace: $workspaceStore!
+		})
+		usingOpenaiClientCredentialsOauth = resourceTypes.includes('openai_client_credentials_oauth')
 	}
 
 	$: {
@@ -649,9 +657,11 @@
 				</Alert>
 			</div>
 			<div class="mt-5 flex gap-1">
-				{#key openaiResourceInitialPath}
+				{#key [openaiResourceInitialPath, usingOpenaiClientCredentialsOauth]}
 					<ResourcePicker
-						resourceType="openai"
+						resourceType={usingOpenaiClientCredentialsOauth
+							? 'openai_client_credentials_oauth'
+							: 'openai'}
 						initialValue={openaiResourceInitialPath}
 						on:change={(ev) => {
 							editCopilotConfig(ev.detail)

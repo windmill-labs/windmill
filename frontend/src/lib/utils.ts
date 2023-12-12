@@ -764,3 +764,30 @@ export function computeShow(argName: string, expr: string | undefined, args: any
 	}
 	return true
 }
+
+function urlizeTokenInternal(token: string, formatter: "html" | "md"): string {
+	if (token.startsWith('http://') || token.startsWith('https://')) {
+		if (formatter == "html") {
+			return `<a href="${token}" target="_blank" rel="noopener noreferrer">${token}</a>`
+		} else {
+			return `[${token}](${token})`
+		}
+	} else {
+		return token
+	}
+}
+
+export function urlize(input: string, formatter: "html" | "md"): string {
+	if (!input) return ''
+	
+	return input
+		.split('\n')
+		.map(line => {
+			return line
+				.split(' ')
+				.map((word) => urlizeTokenInternal(word, formatter))
+				.join(' ')
+		})
+		.join('\n')
+
+}

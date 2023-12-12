@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 
-	export let resource_type: string | undefined
+	export let resourceType: string | undefined
 	export let args: Record<string, any> | any = {}
 
 	const scripts: {
@@ -70,10 +70,10 @@
 
 	let loading = false
 	async function testConnection() {
-		if (!resource_type) return
+		if (!resourceType) return
 		loading = true
 
-		const resourceScript = scripts[resource_type]
+		const resourceScript = scripts[resourceType]
 
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
@@ -124,7 +124,7 @@
 	}
 </script>
 
-{#if Object.keys(scripts).includes(resource_type || '')}
+{#if Object.keys(scripts).includes(resourceType || '')}
 	<Button
 		spacingSize="sm"
 		size="xs"
