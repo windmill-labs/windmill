@@ -418,7 +418,7 @@ pub async fn start_worker(
         None,
     )
     .await;
-    let context_envs = build_envs_map(context.to_vec());
+    let context_envs = build_envs_map(context.to_vec()).await;
 
     {
         // let mut start = Instant::now();
