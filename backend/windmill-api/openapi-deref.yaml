@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.221.0
+  version: 1.224.1
   title: Windmill API
   contact:
     name: Windmill Team
@@ -3410,8 +3410,6 @@ paths:
                                           type: number
                                         concurrency_time_window_s:
                                           type: number
-                                        delete_after_use:
-                                          type: null
                                       required: &ref_176
                                         - type
                                         - content
@@ -3639,6 +3637,10 @@ paths:
                                           type: integer
                                         seconds:
                                           type: integer
+                                        random_factor:
+                                          type: integer
+                                          minimum: 0
+                                          maximum: 100
                               required: *ref_29
                           failure_module:
                             type: object
@@ -9157,6 +9159,25 @@ paths:
                     - jobs_executed
                     - worker_group
                     - wm_version
+  /workers/exists_worker_with_tag:
+    get:
+      summary: exists worker with tag
+      operationId: existsWorkerWithTag
+      tags:
+        - worker
+      parameters:
+        - name: tag
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: whether a worker with the tag exists
+          content:
+            application/json:
+              schema:
+                type: boolean
   /configs/list_worker_groups:
     get:
       summary: list worker groups
