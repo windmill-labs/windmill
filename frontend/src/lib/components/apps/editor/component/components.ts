@@ -173,7 +173,7 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 export type DecisionTreeNode = {
 	id: string
 	label: string
-	required: RichConfiguration | undefined
+	allowed: RichConfiguration | undefined
 	next: Array<{
 		id: string
 		condition?: RichConfiguration | undefined
@@ -2923,16 +2923,27 @@ This is a paragraph.
 			container: { class: '', style: '' }
 		},
 		initialData: {
-			configuration: {},
+			configuration: {
+				endtitle: {
+					type: 'static',
+					value: 'Thank you!',
+					fieldType: 'text'
+				},
+				endDescription: {
+					type: 'static',
+					value: 'You have reached the end of the decision tree.',
+					fieldType: 'text'
+				}
+			},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
 			nodes: [
 				{
 					id: 'a',
 					label: 'a',
-					required: {
+					allowed: {
 						type: 'evalv2',
-						expr: 'false',
+						expr: 'true',
 						fieldType: 'boolean'
 					},
 					next: [
@@ -2957,9 +2968,9 @@ This is a paragraph.
 				{
 					id: 'b',
 					label: 'b',
-					required: {
+					allowed: {
 						type: 'evalv2',
-						expr: 'false',
+						expr: 'true',
 						fieldType: 'boolean'
 					},
 					next: [
@@ -2976,9 +2987,9 @@ This is a paragraph.
 				{
 					id: 'd',
 					label: 'd',
-					required: {
+					allowed: {
 						type: 'evalv2',
-						expr: 'false',
+						expr: 'true',
 						fieldType: 'boolean'
 					},
 					next: [
@@ -2995,9 +3006,9 @@ This is a paragraph.
 				{
 					id: 'e',
 					label: 'e',
-					required: {
+					allowed: {
 						type: 'evalv2',
-						expr: 'false',
+						expr: 'true',
 						fieldType: 'boolean'
 					},
 					next: [
@@ -3014,9 +3025,9 @@ This is a paragraph.
 				{
 					id: 'c',
 					label: 'c',
-					required: {
+					allowed: {
 						type: 'evalv2',
-						expr: 'false',
+						expr: 'true',
 						fieldType: 'boolean'
 					},
 					next: []

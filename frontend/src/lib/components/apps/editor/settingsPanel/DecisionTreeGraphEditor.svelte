@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { Network, Plus, Trash } from 'lucide-svelte'
+	import { Network, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
@@ -11,7 +11,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { writable } from 'svelte/store'
 	import DecisionTreePreview from './decisionTree/DecisionTreePreview.svelte'
-	import { addBranch, removeNode } from './decisionTree/utils'
+	import { removeNode } from './decisionTree/utils'
 	import Label from '$lib/components/Label.svelte'
 	import { debounce } from '$lib/utils'
 
@@ -91,30 +91,13 @@
 
 							{#if Array.isArray(selectedNode.next) && selectedNode.next.length === 1}
 								<Alert type="info" title="This node has only one next node">
-									This node goes to the node {selectedNode.next[0].id} if the following You can add a
-									new node by clicking on the "Add step" button in the top right corner of the node.
+									This node can only go to the node {selectedNode.next[0].id}
 								</Alert>
-
-								<div class="flex flex-start">
-									<Button
-										size="xs"
-										color="dark"
-										startIcon={{ icon: Plus }}
-										on:click={() => {
-											if (selectedNode) {
-												nodes = addBranch(nodes, selectedNode)
-												renderCount++
-											}
-										}}
-									>
-										Add branch
-									</Button>
-								</div>
 							{:else}
 								{#each selectedNode.next as subNode (subNode.id)}
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
-											<div class="grow">
+											<div class="grow relative">
 												<InputsSpecEditor
 													key={`Goes to ${subNode.id} if:`}
 													bind:componentInput={subNode.condition}
@@ -131,6 +114,7 @@
 													placeholder={subNode.condition?.['placeholder']}
 													customTitle={subNode.condition?.['customTitle']}
 													displayType={false}
+													fixedOverflowWidgets={false}
 												/>
 											</div>
 										</div>
@@ -138,39 +122,28 @@
 								{/each}
 							{/if}
 
-							{#if selectedNode.next.length > 1}
-								<div class="flex flex-row gap-2 mt-4">
-									<Button
-										size="xs"
-										color="light"
-										startIcon={{ icon: Network }}
-										variant="border"
-										on:click={() => {}}
-									>
-										Add branch
-									</Button>
-								</div>
-							{/if}
-
-							{#if selectedNode.required}
-								<InputsSpecEditor
-									key={`Can proceed to next step if:`}
-									bind:componentInput={selectedNode.required}
-									id={'sad'}
-									userInputEnabled={false}
-									shouldCapitalize={true}
-									resourceOnly={false}
-									fieldType={selectedNode.required?.['fieldType']}
-									subFieldType={selectedNode.required?.['subFieldType']}
-									format={selectedNode.required?.['format']}
-									selectOptions={selectedNode.required?.['selectOptions']}
-									tooltip={selectedNode.required?.['tooltip']}
-									fileUpload={selectedNode.required?.['fileUpload']}
-									placeholder={selectedNode.required?.['placeholder']}
-									customTitle={selectedNode.required?.['customTitle']}
-									displayType={false}
-								/>
-							{/if}
+							{#key selectedNode.id}
+								{#if selectedNode.allowed}
+									<InputsSpecEditor
+										key={`Can proceed to next step if:`}
+										bind:componentInput={selectedNode.allowed}
+										id={'allowed'}
+										userInputEnabled={false}
+										shouldCapitalize={true}
+										resourceOnly={false}
+										fieldType={selectedNode.allowed?.['fieldType']}
+										subFieldType={selectedNode.allowed?.['subFieldType']}
+										format={selectedNode.allowed?.['format']}
+										selectOptions={selectedNode.allowed?.['selectOptions']}
+										tooltip={selectedNode.allowed?.['tooltip']}
+										fileUpload={selectedNode.allowed?.['fileUpload']}
+										placeholder={selectedNode.allowed?.['placeholder']}
+										customTitle={selectedNode.allowed?.['customTitle']}
+										displayType={false}
+										fixedOverflowWidgets={false}
+									/>
+								{/if}
+							{/key}
 						</Section>
 					{/if}
 				</div>

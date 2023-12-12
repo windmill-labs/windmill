@@ -9,7 +9,7 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode)
 		id: nextId,
 		label: nextId,
 		next: sourceNode.next,
-		required: {
+		allowed: {
 			type: 'evalv2',
 			expr: 'true',
 			fieldType: 'boolean'
@@ -44,7 +44,7 @@ export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNod
 		id: nextId,
 		label: nextId,
 		next: sourceNode.next,
-		required: {
+		allowed: {
 			type: 'evalv2',
 			expr: 'true',
 			fieldType: 'boolean'
@@ -57,7 +57,7 @@ export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNod
 		id: rightNextId,
 		label: rightNextId,
 		next: sourceNode.next,
-		required: {
+		allowed: {
 			type: 'evalv2',
 			expr: 'true',
 			fieldType: 'boolean'
@@ -188,7 +188,7 @@ export function insertFirstNode(nodes: DecisionTreeNode[]) {
 				} as RichConfiguration
 			}
 		],
-		required: {
+		allowed: {
 			type: 'evalv2',
 			expr: 'true',
 			fieldType: 'boolean'
@@ -218,7 +218,7 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 				} as RichConfiguration
 			}
 		],
-		required: {
+		allowed: {
 			type: 'evalv2',
 			expr: 'true',
 			fieldType: 'boolean'
