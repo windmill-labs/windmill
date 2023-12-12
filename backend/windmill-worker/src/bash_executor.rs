@@ -21,7 +21,7 @@ use crate::{
         set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    TZ_ENV,
+    POWERSHELL_CACHE_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -178,8 +178,6 @@ pub async fn handle_powershell_job(
     worker_name: &str,
     envs: HashMap<String, String>,
 ) -> Result<Box<RawValue>, Error> {
-    logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
     let pwsh_args = {
         let args = build_args_map(job, client, db).await?.map(Json);
         let job_args = if args.is_some() {
@@ -210,7 +208,7 @@ pub async fn handle_powershell_job(
         .replace('$', r"\$") // escape powershell variables
         .replace("`", r"\`"); // escape powershell backticks
 
-    let installed_modules = fs::read_dir("/tmp/windmill/cache/powershell")?
+    let installed_modules = fs::read_dir(POWERSHELL_CACHE_DIR)?
         .filter_map(|x| {
             x.ok().map(|x| {
                 x.path()
@@ -224,27 +222,26 @@ pub async fn handle_powershell_job(
         })
         .collect::<Vec<String>>();
 
-    logs.push_str("\n");
     let mut install_string: String = String::new();
     for line in content.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let module = cap.get(1).unwrap().as_str();
             if !installed_modules.contains(&module.to_lowercase()) {
-                logs.push_str(&format!("{} not found in cache\n", module.to_string()));
+                logs.push_str(&format!("\n{} not found in cache", module.to_string()));
                 // instead of using Install-Module, we use Save-Module so that we can specify the installation path
                 install_string.push_str(&format!(
-                    "Save-Module -Path /tmp/windmill/cache/powershell -Force {};",
-                    module
+                    "Save-Module -Path {} -Force {};",
+                    POWERSHELL_CACHE_DIR, module
                 ));
             } else {
-                logs.push_str(&format!("{} found in cache\n", module.to_string()));
+                logs.push_str(&format!("\n{} found in cache", module.to_string()));
             }
         }
     }
     set_logs(logs, &job.id, db).await;
 
     if !install_string.is_empty() {
-        logs.push_str("\nInstalling modules...\n");
+        logs.push_str("\n\nInstalling modules...");
         set_logs(logs, &job.id, db).await;
         let child = Command::new("pwsh")
             .args(&["-Command", &install_string])
@@ -269,12 +266,18 @@ pub async fn handle_powershell_job(
         .await?;
     }
 
+    logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
+    set_logs(logs, &job.id, db).await;
+
     // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
-    let profile = "\\$PSModuleAutoloadingPreference = 'None'
+    let profile = format!(
+        "\\$PSModuleAutoloadingPreference = 'None'
 \\$PSModulePathBackup = \\$env:PSModulePath
 \\$env:PSModulePath = (\\$Env:PSModulePath -split ':')[-1]
 Get-Module -ListAvailable | Import-Module
-\\$env:PSModulePath = \"/tmp/windmill/cache/powershell:\\$env:PSModulePathBackup\"";
+\\$env:PSModulePath = \"{}:\\$env:PSModulePathBackup\"",
+        POWERSHELL_CACHE_DIR
+    );
     // make sure param() is first
     let param_match = windmill_parser_bash::RE_POWERSHELL_PARAM.find(&content);
     let content: String = if let Some(param_match) = param_match {
