@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { OauthService, ResourceService } from '$lib/gen'
+	import { OauthService, type ResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -10,7 +10,8 @@
 	import Popup from './common/popup/Popup.svelte'
 	import Button from './common/button/Button.svelte'
 
-	export let resource_type: string
+	export let resourceType: string
+	export let resourceTypeInfo: ResourceType | undefined
 	export let args: Record<string, any> | any = {}
 	export let linkedSecret: string | undefined = undefined
 	export let isValid = true
@@ -25,14 +26,11 @@
 		supabaseWizard = (await OauthService.listOAuthConnects())['supabase_wizard'] != undefined
 	}
 	async function loadSchema() {
+		if (!resourceTypeInfo) return
 		rawCode = '{}'
 		viewJsonSchema = false
 		try {
-			const rt = await ResourceService.getResourceType({
-				workspace: $workspaceStore!,
-				path: resource_type
-			})
-			schema = rt.schema
+			schema = resourceTypeInfo.schema
 			notFound = false
 		} catch (e) {
 			notFound = true
@@ -68,7 +66,7 @@
 		}
 	}
 
-	$: resource_type == 'postgresql' && isSupabaseAvailable()
+	$: resourceType == 'postgresql' && isSupabaseAvailable()
 
 	let connectionString = ''
 	let validConnectionString = true
@@ -111,8 +109,8 @@
 				right: 'As JSON'
 			}}
 		/>
-		<TestConnection {resource_type} {args} />
-		{#if resource_type == 'postgresql'}
+		<TestConnection {resourceType} {args} />
+		{#if resourceType == 'postgresql'}
 			<Popup
 				let:close
 				floatingConfig={{
@@ -158,7 +156,7 @@
 				</div>
 			</Popup>
 		{/if}
-		{#if resource_type == 'postgresql' && supabaseWizard}
+		{#if resourceType == 'postgresql' && supabaseWizard}
 			<a
 				target="_blank"
 				href="/api/oauth/connect/supabase_wizard"
@@ -171,7 +169,7 @@
 	</div>
 {:else}
 	<p class="italic text-tertiary text-xs mb-4"
-		>No corresponding resource type found in your workspace for {resource_type}. Define the value in
+		>No corresponding resource type found in your workspace for {resourceType}. Define the value in
 		JSON directly</p
 	>
 {/if}
