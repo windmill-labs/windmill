@@ -491,7 +491,10 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 </script>
 
 <Drawer bind:open size="800px">
-	<DrawerContent title="Schedule Reports" on:close={() => (open = false)}
+	<DrawerContent on:close={() => (open = false)}
+		title="Schedule Reports"
+		tooltip="Send a PDF or PNG preview of any app at a given schedule"
+		documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
 		><svelte:fragment slot="actions">
 			<div class="mr-4 center-center -mt-2">
 				<Toggle
