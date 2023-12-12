@@ -97,6 +97,20 @@
 		'mssql',
 		'bigquery'
 	]
+	const aws_env_vars_preset = [
+		'AWS_REGION',
+		'AWS_DEFAULT_REGION',
+		'AWS_ACCESS_KEY_ID',
+		'AWS_SECRET_ACCESS_KEY',
+		'AWS_ENDPOINT_URL'
+	]
+	const ssl_env_vars_preset = [
+		'DENO_CERT',
+		'PIP_INDEX_CERT',
+		'REQUESTS_CA_BUNDLE',
+		'SSL_CERT_FILE',
+		'SSL_CERT_DIR'
+	]
 
 	let newTag: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
@@ -364,7 +378,7 @@
 
 		<Section
 			label="Worker Environment Variables"
-			tooltip="Add static and dynamic environment variables to workers. Dynamic environment variable values will be loaded from the host environment variables while static environment variables will be set directly from their values below."
+			tooltip="Add static and dynamic environment variables to workers. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
 		>
 			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
 				{#each customEnvVars as envvar, i}
@@ -423,6 +437,60 @@
 					}}
 				>
 					Add Environment Variable
+				</Button>
+			</div>
+			<div class="flex flex-wrap items-center gap-1 pt-2">
+				<Button
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={() => {
+						let updated = false
+						aws_env_vars_preset.forEach((envvar) => {
+							if (!customEnvVars.some((e) => e.key === envvar)) {
+								updated = true
+								customEnvVars.push({
+									key: envvar,
+									type: 'dynamic',
+									value: undefined
+								})
+							}
+						})
+						if (updated) {
+							customEnvVars = [...customEnvVars]
+							dirty = true
+						}
+					}}
+				>
+					AWS env var preset <Tooltip
+						>{`${aws_env_vars_preset.join(
+							', '
+						)} - see https://docs.aws.amazon.com/fr_fr/cli/latest/userguide/cli-configure-envvars.html for more options`}</Tooltip
+					>
+				</Button>
+				<Button
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={() => {
+						let updated = false
+						ssl_env_vars_preset.forEach((envvar) => {
+							if (!customEnvVars.some((e) => e.key === envvar)) {
+								updated = true
+								customEnvVars.push({
+									key: envvar,
+									type: 'dynamic',
+									value: undefined
+								})
+							}
+						})
+						if (updated) {
+							customEnvVars = [...customEnvVars]
+							dirty = true
+						}
+					}}
+				>
+					SSL env var preset <Tooltip>{`${ssl_env_vars_preset.join(', ')}`}</Tooltip>
 				</Button>
 			</div>
 		</Section>
