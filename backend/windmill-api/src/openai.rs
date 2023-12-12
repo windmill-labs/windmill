@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use crate::{
     db::{ApiAuthed, DB},
@@ -14,8 +14,8 @@ use axum::{
     Router,
 };
 use magic_crypt::MagicCryptTrait;
+use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
-use tokio::sync::RwLock;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error};
 
@@ -80,6 +80,7 @@ async fn get_variable_or_self(path: String, db: &DB, w_id: &String) -> Result<St
 
 lazy_static::lazy_static! {
     pub static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
+    static ref OPENAI_KEY_CACHE: Cache<String, OpenaiKeyCache> = Cache::new(500);
 }
 
 #[derive(Deserialize)]
@@ -117,6 +118,7 @@ async fn get_openai_key_using_credentials_flow(
     Ok(response.access_token)
 }
 
+#[derive(Clone)]
 struct OpenaiKeyCache {
     api_key: String,
     organization_id: Option<String>,
@@ -140,10 +142,6 @@ impl OpenaiKeyCache {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref OPENAI_KEY_CACHE: Arc<RwLock<HashMap<String, OpenaiKeyCache>>> = Arc::new(RwLock::new(HashMap::new()));
-}
-
 #[derive(Deserialize)]
 struct ProxyQueryParams {
     no_cache: Option<bool>,
@@ -155,13 +153,12 @@ async fn proxy(
     Query(query_params): Query<ProxyQueryParams>,
     mut body: Bytes,
 ) -> impl IntoResponse {
-    let mut cache = OPENAI_KEY_CACHE.write().await;
-    let workspace_cache = cache.get(&w_id);
+    let workspace_cache = OPENAI_KEY_CACHE.get(&w_id);
     let (api_key, organization_id, azure_base_path, user) = if query_params
         .no_cache
         .unwrap_or(false)
         || workspace_cache.is_none()
-        || workspace_cache.unwrap().is_expired()
+        || workspace_cache.clone().unwrap().is_expired()
     {
         let openai_resource_path = sqlx::query_scalar!(
             "SELECT openai_resource_path FROM workspace_settings WHERE workspace_id = $1",
@@ -254,7 +251,7 @@ async fn proxy(
             expires_at,
             user.clone(),
         );
-        cache.insert(w_id.clone(), workspace_cache);
+        OPENAI_KEY_CACHE.insert(w_id.clone(), workspace_cache);
         (
             resource.api_key,
             resource.organization_id,

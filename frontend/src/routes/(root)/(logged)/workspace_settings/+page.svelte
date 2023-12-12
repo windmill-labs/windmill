@@ -252,10 +252,10 @@
 		gitSyncResourcePath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
 
 		// check openai_client_credentials_oauth
-		const resourceTypes = await ResourceService.listResourceTypeNames({
-			workspace: $workspaceStore!
+		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
+			workspace: $workspaceStore!,
+			path: 'openai_client_credentials_oauth'
 		})
-		usingOpenaiClientCredentialsOauth = resourceTypes.includes('openai_client_credentials_oauth')
 	}
 
 	$: {
