@@ -20,6 +20,7 @@
 		removeBranch,
 		removeNode
 	} from './utils'
+	import { createEdge, createNode } from './nodeHelpers'
 
 	export let nodes: DecisionTreeNode[]
 	export let rebuildOnChange: any = undefined
@@ -50,6 +51,205 @@
 			oldRebuildOnChange = JSON.parse(JSON.stringify(rebuildOnChange))
 			createGraph()
 		}
+	}
+
+	// Create a start node to connect the first node.
+	function buildStartNode() {
+		const startNodeConfig = {
+			id: 'start',
+			data: {
+				custom: {
+					component: DecisionTreeGraphNode,
+					props: {
+						node: {
+							id: 'start',
+							label: 'Start',
+							next: {
+								id: nodes[0].id,
+								condition: {
+									type: 'evalv2',
+									expr: 'true',
+									fieldType: 'boolean'
+								}
+							}
+						},
+						canDelete: false,
+						isHead: true
+					},
+					cb: (e: string, detail: any) => {
+						if (e == 'select') {
+							$selectedNodeId = detail
+						} else if (e === 'nodeInsert') {
+							nodes = insertFirstNode(nodes)
+							dispatch('render')
+						}
+					}
+				}
+			}
+		}
+
+		const startNode = createNode(startNodeConfig)
+		displayedNodes.push(startNode)
+		edges.push(
+			createEdge({
+				id: `start-${nodes[0].id}`,
+				source: 'start',
+				target: nodes[0].id
+			})
+		)
+	}
+
+	function nodeCallbackHandler(
+		event: string,
+		detail: string,
+		graphNode: DecisionTreeNode,
+		parentIds
+	) {
+		switch (event) {
+			case 'select':
+				$selectedNodeId = detail
+				break
+			case 'nodeInsert':
+				nodes = addNode(nodes, graphNode)
+				break
+			case 'branchInsert':
+				nodes = addBranch(nodes, graphNode)
+				break
+			case 'delete':
+				nodes = removeNode(nodes, graphNode)
+				break
+			case 'addBranch':
+				nodes = addNewBranch(nodes, graphNode)
+				break
+			case 'removeBranch':
+				nodes = removeBranch(nodes, graphNode, parentIds[0])
+
+				break
+			default:
+				break
+		}
+		dispatch('render')
+	}
+
+	function buildGraphNodes() {
+		nodes?.forEach((graphNode, index) => {
+			const parentIds = computeParentIds(nodes, graphNode)
+			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
+			const hasParentBranches = parentNext ? parentNext.length > 1 : false
+
+			if (hasParentBranches) {
+				const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
+
+				const branchHeaderNode = createNode({
+					id: branchHeaderId,
+					data: {
+						custom: {
+							component: DecisionTreeGraphHeader,
+							props: {
+								node: graphNode,
+								editable: editable,
+								canDelete: true,
+								isHead: true
+							},
+							cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+						}
+					},
+					parentIds: parentIds
+				})
+
+				displayedNodes.push(branchHeaderNode)
+
+				const displayedNode = createNode({
+					id: graphNode.id,
+					data: {
+						custom: {
+							component: DecisionTreeGraphNode,
+							props: {
+								node: graphNode,
+								editable: editable,
+								canDelete: graphNode.next.length === 1,
+								isHead: graphNode.next.length === 0
+							},
+							cb: (e: string, detail: any) => {
+								if (e == 'select') {
+									$selectedNodeId = detail
+								} else if (e == 'nodeInsert') {
+									nodes = addNode(nodes, graphNode)
+									dispatch('render')
+								} else if (e === 'branchInsert') {
+									nodes = addBranch(nodes, graphNode)
+									dispatch('render')
+								} else if (e === 'delete') {
+									nodes = removeNode(nodes, graphNode)
+
+									dispatch('render')
+								} else if (e === 'addBranch') {
+									nodes = addNewBranch(nodes, graphNode)
+									dispatch('render')
+								}
+							}
+						}
+					},
+					parentIds: [branchHeaderId]
+				})
+
+				displayedNodes.push(displayedNode)
+
+				edges.push(
+					createEdge({
+						id: `${graphNode.id}-${branchHeaderId}`,
+						source: branchHeaderId,
+						target: graphNode.id
+					})
+				)
+
+				graphNode.next.forEach((nextNode) => {
+					edges.push(
+						createEdge({
+							id: `${graphNode.id}-${nextNode.id}`,
+							source: graphNode.id,
+							target: nextNode.id
+						})
+					)
+				})
+			} else {
+				displayedNodes.push(
+					createNode({
+						id: graphNode.id,
+						data: {
+							custom: {
+								component: DecisionTreeGraphNode,
+								props: {
+									node: graphNode,
+									editable: editable,
+									canDelete: graphNode.next.length === 1,
+									isHead: graphNode.next.length === 0
+								},
+								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+							}
+						},
+						parentIds: parentIds
+					})
+				)
+
+				// if node has multiple next, it means it needs to be connected to a branch header
+				const hasMultipleNext = graphNode.next.length > 1
+
+				graphNode.next.forEach((nextNode) => {
+					const target = hasMultipleNext
+						? `${graphNode.id}-${nextNode.id}-branch-header`
+						: nextNode.id
+
+					edges.push(
+						createEdge({
+							id: `${graphNode.id}-${nextNode.id}`,
+							source: graphNode.id,
+							target
+						})
+					)
+				})
+			}
+		})
 	}
 
 	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number; width: number } {
@@ -114,244 +314,16 @@
 		return parentIds
 	}
 
+	function resetGraphData() {
+		displayedNodes = []
+		edges = []
+	}
+
 	async function createGraph() {
 		try {
-			displayedNodes = []
-			edges = []
-
-			displayedNodes.push({
-				type: 'node',
-				id: 'start',
-				position: {
-					x: -1,
-					y: -1
-				},
-				data: {
-					custom: {
-						component: DecisionTreeGraphNode,
-						props: {
-							node: {
-								id: 'start',
-								label: 'Start',
-								next: {
-									id: nodes[0].id,
-									condition: {
-										type: 'evalv2',
-										expr: 'true',
-										fieldType: 'boolean'
-									}
-								}
-							},
-							canDelete: false,
-							isHead: true
-						},
-						cb: (e: string, detail: any) => {
-							if (e == 'select') {
-								$selectedNodeId = detail
-							} else if (e === 'nodeInsert') {
-								nodes = insertFirstNode(nodes)
-								dispatch('render')
-							}
-						}
-					}
-				},
-				width: NODE.width,
-				height: NODE.height,
-				borderColor: '#999',
-				sourcePosition: 'bottom',
-				targetPosition: 'top',
-				parentIds: [],
-				loopDepth: 0
-			})
-
-			edges.push({
-				id: `start-${nodes[0].id}`,
-				source: 'start',
-				target: nodes[0].id,
-				label: '',
-				edgeColor: '#999'
-			})
-
-			nodes?.forEach((graphNode, index) => {
-				const parentIds = computeParentIds(nodes, graphNode)
-
-				let hasParentBranches = false
-
-				const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
-
-				hasParentBranches = parentNext ? parentNext.length > 1 : false
-
-				if (hasParentBranches) {
-					const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
-
-					displayedNodes.push({
-						type: 'node',
-						id: branchHeaderId,
-						position: {
-							x: -1,
-							y: -1
-						},
-						data: {
-							custom: {
-								component: DecisionTreeGraphHeader,
-								props: {
-									node: graphNode,
-									editable: editable,
-									canDelete: true,
-									isHead: graphNode.next.length === 0
-								},
-								cb: (e: string, detail: any) => {
-									if (e == 'select') {
-										$selectedNodeId = detail
-									} else if (e == 'nodeInsert') {
-										nodes = addNode(nodes, graphNode)
-										dispatch('render')
-									} else if (e === 'branchInsert') {
-										nodes = addBranch(nodes, graphNode)
-										dispatch('render')
-									} else if (e === 'delete') {
-										nodes = removeBranch(nodes, graphNode, parentIds[0])
-
-										dispatch('render')
-									} else if (e === 'addBranch') {
-										nodes = addNewBranch(nodes, graphNode)
-										dispatch('render')
-									}
-								}
-							}
-						},
-						width: NODE.width,
-						height: NODE.height,
-						borderColor: '#999',
-						sourcePosition: 'bottom',
-						targetPosition: 'top',
-						parentIds: parentIds,
-						loopDepth: 0
-					})
-
-					displayedNodes.push({
-						type: 'node',
-						id: graphNode.id,
-						position: {
-							x: -1,
-							y: -1
-						},
-						data: {
-							custom: {
-								component: DecisionTreeGraphNode,
-								props: {
-									node: graphNode,
-									editable: editable,
-									canDelete: graphNode.next.length === 1,
-									isHead: graphNode.next.length === 0
-								},
-								cb: (e: string, detail: any) => {
-									if (e == 'select') {
-										$selectedNodeId = detail
-									} else if (e == 'nodeInsert') {
-										nodes = addNode(nodes, graphNode)
-										dispatch('render')
-									} else if (e === 'branchInsert') {
-										nodes = addBranch(nodes, graphNode)
-										dispatch('render')
-									} else if (e === 'delete') {
-										nodes = removeNode(nodes, graphNode)
-
-										dispatch('render')
-									} else if (e === 'addBranch') {
-										nodes = addNewBranch(nodes, graphNode)
-										dispatch('render')
-									}
-								}
-							}
-						},
-						width: NODE.width,
-						height: NODE.height,
-						borderColor: '#999',
-						sourcePosition: 'bottom',
-						targetPosition: 'top',
-						parentIds: [branchHeaderId],
-						loopDepth: 0
-					})
-
-					edges.push({
-						id: `${graphNode.id}-${branchHeaderId}`,
-						source: branchHeaderId,
-						target: graphNode.id,
-						label: '',
-						edgeColor: '#999'
-					})
-
-					graphNode.next.forEach((nextNode) => {
-						edges.push({
-							id: `${graphNode.id}-${nextNode.id}`,
-							source: graphNode.id,
-							target: nextNode.id,
-							label: '',
-							edgeColor: '#999'
-						})
-					})
-				} else {
-					displayedNodes.push({
-						type: 'node',
-						id: graphNode.id,
-						position: {
-							x: -1,
-							y: -1
-						},
-						data: {
-							custom: {
-								component: DecisionTreeGraphNode,
-								props: {
-									node: graphNode,
-									editable: editable,
-									canDelete: graphNode.next.length === 1,
-									isHead: graphNode.next.length === 0
-								},
-								cb: (e: string, detail: any) => {
-									if (e == 'select') {
-										$selectedNodeId = detail
-									} else if (e == 'nodeInsert') {
-										nodes = addNode(nodes, graphNode)
-										dispatch('render')
-									} else if (e === 'branchInsert') {
-										nodes = addBranch(nodes, graphNode)
-										dispatch('render')
-									} else if (e === 'delete') {
-										nodes = removeNode(nodes, graphNode)
-
-										dispatch('render')
-									} else if (e === 'addBranch') {
-										nodes = addNewBranch(nodes, graphNode)
-										dispatch('render')
-									}
-								}
-							}
-						},
-						width: NODE.width,
-						height: NODE.height,
-						borderColor: '#999',
-						sourcePosition: 'bottom',
-						targetPosition: 'top',
-						parentIds: parentIds,
-						loopDepth: 0
-					})
-
-					const hasMultipleNext = graphNode.next.length > 1
-
-					graphNode.next.forEach((nextNode) => {
-						edges.push({
-							id: `${graphNode.id}-${nextNode.id}`,
-							source: graphNode.id,
-							target: hasMultipleNext
-								? `${graphNode.id}-${nextNode.id}-branch-header`
-								: nextNode.id,
-							label: '',
-							edgeColor: '#999'
-						})
-					})
-				}
-			})
+			resetGraphData()
+			buildStartNode()
+			buildGraphNodes()
 
 			const lastNodesIds = nodes
 				.filter((node) => {
@@ -411,8 +383,6 @@
 			console.error(e)
 		}
 	}
-
-	$: console.log(nodes)
 
 	let mounted = false
 

@@ -2,6 +2,15 @@ import type { RichConfiguration } from '$lib/components/apps/types'
 import { getNextId } from '$lib/components/flows/idUtils'
 import type { DecisionTreeNode } from '../../component'
 
+function createBooleanRC(): RichConfiguration {
+	return {
+		type: 'evalv2',
+		expr: 'true',
+		fieldType: 'boolean',
+		connections: []
+	}
+}
+
 export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
@@ -9,11 +18,7 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode)
 		id: nextId,
 		label: nextId,
 		next: sourceNode.next,
-		allowed: {
-			type: 'evalv2',
-			expr: 'true',
-			fieldType: 'boolean'
-		} as RichConfiguration
+		allowed: createBooleanRC()
 	}
 
 	nodes.push(newNode)
@@ -23,11 +28,7 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode)
 			node.next = [
 				{
 					id: newNode.id,
-					condition: {
-						type: 'evalv2',
-						expr: 'true',
-						fieldType: 'boolean'
-					} as RichConfiguration
+					condition: createBooleanRC()
 				}
 			]
 		}
@@ -44,11 +45,7 @@ export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNod
 		id: nextId,
 		label: nextId,
 		next: sourceNode.next,
-		allowed: {
-			type: 'evalv2',
-			expr: 'true',
-			fieldType: 'boolean'
-		} as RichConfiguration
+		allowed: createBooleanRC()
 	}
 
 	const rightNextId = getNextId([nextId, ...nodes.map((node) => node.id)])
@@ -57,11 +54,7 @@ export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNod
 		id: rightNextId,
 		label: rightNextId,
 		next: sourceNode.next,
-		allowed: {
-			type: 'evalv2',
-			expr: 'true',
-			fieldType: 'boolean'
-		} as RichConfiguration
+		allowed: createBooleanRC()
 	}
 
 	nodes.push(left)
@@ -72,19 +65,11 @@ export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNod
 			node.next = [
 				{
 					id: left.id,
-					condition: {
-						type: 'evalv2',
-						expr: 'true',
-						fieldType: 'boolean'
-					} as RichConfiguration
+					condition: createBooleanRC()
 				},
 				{
 					id: right.id,
-					condition: {
-						type: 'evalv2',
-						expr: 'true',
-						fieldType: 'boolean'
-					} as RichConfiguration
+					condition: createBooleanRC()
 				}
 			]
 		}
@@ -197,69 +182,43 @@ function findFirstCommonLetter(arrays) {
 
 export function insertFirstNode(nodes: DecisionTreeNode[]) {
 	const firstNode = nodes[0]
-	const nextId = getNextId(nodes.map((node) => node.id))
-
-	const newNode: DecisionTreeNode = {
-		id: nextId,
-		label: nextId,
-		next: [
-			{
-				id: firstNode?.id ?? '',
-				condition: {
-					type: 'evalv2',
-					expr: 'true',
-					fieldType: 'boolean'
-				} as RichConfiguration
-			}
-		],
-		allowed: {
-			type: 'evalv2',
-			expr: 'true',
-			fieldType: 'boolean'
-		} as RichConfiguration
-	}
-
-	nodes.unshift(newNode)
-
+	nodes.unshift(createNewNode(nodes, firstNode?.id))
 	return nodes
 }
 
-export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeNode) {
+function createNewNode(nodes: DecisionTreeNode[], id: string) {
 	const nextId = getNextId(nodes.map((node) => node.id))
-
-	const collapseNode = findCollapseNode(nodes, startNode.id)
 
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,
 		next: [
 			{
-				id: collapseNode ?? '',
-				condition: {
-					type: 'evalv2',
-					expr: 'true',
-					fieldType: 'boolean'
-				} as RichConfiguration
+				id: id ?? '',
+				condition: createBooleanRC()
 			}
 		],
-		allowed: {
-			type: 'evalv2',
-			expr: 'true',
-			fieldType: 'boolean'
-		} as RichConfiguration
+		allowed: createBooleanRC()
 	}
 
+	return newNode
+}
+
+export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeNode) {
+	const collapseNode = findCollapseNode(nodes, startNode.id)
+
+	if (!collapseNode) {
+		return nodes
+	}
+
+	const newNode = createNewNode(nodes, collapseNode)
 	nodes.push(newNode)
 
 	nodes = nodes.map((node) => {
 		if (node.id === startNode?.id) {
 			node.next.push({
 				id: newNode.id,
-				condition: {
-					type: 'evalv2',
-					expr: 'true',
-					fieldType: 'boolean'
-				} as RichConfiguration
+				condition: createBooleanRC()
 			})
 		}
 		return node
