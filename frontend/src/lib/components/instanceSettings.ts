@@ -18,6 +18,8 @@ export interface Setting {
 		| 'license_key'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
+	error?: string
+	defaultValue?: () => any
 }
 
 export type SettingStorage = 'setting' | 'config'
@@ -32,7 +34,8 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://windmill.com',
 			storage: 'setting',
 			isValid: (value: string | undefined) =>
-				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true
+				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true,
+			defaultValue: () => window.location.origin
 		},
 		{
 			label: 'Request Size Limit In MB',
@@ -95,6 +98,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: 'No workaround around this'
+		},
+		{
+			label: 'Azure OpenAI base path',
+			description:
+				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}',
+			key: 'openai_azure_base_path',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only:
+				'You can still set this setting by using OPENAI_AZURE_BASE_PATH as env variable to the server containers'
 		}
 	],
 	SMTP: [

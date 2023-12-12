@@ -45,8 +45,8 @@ use windmill_common::{
     db::{Authed, UserDB},
     error::{self, Error},
     flow_status::{
-        BranchAllStatus, FlowStatus, FlowStatusModule, FlowStatusModuleWParent, Iterator,
-        JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
+        Iterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{add_virtual_items_if_necessary, FlowModuleValue, FlowValue},
     jobs::{
@@ -2449,6 +2449,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                                 id: "failure".to_string(),
                             },
                         },
+                        cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
                         // retry status is reset
                         retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
                         // TODO: for now, flows with approval conditions aren't supported for restart
@@ -2534,6 +2535,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         id: "failure".to_string(),
                     },
                 },
+                cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
                 // retry status is reset
                 retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
                 // TODO: for now, flows with approval conditions aren't supported for restart

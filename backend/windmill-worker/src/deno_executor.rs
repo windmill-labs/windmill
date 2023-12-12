@@ -279,16 +279,20 @@ run().catch(async (e) => {{
                 args.push("--lock-write");
             }
         }
+        let allow_read = format!(
+            "--allow-read=./,/tmp/windmill/cache/deno/,{}",
+            DENO_PATH.as_str()
+        );
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
             for flag in deno_flags {
                 args.push(flag);
             }
         } else if !*DISABLE_NSJAIL {
             args.push("--allow-net");
-            args.push("--allow-read=./,/tmp/windmill/cache/deno/");
+            args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");
-            args.push("--allow-run=git");
+            args.push("--allow-run=git,/usr/bin/chromium");
         } else {
             args.push("-A");
         }
@@ -414,7 +418,7 @@ pub async fn start_worker(
         None,
     )
     .await;
-    let context_envs = build_envs_map(context.to_vec());
+    let context_envs = build_envs_map(context.to_vec()).await;
 
     {
         // let mut start = Instant::now();

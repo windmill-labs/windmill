@@ -102,7 +102,7 @@
 								'wm-currency-input'
 							),
 							wrapper: 'w-full windmillapp',
-							formattedZero: twMerge('text-black windmillapp ', css?.input?.class, 'wm-currency')
+							formattedZero: twMerge('windmillapp ', css?.input?.class, 'wm-currency')
 						}}
 						style={css?.input?.style}
 						bind:value

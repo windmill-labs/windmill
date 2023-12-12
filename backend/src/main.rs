@@ -218,7 +218,7 @@ async fn main() -> anyhow::Result<()> {
         // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
 
-        let last_mig_version = sqlx::query_scalar!(
+        let new_last_mig_version = sqlx::query_scalar!(
             "select version from _sqlx_migrations order by version desc limit 1;"
         )
         .fetch_optional(&db)
@@ -226,12 +226,19 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .flatten();
 
-        tracing::info!(
-            "Completed potential migration of the db. Last migration version: {last_mig_version:?}",
-        );
+        if last_mig_version != new_last_mig_version {
+            tracing::info!(
+                "Completed migration of the db. New  migration version: {}",
+                new_last_mig_version.unwrap_or(-1)
+            );
+        } else {
+            tracing::info!("No migration, db was up-to-date");
+        }
     }
-    let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
-    let shutdown_signal = windmill_common::shutdown_signal(tx.clone(), rx.resubscribe());
+    let (killpill_tx, killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let (killpill_phase2_tx, killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let shutdown_signal =
+        windmill_common::shutdown_signal(killpill_tx.clone(), killpill_rx.resubscribe());
 
     #[cfg(feature = "enterprise")]
     tracing::info!(
@@ -275,7 +282,7 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
-        initial_load(&db, tx.clone(), worker_mode, server_mode).await;
+        initial_load(&db, killpill_tx.clone(), worker_mode, server_mode).await;
 
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
 
@@ -298,7 +305,7 @@ Windmill Community Edition {GIT_VERSION}
                     db.clone(),
                     rsmq2,
                     addr,
-                    rx.resubscribe(),
+                    killpill_phase2_rx.resubscribe(),
                     base_internal_tx,
                     server_mode,
                 )
@@ -318,25 +325,29 @@ Windmill Community Edition {GIT_VERSION}
             if worker_mode {
                 run_workers(
                     db.clone(),
-                    rx.resubscribe(),
-                    tx.clone(),
+                    killpill_rx.resubscribe(),
+                    killpill_tx.clone(),
                     num_workers,
                     base_internal_url.clone(),
                     rsmq.clone(),
                 )
                 .await?;
                 tracing::info!("All workers exited.");
-                tx.send(())?; // signal server to shutdown
+                killpill_tx.send(())?;
+            } else {
+                killpill_rx.resubscribe().recv().await?;
             }
+            tracing::info!("Starting phase 2 of shutdown");
+            killpill_phase2_tx.send(())?;
             Ok(()) as anyhow::Result<()>
         };
 
         let monitor_f = async {
             let db = db.clone();
-            let tx = tx.clone();
+            let tx = killpill_tx.clone();
             let rsmq = rsmq.clone();
 
-            let mut rx = rx.resubscribe();
+            let mut rx = killpill_rx.resubscribe();
             let base_internal_url = base_internal_url.to_string();
             let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db).await;
@@ -472,8 +483,12 @@ Windmill Community Edition {GIT_VERSION}
                 tracing::error!("Metrics are only available in the EE, ignoring...");
 
                 #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, rx.resubscribe(), num_workers > 0)
-                    .await;
+                windmill_common::serve_metrics(
+                    *METRICS_ADDR,
+                    killpill_phase2_rx.resubscribe(),
+                    num_workers > 0,
+                )
+                .await;
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -481,7 +496,7 @@ Windmill Community Edition {GIT_VERSION}
         let instance_name = rd_string(8);
         schedule_stats(instance_name, mode, &db, &HTTP_CLIENT).await;
 
-        futures::try_join!(shutdown_signal, server_f, metrics_f, workers_f, monitor_f)?;
+        futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
     } else {
         tracing::info!("Nothing to do, exiting.");
     }

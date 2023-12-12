@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.219.1
+  version: 1.221.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -3410,6 +3410,8 @@ paths:
                                           type: number
                                         concurrency_time_window_s:
                                           type: number
+                                        delete_after_use:
+                                          type: null
                                       required: &ref_176
                                         - type
                                         - content

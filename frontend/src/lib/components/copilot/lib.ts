@@ -73,7 +73,7 @@ export async function testKey({
 			}
 		)
 	} else {
-		await getNonStreamingCompletion(messages, abortController)
+		await getNonStreamingCompletion(messages, abortController, undefined, true)
 	}
 }
 
@@ -233,7 +233,8 @@ const PROMPTS_CONFIGS = {
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	model: string = 'gpt-4-1106-preview'
+	model: string = 'gpt-4-1106-preview',
+	noCache?: boolean
 ) {
 	const openaiClient = workspacedOpenai.getClient()
 	const completion = await openaiClient.chat.completions.create(
@@ -244,6 +245,9 @@ export async function getNonStreamingCompletion(
 			model
 		},
 		{
+			query: {
+				no_cache: noCache
+			},
 			signal: abortController.signal
 		}
 	)

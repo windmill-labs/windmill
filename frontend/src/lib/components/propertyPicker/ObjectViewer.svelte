@@ -56,6 +56,8 @@
 	}
 
 	$: keyLimit = isArray ? 1 : 100
+
+	$: fullyCollapsed = keys.length > 1 && collapsed
 </script>
 
 <Portal>
@@ -63,9 +65,9 @@
 </Portal>
 
 {#if keys.length > 0}
-	{#if !collapsed}
+	{#if !fullyCollapsed}
 		<span>
-			{#if level != 0}
+			{#if level != 0 && keys.length > 1}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<span class="cursor-pointer border hover:bg-surface-hover px-1 rounded" on:click={collapse}>
@@ -149,12 +151,12 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<span
 		class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200"
-		class:hidden={!collapsed}
+		class:hidden={!fullyCollapsed}
 		on:click={collapse}
 	>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
-	{#if collapsed}
+	{#if fullyCollapsed}
 		<span class="text-tertiary text-xs">
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>

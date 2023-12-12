@@ -1,30 +1,35 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where hash = $1 AND workspace_id = $2",
+  "query": "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "tag",
+        "name": "path",
         "type_info": "Varchar"
       },
       {
         "ordinal": 1,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -50,14 +55,19 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "priority",
         "type_info": "Int2"
+      },
+      {
+        "ordinal": 8,
+        "name": "delete_after_use",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -67,14 +77,16 @@
       ]
     },
     "nullable": [
+      false,
       true,
       true,
       true,
       true,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "d48070ef889723f408ed6c1a97b5ab9f0e98340cd33c6e29824f6030f0089071"
+  "hash": "e541faa52c530c787d45c5ee70930687587c139606056bdc06cd860abeb0805b"
 }

@@ -1,6 +1,55 @@
 # Changelog
 
 
+## [1.224.1](https://github.com/windmill-labs/windmill/compare/v1.224.0...v1.224.1) (2023-12-11)
+
+
+### Bug Fixes
+
+* **frontend:** add truncate to DrawerContent ([#2830](https://github.com/windmill-labs/windmill/issues/2830)) ([69abe27](https://github.com/windmill-labs/windmill/commit/69abe27662c801d9ecbe2d31a51142e84d7dcfa2))
+* sql types completions when monaco initialized ([#2831](https://github.com/windmill-labs/windmill/issues/2831)) ([64a4528](https://github.com/windmill-labs/windmill/commit/64a452826f3e00aaea6b5205c908f117327398c4))
+
+## [1.224.0](https://github.com/windmill-labs/windmill/compare/v1.223.1...v1.224.0) (2023-12-10)
+
+
+### Features
+
+* add authelia sso support ([#2824](https://github.com/windmill-labs/windmill/issues/2824)) ([6fefdb5](https://github.com/windmill-labs/windmill/commit/6fefdb5438d0fd7546759d93b5f4465731a4cac5))
+* embedded server only get killed after last job of worker ([4f4ca26](https://github.com/windmill-labs/windmill/commit/4f4ca264aef3e1d3ee4748593f0ebcb425d333ef))
+
+
+### Bug Fixes
+
+* make cleanup_module backcompatible ([58c4c0b](https://github.com/windmill-labs/windmill/commit/58c4c0b5c2b009ff56e3eb6bd19e766dbff4cf54))
+
+## [1.223.1](https://github.com/windmill-labs/windmill/compare/v1.223.0...v1.223.1) (2023-12-08)
+
+
+### Bug Fixes
+
+* improve aggrid selectedRow output + make first selectedRow configurable ([651d998](https://github.com/windmill-labs/windmill/commit/651d99824d1932a48fdb9ffd5dff944fa2c2c8aa))
+
+## [1.223.0](https://github.com/windmill-labs/windmill/compare/v1.222.0...v1.223.0) (2023-12-08)
+
+
+### Features
+
+* Add a git sync test button ([#2817](https://github.com/windmill-labs/windmill/issues/2817)) ([535202c](https://github.com/windmill-labs/windmill/commit/535202c1fe1e3a90b1aff2dad6632f615ca8aef8))
+* add mysql datetime ([#2808](https://github.com/windmill-labs/windmill/issues/2808)) ([8896a8c](https://github.com/windmill-labs/windmill/commit/8896a8cacffb5da5575203a5fc9aa6863b303fde))
+* Add possibility to delete flow step results when the flow is complete ([#2806](https://github.com/windmill-labs/windmill/issues/2806)) ([b65657d](https://github.com/windmill-labs/windmill/commit/b65657d0f8db21f87a90bdcd6ce1122a8bb209ce))
+* no worker with tag warning ([#2803](https://github.com/windmill-labs/windmill/issues/2803)) ([e7141c1](https://github.com/windmill-labs/windmill/commit/e7141c147d9ff4728399ae0703ca636c776cb264))
+* sql types autocomplete ([#2810](https://github.com/windmill-labs/windmill/issues/2810)) ([a9b5d6b](https://github.com/windmill-labs/windmill/commit/a9b5d6bebb00c96cc329b4178816c73db5cbe3f0))
+
+
+### Bug Fixes
+
+* conditional component also for toggles ([d26730a](https://github.com/windmill-labs/windmill/commit/d26730ad3419df5c5d75328e7f441c701b2c0c68))
+* db schema autocomplete ([#2809](https://github.com/windmill-labs/windmill/issues/2809)) ([e250897](https://github.com/windmill-labs/windmill/commit/e2508972378f455b7af7984f2c33894dadd4f7bc))
+* deno chromium support when nsjail enabled ([#2815](https://github.com/windmill-labs/windmill/issues/2815)) ([2964569](https://github.com/windmill-labs/windmill/commit/296456996293d861c7cab2d10e01e3b6443e421c))
+* Fix test_complex_flow_restart ([#2813](https://github.com/windmill-labs/windmill/issues/2813)) ([b089449](https://github.com/windmill-labs/windmill/commit/b0894492f1e3c06880c0e1875c8c8886e31a165f))
+* improve sql default arg parsing + auto invite ([033000f](https://github.com/windmill-labs/windmill/commit/033000fed36d6172cf3b9a83ff449f5ba051fa08))
+* support interval in pg ([009a83d](https://github.com/windmill-labs/windmill/commit/009a83dd9bbc115b94978d2cb3113cbe10acd05d))
+
 ## [1.222.0](https://github.com/windmill-labs/windmill/compare/v1.221.0...v1.222.0) (2023-12-07)
 
 
