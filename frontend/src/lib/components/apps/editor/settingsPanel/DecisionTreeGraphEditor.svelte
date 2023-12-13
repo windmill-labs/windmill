@@ -85,32 +85,34 @@
 								/>
 							</Label>
 
-							{#each selectedNode.next as subNode (subNode.id)}
-								{#if subNode.condition}
-									<div class="flex flex-row gap-4 items-center w-full justify-center">
-										<div class="grow relative">
-											<InputsSpecEditor
-												key={`Goes to ${subNode.id} if:`}
-												bind:componentInput={subNode.condition}
-												id={subNode.id}
-												userInputEnabled={false}
-												shouldCapitalize={true}
-												resourceOnly={false}
-												fieldType={subNode.condition?.['fieldType']}
-												subFieldType={subNode.condition?.['subFieldType']}
-												format={subNode.condition?.['format']}
-												selectOptions={subNode.condition?.['selectOptions']}
-												tooltip={subNode.condition?.['tooltip']}
-												fileUpload={subNode.condition?.['fileUpload']}
-												placeholder={subNode.condition?.['placeholder']}
-												customTitle={subNode.condition?.['customTitle']}
-												displayType={false}
-												fixedOverflowWidgets={false}
-											/>
+							{#if selectedNode.next.length > 1}
+								{#each selectedNode.next as subNode (subNode.id)}
+									{#if subNode.condition}
+										<div class="flex flex-row gap-4 items-center w-full justify-center">
+											<div class="grow relative">
+												<InputsSpecEditor
+													key={`Goes to ${subNode.id} if:`}
+													bind:componentInput={subNode.condition}
+													id={subNode.id}
+													userInputEnabled={false}
+													shouldCapitalize={true}
+													resourceOnly={false}
+													fieldType={subNode.condition?.['fieldType']}
+													subFieldType={subNode.condition?.['subFieldType']}
+													format={subNode.condition?.['format']}
+													selectOptions={subNode.condition?.['selectOptions']}
+													tooltip={subNode.condition?.['tooltip']}
+													fileUpload={subNode.condition?.['fileUpload']}
+													placeholder={subNode.condition?.['placeholder']}
+													customTitle={subNode.condition?.['customTitle']}
+													displayType={false}
+													fixedOverflowWidgets={false}
+												/>
+											</div>
 										</div>
-									</div>
-								{/if}
-							{/each}
+									{/if}
+								{/each}
+							{/if}
 							{#key selectedNode.id}
 								{#if selectedNode.allowed}
 									<InputsSpecEditor

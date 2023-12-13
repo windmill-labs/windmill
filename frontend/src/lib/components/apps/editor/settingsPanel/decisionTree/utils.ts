@@ -38,47 +38,6 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode)
 	return nodes
 }
 
-export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode) {
-	const nextId = getNextId(nodes.map((node) => node.id))
-
-	const left: DecisionTreeNode = {
-		id: nextId,
-		label: nextId,
-		next: sourceNode.next,
-		allowed: createBooleanRC()
-	}
-
-	const rightNextId = getNextId([nextId, ...nodes.map((node) => node.id)])
-
-	const right: DecisionTreeNode = {
-		id: rightNextId,
-		label: rightNextId,
-		next: sourceNode.next,
-		allowed: createBooleanRC()
-	}
-
-	nodes.push(left)
-	nodes.push(right)
-
-	nodes = nodes.map((node) => {
-		if (node.id === sourceNode.id) {
-			node.next = [
-				{
-					id: left.id,
-					condition: createBooleanRC()
-				},
-				{
-					id: right.id,
-					condition: createBooleanRC()
-				}
-			]
-		}
-		return node
-	})
-
-	return nodes
-}
-
 export function removeNode(
 	nodes: DecisionTreeNode[],
 	nodeToRemove: DecisionTreeNode | undefined
@@ -161,7 +120,7 @@ export function removeBranch(
 	return nodes
 }
 
-function findCollapseNode(tree: DecisionTreeNode[], startId: string): string | null {
+export function findCollapseNode(tree: DecisionTreeNode[], startId: string): string | null {
 	const nodeMap = new Map<string, DecisionTreeNode>()
 	tree.forEach((node) => nodeMap.set(node.id, node))
 
@@ -201,15 +160,6 @@ function findFirstCommonLetter(arrays: string[][]): string | null {
 	return null
 }
 
-export function insertFirstNode(nodes: DecisionTreeNode[]) {
-	const firstNode = getFirstNode(nodes)
-	if (!firstNode) {
-		return nodes
-	}
-	nodes.unshift(createNewNode(nodes, firstNode?.id))
-	return nodes
-}
-
 function createNewNode(nodes: DecisionTreeNode[], id: string) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
@@ -238,7 +188,7 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 	const newNode = createNewNode(nodes, collapseNode)
 	nodes.push(newNode)
 
-	nodes = nodes.map((node) => {
+	return nodes.map((node) => {
 		if (node.id === startNode?.id) {
 			node.next.push({
 				id: newNode.id,
@@ -247,8 +197,6 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 		}
 		return node
 	})
-
-	return nodes
 }
 
 export function getParents(nodes: DecisionTreeNode[], node: DecisionTreeNode): string[] {

@@ -7,14 +7,13 @@
 
 	export let node: DecisionTreeNode
 	export let editable: boolean = true
-	export let isHead: boolean = false
 	export let canDelete: boolean = true
+	export let label: string = ''
 
 	let open: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		nodeInsert: void
-		branchInsert: void
 		delete: void
 		addBranch: void
 		removeBranch: void
@@ -29,7 +28,7 @@
 		)}
 		style="background-color: rgb(223, 230, 238);"
 	>
-		<div class="grow text-xs font-normal"> Branch </div>
+		<div class="grow text-xs font-normal"> {label} </div>
 	</div>
 
 	{#if canDelete}
@@ -51,18 +50,9 @@ hover:border-red-700"
 			)}
 		>
 			<InsertDecisionTreeNode
-				bind:open
-				on:node={() => {
-					dispatch('nodeInsert')
-				}}
-				on:branch={() => {
-					dispatch('branchInsert')
-				}}
-				on:addBranch={() => {
-					dispatch('addBranch')
-				}}
-				canBranch={node.next.length > 1}
-				canInsertBranch={!isHead}
+				on:node={() => dispatch('nodeInsert')}
+				on:addBranch={() => dispatch('addBranch')}
+				canAddBranch={false}
 			/>
 		</div>
 	{/if}

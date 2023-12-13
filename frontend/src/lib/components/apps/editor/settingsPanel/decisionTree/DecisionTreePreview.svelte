@@ -12,11 +12,10 @@
 	import type { Writable } from 'svelte/store'
 	import type { AppComponent, DecisionTreeNode } from '../../component'
 	import {
-		addBranch,
 		addNewBranch,
 		addNode,
+		findCollapseNode,
 		getParents,
-		insertFirstNode,
 		removeBranch,
 		removeNode
 	} from './utils'
@@ -186,12 +185,7 @@
 				addSubGrid()
 				nodes = addNode(nodes, graphNode)
 				break
-			case 'branchInsert': {
-				addSubGrid(true)
 
-				nodes = addBranch(nodes, graphNode)
-				break
-			}
 			case 'delete': {
 				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode.id)
 				if (graphhNodeIndex > -1) {
@@ -212,10 +206,6 @@
 				})
 				break
 			}
-			case 'firstNodeInsert':
-				addSubGrid()
-				nodes = insertFirstNode(nodes)
-				break
 			default:
 				break
 		}
@@ -230,6 +220,7 @@
 
 			if (hasParentBranches) {
 				const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
+				const collapseNode = findCollapseNode(nodes, parentIds[0])
 
 				displayedNodes.push(
 					createNode({
@@ -240,7 +231,8 @@
 								props: {
 									node: graphNode,
 									canDelete: true,
-									isHead: true
+									isHead: true,
+									label: collapseNode === graphNode.id ? 'Default branch' : 'Branch'
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 							}

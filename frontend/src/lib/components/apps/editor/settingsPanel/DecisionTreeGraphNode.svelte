@@ -10,8 +10,6 @@
 
 	export let node: DecisionTreeNode
 	export let selected = false
-	export let isHead: boolean = false
-	export let isTail: boolean = false
 	export let canDelete: boolean = true
 
 	let open: boolean = false
@@ -19,10 +17,8 @@
 	const dispatch = createEventDispatcher<{
 		select: string
 		nodeInsert: void
-		branchInsert: void
 		delete: void
 		addBranch: void
-		firstNodeInsert: void
 	}>()
 
 	const { selectedNodeId } = getContext<{
@@ -73,18 +69,9 @@
 			)}
 		>
 			<InsertDecisionTreeNode
-				bind:open
-				on:node={() => {
-					if (isHead) {
-						dispatch('firstNodeInsert')
-					} else {
-						dispatch('nodeInsert')
-					}
-				}}
-				on:branch={() => dispatch('branchInsert')}
+				on:node={() => dispatch('nodeInsert')}
 				on:addBranch={() => dispatch('addBranch')}
-				canBranch={node.next.length > 1}
-				canInsertBranch={!isHead && !isTail}
+				canAddBranch={canDelete || node.next.length > 1}
 			/>
 		</div>
 	{/if}
