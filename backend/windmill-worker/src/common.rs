@@ -46,8 +46,8 @@ use futures::{
 };
 
 use crate::{
-    AuthedClient, AuthedClientBackgroundTask, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM,
-    ROOT_CACHE_DIR, TIMEOUT_DURATION,
+    AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -513,38 +513,17 @@ pub async fn handle_child(
         Timeout,
         Cancelled,
     }
+
+    let (timeout_duration, timeout_warn_msg) =
+        resolve_job_timeout(&db, _w_id, job_id, custom_timeout).await;
+    if let Some(msg) = timeout_warn_msg {
+        logs.push_str(msg.as_str());
+        append_logs(job_id, msg.as_str(), db).await;
+    }
+
     /* a future that completes when the child process exits */
     let wait_on_child = async {
         let db = db.clone();
-
-        #[cfg(not(feature = "enterprise"))]
-        let instance_timeout_duration = *TIMEOUT_DURATION;
-
-        #[cfg(feature = "enterprise")]
-        let premium_workspace = *CLOUD_HOSTED
-            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
-                .fetch_one(&db)
-                .await
-                .map_err(|e| {
-                    tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
-                })
-                .unwrap_or(false);
-
-        #[cfg(feature = "enterprise")]
-        let instance_timeout_duration = if premium_workspace {
-            *TIMEOUT_DURATION * 6 //30mins
-        } else {
-            *TIMEOUT_DURATION
-        };
-
-        let timeout_duration = if let Some(custom_timeout) = custom_timeout {
-            Duration::min(
-                instance_timeout_duration,
-                Duration::from_secs(custom_timeout as u64),
-            )
-        } else {
-            instance_timeout_duration
-        };
 
         let kill_reason = tokio::select! {
             biased;
@@ -567,7 +546,7 @@ pub async fn handle_child(
                         WHERE id = $2
                     "#,
                 )
-                .bind(format!("duration > {}", TIMEOUT_DURATION.as_secs()))
+                .bind(format!("duration > {}", timeout_duration.as_secs()))
                 .bind(job_id)
                 .execute(&db)
                 .await
@@ -604,6 +583,7 @@ pub async fn handle_child(
         } else {
             usize::MAX
         };
+
         /* log_remaining is zero when output limit was reached */
         let mut log_remaining = max_log_size.saturating_sub(logs.chars().count());
         let mut result = io::Result::Ok(());
@@ -682,7 +662,6 @@ pub async fn handle_child(
             if *set_too_many_logs.borrow() {
                 break;
             }
-
         }
 
         /* drop our end of the pipe */
@@ -730,6 +709,64 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
     return cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+}
+
+async fn resolve_job_timeout(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    job_id: Uuid,
+    custom_timeout_secs: Option<i32>,
+) -> (Duration, Option<String>) {
+    let mut warn_msg: Option<String> = None;
+    #[cfg(feature = "enterprise")]
+    let cloud_premium_workspace = *CLOUD_HOSTED
+        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+            .fetch_one(db)
+            .await
+            .map_err(|e| {
+                tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
+            })
+            .unwrap_or(false);
+    #[cfg(not(feature = "enterprise"))]
+    let cloud_premium_workspace = false;
+
+    // compute global max timeout
+    let global_max_timeout_duration = if cloud_premium_workspace {
+        *MAX_TIMEOUT_DURATION * 6 //30mins
+    } else {
+        *MAX_TIMEOUT_DURATION
+    };
+
+    match custom_timeout_secs {
+        Some(timeout_secs)
+            if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
+        {
+            (Duration::from_secs(timeout_secs as u64), warn_msg)
+        }
+        Some(timeout_secs) => {
+            warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the max timeout will be used instead"));
+            tracing::warn!(warn_msg);
+            (global_max_timeout_duration, warn_msg)
+        }
+        None => {
+            // fallback to default timeout or max if not set
+            let default_timeout = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
+                None => global_max_timeout_duration,
+                Some(default_timeout_secs)
+                    if Duration::from_secs(default_timeout_secs as u64)
+                        < global_max_timeout_duration =>
+                {
+                    Duration::from_secs(default_timeout_secs as u64)
+                }
+                Some(default_timeout_secs) => {
+                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the global max timeout will be used instead"));
+                    tracing::warn!(warn_msg);
+                    global_max_timeout_duration
+                }
+            };
+            (default_timeout, warn_msg)
+        }
+    }
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
