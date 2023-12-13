@@ -44,7 +44,9 @@
 			dispatch('select', node.id)
 		}}
 	>
-		<div class="grow text-xs font-normal"> {node.label} </div>
+		<div class="grow text-xs font-normal text-primary">
+			{node.label === '' ? `Tab: ${node.id}` : node.label}
+		</div>
 		<Badge color="indigo">
 			{node.id}
 		</Badge>

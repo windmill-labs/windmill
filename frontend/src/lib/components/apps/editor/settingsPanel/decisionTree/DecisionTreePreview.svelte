@@ -275,15 +275,25 @@
 					})
 				)
 
-				graphNode.next.forEach((nextNode) => {
+				if (graphNode.next.length === 1) {
 					edges.push(
 						createEdge({
-							id: `${graphNode.id}-${nextNode.id}`,
+							id: `${branchHeaderId}-${graphNode.next[0].id}`,
 							source: graphNode.id,
-							target: nextNode.id
+							target: graphNode.next[0].id
 						})
 					)
-				})
+				} else {
+					graphNode.next.forEach((nextNode) => {
+						edges.push(
+							createEdge({
+								id: `${graphNode.id}-${nextNode.id}-branch-header-${nextNode.id}`,
+								source: graphNode.id,
+								target: `${graphNode.id}-${nextNode.id}-branch-header`
+							})
+						)
+					})
+				}
 			} else {
 				displayedNodes.push(
 					createNode({
@@ -391,7 +401,9 @@
 	let mounted = false
 
 	onMount(() => {
-		createGraph()
+		setTimeout(() => {
+			createGraph()
+		}, 10)
 		mounted = true
 	})
 </script>

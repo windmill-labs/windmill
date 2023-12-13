@@ -3,11 +3,8 @@
 	import { Network, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-
 	import { setContext } from 'svelte'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
-
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { writable } from 'svelte/store'
 	import DecisionTreePreview from './decisionTree/DecisionTreePreview.svelte'
@@ -20,17 +17,15 @@
 	export let rebuildOnChange: any = undefined
 
 	let drawer: Drawer | undefined = undefined
-
 	let paneWidth = 0
 	let paneHeight = 0
+	let renderCount = 0
 
 	const selectedNodeId = writable<string | undefined>(undefined)
 
 	$: selectedNode = nodes?.find((node) => node.id == $selectedNodeId)
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
-
-	let renderCount = 0
 </script>
 
 <Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
@@ -77,7 +72,7 @@
 								</Button>
 							</svelte:fragment>
 
-							<Label label="Label">
+							<Label label="Summary">
 								<input
 									type="text"
 									class="input input-primary input-bordered"
@@ -90,39 +85,32 @@
 								/>
 							</Label>
 
-							{#if Array.isArray(selectedNode.next) && selectedNode.next.length === 1}
-								<Alert type="info" title="This node has only one next node">
-									This node can only go to the node {selectedNode.next[0].id}
-								</Alert>
-							{:else}
-								{#each selectedNode.next as subNode (subNode.id)}
-									{#if subNode.condition}
-										<div class="flex flex-row gap-4 items-center w-full justify-center">
-											<div class="grow relative">
-												<InputsSpecEditor
-													key={`Goes to ${subNode.id} if:`}
-													bind:componentInput={subNode.condition}
-													id={subNode.id}
-													userInputEnabled={false}
-													shouldCapitalize={true}
-													resourceOnly={false}
-													fieldType={subNode.condition?.['fieldType']}
-													subFieldType={subNode.condition?.['subFieldType']}
-													format={subNode.condition?.['format']}
-													selectOptions={subNode.condition?.['selectOptions']}
-													tooltip={subNode.condition?.['tooltip']}
-													fileUpload={subNode.condition?.['fileUpload']}
-													placeholder={subNode.condition?.['placeholder']}
-													customTitle={subNode.condition?.['customTitle']}
-													displayType={false}
-													fixedOverflowWidgets={false}
-												/>
-											</div>
+							{#each selectedNode.next as subNode (subNode.id)}
+								{#if subNode.condition}
+									<div class="flex flex-row gap-4 items-center w-full justify-center">
+										<div class="grow relative">
+											<InputsSpecEditor
+												key={`Goes to ${subNode.id} if:`}
+												bind:componentInput={subNode.condition}
+												id={subNode.id}
+												userInputEnabled={false}
+												shouldCapitalize={true}
+												resourceOnly={false}
+												fieldType={subNode.condition?.['fieldType']}
+												subFieldType={subNode.condition?.['subFieldType']}
+												format={subNode.condition?.['format']}
+												selectOptions={subNode.condition?.['selectOptions']}
+												tooltip={subNode.condition?.['tooltip']}
+												fileUpload={subNode.condition?.['fileUpload']}
+												placeholder={subNode.condition?.['placeholder']}
+												customTitle={subNode.condition?.['customTitle']}
+												displayType={false}
+												fixedOverflowWidgets={false}
+											/>
 										</div>
-									{/if}
-								{/each}
-							{/if}
-
+									</div>
+								{/if}
+							{/each}
 							{#key selectedNode.id}
 								{#if selectedNode.allowed}
 									<InputsSpecEditor
