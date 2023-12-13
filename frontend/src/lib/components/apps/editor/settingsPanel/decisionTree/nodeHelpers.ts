@@ -45,8 +45,6 @@ export function createNode(nodeConfig: NodeConfig): Node {
 }
 
 export function createEdge(edgeConfig: EdgeConfig) {
-	console.log('## EDGE ##', edgeConfig.source, '->', edgeConfig.target)
-
 	return {
 		id: edgeConfig.id,
 		source: edgeConfig.source,
