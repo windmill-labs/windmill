@@ -205,7 +205,7 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           path: "/static_frontend/."
 
-      - uses: reggionick/s3-deploy@v3
+      - uses: reggionick/s3-deploy@v4
         with:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
