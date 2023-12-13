@@ -51,17 +51,15 @@
 				await Promise.all(
 					Object.entries(settings).map(
 						async ([_, y]) =>
-							await Promise.all(
-								y.map(async (x) => [
-									x.key,
-									(await getValue(x.key, x.storage)) ?? x.defaultValue?.()
-								])
-							)
+							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
 					)
 				)
 			).flat()
 		)
 		values = JSON.parse(JSON.stringify(initialValues))
+		if (values['base_url'] == undefined) {
+			values['base_url'] = window.location.origin
+		}
 		if (values['retention_period_secs'] == undefined) {
 			values['retention_period_secs'] = 60 * 60 * 24 * 60
 		}
