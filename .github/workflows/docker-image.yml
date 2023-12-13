@@ -310,7 +310,7 @@ jobs:
         id: extract
         with:
           image: |-
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.GIT_HASH }}
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v3
