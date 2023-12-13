@@ -60,6 +60,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -198,6 +199,7 @@
 
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
+	let persistentScriptDrawer: PersistentScriptDrawer
 
 	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
 		const buttons: any = []
@@ -394,6 +396,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 <ShareModal bind:this={shareModal} />
 
 {#if script}
@@ -428,6 +431,13 @@
 							{`Priority: ${script.priority}`}
 						</Badge>
 					</div>
+				{/if}
+				{#if script?.restart_unless_cancelled ?? false}
+					<button on:click={() => persistentScriptDrawer.open?.(script)}>
+						<div class="hidden md:block">
+							<Badge color="red" variant="outlined" size="xs">Persistent</Badge>
+						</div>
+					</button>
 				{/if}
 				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
 					<div class="hidden md:block">

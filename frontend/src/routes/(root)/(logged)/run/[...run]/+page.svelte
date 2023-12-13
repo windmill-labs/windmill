@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job } from '$lib/gen'
+	import { JobService, Job, ScriptService, Script } from '$lib/gen'
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
 
 	import {
@@ -44,6 +44,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
+	import Portal from 'svelte-portal'
 
 	let job: Job | undefined
 
@@ -57,6 +59,8 @@
 
 	let testIsLoading = false
 	let testJobLoader: TestJobLoader
+
+	let persistentScriptDrawer: PersistentScriptDrawer
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
@@ -110,7 +114,6 @@
 	}
 
 	function onSelectedJobStepChange() {
-		console.log('yo')
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -131,6 +134,21 @@
 		}
 	}
 
+	let persistentScriptDefinition: Script | undefined = undefined
+
+	async function onJobLoaded() {
+		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
+			return
+		}
+		const script = await ScriptService.getScriptByHash({
+			workspace: $workspaceStore!,
+			hash: job.script_hash
+		})
+		if (script.restart_unless_cancelled ?? false) {
+			persistentScriptDefinition = script
+		}
+	}
+
 	$: {
 		if ($workspaceStore && $page.params.run && testJobLoader) {
 			forceCancel = false
@@ -139,6 +157,7 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
+	$: job && onJobLoaded()
 
 	let notfound = false
 	let forceCancel = false
@@ -152,6 +171,10 @@
 	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
+
+<Portal>
+	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
+</Portal>
 
 {#if notfound}
 	<CenteredPage>
@@ -402,6 +425,11 @@
 							<div>
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
+						{/if}
+						{#if persistentScriptDefinition}
+							<button on:click={() => persistentScriptDrawer.open?.(persistentScriptDefinition)}
+								><Badge color="red">persistent</Badge></button
+							>
 						{/if}
 						{#if job && 'priority' in job}
 							<div>
