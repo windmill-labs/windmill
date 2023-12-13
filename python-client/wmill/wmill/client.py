@@ -272,7 +272,7 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
-    ) -> str | dict | None:
+    ) -> dict | None:
         """Get resource from Windmill"""
         try:
             return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()

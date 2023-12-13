@@ -18,7 +18,6 @@
 		>
 	>
 	export let flowDone = false
-	export let nestedFlow: string | undefined = undefined
 
 	let min: undefined | number = undefined
 	let max: undefined | number = undefined
@@ -147,31 +146,30 @@
 			</div>
 		</div>
 		{#each Object.values(flowModules) as k (k)}
-			{@const key = nestedFlow ? `${nestedFlow}-${k}` : k}
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
-				{#if ($durationStatuses?.[key]?.iteration_from ?? 0) > 0}
+				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
 					<div class="w-full flex flex-row-reverse sticky top-0">
 						<button
 							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
 							on:click={() => {
-								let r = $durationStatuses[key]
+								let r = $durationStatuses[k]
 								if (r.iteration_from) {
 									r.iteration_from -= 20
 									$durationStatuses = $durationStatuses
 								}
 							}}
-							>Viewing iterations {$durationStatuses[key].iteration_from} to {$durationStatuses[key]
+							>Viewing iterations {$durationStatuses[k].iteration_from} to {$durationStatuses[k]
 								.iteration_total}. Load more
 						</button>
 					</div>
 				{/if}
 
 				<div class="px-2 py-2 grid grid-cols-6 w-full">
-					<div>{key}</div>
+					<div>{k}</div>
 					<div class="col-span-5 flex min-h-6 w-full">
 						{#if min && total}
 							<div class="flex flex-col gap-2 w-full p-2">
-								{#each items?.[key] ?? [] as b}
+								{#each items?.[k] ?? [] as b}
 									{@const waitingLen = b?.created_at
 										? b.started_at
 											? b.started_at - b?.created_at
