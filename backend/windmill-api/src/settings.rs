@@ -184,6 +184,7 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
         &windmill_common::utils::Mode::Server,
         &HTTP_CLIENT,
         &db,
+        cfg!(feature = "enterprise"),
     )
     .await?;
 
