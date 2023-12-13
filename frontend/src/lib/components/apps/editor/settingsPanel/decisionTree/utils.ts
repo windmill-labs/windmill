@@ -202,7 +202,10 @@ function findFirstCommonLetter(arrays: string[][]): string | null {
 }
 
 export function insertFirstNode(nodes: DecisionTreeNode[]) {
-	const firstNode = nodes[0]
+	const firstNode = getFirstNode(nodes)
+	if (!firstNode) {
+		return nodes
+	}
 	nodes.unshift(createNewNode(nodes, firstNode?.id))
 	return nodes
 }
@@ -259,10 +262,16 @@ export function getParents(nodes: DecisionTreeNode[], node: DecisionTreeNode): s
 		})
 	})
 
+	const firstNode = getFirstNode(nodes)
 	// if first node, add start node as parent
-	if (node.id == nodes[0].id) {
+	if (node.id == firstNode?.id) {
 		parentIds.push('start')
 	}
 
 	return parentIds
+}
+
+function getFirstNode(nodes: DecisionTreeNode[]): DecisionTreeNode | undefined {
+	// No other nodes has this node as next
+	return nodes.find((node) => !nodes.some((n) => n.next.some((next) => next.id === node.id)))
 }
