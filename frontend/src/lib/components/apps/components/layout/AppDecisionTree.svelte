@@ -52,8 +52,6 @@
 
 		let found: boolean = false
 
-		console.log(resolvedNodeConditions)
-
 		resolvedNodeConditions.forEach((condition, index) => {
 			if (found) return
 
