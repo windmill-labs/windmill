@@ -144,6 +144,15 @@
 		}
 	}
 
+	export function arrowDown(): void {
+		if (editor) {
+			let pos = editor.getPosition()
+			if (pos) {
+				editor.setPosition({ lineNumber: pos.lineNumber + 1, column: pos.column })
+			}
+		}
+	}
+
 	export function insertAtBeginning(code: string): void {
 		if (editor) {
 			const range = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }

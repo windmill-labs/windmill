@@ -125,23 +125,30 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
-         if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
-         dpkg --install 'pwsh.deb' && \
-         rm 'pwsh.deb'; else echo 'pwshell not on amd64'; fi;  \
-     else echo 'Building the image without powershell'; fi
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
+    dpkg --install 'pwsh.deb' && \
+    rm 'pwsh.deb'; \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && \
+    mkdir -p /opt/microsoft/powershell/7 && \
+    tar zxf powershell.tar.gz -C /opt/microsoft/powershell/7 && \
+    chmod +x /opt/microsoft/powershell/7/pwsh && \
+    ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh && \
+    rm powershell.tar.gz; \
+    else echo 'Could not install pwshell, not on amd64 or arm64'; fi;  \
+    else echo 'Building the image without powershell'; fi
 
 RUN if [ "$WITH_HELM" = "true" ]; then \
-        arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-        wget "https://get.helm.sh/helm-v${HELM_VERSION}-linux-$arch.tar.gz" && \
-        tar -zxvf "helm-v${HELM_VERSION}-linux-$arch.tar.gz"  && \
-        mv linux-$arch/helm /usr/local/bin/helm &&\
-        chmod +x /usr/local/bin/helm; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    wget "https://get.helm.sh/helm-v${HELM_VERSION}-linux-$arch.tar.gz" && \
+    tar -zxvf "helm-v${HELM_VERSION}-linux-$arch.tar.gz"  && \
+    mv linux-$arch/helm /usr/local/bin/helm &&\
+    chmod +x /usr/local/bin/helm; \
     else echo 'Building the image without helm'; fi
 
 RUN if [ "$WITH_KUBECTL" = "true" ]; then \
-        arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-        curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/$arch/kubectl" && \
-        install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/$arch/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
     else echo 'Building the image without kubectl'; fi
 
 RUN set -eux; \
@@ -160,10 +167,10 @@ RUN set -eux; \
     ./aws/install && rm awscliv2.zip
 
 RUN if [ "$WITH_RCLONE" = "true" ]; then \
-        arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-        curl -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-$arch.zip"; \
-        unzip -p rclone.zip rclone-v${RCLONE_VERSION}-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
-        chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-$arch.zip"; \
+    unzip -p rclone.zip rclone-v${RCLONE_VERSION}-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
+    chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone; \
     else echo 'Building the image without rclone'; fi
 
 

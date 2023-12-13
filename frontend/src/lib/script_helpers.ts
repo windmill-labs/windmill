@@ -286,6 +286,8 @@ docker run --rm $IMAGE $COMMAND
 
 export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
 
+# Import-Module MyModule
+
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
