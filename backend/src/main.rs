@@ -497,7 +497,14 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let instance_name = rd_string(8);
-        schedule_stats(instance_name, mode, &db, &HTTP_CLIENT).await;
+        schedule_stats(
+            instance_name,
+            mode,
+            &db,
+            &HTTP_CLIENT,
+            cfg!(feature = "enterprise"),
+        )
+        .await;
 
         futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
     } else {
