@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 enterprise = ["windmill-queue/enterprise", "async-stripe", "windmill-audit/enterprise"]
-saml = ["samael"]
+enterprise_saml = ["samael"]
 benchmark = []
 
 [dependencies]
