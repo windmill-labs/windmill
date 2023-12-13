@@ -1,30 +1,35 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use from script where hash = $1 AND workspace_id = $2",
+  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout FROM script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
         "name": "tag",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -50,28 +55,29 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 7,
-        "name": "delete_after_use",
-        "type_info": "Bool"
+        "ordinal": 8,
+        "name": "timeout",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
+        "Text",
         "Text"
       ]
     },
     "nullable": [
+      false,
       true,
       true,
       true,
@@ -82,5 +88,5 @@
       true
     ]
   },
-  "hash": "0234079d04372b82ec8f2990916433bd8771c21d22a1db02eb1e388a8bfb28ff"
+  "hash": "2f42460fdd8aa125c8fd46b3cd02e47f57de0f073d3ce3bc7d21a7e404a83b5c"
 }

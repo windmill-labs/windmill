@@ -1844,7 +1844,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } else {
                 Some(flow_job.tag.clone())
             },
-            module.timeout,
+            payload_tag.timeout,
             Some(module.id.clone()),
             new_job_priority_override,
         )
@@ -2101,6 +2101,7 @@ struct JobPayloadWithTag {
     payload: JobPayload,
     tag: Option<String>,
     delete_after_use: bool,
+    timeout: Option<i32>,
 }
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
@@ -2154,6 +2155,7 @@ async fn compute_next_flow_transform(
                 payload: JobPayload::Identity,
                 tag: None,
                 delete_after_use: false,
+                timeout: None,
             }),
             NextStatus::NextStep,
         ));
@@ -2164,6 +2166,7 @@ async fn compute_next_flow_transform(
                 payload,
                 tag: None,
                 delete_after_use: false,
+                timeout: None,
             }),
             NextStatus::NextStep,
         ))
@@ -2398,6 +2401,7 @@ async fn compute_next_flow_transform(
                                 },
                                 tag: None,
                                 delete_after_use: delete_after_use,
+                                timeout: None,
                             }),
                             NextStatus::NextLoopIteration {
                                 next: ns,
@@ -2438,6 +2442,7 @@ async fn compute_next_flow_transform(
                                 },
                                 tag: None,
                                 delete_after_use: delete_after_use,
+                                timeout: None,
                             }
                         };
                         ContinuePayload::ForloopJobs { n: itered.len(), payload }
@@ -2539,6 +2544,7 @@ async fn compute_next_flow_transform(
                     },
                     tag: None,
                     delete_after_use: delete_after_use,
+                    timeout: None,
                 }),
                 NextStatus::BranchChosen(branch),
             ))
@@ -2589,6 +2595,7 @@ async fn compute_next_flow_transform(
                                             },
                                             tag: None,
                                             delete_after_use: delete_after_use,
+                                            timeout: None,
                                         }
                                     })
                                     .collect(),
@@ -2655,6 +2662,7 @@ async fn compute_next_flow_transform(
                     },
                     tag: None,
                     delete_after_use: delete_after_use,
+                    timeout: None,
                 }),
                 NextStatus::NextBranchStep(NextBranch { status: branch_status, flow_jobs }),
             ))
@@ -2723,12 +2731,13 @@ fn raw_script_to_payload(
         }),
         tag: tag.clone(),
         delete_after_use: *delete_after_use,
+        timeout: module.timeout,
     }
 }
 
 fn flow_to_payload(path: &str, delete_after_use: &bool) -> JobPayloadWithTag {
     let payload = JobPayload::Flow { path: path.to_string(), dedicated_worker: None };
-    JobPayloadWithTag { payload, tag: None, delete_after_use: *delete_after_use }
+    JobPayloadWithTag { payload, tag: None, delete_after_use: *delete_after_use, timeout: None }
 }
 
 async fn script_to_payload(
@@ -2738,7 +2747,7 @@ async fn script_to_payload(
     flow_job: &QueuedJob,
     module: &FlowModule,
 ) -> Result<JobPayloadWithTag, Error> {
-    let (payload, tag, delete_after_use) = if script_hash.is_none() {
+    let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         script_path_to_payload(script_path, &db, &flow_job.workspace_id).await?
     } else {
         let hash = script_hash.clone().unwrap();
@@ -2752,6 +2761,7 @@ async fn script_to_payload(
             dedicated_worker,
             priority,
             delete_after_use,
+            script_timeout,
         ) = script_hash_to_tag_and_limits(&hash, &mut tx, &flow_job.workspace_id).await?;
         (
             JobPayload::ScriptHash {
@@ -2766,12 +2776,19 @@ async fn script_to_payload(
             },
             tag,
             delete_after_use,
+            script_timeout,
         )
     };
     // the module value overrides the value set at the script level. Defaults to false if both are unset.
     let final_delete_after_user =
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
-    Ok(JobPayloadWithTag { payload, tag, delete_after_use: final_delete_after_user })
+    let flow_step_timeout = module.timeout.or(script_timeout);
+    Ok(JobPayloadWithTag {
+        payload,
+        tag,
+        delete_after_use: final_delete_after_user,
+        timeout: flow_step_timeout,
+    })
 }
 
 async fn get_transform_context(

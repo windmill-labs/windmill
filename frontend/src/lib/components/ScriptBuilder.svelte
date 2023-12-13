@@ -215,7 +215,8 @@
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
-					delete_after_use: script.delete_after_use
+					delete_after_use: script.delete_after_use,
+					timeout: script.timeout
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -291,7 +292,8 @@
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
-						delete_after_use: script.delete_after_use
+						delete_after_use: script.delete_after_use,
+						timeout: script.timeout
 					}
 				})
 			}
@@ -648,6 +650,30 @@
 										</span>
 										{#if script.cache_ttl}
 											<SecondsInput bind:seconds={script.cache_ttl} />
+										{:else}
+											<SecondsInput disabled />
+										{/if}
+									</div>
+								</Section>
+								<Section label="Timeout">
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.timeout)}
+											on:change={() => {
+												if (script.timeout && script.timeout != undefined) {
+													script.timeout = undefined
+												} else {
+													script.timeout = 300
+												}
+											}}
+											options={{
+												right: 'Add a custom timeout for this script'
+											}}
+										/>
+										<span class="text-secondary text-sm leading-none"> Timeout duration </span>
+										{#if script.timeout}
+											<SecondsInput bind:seconds={script.timeout} />
 										{:else}
 											<SecondsInput disabled />
 										{/if}
