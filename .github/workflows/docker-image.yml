@@ -297,20 +297,24 @@ jobs:
 
       - name: Push image to ECR
         if: github.event_name != 'pull_request'
+        id: push_ecr
         run: |
           git_hash=$(git rev-parse --short "$GITHUB_SHA")
           docker buildx imagetools create \
             --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
 
       - uses: shrink/actions-docker-extract@v3
+        if: github.event_name != 'pull_request'
         id: extract
         with:
-          image:
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7}
+          image: |-
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.GIT_HASH }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v3
+        if: github.event_name != 'pull_request'
         with:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
