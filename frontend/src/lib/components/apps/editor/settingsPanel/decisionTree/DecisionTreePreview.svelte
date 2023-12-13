@@ -110,7 +110,7 @@
 								next: []
 							},
 							canDelete: false,
-							isHead: true
+							isTail: true
 						},
 						cb: (e: string, detail: any) => {
 							if (e == 'select') {
@@ -134,13 +134,17 @@
 		})
 	}
 
-	function addSubGrid() {
+	function addSubGrid(addTwo: boolean = false) {
 		const numberOfPanes = nodes.length
 		if (!$app.subgrids) {
 			$app.subgrids = {}
 		}
 		$app.subgrids[`${component.id}-${numberOfPanes}`] = []
-		component.numberOfSubgrids = nodes.length + 1
+
+		if (addTwo) {
+			$app.subgrids[`${component.id}-${numberOfPanes + 1}`] = []
+		}
+		component.numberOfSubgrids = nodes.length + (addTwo ? 2 : 1)
 	}
 
 	function deleteSubgrid(index: number) {
@@ -182,22 +186,34 @@
 				addSubGrid()
 				nodes = addNode(nodes, graphNode)
 				break
-			case 'branchInsert':
+			case 'branchInsert': {
+				addSubGrid(true)
+
 				nodes = addBranch(nodes, graphNode)
 				break
-			case 'delete':
+			}
+			case 'delete': {
 				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode.id)
 				if (graphhNodeIndex > -1) {
 					deleteSubgrid(graphhNodeIndex)
 				}
 				nodes = removeNode(nodes, graphNode)
 				break
-			case 'addBranch':
+			}
+			case 'addBranch': {
+				addSubGrid()
 				nodes = addNewBranch(nodes, graphNode)
 				break
-			case 'removeBranch':
-				nodes = removeBranch(nodes, graphNode, parentIds[0])
+			}
+			case 'removeBranch': {
+				nodes = removeBranch(nodes, graphNode, parentIds[0], (nodeId) => {
+					const index = nodes.findIndex((node) => node.id === nodeId)
+					deleteSubgrid(index)
+				})
+				break
+			}
 			case 'firstNodeInsert':
+				addSubGrid()
 				nodes = insertFirstNode(nodes)
 				break
 			default:
@@ -215,41 +231,41 @@
 			if (hasParentBranches) {
 				const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
 
-				const branchHeaderNode = createNode({
-					id: branchHeaderId,
-					data: {
-						custom: {
-							component: DecisionTreeGraphHeader,
-							props: {
-								node: graphNode,
-								canDelete: true,
-								isHead: true
-							},
-							cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
-						}
-					},
-					parentIds: parentIds
-				})
+				displayedNodes.push(
+					createNode({
+						id: branchHeaderId,
+						data: {
+							custom: {
+								component: DecisionTreeGraphHeader,
+								props: {
+									node: graphNode,
+									canDelete: true,
+									isHead: true
+								},
+								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+							}
+						},
+						parentIds: parentIds
+					})
+				)
 
-				displayedNodes.push(branchHeaderNode)
-
-				const displayedNode = createNode({
-					id: graphNode.id,
-					data: {
-						custom: {
-							component: DecisionTreeGraphNode,
-							props: {
-								node: graphNode,
-								canDelete: graphNode.next.length === 1,
-								isHead: graphNode.next.length === 0
-							},
-							cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
-						}
-					},
-					parentIds: [branchHeaderId]
-				})
-
-				displayedNodes.push(displayedNode)
+				displayedNodes.push(
+					createNode({
+						id: graphNode.id,
+						data: {
+							custom: {
+								component: DecisionTreeGraphNode,
+								props: {
+									node: graphNode,
+									canDelete: graphNode.next.length === 1,
+									isHead: graphNode.next.length === 0
+								},
+								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+							}
+						},
+						parentIds: [branchHeaderId]
+					})
+				)
 
 				edges.push(
 					createEdge({

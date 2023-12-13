@@ -79,29 +79,38 @@ export function addBranch(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNod
 	return nodes
 }
 
-export function removeNode(nodes: DecisionTreeNode[], nodeToRemove: DecisionTreeNode | undefined) {
+export function removeNode(
+	nodes: DecisionTreeNode[],
+	nodeToRemove: DecisionTreeNode | undefined
+): DecisionTreeNode[] {
 	if (!nodeToRemove) {
 		return nodes
 	}
 
-	const parentNode = nodes.find((n) => n.next.find((next) => next.id == nodeToRemove.id))
+	const parentNode = nodes.find((n) => n.next.some((next) => next.id === nodeToRemove.id))
 
-	if (!parentNode && nodeToRemove.next.length == 1) {
-		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
-	} else if (parentNode && parentNode?.next.length === 1) {
-		parentNode.next = nodeToRemove.next
+	if (!parentNode) {
+		// Case when there is no parent node
+		if (nodeToRemove.next.length === 1) {
+			return nodes.filter((n) => n.id !== nodeToRemove.id)
+		}
+	} else {
+		if (parentNode.next.length === 1) {
+			// Parent has only one next node
+			parentNode.next = nodeToRemove.next
+		} else if (parentNode.next.length > 1) {
+			// Parent has multiple next nodes
+			parentNode.next = parentNode.next
+				.filter((next) => next.id !== nodeToRemove.id)
+				.concat(nodeToRemove.next)
 
-		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
-	} else if (parentNode && parentNode?.next.length > 1) {
-		parentNode.next = parentNode.next.filter((next) => next.id != nodeToRemove.id)
-		parentNode.next = [...parentNode.next, ...nodeToRemove.next]
+			// Remove duplicates
+			parentNode.next = parentNode.next.filter(
+				(next, index, self) => self.findIndex((t) => t.id === next.id) === index
+			)
+		}
 
-		// Filter out duplicates
-		parentNode.next = parentNode.next.filter(
-			(next, index, self) => index === self.findIndex((t) => t.id === next.id)
-		)
-
-		nodes = nodes.filter((n) => n.id != nodeToRemove.id)
+		nodes = nodes.filter((n) => n.id !== nodeToRemove.id)
 	}
 
 	return nodes
@@ -109,32 +118,44 @@ export function removeNode(nodes: DecisionTreeNode[], nodeToRemove: DecisionTree
 
 export function removeBranch(
 	nodes: DecisionTreeNode[],
-	firsNodeInBranch: DecisionTreeNode | undefined,
-	parentNodeId: string
+	firstNodeInBranch: DecisionTreeNode | undefined,
+	parentNodeId: string,
+	onRemove: (id: string) => void
 ) {
-	const parentNode = nodes.find((n) => n.id == parentNodeId)
-	const collapseNode = findCollapseNode(nodes, parentNodeId)
+	const parentNode = nodes.find((n) => n.id === parentNodeId)
+	const collapseNodeId = findCollapseNode(nodes, parentNodeId) // Assuming this returns an ID string
 
-	if (!parentNode || !collapseNode) {
+	if (!parentNode || !collapseNodeId) {
 		return nodes
 	}
 
-	parentNode.next = parentNode.next.filter((next) => next.id != firsNodeInBranch?.id)
+	parentNode.next = parentNode.next.filter((next) => next.id !== firstNodeInBranch?.id)
 
-	if (firsNodeInBranch && firsNodeInBranch.id !== collapseNode) {
-		// Iterate over all subnodes and remove them until we reach the collapse node
+	if (firstNodeInBranch && firstNodeInBranch.id !== collapseNodeId) {
+		const visited = new Set<string>()
 		const dfs = (nodeId: string) => {
-			const node = nodes.find((n) => n.id == nodeId)
+			if (visited.has(nodeId)) return
+			visited.add(nodeId)
+
+			const node = nodes.find((n) => n.id === nodeId)
 			if (node) {
 				node.next.forEach((next) => {
-					if (next.id !== collapseNode) {
+					if (next.id !== collapseNodeId) {
 						dfs(next.id)
 					}
 				})
-				nodes = nodes.filter((n) => n.id != nodeId)
+
+				onRemove(node.id)
+				nodes = nodes.filter((n) => n.id !== nodeId)
 			}
 		}
-		dfs(firsNodeInBranch?.id)
+
+		dfs(firstNodeInBranch.id)
+	}
+
+	if (firstNodeInBranch && !firstNodeInBranch.next.length) {
+		onRemove(firstNodeInBranch.id)
+		nodes = nodes.filter((n) => n.id !== firstNodeInBranch.id)
 	}
 
 	return nodes
@@ -165,7 +186,7 @@ function findCollapseNode(tree: DecisionTreeNode[], startId: string): string | n
 	return findFirstCommonLetter(paths)
 }
 
-function findFirstCommonLetter(arrays) {
+function findFirstCommonLetter(arrays: string[][]): string | null {
 	const first = arrays[0]
 	const rest = arrays.slice(1)
 
