@@ -52,6 +52,8 @@
 
 		let found: boolean = false
 
+		console.log(resolvedNodeConditions)
+
 		resolvedNodeConditions.forEach((condition, index) => {
 			if (found) return
 
@@ -80,11 +82,7 @@
 	}
 
 	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
-
-	$: isNextDisabled =
-		(resolvedConditions?.[currentNodeId].length > 1 &&
-			resolvedConditions?.[currentNodeId]?.every((condition) => condition === false)) ||
-		resolvedNext?.[currentNodeId] === false
+	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
 </script>
 
 {#if Object.keys(resolvedConditions).length === nodes.length}
@@ -92,7 +90,7 @@
 		{#each node.next ?? [] as next, conditionIndex}
 			{#if next.condition}
 				<InputValue
-					key="conditions"
+					key={`condition-${node.id}-${conditionIndex}`}
 					{id}
 					input={next.condition}
 					bind:value={resolvedConditions[node.id][conditionIndex]}
@@ -105,7 +103,7 @@
 {#if Object.keys(resolvedConditions).length === nodes.length}
 	{#each nodes ?? [] as node (node.id)}
 		{#if node.allowed}
-			<InputValue key="conditions" {id} input={node.allowed} bind:value={resolvedNext[node.id]} />
+			<InputValue key="allowed" {id} input={node.allowed} bind:value={resolvedNext[node.id]} />
 		{/if}
 	{/each}
 {/if}
