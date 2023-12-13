@@ -22,9 +22,10 @@ use windmill_common::{
     error,
     global_settings::{
         BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
@@ -34,8 +35,8 @@ use windmill_common::{
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
-    PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
+    NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "enterprise")]
@@ -76,7 +77,6 @@ lazy_static::lazy_static! {
     ).unwrap();
 
     static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
-
 }
 
 pub async fn initial_load(
@@ -274,7 +274,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn reload_extra_pip_index_url_setting(db: &DB) {
-    if let Err(e) = reload_option_string_setting(
+    if let Err(e) = reload_option_setting(
         db,
         EXTRA_PIP_INDEX_URL_SETTING,
         "PIP_EXTRA_INDEX_URL",
@@ -287,7 +287,7 @@ pub async fn reload_extra_pip_index_url_setting(db: &DB) {
 }
 
 pub async fn reload_npm_config_registry_setting(db: &DB) {
-    if let Err(e) = reload_option_string_setting(
+    if let Err(e) = reload_option_setting(
         db,
         NPM_CONFIG_REGISTRY_SETTING,
         "NPM_CONFIG_REGISTRY",
@@ -311,6 +311,19 @@ pub async fn reload_retention_period_setting(db: &DB) {
     .await
     {
         tracing::error!("Error reloading retention period: {:?}", e)
+    }
+}
+
+pub async fn reload_job_default_timeout_setting(db: &DB) {
+    if let Err(e) = reload_option_setting(
+        db,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        "JOB_DEFAULT_TIMEOUT_SECS",
+        JOB_DEFAULT_TIMEOUT.clone(),
+    )
+    .await
+    {
+        tracing::error!("Error reloading job default timeout: {:?}", e)
     }
 }
 
@@ -359,11 +372,11 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-pub async fn reload_option_string_setting(
+pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     db: &DB,
     setting_name: &str,
     std_env_var: &str,
-    lock: Arc<RwLock<Option<String>>>,
+    lock: Arc<RwLock<Option<T>>>,
 ) -> error::Result<()> {
     let q = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",
@@ -372,10 +385,12 @@ pub async fn reload_option_string_setting(
     .fetch_optional(db)
     .await?;
 
-    let mut value = std::env::var(std_env_var).ok();
+    let mut value = std::env::var(std_env_var)
+        .ok()
+        .and_then(|x| x.parse::<T>().ok());
 
     if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<T>(q.value.clone()) {
             tracing::info!(
                 "Loaded setting {setting_name} from db config: {:#?}",
                 &q.value

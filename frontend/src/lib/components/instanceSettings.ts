@@ -56,6 +56,14 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
+			label: 'Default timeout',
+			key: 'job_default_timeout',
+			description: 'Default timeout for individual jobs',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false
+		},
+		{
 			label: 'Max Timeout for sync endpoints',
 			key: 'timeout_wait_result',
 			cloudonly: true,

@@ -30,7 +30,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 py-space-x-2 flex-nowrap gap-x-2"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 flex-nowrap"
 >
 	{#if flowModule}
 		<span class="text-sm w-full mr-4">
@@ -102,7 +102,7 @@
 		</span>
 	{/if}
 	{#if title}
-		<div class="text-sm font-bold text-primary">{title}</div>
+		<div class="text-sm font-bold text-primary pr-2">{title}</div>
 	{/if}
 	<slot />
 </div>

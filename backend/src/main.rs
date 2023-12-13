@@ -24,9 +24,9 @@ use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     stats::schedule_stats,
     utils::{rd_string, Mode},
@@ -37,14 +37,14 @@ use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
     GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, LOCK_CACHE_DIR,
-    PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
+    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_require_preexisting_user, monitor_db, monitor_pool,
-    reload_base_url_setting, reload_extra_pip_index_url_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_retention_period_setting, reload_server_config,
-    reload_worker_config,
+    reload_base_url_setting, reload_extra_pip_index_url_setting,
+    reload_job_default_timeout_setting, reload_license_key, reload_npm_config_registry_setting,
+    reload_retention_period_setting, reload_server_config, reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -410,6 +410,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
                                                 },
+                                                JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
+                                                    reload_job_default_timeout_setting(&db).await
+                                                },
                                                 EXTRA_PIP_INDEX_URL_SETTING => {
                                                     reload_extra_pip_index_url_setting(&db).await
                                                 },
@@ -601,6 +604,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         HUB_CACHE_DIR,
+        POWERSHELL_CACHE_DIR,
         TAR_PIP_TMP_CACHE_DIR,
         DENO_TMP_CACHE_DIR,
         DENO_TMP_CACHE_DIR_DEPS,

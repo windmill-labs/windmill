@@ -71,7 +71,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     }
 
-    let (payload, tag) = if schedule.is_flow {
+    let (payload, tag, timeout) = if schedule.is_flow {
         let r = sqlx::query!(
             "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
             &schedule.script_path,
@@ -85,6 +85,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         (
             JobPayload::Flow { path: schedule.script_path, dedicated_worker },
             tag,
+            None,
         )
     } else {
         let (
@@ -96,6 +97,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             language,
             dedicated_worker,
             priority,
+            timeout,
         ) = windmill_common::get_latest_hash_for_path(
             tx.transaction_mut(),
             &schedule.workspace_id,
@@ -114,6 +116,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 priority,
             },
             tag,
+            timeout,
         )
     };
 
@@ -144,7 +147,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         None,
         true,
         tag,
-        None,
+        timeout,
         None,
         None,
     )

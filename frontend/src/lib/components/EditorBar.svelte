@@ -78,9 +78,9 @@
 	let showResourcePicker = false
 	let showResourceTypePicker = false
 
-	$: showContextVarPicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
-	$: showVarPicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
-	$: showResourcePicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
+	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
+	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
+	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
 	$: showResourceTypePicker = scriptLangToEditorLang(lang) === 'typescript' || lang === 'python3'
 
 	let codeViewer: Drawer
@@ -242,6 +242,8 @@
 			editor.insertAtCursor(`os.Getenv("${name}")`)
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`$${name}`)
+		} else if (lang == 'powershell') {
+			editor.insertAtCursor(`$Env:${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -281,6 +283,12 @@
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
   "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}" | jq -r .`)
+		} else if (lang == 'powershell') {
+			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
+			editor.arrowDown()
+			editor.insertAtCursor(
+				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
+			)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -334,6 +342,12 @@
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
   "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}" | jq`)
+		} else if (lang == 'powershell') {
+			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
+			editor.arrowDown()
+			editor.insertAtCursor(
+				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+			)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}

@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.225.0](https://github.com/windmill-labs/windmill/compare/v1.224.1...v1.225.0) (2023-12-13)
+
+
+### Features
+
+* Add default timeout for instance and custom timeout for scripts ([#2811](https://github.com/windmill-labs/windmill/issues/2811)) ([26670f6](https://github.com/windmill-labs/windmill/commit/26670f62e5e9f7bd50895fae9dd98bc75b61bb44))
+* Add jitter to exponential backoff ([#2842](https://github.com/windmill-labs/windmill/issues/2842)) ([dd1032f](https://github.com/windmill-labs/windmill/commit/dd1032fbc3b589f00095c2f9523e1e3f7fca80d5))
+* EnvVar allow list is configurable from the UI ([#2829](https://github.com/windmill-labs/windmill/issues/2829)) ([350c8e8](https://github.com/windmill-labs/windmill/commit/350c8e843f8facb154bb6b8223744e1c5ba65a28))
+* oauth flow openai key ([#2833](https://github.com/windmill-labs/windmill/issues/2833)) ([4c7d64b](https://github.com/windmill-labs/windmill/commit/4c7d64bc5fdfeb33c63524ddd61173c655ab28e3))
+* powershell deps ([#2820](https://github.com/windmill-labs/windmill/issues/2820)) ([505b417](https://github.com/windmill-labs/windmill/commit/505b417f3b07fd5b27256a6a01001aadba7c1f84))
+* Resource type description is now displayed when creating a new resource ([#2834](https://github.com/windmill-labs/windmill/issues/2834)) ([c06a56a](https://github.com/windmill-labs/windmill/commit/c06a56ab785f072ff5525e685188d97c71f71da5))
+
+
+### Bug Fixes
+
+* improve nested flow status viewer ([18e07a7](https://github.com/windmill-labs/windmill/commit/18e07a781d453b867f325ae6086abe406767fd11))
+* openai cache lock ([#2841](https://github.com/windmill-labs/windmill/issues/2841)) ([107bfa7](https://github.com/windmill-labs/windmill/commit/107bfa72520bca2df2b92adbbbb7e7f652b85a68))
+* Simplify worker env var input ([#2838](https://github.com/windmill-labs/windmill/issues/2838)) ([b401984](https://github.com/windmill-labs/windmill/commit/b401984514f095a60bce913d245160dd8746a9a5))
+
 ## [1.224.1](https://github.com/windmill-labs/windmill/compare/v1.224.0...v1.224.1) (2023-12-11)
 
 
