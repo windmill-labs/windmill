@@ -38,6 +38,7 @@
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import {
+		Activity,
 		Archive,
 		ArchiveRestore,
 		FolderOpen,
@@ -260,6 +261,21 @@
 					startIcon: Table2
 				}
 			})
+
+			if (script?.restart_unless_cancelled ?? false) {
+				buttons.push({
+					label: 'Current runs',
+					buttonProps: {
+						onClick: () => {
+							persistentScriptDrawer.open?.(script)
+						},
+						size: 'xs',
+						startIcon: Activity,
+						color: 'dark',
+						variant: 'contained'
+					}
+				})
+			}
 
 			buttons.push({
 				label: 'Edit',

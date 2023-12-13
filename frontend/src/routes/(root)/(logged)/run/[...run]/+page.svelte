@@ -4,6 +4,7 @@
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
 
 	import {
+		Activity,
 		ArrowRight,
 		Calendar,
 		CheckCircle2,
@@ -250,6 +251,18 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{#if persistentScriptDefinition !== undefined}
+				<Button
+					color="blue"
+					size="md"
+					startIcon={{ icon: Activity }}
+					on:click|once={() => {
+						persistentScriptDrawer.open?.(persistentScriptDefinition)
+					}}
+				>
+					Current runs
+				</Button>
+			{/if}
 			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
