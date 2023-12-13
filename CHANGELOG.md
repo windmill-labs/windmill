@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.225.1](https://github.com/windmill-labs/windmill/compare/v1.225.0...v1.225.1) (2023-12-13)
+
+
+### Bug Fixes
+
+* fix setting base_url from empty initial value ([63740ad](https://github.com/windmill-labs/windmill/commit/63740adec8b075069cbee942ae03c1c2cbec5de0))
+* pwsh modules nsjail ([#2845](https://github.com/windmill-labs/windmill/issues/2845)) ([b939785](https://github.com/windmill-labs/windmill/commit/b9397856a8c2219d5315eb441b2b279a1dd8dab5))
+
 ## [1.225.0](https://github.com/windmill-labs/windmill/compare/v1.224.1...v1.225.0) (2023-12-13)
 
 
