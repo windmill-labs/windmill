@@ -123,7 +123,7 @@ export function removeBranch(
 	onRemove: (id: string) => void
 ) {
 	const parentNode = nodes.find((n) => n.id === parentNodeId)
-	const collapseNodeId = findCollapseNode(nodes, parentNodeId) // Assuming this returns an ID string
+	const collapseNodeId = findCollapseNode(nodes, parentNodeId)
 
 	if (!parentNode || !collapseNodeId) {
 		return nodes
