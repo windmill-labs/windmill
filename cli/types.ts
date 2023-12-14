@@ -99,33 +99,25 @@ export async function pushObj(
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
-  checkForCreate: boolean,
   message?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    await pushApp(workspace, p, befObj, newObj, checkForCreate, message);
+    await pushApp(workspace, p, befObj, newObj, message);
   } else if (typeEnding === "folder") {
-    await pushFolder(workspace, p, befObj, newObj, checkForCreate);
+    await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    await pushVariable(
-      workspace,
-      p,
-      befObj,
-      newObj,
-      plainSecrets,
-      checkForCreate
-    );
+    await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
     await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
-    await pushResource(workspace, p, befObj, newObj, checkForCreate);
+    await pushResource(workspace, p, befObj, newObj);
   } else if (typeEnding === "resource-type") {
-    await pushResourceType(workspace, p, befObj, newObj, checkForCreate);
+    await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
-    await pushSchedule(workspace, p, befObj, newObj, checkForCreate);
+    await pushSchedule(workspace, p, befObj, newObj);
   } else {
     throw new Error("infer type unreachable");
   }

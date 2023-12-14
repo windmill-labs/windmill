@@ -732,7 +732,6 @@ async function push(
           oldObj,
           newObj,
           opts.plainSecrets ?? false,
-          opts.raw,
           opts.message
         );
 
@@ -766,7 +765,6 @@ async function push(
           undefined,
           obj,
           opts.plainSecrets ?? false,
-          opts.raw,
           opts.message
         );
 
