@@ -55,7 +55,7 @@
 			id: 'start',
 			data: {
 				custom: {
-					component: DecisionTreeGraphNode,
+					component: DecisionTreeGraphHeader,
 					props: {
 						node: {
 							id: 'start',
@@ -70,7 +70,8 @@
 							}
 						},
 						canDelete: false,
-						isHead: true
+						isHead: true,
+						label: 'Start'
 					},
 					cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, nodes[0], [])
 				}
@@ -101,7 +102,7 @@
 				id: 'end',
 				data: {
 					custom: {
-						component: DecisionTreeGraphNode,
+						component: DecisionTreeGraphHeader,
 						props: {
 							node: {
 								id: 'end',
@@ -109,7 +110,8 @@
 								next: []
 							},
 							canDelete: false,
-							isTail: true
+							isTail: true,
+							label: 'End'
 						},
 						cb: (e: string, detail: any) => {
 							if (e == 'select') {

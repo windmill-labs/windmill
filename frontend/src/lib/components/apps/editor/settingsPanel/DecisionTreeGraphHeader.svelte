@@ -4,7 +4,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
 	import { X } from 'lucide-svelte'
-	import { getStateColor } from '$lib/components/graph'
 
 	export let node: DecisionTreeNode
 	export let editable: boolean = true
@@ -27,7 +26,11 @@
 			'w-full h-full border border-gray-400',
 			'flex flex-row gap-2 items-center justify-between rounded-sm overflow-hidden'
 		)}
-		style="min-width: 275px; max-height: 80px; background-color: {getStateColor(undefined)}"
+		style="min-width: 275px; max-height: 80px; background-color: {document.documentElement.classList.contains(
+			'dark'
+		)
+			? '#2e3440'
+			: '#dfe6ee'}"
 	>
 		<div class="grow text-xs font-normal text-primary"> {label} </div>
 	</div>

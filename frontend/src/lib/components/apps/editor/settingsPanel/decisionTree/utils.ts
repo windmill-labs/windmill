@@ -149,7 +149,7 @@ function findFirstCommonLetter(arrays: string[][]): string | null {
 	const first = arrays[0]
 	const rest = arrays.slice(1)
 
-	for (let i = 0; i < first.length; i++) {
+	for (let i = 0; i < first?.length; i++) {
 		const letter = first[i]
 
 		if (rest.every((array) => array.includes(letter))) {

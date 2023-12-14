@@ -74,6 +74,7 @@
 				on:node={() => dispatch('nodeInsert')}
 				on:addBranch={() => dispatch('addBranch')}
 				canAddBranch={canDelete || node.next.length > 1}
+				canAddNode={node.next.length <= 1}
 			/>
 		</div>
 	{/if}
