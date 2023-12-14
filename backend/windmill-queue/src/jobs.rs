@@ -23,6 +23,7 @@ use axum::{
 };
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
+use itertools::Itertools;
 use prometheus::IntCounter;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
@@ -147,7 +148,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             tracing::info!("Soft cancelling job {}", id);
         }
     } else {
-        let reason = reason
+        let reason: String = reason
             .clone()
             .unwrap_or_else(|| "unexplicited reasons".to_string());
         let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
@@ -201,6 +202,77 @@ pub async fn cancel_job<'c: 'async_recursion>(
         tx = ntx;
     }
     Ok((tx, Some(id)))
+}
+
+pub async fn cancel_persistent_script_jobs<'c>(
+    username: &str,
+    reason: Option<String>,
+    script_path: &str,
+    w_id: &str,
+    mut tx: Transaction<'c, Postgres>,
+    db: &Pool<Postgres>,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+) -> error::Result<(Transaction<'c, Postgres>, Vec<ScriptHash>)> {
+    let script_hashes = sqlx::query_scalar::<_, ScriptHash>(
+        "SELECT DISTINCT script_hash FROM queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+    )
+    .bind(w_id)
+    .bind(script_path)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // we start by turning off restart_unless_cancelled for all scripts that are being canceled
+    let unique_script_hashes = script_hashes
+        .clone()
+        .into_iter()
+        .map(|hash| hash.0)
+        .collect_vec();
+    sqlx::query!(
+        "UPDATE script SET restart_unless_cancelled = NULL WHERE hash = ANY($1) AND workspace_id = $2",
+        &unique_script_hashes, w_id
+    ).execute(&mut *tx).await?;
+
+    // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
+    let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+    )
+    .bind(w_id)
+    .bind(script_path)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Then we cancel all the jobs currently in the queue, one by one
+    for queued_job_id in jobs_to_cancel {
+        let (new_tx, _) = cancel_job(
+            username,
+            reason.clone(),
+            queued_job_id,
+            w_id,
+            tx,
+            db,
+            rsmq.clone(),
+            false,
+        )
+        .await?;
+        tx = new_tx;
+    }
+
+    // Finally we toggle restart_unless_cancelled back to 1 again to leave the script definition as it was before
+    sqlx::query!(
+        "UPDATE script SET restart_unless_cancelled = true WHERE hash = ANY($1) AND workspace_id = $2",
+        &unique_script_hashes,
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    return Ok((
+        tx,
+        unique_script_hashes
+            .into_iter()
+            .map(|hash| ScriptHash(hash))
+            .collect_vec(),
+    ));
 }
 
 #[derive(Serialize, Debug)]
