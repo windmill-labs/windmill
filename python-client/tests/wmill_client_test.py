@@ -4,7 +4,7 @@ import os
 
 
 class TestStringMethods(unittest.TestCase):
-    _token = "wx9B4WcQhlGSrmhbHY8HqADxx6f4oy"
+    _token = "<WM_TOKEN>"
     _workspace = "storage"
     _host = "http://localhost:8000"
     _resource_path = "u/admin/docker_minio"
@@ -61,6 +61,17 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
                 "aws_region": "fr-paris",
                 "aws_allow_http": True,
             },
+        }
+        self.assertEqual(settings, expected_settings)
+
+    def test_boto3_connection_settings(self):
+        settings = wmill.boto3_connection_settings(self._resource_path)
+        expected_settings = {
+            "endpoint_url": "http://localhost:9000",
+            "region_name": "fr-paris",
+            "use_ssl": False,
+            "aws_access_key_id": "IeuKPSYLKTO2h9CWfCVR",
+            "aws_secret_access_key": "80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4",
         }
         self.assertEqual(settings, expected_settings)
 

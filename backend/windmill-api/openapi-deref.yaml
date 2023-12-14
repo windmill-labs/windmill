@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.225.0
+  version: 1.226.1
   title: Windmill API
   contact:
     name: Windmill Team
@@ -2235,6 +2235,13 @@ paths:
           description: |
             ask to decrypt secret if this variable is secret
             (if not secret no effect, default: true)
+          in: query
+          schema:
+            type: boolean
+        - name: include_encrypted
+          description: >
+            ask to include the encrypted value if secret and decrypt secret is
+            not true (default: false)
           in: query
           schema:
             type: boolean
@@ -9945,7 +9952,54 @@ paths:
                       - aws_allow_http
                 required:
                   - s3fs_args
-                  - cloud_options
+                  - polars_cloud_options
+  /w/{workspace}/job_helpers/v2/boto3_connection_settings:
+    post:
+      summary: >-
+        Converts an S3 resource to the set of arguments necessary to connect to
+        an S3 bucket using boto3 in Python
+      operationId: boto3ConnectionSettingsV2
+      tags:
+        - helpers
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: >-
+          S3 resource path to use to generate the connection settings. If empty,
+          the S3 resource defined in the workspace settings will be used
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_resource_path:
+                  type: string
+      responses:
+        '200':
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint_url:
+                    type: string
+                  region_name:
+                    type: string
+                  use_ssl:
+                    type: boolean
+                  aws_access_key_id:
+                    type: string
+                  aws_secret_access_key:
+                    type: string
+                required:
+                  - endpoint_url
+                  - region_name
+                  - use_ssl
   /w/{workspace}/job_helpers/test_connection:
     get:
       summary: Test connection to the workspace datasets storage
@@ -10099,6 +10153,8 @@ paths:
                       - Csv
                       - Parquet
                       - Unknown
+                  download_url:
+                    type: string
                 required: &ref_170
                   - content_type
 components:
