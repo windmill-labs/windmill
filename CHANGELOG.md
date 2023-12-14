@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.226.0](https://github.com/windmill-labs/windmill/compare/v1.225.1...v1.226.0) (2023-12-14)
+
+
+### Features
+
+* ee-only stats ([#2849](https://github.com/windmill-labs/windmill/issues/2849)) ([3c4e41c](https://github.com/windmill-labs/windmill/commit/3c4e41c9975956339682ef35c298d294c55304f0))
+
+
+### Bug Fixes
+
+* fix s3 test connection ([17bb7d3](https://github.com/windmill-labs/windmill/commit/17bb7d3991d48abe08ab42b9381285112f2440f1))
+* Handle s3object in Deno and Bun ([#2851](https://github.com/windmill-labs/windmill/issues/2851)) ([0f913d0](https://github.com/windmill-labs/windmill/commit/0f913d0df915a8189a036f06bd6684d9ed5ecadc))
+
 ## [1.225.1](https://github.com/windmill-labs/windmill/compare/v1.225.0...v1.225.1) (2023-12-13)
 
 
