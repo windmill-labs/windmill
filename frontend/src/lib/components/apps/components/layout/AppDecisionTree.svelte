@@ -72,6 +72,13 @@
 
 		if (previousNode) {
 			currentNodeId = previousNode.id
+
+			selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
+
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: selectedConditionIndex
+			}
 		}
 	}
 
