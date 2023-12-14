@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
 	import { X } from 'lucide-svelte'
+	import { getStateColor } from '$lib/components/graph'
 
 	export let node: DecisionTreeNode
 	export let editable: boolean = true
@@ -20,26 +21,28 @@
 	}>()
 </script>
 
-<div class="relative w-[274px] h-full">
+<div class="relative h-full">
 	<div
 		class={twMerge(
-			'w-full h-full border border-black',
-			'flex flex-row gap-2 items-center justify-between'
+			'w-full h-full border border-gray-400',
+			'flex flex-row gap-2 items-center justify-between rounded-sm overflow-hidden'
 		)}
-		style="background-color: rgb(223, 230, 238);"
+		style="min-width: 275px; max-height: 80px; background-color: {getStateColor(undefined)}"
 	>
-		<div class="grow text-xs font-normal"> {label} </div>
+		<div class="grow text-xs font-normal text-primary"> {label} </div>
 	</div>
 
 	{#if canDelete}
-		<button
-			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary
-border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
-hover:border-red-700"
-			on:click|preventDefault|stopPropagation={() => dispatch('removeBranch')}
-		>
-			<X class="mx-[3px]" size={14} strokeWidth={2} />
-		</button>
+		<div class="w-[27px] absolute -top-[32px] left-[50%] right-[50%] -translate-x-1/2">
+			<button
+				title="Delete branch"
+				on:click|preventDefault|stopPropagation={() => dispatch('removeBranch')}
+				type="button"
+				class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+			>
+				<X class="m-[5px]" size={15} />
+			</button>
+		</div>
 	{/if}
 
 	{#if node.id !== 'end' && editable}

@@ -17,7 +17,7 @@
 	export let render: boolean
 	export let nodes: DecisionTreeNode[]
 
-	const { app, focusedGrid, selectedComponent, connectingInput } =
+	const { app, focusedGrid, selectedComponent, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function onFocus() {
@@ -81,6 +81,23 @@
 
 	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
 	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
+
+	$componentControl[id] = {
+		setTab: (conditionIndex: number) => {
+			if (conditionIndex === -1) {
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: 0
+				}
+			} else {
+				currentNodeId = nodes[conditionIndex].id
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: conditionIndex
+				}
+			}
+		}
+	}
 </script>
 
 {#if Object.keys(resolvedConditions).length === nodes.length}

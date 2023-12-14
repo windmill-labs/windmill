@@ -7,6 +7,7 @@
 	import type { Writable } from 'svelte/store'
 	import { Badge } from '$lib/components/common'
 	import { X } from 'lucide-svelte'
+	import { getStateColor } from '$lib/components/graph'
 
 	export let node: DecisionTreeNode
 	export let selected = false
@@ -28,13 +29,14 @@
 	$: selected = $selectedNodeId === node.id
 </script>
 
-<div class="relative w-[274px]">
+<div class="relative rounded-sm">
 	<Button
 		class={twMerge(
-			'p-2 bg-surface w-full h-8 relative rounded-md',
-			selected ? 'outline outline-2 outline-offset-2' : '',
+			'p-2 bg-surface w-full h-8 relative rounded-sm',
+			selected ? 'outline outline-2 outline-offset-2 outline-gray-600' : '',
 			'flex flex-row gap-2 items-center justify-between'
 		)}
+		style="width: 275px; height: 34px; background-color: {getStateColor(undefined)};"
 		on:click={() => {
 			selected = true
 			dispatch('select', node.id)

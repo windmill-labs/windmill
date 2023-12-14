@@ -10,6 +10,7 @@
 	export let parentId: string
 	export let expanded: boolean = false
 	export let subGrids: string[]
+	export let nameOverrides: string[] | undefined = undefined
 
 	const { app, connectingInput, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -55,8 +56,14 @@
 				}}
 			>
 				<div class="text-xs">
-					{name ? name : 'Should implement name'}
-					{index + 1}
+					{#if nameOverrides}
+						{#key nameOverrides[index]}
+							{nameOverrides[index] ? nameOverrides[index] : 'Should implement name'}
+						{/key}
+					{:else}
+						{name ? name : 'Should implement name'}
+						{index + 1}
+					{/if}
 				</div>
 			</div>
 		{/if}
