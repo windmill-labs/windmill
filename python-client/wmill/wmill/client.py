@@ -352,6 +352,25 @@ class Windmill:
                 return None
             raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
 
+    def get_boto3_connection_settings(
+        self,
+        s3_resource_path: str = "",
+        none_if_undefined: bool = False,
+    ) -> Any:
+        """
+        Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+        initiate an S3 connection using boto3
+        """
+        try:
+            return self.post(
+                f"/w/{self.workspace}/job_helpers/v2/boto3_connection_settings",
+                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+            ).json()
+        except JSONDecodeError as e:
+            if none_if_undefined:
+                return None
+            raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
+
     def whoami(self) -> dict:
         return self.get("/users/whoami").json()
 
@@ -479,6 +498,7 @@ def run_script_async(
         scheduled_in_secs=scheduled_in_secs,
     )
 
+
 @init_global_client
 def run_flow_async(
     path: str,
@@ -490,6 +510,7 @@ def run_flow_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
     )
+
 
 @init_global_client
 def run_script_sync(
@@ -570,6 +591,15 @@ def polars_connection_settings(s3_resource_path: str = "", none_if_undefined: bo
     initiate an S3 connection from Polars
     """
     return _client.get_polars_connection_settings(s3_resource_path, none_if_undefined)
+
+
+@init_global_client
+def boto3_connection_settings(s3_resource_path: str = "", none_if_undefined: bool = False) -> Any:
+    """
+    Convenient helpers that takes an S3 resource as input and returns the settings necessary to
+    initiate an S3 connection using boto3
+    """
+    return _client.get_boto3_connection_settings(s3_resource_path, none_if_undefined)
 
 
 @init_global_client

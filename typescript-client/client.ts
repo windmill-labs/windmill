@@ -1,4 +1,4 @@
-import { ResourceService, VariableService, JobService } from "./index";
+import { ResourceService, VariableService, JobService, HelpersService } from "./index";
 import { OpenAPI } from "./index";
 
 export {
@@ -245,6 +245,26 @@ export async function setVariable(
 export async function databaseUrlFromResource(path: string): Promise<string> {
   const resource = await getResource(path);
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
+}
+
+export async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+  const workspace = getWorkspace();
+  return await HelpersService.polarsConnectionSettingsV2({
+    workspace: workspace,
+		requestBody: {
+			s3_resource_path: s3_resource_path
+		}
+  });
+}
+
+export async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+  const workspace = getWorkspace();
+  return await HelpersService.duckdbConnectionSettingsV2({
+    workspace: workspace,
+		requestBody: {
+			s3_resource_path: s3_resource_path
+		}
+  });
 }
 
 /**
