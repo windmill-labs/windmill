@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { File, FolderClosed, FolderOpen, RotateCw, Loader2 } from 'lucide-svelte'
+	import { File, FolderClosed, FolderOpen, RotateCw, Loader2, Download } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
 	import { displayDate, displaySize, emptyString } from '$lib/utils'
@@ -24,6 +24,8 @@
 	let dispatch = createEventDispatcher()
 
 	let drawer: Drawer
+
+	let fileListLoading: boolean = true
 	let allFilesByKey: Record<
 		string,
 		{
@@ -55,10 +57,12 @@
 				fileKey: string
 				contentPreview: string | undefined
 				contentType: string | undefined
+				downloadUrl: string | undefined
 		  }
 		| undefined = undefined
 
 	async function loadFiles() {
+		fileListLoading = true
 		let availableFiles = await HelpersService.listStoredFiles({
 			workspace: $workspaceStore!,
 			maxKeys: 1000, // fixed pages of 1000 files for now
@@ -113,6 +117,7 @@
 				}
 			}
 		}
+		fileListLoading = false
 	}
 
 	async function loadFileMetadataPlusPreviewAsync(fileKey: string | undefined) {
@@ -165,7 +170,8 @@
 			filePreview = {
 				fileKey: fileKey,
 				contentPreview: filePreviewContent,
-				contentType: filePreviewRaw.content_type
+				contentType: filePreviewRaw.content_type,
+				downloadUrl: filePreviewRaw.download_url
 			}
 		}
 		filePreviewLoading = false
@@ -294,7 +300,7 @@
 		{:else}
 			<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>
 				<div class="min-w-[30%] border-r">
-					{#if displayedFileKeys.length === 0}
+					{#if fileListLoading === false && displayedFileKeys.length === 0}
 						<div class="p-4 text-tertiary text-xs text-center italic">
 							No files in the workspace S3 bucket
 						</div>
@@ -344,6 +350,11 @@
 										>More files in bucket. Click here to load more...
 									</button>
 								{/if}
+								{#if fileListLoading === true}
+									<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
+										<Loader2 size={12} class="animate-spin mr-1" /> Loading content
+									</div>
+								{/if}
 							</div>
 						</VirtualList>
 					{/if}
@@ -355,7 +366,20 @@
 						</div>
 					{:else}
 						<div class="p-4 gap-2">
-							<Section label={fileMetadata.fileKey} />
+							<Section label={fileMetadata.fileKey}>
+								<div slot="action">
+									{#if filePreview !== undefined}
+										<Button
+											title="Download file from S3"
+											variant="border"
+											color="light"
+											href={filePreview.downloadUrl}
+											startIcon={{ icon: Download }}
+											iconOnly={true}
+										/>
+									{/if}
+								</div>
+							</Section>
 							<TableSimple
 								headers={['Last modified', 'Size', 'Type']}
 								data={[fileMetadata]}
@@ -368,7 +392,7 @@
 						{#if fileMetadata !== undefined && filePreview !== undefined}
 							<div class="flex h-6 items-center text-tertiary mb-4">
 								{#if filePreview.contentType === 'Unknown'}
-									Type of file not supported for preview
+									Type of file not supported for preview.
 								{:else if filePreview.contentType === 'Csv'}
 									Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
 									<div class="inline-flex w-12 ml-2 mr-2">
@@ -407,7 +431,7 @@
 										/>
 									</div>
 								{:else}
-									Previewing a {filePreview.contentType?.toLowerCase()} file
+									Previewing a {filePreview.contentType?.toLowerCase()} file.
 								{/if}
 							</div>
 							<pre class="grow whitespace-no-wrap break-words"
