@@ -330,7 +330,7 @@
 								component: DecisionTreeGraphNode,
 								props: {
 									node: graphNode,
-									canDelete: cannotAddBranch,
+									canDelete: !cannotAddBranch,
 									canAddBranch: !cannotAddBranch
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
