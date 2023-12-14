@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.224.1
+  version: 1.225.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -7725,6 +7725,38 @@ paths:
       responses:
         '200':
           description: job canceled
+          content:
+            text/plain:
+              schema:
+                type: string
+  /w/{workspace}/jobs_u/queue/cancel_persistent/{path}:
+    post:
+      summary: cancel all queued jobs for persistent script
+      operationId: cancelPersistentQueuedJobs
+      tags:
+        - job
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: path
+          in: path
+          required: true
+          schema: *ref_18
+      requestBody:
+        description: reason
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: persistent job scaled down to zero
           content:
             text/plain:
               schema:

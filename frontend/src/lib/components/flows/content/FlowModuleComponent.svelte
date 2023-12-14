@@ -8,7 +8,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import { type FlowModule, Script } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -520,7 +520,7 @@
 											</Button>
 										</div>
 										<HighlightCode
-											language={Script.language.DENO}
+											language={flowModule.value['language']}
 											code={s3Scripts[flowModule.value['language']][s3Kind]}
 										/>
 									{/if}

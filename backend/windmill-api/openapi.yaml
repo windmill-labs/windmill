@@ -5030,6 +5030,34 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs_u/queue/cancel_persistent/{path}:
+    post:
+      summary: cancel all queued jobs for persistent script
+      operationId: cancelPersistentQueuedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: reason
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+
+      responses:
+        "200":
+          description: persistent job scaled down to zero
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/queue/force_cancel/{id}:
     post:
       summary: force cancel queued job
