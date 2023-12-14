@@ -261,6 +261,10 @@
 					})
 				)
 
+				const cannotAddBranch =
+					graphNode.next.length === 0 ||
+					(graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1)
+
 				displayedNodes.push(
 					createNode({
 						id: graphNode.id,
@@ -270,7 +274,7 @@
 								props: {
 									node: graphNode,
 									canDelete: graphNode.next.length === 1,
-									canAddBranch: graphNode.next.length > 0
+									canAddBranch: !cannotAddBranch
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 							}
@@ -314,7 +318,8 @@
 				}
 			} else {
 				const cannotAddBranch =
-					graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1
+					graphNode.next.length === 0 ||
+					(graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1)
 
 				displayedNodes.push(
 					createNode({
@@ -385,9 +390,7 @@
 					...des.data,
 					id: des.data.id,
 					position: {
-						x: des.x
-							? des.data.loopDepth * 50 + des.x + paneWidth / 2 - boxSize.width / 2 - NODE.width / 2
-							: 0,
+						x: des.x ? des.x + paneWidth / 2 - boxSize.width / 2 - NODE.width / 2 : 0,
 						y: des.y || 0
 					}
 				}

@@ -136,22 +136,24 @@
 								{/if}
 							{/key}
 
-							<div>
-								<Button
-									startIcon={{ icon: Plus }}
-									color="light"
-									variant="border"
-									size="xs"
-									on:click={() => {
-										if (!selectedNode) return
+							{#if selectedNode?.next.length > 0}
+								<div>
+									<Button
+										startIcon={{ icon: Plus }}
+										color="light"
+										variant="border"
+										size="xs"
+										on:click={() => {
+											if (!selectedNode) return
 
-										nodes = addNewBranch(nodes, selectedNode)
-										renderCount++
-									}}
-								>
-									Add branch
-								</Button>
-							</div>
+											nodes = addNewBranch(nodes, selectedNode)
+											renderCount++
+										}}
+									>
+										Add branch
+									</Button>
+								</div>
+							{/if}
 						</Section>
 					{/if}
 				</div>
