@@ -27,20 +27,17 @@ export async function pushApp(
   remotePath: string,
   app: AppFile | AppWithLastVersion | undefined,
   newApp: AppFile,
-  raw: boolean,
   message?: string
 ): Promise<void> {
   remotePath = removeType(remotePath, "app");
-  if (raw) {
-    // deleting old app if it exists in raw mode
-    try {
-      app = await AppService.getAppByPath({
-        workspace,
-        path: remotePath.replaceAll("\\", "/"),
-      });
-    } catch {
-      //ignore
-    }
+  // deleting old app if it exists in raw mode
+  try {
+    app = await AppService.getAppByPath({
+      workspace,
+      path: remotePath.replaceAll("\\", "/"),
+    });
+  } catch {
+    //ignore
   }
 
   if (app) {
@@ -119,8 +116,7 @@ async function push(opts: GlobalOptions, filePath: string) {
     workspace.workspaceId,
     remotePath,
     app,
-    parseFromFile(filePath),
-    false
+    parseFromFile(filePath)
   );
   console.log(colors.bold.underline.green("App pushed"));
 }
