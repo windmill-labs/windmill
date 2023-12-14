@@ -32,7 +32,7 @@
 	getSteps={(driver) => [
 		{
 			popover: {
-				title: 'Welcome to the Windmil Flow editor',
+				title: 'Welcome to the Windmill Flow editor',
 				description:
 					'Learn how to build powerful flows in a few steps. You can use arrow keys to navigate.'
 			}
