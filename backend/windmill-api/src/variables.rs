@@ -102,6 +102,7 @@ async fn list_variables(
 #[derive(Deserialize)]
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
+    include_encrypted: Option<bool>,
 }
 
 async fn get_variable(
@@ -163,6 +164,8 @@ async fn get_variable(
                     mc.decrypt_base64_to_string(value)
                         .map_err(|e| Error::InternalErr(e.to_string()))?,
                 )
+            } else if q.include_encrypted.unwrap_or(false) {
+                Some(value)
             } else {
                 None
             },

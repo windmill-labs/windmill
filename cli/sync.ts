@@ -671,6 +671,7 @@ async function push(
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
+
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -706,7 +707,12 @@ async function push(
           }
           continue;
         } else if (
-          await handleFile(change.path, workspace.workspaceId, alreadySynced, opts.message)
+          await handleFile(
+            change.path,
+            workspace.workspaceId,
+            alreadySynced,
+            opts.message
+          )
         ) {
           if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
@@ -720,14 +726,13 @@ async function push(
         const oldObj = parseFromPath(change.path, change.before);
         const newObj = parseFromPath(change.path, change.after);
 
-        pushObj(
+        await pushObj(
           workspace.workspaceId,
           change.path,
           oldObj,
           newObj,
           opts.plainSecrets ?? false,
-          opts.raw,
-          opts.message,
+          opts.message
         );
 
         if (!opts.raw && stateExists) {
@@ -740,7 +745,12 @@ async function push(
         ) {
           continue;
         } else if (
-          await handleFile(change.path, workspace.workspaceId, alreadySynced, opts.message)
+          await handleFile(
+            change.path,
+            workspace.workspaceId,
+            alreadySynced,
+            opts.message
+          )
         ) {
           continue;
         }
@@ -749,14 +759,13 @@ async function push(
           log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         const obj = parseFromPath(change.path, change.content);
-        pushObj(
+        await pushObj(
           workspace.workspaceId,
           change.path,
           undefined,
           obj,
           opts.plainSecrets ?? false,
-          opts.raw,
-          opts.message,
+          opts.message
         );
 
         if (!opts.raw && stateExists) {
@@ -884,7 +893,10 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
-  .option("--message <message:string>", "Include a message that will be added to all scripts/flows/apps updated during this push")
+  .option(
+    "--message <message:string>",
+    "Include a message that will be added to all scripts/flows/apps updated during this push"
+  )
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
