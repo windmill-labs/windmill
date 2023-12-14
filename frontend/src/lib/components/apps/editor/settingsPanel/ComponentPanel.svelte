@@ -246,7 +246,7 @@
 										<div class="flex flex-wrap gap-2 items-center">
 											<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
 											<div class="flex flex-wrap gap-1">
-												{#each componentSettings.item.data?.componentInput.connections as connection (connection.componentId + '-' + connection.id)}
+												{#each componentSettings.item.data?.componentInput.connections ?? [] as connection (connection.componentId + '-' + connection.id)}
 													<span
 														class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
 													>
