@@ -1,7 +1,7 @@
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
-use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids};
+use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
 
 #[wasm_bindgen_test]
 fn test_parse_deno_sig() -> anyhow::Result<()> {
@@ -270,6 +270,29 @@ fn test_parse_extract_ident() -> anyhow::Result<()> {
         vec![
             ("baroof".to_string(), "foob".to_string()),
             ("barfoo".to_string(), "x".to_string())
+        ]
+    );
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+fn test_parse_imports() -> anyhow::Result<()> {
+    let code = "
+    import * as foo from '@foo/bar';
+    import { bar } from \"./bar\";
+    import { bar } from \"bar/foo/d\";
+    import { bar as baroof } from \"bar\";
+";
+    let mut l = parse_expr_for_imports(code)?;
+    l.sort();
+    assert_eq!(
+        l,
+        vec![
+            "./bar".to_string(),
+            "@foo/bar".to_string(),
+            "bar".to_string(),
+            "bar/foo/d".to_string()
         ]
     );
 

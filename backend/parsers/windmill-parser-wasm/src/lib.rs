@@ -1,7 +1,7 @@
 use serde_json::{self, json};
 use wasm_bindgen::prelude::*;
 use windmill_parser::MainArgSignature;
-use windmill_parser_ts::parse_expr_for_ids;
+use windmill_parser_ts::{parse_expr_for_ids, parse_expr_for_imports};
 
 fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
     if let Ok(r) = r {
@@ -21,6 +21,17 @@ pub fn parse_outputs(code: &str) -> String {
     let parsed = parse_expr_for_ids(code);
     let r = if let Ok(parsed) = parsed {
         json!({ "outputs": parsed })
+    } else {
+        json!({"error": parsed.err().unwrap().to_string()})
+    };
+    return serde_json::to_string(&r).unwrap();
+}
+
+#[wasm_bindgen]
+pub fn parse_ts_imports(code: &str) -> String {
+    let parsed = parse_expr_for_imports(code);
+    let r = if let Ok(parsed) = parsed {
+        json!({ "imports6": parsed })
     } else {
         json!({"error": parsed.err().unwrap().to_string()})
     };

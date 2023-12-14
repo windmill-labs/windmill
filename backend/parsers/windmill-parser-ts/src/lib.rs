@@ -26,6 +26,54 @@ use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsCon
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+struct ImportsFinder {
+    imports: HashSet<String>,
+}
+
+impl Visit for ImportsFinder {
+    noop_visit_type!();
+
+    fn visit_import_decl(&mut self, n: &swc_ecma_ast::ImportDecl) {
+        if let Some(ref s) = n.src.raw {
+            let s = s.to_string();
+            if s.starts_with("'") && s.ends_with("'") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            } else if s.starts_with("\"") && s.ends_with("\"") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            }
+        }
+    }
+}
+
+pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let lexer = Lexer::new(
+        // We want to parse ecmascript
+        Syntax::Es(EsConfig { jsx: false, ..Default::default() }),
+        // EsVersion defaults to es5
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+
+    let mut parser = Parser::new_from(lexer);
+
+    let mut err_s = "".to_string();
+    for e in parser.take_errors() {
+        err_s += &e.into_kind().msg().to_string();
+    }
+
+    let expr = parser
+        .parse_module()
+        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
+
+    let mut visitor = ImportsFinder { imports: HashSet::new() };
+    swc_ecma_visit::visit_module(&mut visitor, &expr);
+
+    Ok(visitor.imports.into_iter().collect())
+}
+
 struct OutputFinder {
     idents: HashSet<(String, String)>,
 }

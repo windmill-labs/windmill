@@ -230,7 +230,7 @@
 
 	{#if workers != undefined}
 		{#if groupedWorkers.length == 0}
-			<p>No workers seems to be available</p>
+			<p>No workers seem to be available</p>
 		{/if}
 
 		<div class="py-4 w-full flex justify-between"
