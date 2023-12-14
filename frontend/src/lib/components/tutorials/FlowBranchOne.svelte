@@ -35,7 +35,7 @@
 		const steps = [
 			{
 				popover: {
-					title: 'Welcome to the Windmill Flow editor',
+					title: 'Branch one tutorial',
 					description:
 						'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
 				}
