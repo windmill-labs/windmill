@@ -93,32 +93,39 @@ export function showConflict(path: string, local: string, remote: string) {
   log.info("\n");
 }
 
-export function pushObj(
+export async function pushObj(
   workspace: string,
   p: string,
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
   checkForCreate: boolean,
-  message?: string,
+  message?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    pushApp(workspace, p, befObj, newObj, checkForCreate, message);
+    await pushApp(workspace, p, befObj, newObj, checkForCreate, message);
   } else if (typeEnding === "folder") {
-    pushFolder(workspace, p, befObj, newObj, checkForCreate);
+    await pushFolder(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "variable") {
-    pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
+    await pushVariable(
+      workspace,
+      p,
+      befObj,
+      newObj,
+      plainSecrets,
+      checkForCreate
+    );
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
-    pushFlow(workspace, flowName, flowName + ".flow", message);
+    await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
-    pushResource(workspace, p, befObj, newObj, checkForCreate);
+    await pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {
-    pushResourceType(workspace, p, befObj, newObj, checkForCreate);
+    await pushResourceType(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "schedule") {
-    pushSchedule(workspace, p, befObj, newObj, checkForCreate);
+    await pushSchedule(workspace, p, befObj, newObj, checkForCreate);
   } else {
     throw new Error("infer type unreachable");
   }
