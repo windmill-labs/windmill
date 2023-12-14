@@ -50,7 +50,7 @@
 		(fullContext.iter != undefined ||
 			fullContext.row != undefined ||
 			fullContext.group != undefined) &&
-		lastInput.connections.some(
+		lastInput.connections?.some(
 			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
 		) &&
 		debounceEval()
@@ -61,7 +61,7 @@
 		(fullContext.iter != undefined ||
 			fullContext.row != undefined ||
 			fullContext.group != undefined) &&
-		lastInput.connections.some(
+		lastInput.connections?.some(
 			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
 		) &&
 		debounceTemplate()
