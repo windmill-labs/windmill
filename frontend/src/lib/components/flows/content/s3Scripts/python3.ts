@@ -6,7 +6,7 @@ s3object = dict
 
 
 def main(input_file: s3object):
-    s3_resource = wmill.get_resource("f/tpch/windmill_cloud_demo_write")
+    s3_resource = wmill.get_resource("<PATH_TO_S3_RESOURCE>")
     bucket = s3_resource["bucket"]
     s3client = boto3.client(
         "s3",
@@ -15,7 +15,7 @@ def main(input_file: s3object):
         aws_secret_access_key=s3_resource["secretKey"],
     )
 
-    output_file = "output/hello-world-2.txt"
+    output_file = "output/hello.txt"
 
     # read object from S3 and print its content
     input_obj = s3client.get_object(Bucket=bucket, Key=input_file["s3"])["Body"].read()
@@ -61,7 +61,7 @@ def main(input_file: s3object):
         # **wmill.polars_connection_settings("<PATH_TO_S3_RESOURCE>")["s3fs_args"]
     )
 
-    bucket = "windmill-cloud-demo"
+    bucket = "<S3_BUCKET_NAME>"
     input_uri = "s3://{}/{}".format(bucket, input_file["s3"])
     output_file = "output/result.parquet"
     output_uri = "s3://{}/{}".format(bucket, output_file)
@@ -102,7 +102,7 @@ def main(input_file: s3object):
     # this will use the designated resource
     # conn.execute(wmill.duckdb_connection_settings("<PATH_TO_S3_RESOURCE>")["connection_settings_str"])
 
-    bucket = "windmill-cloud-demo"
+    bucket = "<S3_BUCKET_NAME>"
     input_uri = "s3://{}/{}".format(bucket, input_file["s3"])
     output_file = "output/result.parquet"
     output_uri = "s3://{}/{}".format(bucket, output_file)
