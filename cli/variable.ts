@@ -73,6 +73,7 @@ export async function pushVariable(
       log.debug(`Variable ${remotePath} is up-to-date`);
       return;
     }
+
     log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
     await VariableService.updateVariable({
@@ -122,13 +123,13 @@ async function push(
     remotePath,
     undefined,
     parseFromFile(filePath),
-    opts.plainSecrets
+    opts.plainSecrets ?? false
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
 async function add(
-  opts: GlobalOptions & { public?: boolean },
+  opts: GlobalOptions & { public?: boolean; plainSecrets?: boolean },
   value: string,
   remotePath: string
 ) {
@@ -167,7 +168,7 @@ async function add(
       is_secret: !opts.public,
       description: "",
     },
-    true
+    opts.plainSecrets ?? false
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
