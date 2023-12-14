@@ -498,8 +498,8 @@
 											<h2 class="pb-4">
 												S3 snippets
 												<Tooltip>
-													Pull, push and aggregate snippets for S3, particularly useful for ETL
-													processes.
+													Read/Write object from/to S3 and leverage Polars and DuckDB to run
+													efficient ETL processes.
 												</Tooltip>
 											</h2>
 										</div>
