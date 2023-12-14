@@ -62,6 +62,7 @@ export async function pushVariable(
       workspace: workspace,
       path: remotePath.replaceAll("\\", "/"),
       decryptSecret: plainSecrets,
+      includeEncrypted: true,
     });
     log.debug(`Variable ${remotePath} exists on remote`);
   } catch {
