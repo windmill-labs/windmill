@@ -52,7 +52,7 @@
 		const steps = [
 			{
 				popover: {
-					title: 'Welcome to the App editor tutorial !',
+					title: 'App editor tutorial',
 					description:
 						'This tutorial will show you how to use the App editor, add components, background scripts and connect them.',
 					onNextClick: () => {
