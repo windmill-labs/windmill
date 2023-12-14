@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.226.1](https://github.com/windmill-labs/windmill/compare/v1.226.0...v1.226.1) (2023-12-14)
+
+
+### Bug Fixes
+
+* cli uses await for every push call ([996bf64](https://github.com/windmill-labs/windmill/commit/996bf64393e221f3749e17c3c3755f45a73b616f))
+* **cli:** check for existing resource even in raw mode ([f039008](https://github.com/windmill-labs/windmill/commit/f039008dc0d5e8f309148c1cab2998e03b4298c1))
+* getVariable can now return the encrypted value ([087c516](https://github.com/windmill-labs/windmill/commit/087c5167afc90dacb4264bde73834d60a6ae2063))
+
 ## [1.226.0](https://github.com/windmill-labs/windmill/compare/v1.225.1...v1.226.0) (2023-12-14)
 
 
