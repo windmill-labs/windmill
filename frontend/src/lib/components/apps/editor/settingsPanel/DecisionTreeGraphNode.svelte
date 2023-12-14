@@ -30,7 +30,7 @@
 	$: selected = $selectedNodeId === node.id
 </script>
 
-<div class="relative rounded-sm">
+<div class="relative rounded-sm group">
 	<Button
 		class={twMerge(
 			'p-2 bg-surface w-full h-8 relative rounded-sm border border-gray-400',
@@ -43,7 +43,7 @@
 			dispatch('select', node.id)
 		}}
 	>
-		<div class="grow text-xs font-normal text-primary">
+		<div class="ml-2 text-xs font-normal text-primary truncate">
 			{node.label === '' ? `Tab: ${node.id}` : node.label}
 		</div>
 		<Badge color="indigo">
@@ -56,7 +56,7 @@
 			class={twMerge(
 				'absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary',
 				'border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white hover:border-red-700',
-				selected ? '' : '!hidden'
+				'group-hover:opacity-100 opacity-0'
 			)}
 			on:click|preventDefault|stopPropagation={() => dispatch('delete')}
 		>

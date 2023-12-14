@@ -32,7 +32,7 @@
 			? '#2e3440'
 			: '#dfe6ee'}"
 	>
-		<div class="grow text-xs font-normal text-primary"> {label} </div>
+		<div class="ml-4 text-xs font-normal text-primary"> {label} </div>
 	</div>
 
 	{#if canDelete}

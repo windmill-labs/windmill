@@ -20,14 +20,9 @@
 	const { app, focusedGrid, selectedComponent, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	function onFocus() {
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: selectedConditionIndex
-		}
-	}
-
 	let css = initCss($app.css?.conditionalwrapper, customCss)
+	let selectedConditionIndex = 0
+	let currentNodeId = nodes[0].id
 
 	$: resolvedConditions = nodes.reduce((acc, node) => {
 		acc[node.id] = acc[node.id] || []
@@ -43,9 +38,8 @@
 		currentNodeId = nodes[0].id
 	}
 
-	let selectedConditionIndex = 0
-
-	let currentNodeId = nodes[0].id
+	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
+	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
 
 	function next() {
 		const resolvedNodeConditions = resolvedConditions[currentNodeId]
@@ -60,6 +54,8 @@
 			if (condition && node && resolvedNext[node.id] !== false) {
 				found = true
 				currentNodeId = node.next[index].id
+
+				selectedConditionIndex = index + 1
 
 				$focusedGrid = {
 					parentComponentId: id,
@@ -79,23 +75,27 @@
 		}
 	}
 
-	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
-	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
+	function onFocus(newIndex: number) {
+		selectedConditionIndex = newIndex
+		currentNodeId = nodes[selectedConditionIndex].id
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: selectedConditionIndex
+		}
+	}
 
 	$componentControl[id] = {
 		setTab: (conditionIndex: number) => {
-			if (conditionIndex === -1) {
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: 0
-				}
-			} else {
-				currentNodeId = nodes[conditionIndex].id
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: conditionIndex
-				}
+			if (conditionIndex !== -1) {
+				onFocus(conditionIndex)
 			}
+		}
+	}
+
+	$: if ($selectedComponent?.[0] === id && !$focusedGrid) {
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
 		}
 	}
 </script>
@@ -150,26 +150,26 @@
 						if (!$connectingInput.opened) {
 							$selectedComponent = [id]
 						}
-						onFocus()
+						onFocus(i)
 					}}
 				/>
 			{/each}
 		{/if}
 	</div>
+</div>
 
-	<div class="h-8 flex flex-row gap-2 justify-end items-center px-2">
-		{#if nodes[0].id !== currentNodeId}
-			<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
-		{/if}
-		<span class="text-xs text-primary">Tab: {currentNodeId}</span>
-		<Button
-			on:click={next}
-			size="xs2"
-			color="dark"
-			endIcon={{ icon: ArrowRight }}
-			disabled={isNextDisabled}
-		>
-			{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
-		</Button>
-	</div>
+<div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
+	{#if nodes[0].id !== currentNodeId}
+		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
+	{/if}
+	<span class="text-xs text-primary">Tab: {currentNodeId}</span>
+	<Button
+		on:click={next}
+		size="xs2"
+		color="dark"
+		endIcon={{ icon: ArrowRight }}
+		disabled={isNextDisabled}
+	>
+		{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
+	</Button>
 </div>

@@ -233,6 +233,8 @@
 	}
 
 	function buildGraphNodes() {
+		let branchCount = 1
+
 		nodes?.forEach((graphNode) => {
 			const parentIds = getParents(nodes, graphNode.id)
 			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
@@ -251,7 +253,8 @@
 								props: {
 									node: graphNode,
 									canDelete: true,
-									label: collapseNode === graphNode.id ? 'Default branch' : 'Branch'
+									label:
+										collapseNode === graphNode.id ? 'Default branch' : `Branch ${branchCount++}`
 								},
 								cb: (e: string, detail: any) =>
 									nodeCallbackHandler(e, detail, graphNode, parentIds, true)

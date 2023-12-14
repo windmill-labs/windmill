@@ -38,18 +38,16 @@
 		<Splitpanes>
 			<Pane size={60}>
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
-					{#key renderCount}
-						<DecisionTreePreview
-							bind:nodes
-							bind:component
-							{rebuildOnChange}
-							{paneHeight}
-							{paneWidth}
-							on:render={() => {
-								renderCount++
-							}}
-						/>
-					{/key}
+					<DecisionTreePreview
+						bind:nodes
+						bind:component
+						{rebuildOnChange}
+						{paneHeight}
+						{paneWidth}
+						on:render={() => {
+							renderCount++
+						}}
+					/>
 				</div>
 			</Pane>
 			<Pane size={40}>
@@ -86,12 +84,12 @@
 							</Label>
 
 							{#if selectedNode.next.length > 1}
-								{#each selectedNode.next as subNode (subNode.id)}
+								{#each selectedNode.next as subNode, index (subNode.id)}
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">
 												<InputsSpecEditor
-													key={`Goes to ${subNode.id} if:`}
+													key={`${index > 0 ? 'Otherwise' : ''}Goes to ${subNode.id} if:`}
 													bind:componentInput={subNode.condition}
 													id={subNode.id}
 													userInputEnabled={false}
