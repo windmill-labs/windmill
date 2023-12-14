@@ -72,7 +72,7 @@
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
 	let advancedRuntimeSelected = 'concurrency'
-	let s3Kind = 'push'
+	let s3Kind = 's3_client'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
@@ -498,19 +498,24 @@
 											<h2 class="pb-4">
 												S3 snippets
 												<Tooltip>
-													Pull, push and aggregate snippets for S3, particularly useful for ETL
-													processes.
+													Read/Write object from/to S3 and leverage Polars and DuckDB to run
+													efficient ETL processes.
 												</Tooltip>
 											</h2>
 										</div>
 										<div class="flex gap-2 justify-between mb-4 items-center">
 											<div class="flex gap-2">
 												<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
-													<ToggleButton value="push" size="sm" label="Push" />
-													<ToggleButton value="pull" size="sm" label="Pull" />
-													<ToggleButton value="aggregate" size="sm" label="Aggregate" />
+													{#if flowModule.value['language'] === 'deno'}
+														<ToggleButton value="s3_client" size="sm" label="S3 lite client" />
+													{:else}
+														<ToggleButton value="s3_client" size="sm" label="Boto3" />
+														<ToggleButton value="polars" size="sm" label="Polars" />
+														<ToggleButton value="duckdb" size="sm" label="DuckDB" />
+													{/if}
 												</ToggleButtonGroup>
 											</div>
+
 											<Button
 												size="xs"
 												on:click={() =>
