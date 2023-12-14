@@ -2925,7 +2925,7 @@ This is a paragraph.
 		initialData: {
 			configuration: {},
 			componentInput: undefined,
-			numberOfSubgrids: 5,
+			numberOfSubgrids: 1,
 			nodes: [
 				{
 					id: 'a',

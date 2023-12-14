@@ -160,6 +160,9 @@
 			const layered = layoutNodes(flatNodes)
 
 			nodes = layered.nodes
+
+			console.log(flatNodes, nodes)
+
 			let hfull = Math.max(layered.height, minHeight)
 			fullWidth = layered.width
 			height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight * 1.5)

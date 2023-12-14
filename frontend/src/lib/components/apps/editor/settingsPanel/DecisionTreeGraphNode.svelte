@@ -12,6 +12,7 @@
 	export let node: DecisionTreeNode
 	export let selected = false
 	export let canDelete: boolean = true
+	export let canAddBranch: boolean = true
 
 	let open: boolean = false
 
@@ -73,7 +74,7 @@
 			<InsertDecisionTreeNode
 				on:node={() => dispatch('nodeInsert')}
 				on:addBranch={() => dispatch('addBranch')}
-				canAddBranch={canDelete || node.next.length > 1}
+				canAddBranch={canAddBranch || node.next.length > 1}
 				canAddNode={node.next.length <= 1}
 			/>
 		</div>

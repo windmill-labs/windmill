@@ -56,9 +56,9 @@
 				}}
 			>
 				<div class="text-xs">
-					{#if nameOverrides}
+					{#if nameOverrides && nameOverrides[index]}
 						{#key nameOverrides[index]}
-							{nameOverrides[index] ? nameOverrides[index] : 'Should implement name'}
+							{nameOverrides[index]}
 						{/key}
 					{:else}
 						{name ? name : 'Should implement name'}

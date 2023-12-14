@@ -16,6 +16,7 @@
 		addNode,
 		findCollapseNode,
 		getParents,
+		insertNode,
 		removeBranch,
 		removeNode
 	} from './utils'
@@ -70,7 +71,6 @@
 							}
 						},
 						canDelete: false,
-						isHead: true,
 						label: 'Start'
 					},
 					cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, nodes[0], [])
@@ -135,17 +135,14 @@
 		})
 	}
 
-	function addSubGrid(addTwo: boolean = false) {
+	function addSubGrid() {
 		const numberOfPanes = nodes.length
 		if (!$app.subgrids) {
 			$app.subgrids = {}
 		}
 		$app.subgrids[`${component.id}-${numberOfPanes}`] = []
 
-		if (addTwo) {
-			$app.subgrids[`${component.id}-${numberOfPanes + 1}`] = []
-		}
-		component.numberOfSubgrids = nodes.length + (addTwo ? 2 : 1)
+		component.numberOfSubgrids = nodes.length + 1
 	}
 
 	function deleteSubgrid(index: number) {
@@ -177,16 +174,37 @@
 		event: string,
 		detail: string,
 		graphNode: DecisionTreeNode,
-		parentIds
+		parentIds: string[],
+		branchInsert: boolean = false
 	) {
 		switch (event) {
 			case 'select':
 				$selectedNodeId = detail
 				break
-			case 'nodeInsert':
+			case 'nodeInsert': {
 				addSubGrid()
-				nodes = addNode(nodes, graphNode)
+
+				if (branchInsert) {
+					if (parentIds.length === 1) {
+						nodes = insertNode(nodes, parentIds[0], graphNode)
+					} else {
+						// find parent with multiple next
+						const parentWithMultipleNext = nodes.find((node) => {
+							return node.next.length > 1 && parentIds.includes(node.id)
+						})
+
+						if (!parentWithMultipleNext) {
+							return nodes
+						}
+
+						nodes = insertNode(nodes, parentWithMultipleNext.id, graphNode)
+					}
+				} else {
+					nodes = addNode(nodes, graphNode)
+				}
+
 				break
+			}
 
 			case 'delete': {
 				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode.id)
@@ -216,7 +234,7 @@
 
 	function buildGraphNodes() {
 		nodes?.forEach((graphNode) => {
-			const parentIds = getParents(nodes, graphNode)
+			const parentIds = getParents(nodes, graphNode.id)
 			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
 			const hasParentBranches = parentNext ? parentNext.length > 1 : false
 
@@ -233,13 +251,13 @@
 								props: {
 									node: graphNode,
 									canDelete: true,
-									isHead: true,
 									label: collapseNode === graphNode.id ? 'Default branch' : 'Branch'
 								},
-								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+								cb: (e: string, detail: any) =>
+									nodeCallbackHandler(e, detail, graphNode, parentIds, true)
 							}
 						},
-						parentIds: parentIds
+						parentIds: [parentIds[0]]
 					})
 				)
 
@@ -252,12 +270,18 @@
 								props: {
 									node: graphNode,
 									canDelete: graphNode.next.length === 1,
-									isHead: graphNode.next.length === 0
+									canAddBranch: graphNode.next.length > 0
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 							}
 						},
-						parentIds: [branchHeaderId]
+						parentIds: [
+							branchHeaderId,
+							...parentIds.filter((pId) => {
+								const firstLetter = branchHeaderId.split('-')[0]
+								return pId !== firstLetter
+							})
+						]
 					})
 				)
 
@@ -289,6 +313,9 @@
 					})
 				}
 			} else {
+				const cannotAddBranch =
+					graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1
+
 				displayedNodes.push(
 					createNode({
 						id: graphNode.id,
@@ -298,7 +325,7 @@
 								props: {
 									node: graphNode,
 									canDelete: graphNode.next.length === 1,
-									isHead: graphNode.next.length === 0
+									canAddBranch: !cannotAddBranch
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 							}
@@ -389,6 +416,7 @@
 
 	function applyLayoutToNodes() {
 		const layered = layoutNodes(displayedNodes)
+
 		displayedNodes = layered.nodes
 	}
 

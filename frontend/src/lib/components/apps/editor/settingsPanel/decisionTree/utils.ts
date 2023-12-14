@@ -38,6 +38,45 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode)
 	return nodes
 }
 
+export function insertNode(
+	nodes: DecisionTreeNode[],
+	parentId: string,
+	sourceNode: DecisionTreeNode
+) {
+	const nextId = getNextId(nodes.map((node) => node.id))
+
+	const newNode: DecisionTreeNode = {
+		id: nextId,
+		label: nextId,
+		next: [
+			{
+				id: sourceNode.id,
+				condition: createBooleanRC()
+			}
+		],
+		allowed: createBooleanRC()
+	}
+
+	nodes.push(newNode)
+
+	nodes = nodes.map((node) => {
+		if (node.id === parentId) {
+			node.next = node.next.map((next) => {
+				if (next.id === sourceNode.id) {
+					return {
+						id: newNode.id,
+						condition: createBooleanRC()
+					}
+				}
+				return next
+			})
+		}
+		return node
+	})
+
+	return nodes
+}
+
 export function removeNode(
 	nodes: DecisionTreeNode[],
 	nodeToRemove: DecisionTreeNode | undefined
@@ -84,11 +123,16 @@ export function removeBranch(
 	const parentNode = nodes.find((n) => n.id === parentNodeId)
 	const collapseNodeId = findCollapseNode(nodes, parentNodeId)
 
-	if (!parentNode || !collapseNodeId) {
+	if (!parentNode || !collapseNodeId || !firstNodeInBranch) {
 		return nodes
 	}
 
+	const firstNodeInBranchParent = getParents(nodes, firstNodeInBranch.id)
 	parentNode.next = parentNode.next.filter((next) => next.id !== firstNodeInBranch?.id)
+
+	if (firstNodeInBranchParent.length > 1) {
+		return nodes
+	}
 
 	if (firstNodeInBranch && firstNodeInBranch.id !== collapseNodeId) {
 		const visited = new Set<string>()
@@ -188,7 +232,7 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 	const newNode = createNewNode(nodes, collapseNode)
 	nodes.push(newNode)
 
-	return nodes.map((node) => {
+	nodes = nodes.map((node) => {
 		if (node.id === startNode?.id) {
 			node.next.push({
 				id: newNode.id,
@@ -197,14 +241,16 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 		}
 		return node
 	})
+
+	return nodes
 }
 
-export function getParents(nodes: DecisionTreeNode[], node: DecisionTreeNode): string[] {
+export function getParents(nodes: DecisionTreeNode[], nodeId: string): string[] {
 	let parentIds: string[] = []
 
 	nodes.forEach((n) => {
 		n.next.forEach((nextNode) => {
-			if (nextNode.id == node.id) {
+			if (nextNode.id == nodeId) {
 				parentIds.push(n.id)
 			}
 		})
@@ -212,7 +258,7 @@ export function getParents(nodes: DecisionTreeNode[], node: DecisionTreeNode): s
 
 	const firstNode = getFirstNode(nodes)
 	// if first node, add start node as parent
-	if (node.id == firstNode?.id) {
+	if (nodeId == firstNode?.id) {
 		parentIds.push('start')
 	}
 

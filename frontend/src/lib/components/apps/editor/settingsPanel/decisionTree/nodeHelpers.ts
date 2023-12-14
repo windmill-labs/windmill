@@ -24,8 +24,8 @@ interface EdgeConfig {
 	id: string
 	source: string
 	target: string
-	label?: string
-	edgeColor?: string
+	label?: string | undefined
+	edgeColor?: string | undefined
 }
 
 export function createNode(nodeConfig: NodeConfig): Node {
@@ -46,10 +46,15 @@ export function createNode(nodeConfig: NodeConfig): Node {
 
 export function createEdge(edgeConfig: EdgeConfig) {
 	return {
-		id: edgeConfig.id,
+		id: `edge-${edgeConfig.id}`,
 		source: edgeConfig.source,
 		target: edgeConfig.target,
 		label: edgeConfig.label || '',
-		edgeColor: edgeConfig.edgeColor || '#999'
+		edgeColor: edgeConfig.edgeColor || '#999',
+		type: 'bezier' as const,
+		labelBgColor: 'white',
+		arrow: false,
+		animate: false,
+		noHandle: true
 	}
 }

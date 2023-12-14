@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { Network, Trash } from 'lucide-svelte'
+	import { Network, Plus, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { setContext } from 'svelte'
@@ -8,7 +8,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { writable } from 'svelte/store'
 	import DecisionTreePreview from './decisionTree/DecisionTreePreview.svelte'
-	import { removeNode } from './decisionTree/utils'
+	import { addNewBranch, removeNode } from './decisionTree/utils'
 	import Label from '$lib/components/Label.svelte'
 	import { debounce } from '$lib/utils'
 
@@ -135,6 +135,23 @@
 									/>
 								{/if}
 							{/key}
+
+							<div>
+								<Button
+									startIcon={{ icon: Plus }}
+									color="light"
+									variant="border"
+									size="xs"
+									on:click={() => {
+										if (!selectedNode) return
+
+										nodes = addNewBranch(nodes, selectedNode)
+										renderCount++
+									}}
+								>
+									Add branch
+								</Button>
+							</div>
 						</Section>
 					{/if}
 				</div>
