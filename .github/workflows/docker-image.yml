@@ -99,7 +99,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,saml
+            features=enterprise,enterprise_saml
             nsjail=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
@@ -186,30 +186,6 @@ jobs:
   #     - name: "Clean up"
   #       run: docker kill ${{ steps.docker-container.outputs.id }}
   #       if: always()
-
-  deploy_s3:
-    needs: [build_ee]
-    runs-on: ubicloud
-    if: github.event_name != 'pull_request'
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-      - uses: shrink/actions-docker-extract@v3
-        id: extract
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-          path: "/static_frontend/."
-
-      - uses: reggionick/s3-deploy@v3
-        with:
-          folder: ${{ steps.extract.outputs.destination }}
-          bucket: windmill-frontend
-          bucket-region: us-east-1
 
   attach_amd64_binary_to_release:
     needs: [build, build_ee]
@@ -299,10 +275,13 @@ jobs:
             ${{ steps.extract.outputs.destination }}/*
             ${{ steps.extract-ee.outputs.destination }}/*
 
-  publish_ecr:
+  publish_ecr_s3:
     needs: [build_ee]
     runs-on: ubicloud
     if: github.event_name != 'pull_request'
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -321,8 +300,25 @@ jobs:
 
       - name: Push image to ECR
         if: github.event_name != 'pull_request'
+        id: push_ecr
         run: |
           git_hash=$(git rev-parse --short "$GITHUB_SHA")
           docker buildx imagetools create \
             --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
+
+      - uses: shrink/actions-docker-extract@v3
+        if: github.event_name != 'pull_request'
+        id: extract
+        with:
+          image: |-
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
+          path: "/static_frontend/."
+
+      - uses: reggionick/s3-deploy@v3
+        if: github.event_name != 'pull_request'
+        with:
+          folder: ${{ steps.extract.outputs.destination }}
+          bucket: windmill-frontend
+          bucket-region: us-east-1

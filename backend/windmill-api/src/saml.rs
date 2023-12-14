@@ -7,45 +7,45 @@
  */
 #![allow(non_snake_case)]
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use axum::response::Redirect;
 use axum::{routing::post, Router};
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use axum::{Extension, Form};
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use std::sync::Arc;
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use samael::metadata::{ContactPerson, ContactType, EntityDescriptor};
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use samael::service_provider::{ServiceProvider, ServiceProviderBuilder};
 
 use serde::Deserialize;
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use tower_cookies::Cookies;
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use windmill_common::error::{Error, Result};
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use crate::db::DB;
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use crate::users::login_externally;
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use crate::BASE_URL;
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 #[derive(Clone)]
 pub struct ServiceProviderExt(pub Option<ServiceProvider>);
 
-#[cfg(not(feature = "saml"))]
+#[cfg(not(feature = "enterprise_saml"))]
 pub struct ServiceProviderExt();
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 
 pub struct SamlSsoLogin(pub Option<String>);
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 pub async fn build_sp_extension() -> anyhow::Result<(ServiceProviderExt, SamlSsoLogin)> {
     if let Some(url_metadata) = std::env::var("SAML_METADATA").ok() {
         //todo restrict for non ee
@@ -93,7 +93,7 @@ pub struct SamlForm {
     pub SAMLResponse: Option<String>,
 }
 
-#[cfg(feature = "saml")]
+#[cfg(feature = "enterprise_saml")]
 pub async fn acs(
     Extension(db): Extension<DB>,
     cookies: Cookies,
@@ -129,7 +129,7 @@ pub async fn acs(
     }
 }
 
-#[cfg(not(feature = "saml"))]
+#[cfg(not(feature = "enterprise_saml"))]
 pub async fn acs() -> String {
     "SAML available only in enterprise version".to_string()
 }

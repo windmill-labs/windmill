@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use crate::{
     error::{to_anyhow, Result},
-    global_settings::DISABLE_STATS_SETTING,
+    global_settings::{BASE_URL_SETTING, DISABLE_STATS_SETTING},
     scripts::ScriptLang,
     utils::{get_uid, Mode, GIT_VERSION},
     DB,
@@ -39,6 +39,7 @@ pub async fn schedule_stats(
     mode: Mode,
     db: &DB,
     http_client: &reqwest::Client,
+    is_enterprise: bool,
 ) -> () {
     let http_client = http_client.clone();
     let db = db.clone();
@@ -46,14 +47,19 @@ pub async fn schedule_stats(
         tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
 
         loop {
-            let disabled = get_disable_stats_setting(&db).await;
+            let disabled = if is_enterprise {
+                false
+            } else {
+                get_disable_stats_setting(&db).await
+            };
             if !disabled {
-                tracing::info!("Sending stats");
-                let result = send_stats(&instance_name, &mode, &http_client, &db).await;
+                tracing::debug!("Sending stats");
+                let result =
+                    send_stats(&instance_name, &mode, &http_client, &db, is_enterprise).await;
                 if result.is_err() {
-                    tracing::info!("Error sending stats: {}", result.err().unwrap());
+                    tracing::debug!("Error sending stats: {}", result.err().unwrap());
                 } else {
-                    tracing::info!("Stats sent");
+                    tracing::debug!("Stats sent");
                 }
             }
 
@@ -93,6 +99,7 @@ pub async fn send_stats(
     mode: &Mode,
     http_client: &reqwest::Client,
     db: &DB,
+    is_enterprise: bool,
 ) -> Result<()> {
     let uid = get_uid(db).await?;
 
@@ -142,6 +149,38 @@ pub async fn send_stats(
         })
         .flatten();
 
+    let base_url: Option<String> = if is_enterprise {
+        let q_base_url = sqlx::query!(
+            "SELECT value FROM global_settings WHERE name = $1",
+            BASE_URL_SETTING
+        )
+        .fetch_optional(db)
+        .await?;
+        let std_base_url = std::env::var("BASE_URL")
+            .ok()
+            .unwrap_or_else(|| "http://localhost".to_string());
+
+        if let Some(q) = q_base_url {
+            if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
+                if v != "" {
+                    Some(v)
+                } else {
+                    Some(std_base_url)
+                }
+            } else {
+                tracing::error!(
+                    "Could not parse base_url setting as a string, found: {:#?}",
+                    &q.value
+                );
+                Some(std_base_url)
+            }
+        } else {
+            Some(std_base_url)
+        }
+    } else {
+        None
+    };
+
     let payload = serde_json::json!({
         "uid": uid,
         "version": GIT_VERSION,
@@ -155,6 +194,7 @@ pub async fn send_stats(
         },
         "mode": mode,
         "vcpus": vcpus,
+        "base_url": base_url,
     });
 
     let request = http_client

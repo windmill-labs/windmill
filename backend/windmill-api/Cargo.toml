@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 enterprise = ["windmill-queue/enterprise", "async-stripe", "windmill-audit/enterprise"]
-saml = ["samael"]
+enterprise_saml = ["samael"]
 benchmark = []
 
 [dependencies]
@@ -83,8 +83,8 @@ tokenizers.workspace = true
 candle-core.workspace = true
 candle-transformers.workspace = true
 candle-nn.workspace = true
-aws-sdk-s3 = "0.39.1"
-aws-config = "1.0.0"
+aws-sdk-s3.workspace = true
+aws-config.workspace = true
 polars = { version = "0.35.2", features = ["lazy", "parquet", "aws", "csv", "dtype-full"] }
 polars-io = { version = "0.35.2", features = ["csv"] }
 object_store = { version = "0.8.0", features = ["aws"] }

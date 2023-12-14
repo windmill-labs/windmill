@@ -1,6 +1,5 @@
 use std::{collections::HashMap, fs, process::Stdio};
 
-use itertools::Itertools;
 use regex::Regex;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
@@ -10,6 +9,8 @@ use windmill_queue::CanceledBy;
 
 const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
+const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
+    include_str!("../nsjail/run.powershell.config.proto");
 
 lazy_static::lazy_static! {
     static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^-\s"]+)"?"#).unwrap();
@@ -200,13 +201,10 @@ pub async fn handle_powershell_job(
             .collect::<Vec<(String, String)>>();
         args_owned
             .iter()
-            .map(|(n, v)| format!("--{n} {v}"))
-            .join(" ")
+            .map(|(n, v)| vec![format!("--{n}"), format!("{v}")])
+            .flatten()
+            .collect::<Vec<_>>()
     };
-
-    let content = content
-        .replace('$', r"\$") // escape powershell variables
-        .replace("`", r"\`"); // escape powershell backticks
 
     let installed_modules = fs::read_dir(POWERSHELL_CACHE_DIR)?
         .filter_map(|x| {
@@ -271,11 +269,11 @@ pub async fn handle_powershell_job(
 
     // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
     let profile = format!(
-        "\\$PSModuleAutoloadingPreference = 'None'
-\\$PSModulePathBackup = \\$env:PSModulePath
-\\$env:PSModulePath = (\\$Env:PSModulePath -split ':')[-1]
+        "$PSModuleAutoloadingPreference = 'None'
+$PSModulePathBackup = $env:PSModulePath
+$env:PSModulePath = ($Env:PSModulePath -split ':')[-1]
 Get-Module -ListAvailable | Import-Module
-\\$env:PSModulePath = \"{}:\\$env:PSModulePathBackup\"",
+$env:PSModulePath = \"{}:$PSModulePathBackup\"",
         POWERSHELL_CACHE_DIR
     );
     // make sure param() is first
@@ -292,7 +290,7 @@ Get-Module -ListAvailable | Import-Module
         format!("{}\n{}", profile, content)
     };
 
-    write_file(job_dir, "main.sh", &format!("set -e\ncat > script.ps1 << EOF\n{content}\nEOF\npwsh -File script.ps1 {pwsh_args}\necho \"\"\nsleep 0.02")).await?;
+    write_file(job_dir, "main.ps1", content.as_str()).await?;
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -304,13 +302,22 @@ Get-Module -ListAvailable | Import-Module
         let _ = write_file(
             job_dir,
             "run.config.proto",
-            &NSJAIL_CONFIG_RUN_BASH_CONTENT
+            &NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
         )
         .await?;
-        let cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
+        let mut cmd_args = vec![
+            "--config",
+            "run.config.proto",
+            "--",
+            "pwsh",
+            "-F",
+            "main.ps1",
+        ];
+        cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
@@ -323,8 +330,9 @@ Get-Module -ListAvailable | Import-Module
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        let cmd_args = vec!["main.sh"];
-        Command::new("/bin/bash")
+        let mut cmd_args = vec!["-F", "main.ps1"];
+        cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
+        Command::new("pwsh")
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
