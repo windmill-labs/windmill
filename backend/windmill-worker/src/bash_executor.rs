@@ -22,7 +22,7 @@ use crate::{
         set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, TZ_ENV,
+    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -313,7 +313,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             "--config",
             "run.config.proto",
             "--",
-            "pwsh",
+            POWERSHELL_PATH.as_str(),
             "-F",
             "main.ps1",
         ];
@@ -332,7 +332,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     } else {
         let mut cmd_args = vec!["-F", "main.ps1"];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new("pwsh")
+        Command::new(POWERSHELL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -356,7 +356,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
-        "bash/powershell run",
+        "powershell run",
         job.timeout,
         false,
     )

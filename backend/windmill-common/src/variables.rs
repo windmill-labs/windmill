@@ -48,7 +48,6 @@ pub struct ExportableListableVariable {
     pub extra_perms: serde_json::Value,
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
-    pub is_expired: Option<bool>,
 }
 
 #[derive(Deserialize)]

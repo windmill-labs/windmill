@@ -1,10 +1,13 @@
-use std::cmp;
+use std::{cmp, time::Duration};
 
 use crate::{
     db::DB, resources::get_resource_value_interpolated_internal, users::Tokened,
     workspaces::LargeFileStorage,
 };
-use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+use aws_sdk_s3::{
+    config::{BehaviorVersion, Credentials, Region},
+    presigning::PresigningConfig,
+};
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -53,8 +56,8 @@ pub fn workspaced_service() -> Router {
             post(polars_connection_settings_v2).layer(cors.clone()),
         )
         .route(
-            "/blah",
-            post(polars_connection_settings_v2).layer(cors.clone()),
+            "/v2/boto3_connection_settings",
+            post(boto3_connection_settings_v2).layer(cors.clone()),
         )
         .route("/test_connection", get(test_connection).layer(cors.clone()))
         .route(
@@ -268,6 +271,55 @@ async fn polars_connection_settings_v2(
     return Ok(Json(response));
 }
 
+#[derive(Deserialize)]
+struct Boto3ConnectionSettingsQueryV2 {
+    s3_resource_path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Boto3ConnectionSettingsResponse {
+    region_name: String,
+    use_ssl: bool,
+    endpoint_url: String,
+    aws_access_key_id: Option<String>,
+    aws_secret_access_key: Option<String>,
+}
+
+async fn boto3_connection_settings_v2(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(query): Json<Boto3ConnectionSettingsQueryV2>,
+) -> error::JsonResult<Boto3ConnectionSettingsResponse> {
+    let s3_resource_opt = match query.s3_resource_path {
+        Some(s3_resource_path) => {
+            get_s3_resource(
+                &authed,
+                &user_db,
+                &db,
+                &token,
+                &w_id,
+                s3_resource_path.as_str(),
+            )
+            .await?
+        }
+        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+    };
+    let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
+        "No datasets storage resource defined at the workspace level".to_string(),
+    ))?;
+    let response = Boto3ConnectionSettingsResponse {
+        endpoint_url: render_endpoint(&s3_resource),
+        region_name: s3_resource.region,
+        use_ssl: s3_resource.use_ssl,
+        aws_access_key_id: s3_resource.access_key,
+        aws_secret_access_key: s3_resource.secret_key,
+    };
+    return Ok(Json(response));
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct WindmillLargeFile {
     s3: String,
@@ -416,6 +468,7 @@ struct LoadFilePreviewResponse {
     pub content: Option<String>,
     pub content_type: WindmillContentType,
     pub msg: Option<String>,
+    pub download_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -510,6 +563,19 @@ async fn load_file_preview(
             )
         };
 
+    // URL expires 30 minutes after its generation
+    let presigned_config = PresigningConfig::expires_in(Duration::from_secs(60 * 30))
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+    let download_url = s3_client
+        .get_object()
+        .bucket(&s3_bucket)
+        .key(&file_key)
+        .presigned(presigned_config)
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?
+        .uri()
+        .to_string();
+
     let file_chunk_length = if s3_object_content_length.is_some() {
         cmp::min(
             query.read_bytes_length,
@@ -599,12 +665,14 @@ async fn load_file_preview(
             content_type: content_type,
             content: Some(content),
             msg: None,
+            download_url: Some(download_url),
         },
 
         Err(err) => LoadFilePreviewResponse {
             content_type: content_type,
             content: None,
             msg: Some(err.to_string()),
+            download_url: Some(download_url),
         },
     };
 

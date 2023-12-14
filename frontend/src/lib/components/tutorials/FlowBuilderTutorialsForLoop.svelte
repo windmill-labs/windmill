@@ -40,7 +40,7 @@
 		return [
 			{
 				popover: {
-					title: 'Welcome to the Windmil Flow editor',
+					title: 'For loops tutorial',
 					description:
 						'Learn how to build our first for loop to iterate on. You can use arrow keys to navigate.'
 				}

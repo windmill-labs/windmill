@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET restart_unless_cancelled = true WHERE hash = ANY($1) AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f179cefbceadc8c3dc6442c74dd1d9d57bee47919592d8c75cdeb38ba1c971cb"
+}

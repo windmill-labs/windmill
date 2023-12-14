@@ -186,6 +186,10 @@ pub fn global_service() -> Router {
         )
         .route("/getupdate/:id", get(get_job_update))
         .route("/queue/cancel/:id", post(cancel_job_api))
+        .route(
+            "/queue/cancel_persistent/*script_path",
+            post(cancel_persistent_script_api),
+        )
         .route("/queue/force_cancel/:id", post(force_cancel))
 }
 
@@ -251,6 +255,56 @@ async fn cancel_job_api(
             )));
         }
     }
+}
+
+async fn cancel_persistent_script_api(
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Json(CancelJob { reason }): Json<CancelJob>,
+) -> error::Result<()> {
+    let tx = db.begin().await?;
+
+    let username = match opt_authed {
+        Some(authed) => authed.username,
+        None => "anonymous".to_string(),
+    };
+
+    let (mut tx, script_hashes) = windmill_queue::cancel_persistent_script_jobs(
+        &username,
+        reason,
+        script_path.to_path(),
+        &w_id,
+        tx,
+        &db,
+        rsmq,
+    )
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &username,
+        "jobs.cancel_persistent",
+        ActionKind::Delete,
+        &w_id,
+        Some(script_path.to_path()),
+        Some(
+            [(
+                "hashes",
+                script_hashes
+                    .into_iter()
+                    .map(|hash| hash.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+                    .as_str(),
+            )]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 async fn force_cancel(
