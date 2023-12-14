@@ -147,7 +147,7 @@
 		'linkedin'
 	]
 
-	let oauth_name = 'custom'
+	let oauth_name = undefined
 
 	async function sendStats() {
 		await SettingService.sendStats()
@@ -324,6 +324,7 @@
 
 							<div class="flex gap-2">
 								<select name="oauth_name" id="oauth_name" bind:value={oauth_name}>
+									<option value={undefined}>Select an OAuth client</option>
 									<option value="custom">Fully Custom (require ee)</option>
 									{#each windmillBuiltins as name}
 										<option value={name}>{capitalize(name)}</option>
@@ -332,7 +333,7 @@
 								{#if oauth_name == 'custom'}
 									<input type="text" placeholder="client_id" bind:value={resourceName} />
 								{:else}
-									<input type="text" value={oauth_name} disabled />
+									<input type="text" value={oauth_name ?? ''} disabled />
 								{/if}
 								<Button
 									variant="border"
@@ -340,11 +341,12 @@
 									hover="yo"
 									size="sm"
 									endIcon={{ icon: Plus }}
-									disabled={(oauth_name == 'custom' && resourceName == '') ||
+									disabled={!oauth_name ||
+										(oauth_name == 'custom' && resourceName == '') ||
 										(oauth_name == 'custom' && !$enterpriseLicense)}
 									on:click={() => {
 										let name = oauth_name == 'custom' ? resourceName : oauth_name
-										oauths[name] = { id: '', secret: '' }
+										oauths[name ?? ''] = { id: '', secret: '' }
 										resourceName = ''
 									}}
 								>
