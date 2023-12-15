@@ -2357,6 +2357,11 @@ This is a paragraph.
 					value: false,
 					fieldType: 'boolean',
 					tooltip: 'If enabled, the mime type of the file will be included.'
+				},
+				submittedFileText: {
+					type: 'static',
+					value: 'Selected file',
+					fieldType: 'text'
 				}
 			}
 		}

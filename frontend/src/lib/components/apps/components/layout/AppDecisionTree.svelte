@@ -170,7 +170,6 @@
 	{#if nodes[0].id !== currentNodeId}
 		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
 	{/if}
-	<span class="text-xs text-primary">Tab: {currentNodeId}</span>
 	<Button
 		on:click={next}
 		size="xs2"

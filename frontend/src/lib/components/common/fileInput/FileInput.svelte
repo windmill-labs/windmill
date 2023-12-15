@@ -16,6 +16,7 @@
 	export let hideIcon = false
 	export let iconSize = 36
 	export let returnFileNames = false
+	export let submittedText: string | undefined = undefined
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
 	let files: File[] | undefined = undefined
@@ -124,7 +125,7 @@
 		<div class="w-full max-h-full overflow-auto px-6">
 			<slot name="selected-title">
 				<div class="text-center mb-2 px-2">
-					Selected file{files.length > 1 ? 's' : ''}:
+					{submittedText ? submittedText : `Selected file${files.length > 1 ? 's' : ''}`}:
 				</div>
 			</slot>
 			<ul class="relative z-20 max-w-[500px] bg-surface rounded-lg overflow-hidden mx-auto">
