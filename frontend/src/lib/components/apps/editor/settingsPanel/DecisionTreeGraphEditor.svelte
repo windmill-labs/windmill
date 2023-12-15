@@ -90,7 +90,7 @@
 											<div class="grow relative">
 												<InputsSpecEditor
 													key={`condition-${selectedNode.id}-${index}`}
-													customTitle={`${index > 0 ? 'Otherwise' : ''}Goes to ${subNode.id} if:`}
+													customTitle={`${index > 0 ? 'Otherwise ' : ''}Goes to ${subNode.id} if:`}
 													bind:componentInput={subNode.condition}
 													id={selectedNode.id}
 													userInputEnabled={false}
