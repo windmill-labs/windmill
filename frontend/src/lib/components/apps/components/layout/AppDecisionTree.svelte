@@ -116,6 +116,7 @@
 					{id}
 					input={next.condition}
 					bind:value={resolvedConditions[node.id][conditionIndex]}
+					field={`condition-${node.id}-${conditionIndex}`}
 				/>
 			{/if}
 		{/each}

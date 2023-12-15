@@ -88,10 +88,12 @@
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">
+												{`condition-${selectedNode.id}-${index}`}
 												<InputsSpecEditor
-													key={`${index > 0 ? 'Otherwise' : ''}Goes to ${subNode.id} if:`}
+													key={`condition-${selectedNode.id}-${index}`}
+													customTitle={`${index > 0 ? 'Otherwise' : ''}Goes to ${subNode.id} if:`}
 													bind:componentInput={subNode.condition}
-													id={subNode.id}
+													id={selectedNode.id}
 													userInputEnabled={false}
 													shouldCapitalize={true}
 													resourceOnly={false}
@@ -102,7 +104,6 @@
 													tooltip={subNode.condition?.['tooltip']}
 													fileUpload={subNode.condition?.['fileUpload']}
 													placeholder={subNode.condition?.['placeholder']}
-													customTitle={subNode.condition?.['customTitle']}
 													displayType={false}
 													fixedOverflowWidgets={false}
 												/>
