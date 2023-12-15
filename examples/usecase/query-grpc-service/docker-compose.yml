@@ -1,0 +1,31 @@
+version: "3.7"
+
+services:
+  grpc:
+    image: gbouv/grpc-quickstart-service
+
+  db:
+    image: postgres:14
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill_server:
+    image: ghcr.io/windmill-labs/windmill:main
+    ports:
+      - 8000:8000
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data: null
