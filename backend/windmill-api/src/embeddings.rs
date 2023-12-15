@@ -126,11 +126,28 @@ impl ModelInstance {
         let (config_filename, tokenizer_filename, weights_filename) = (
             cache
                 .get("config.json")
-                .or_else(|| api.get("config.json").ok())
+                .or_else(|| {
+                    api.get("config.json")
+                        .or_else(|e| {
+                            tracing::error!("Failed to get config.json from hugging face: {}", e);
+                            return Err(e);
+                        })
+                        .ok()
+                })
                 .ok_or(Error::msg("could not get config.json"))?,
             cache
                 .get("tokenizer.json")
-                .or_else(|| api.get("tokenizer.json").ok())
+                .or_else(|| {
+                    api.get("tokenizer.json")
+                        .or_else(|e| {
+                            tracing::error!(
+                                "Failed to get tokenizer.json from hugging face: {}",
+                                e
+                            );
+                            return Err(e);
+                        })
+                        .ok()
+                })
                 .ok_or(Error::msg("could not get tokenizer.json"))?,
             cache
                 .get("model.safetensors")
@@ -140,10 +157,19 @@ impl ModelInstance {
                 })
                 .or_else(|| {
                     tracing::info!("Downloading embedding model...");
-                    api.get("model.safetensors").ok().and_then(|p| {
-                        tracing::info!("Downloaded embedding model");
-                        Some(p)
-                    })
+                    api.get("model.safetensors")
+                        .or_else(|e| {
+                            tracing::error!(
+                                "Failed to get model.safetensors from hugging face: {}",
+                                e
+                            );
+                            return Err(e);
+                        })
+                        .ok()
+                        .and_then(|p| {
+                            tracing::info!("Downloaded embedding model");
+                            Some(p)
+                        })
                 })
                 .ok_or(Error::msg("could not get model.safetensors"))?,
         );
