@@ -88,7 +88,8 @@
 			})
 		)
 	}
-	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function buildEndNode() {
 		const lastNodesIds = nodes
@@ -180,6 +181,9 @@
 		switch (event) {
 			case 'select':
 				$selectedNodeId = detail
+				const index = nodes.findIndex((node) => node.id === detail)
+				$componentControl?.[component.id]?.setTab?.(index)
+
 				break
 			case 'nodeInsert': {
 				addSubGrid()
