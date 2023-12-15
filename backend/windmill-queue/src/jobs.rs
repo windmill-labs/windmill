@@ -283,7 +283,7 @@ pub struct WrappedError {
     pub error: serde_json::Value,
 }
 
-trait ValidableJson {
+pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
 }
 
