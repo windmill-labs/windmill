@@ -283,6 +283,34 @@ pub struct WrappedError {
     pub error: serde_json::Value,
 }
 
+trait ValidableJson {
+    fn is_valid_json(&self) -> bool;
+}
+
+impl ValidableJson for WrappedError {
+    fn is_valid_json(&self) -> bool {
+        true
+    }
+}
+
+impl ValidableJson for Box<RawValue> {
+    fn is_valid_json(&self) -> bool {
+        !self.get().is_empty()
+    }
+}
+
+impl ValidableJson for serde_json::Value {
+    fn is_valid_json(&self) -> bool {
+        true
+    }
+}
+
+impl<T: ValidableJson> ValidableJson for Json<T> {
+    fn is_valid_json(&self) -> bool {
+        self.0.is_valid_json()
+    }
+}
+
 pub async fn register_metric<T, F, F2, R>(
     l: &Arc<RwLock<HashMap<String, T>>>,
     s: &str,
@@ -387,7 +415,7 @@ lazy_static::lazy_static! {
 
 #[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<
-    T: Serialize + Send + Sync,
+    T: Serialize + Send + Sync + ValidableJson,
     R: rsmq_async::RsmqConnection + Clone + Send,
 >(
     db: &Pool<Postgres>,
@@ -402,6 +430,12 @@ pub async fn add_completed_job<
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
+
+    if !result.is_valid_json() {
+        return Err(Error::InternalErr(
+            "Result of job is invalid json (empty)".to_string(),
+        ));
+    }
 
     let is_flow =
         queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
