@@ -280,31 +280,31 @@ pub struct WrappedError {
     pub error: serde_json::Value,
 }
 
-trait IsEmpty {
-    fn is_empty(&self) -> bool;
+trait ValidableJson {
+    fn is_valid_json(&self) -> bool;
 }
 
-impl IsEmpty for WrappedError {
-    fn is_empty(&self) -> bool {
-        self.error.to_string().is_empty()
+impl ValidableJson for WrappedError {
+    fn is_valid_json(&self) -> bool {
+        true
     }
 }
 
-impl IsEmpty for Box<RawValue> {
-    fn is_empty(&self) -> bool {
-        self.get().is_empty()
+impl ValidableJson for Box<RawValue> {
+    fn is_valid_json(&self) -> bool {
+        !self.get().is_empty()
     }
 }
 
-impl IsEmpty for serde_json::Value {
-    fn is_empty(&self) -> bool {
-        self.to_string().is_empty()
+impl ValidableJson for serde_json::Value {
+    fn is_valid_json(&self) -> bool {
+        true
     }
 }
 
-impl<T: IsEmpty> IsEmpty for Json<T> {
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
+impl<T: ValidableJson> ValidableJson for Json<T> {
+    fn is_valid_json(&self) -> bool {
+        self.0.is_valid_json()
     }
 }
 
@@ -412,7 +412,7 @@ lazy_static::lazy_static! {
 
 #[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<
-    T: Serialize + Send + Sync + IsEmpty,
+    T: Serialize + Send + Sync + ValidableJson,
     R: rsmq_async::RsmqConnection + Clone + Send,
 >(
     db: &Pool<Postgres>,
@@ -428,9 +428,10 @@ pub async fn add_completed_job<
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
-    // check if result is empty
-    if result.is_empty() {
-        return Err(Error::InternalErr("Result of job is empty".to_string()));
+    if !result.is_valid_json() {
+        return Err(Error::InternalErr(
+            "Result of job is invalid json (empty)".to_string(),
+        ));
     }
 
     let is_flow =
