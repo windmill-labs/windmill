@@ -280,6 +280,34 @@ pub struct WrappedError {
     pub error: serde_json::Value,
 }
 
+trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for WrappedError {
+    fn is_empty(&self) -> bool {
+        self.error.to_string().is_empty()
+    }
+}
+
+impl IsEmpty for Box<RawValue> {
+    fn is_empty(&self) -> bool {
+        self.get().is_empty()
+    }
+}
+
+impl IsEmpty for serde_json::Value {
+    fn is_empty(&self) -> bool {
+        self.to_string().is_empty()
+    }
+}
+
+impl<T: IsEmpty> IsEmpty for Json<T> {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 pub async fn register_metric<T, F, F2, R>(
     l: &Arc<RwLock<HashMap<String, T>>>,
     s: &str,
@@ -384,7 +412,7 @@ lazy_static::lazy_static! {
 
 #[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<
-    T: Serialize + Send + Sync,
+    T: Serialize + Send + Sync + IsEmpty,
     R: rsmq_async::RsmqConnection + Clone + Send,
 >(
     db: &Pool<Postgres>,
@@ -399,6 +427,11 @@ pub async fn add_completed_job<
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
+
+    // check if result is empty
+    if result.is_empty() {
+        return Err(Error::InternalErr("Result of job is empty".to_string()));
+    }
 
     let is_flow =
         queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
