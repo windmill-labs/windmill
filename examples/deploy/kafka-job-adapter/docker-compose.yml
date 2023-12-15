@@ -43,7 +43,7 @@ services:
     image: ghcr.io/windmill-labs/windmill:main
     pull_policy: always
     deploy:
-      replicas: 2
+      replicas: 3
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
