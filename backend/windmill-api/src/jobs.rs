@@ -264,26 +264,23 @@ async fn cancel_persistent_script_api(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
-    let tx = db.begin().await?;
-
     let username = match opt_authed {
         Some(authed) => authed.username,
         None => "anonymous".to_string(),
     };
 
-    let (mut tx, script_hashes) = windmill_queue::cancel_persistent_script_jobs(
+    let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
         &username,
         reason,
         script_path.to_path(),
         &w_id,
-        tx,
         &db,
         rsmq,
     )
     .await?;
 
     audit_log(
-        &mut *tx,
+        &db,
         &username,
         "jobs.cancel_persistent",
         ActionKind::Delete,
@@ -291,10 +288,10 @@ async fn cancel_persistent_script_api(
         Some(script_path.to_path()),
         Some(
             [(
-                "hashes",
-                script_hashes
+                "job_ids",
+                cancelled_job_ids
                     .into_iter()
-                    .map(|hash| hash.0.to_string())
+                    .map(|uuid: Uuid| uuid.to_string())
                     .collect::<Vec<_>>()
                     .join(",")
                     .as_str(),
@@ -303,7 +300,6 @@ async fn cancel_persistent_script_api(
         ),
     )
     .await?;
-    tx.commit().await?;
     Ok(())
 }
 

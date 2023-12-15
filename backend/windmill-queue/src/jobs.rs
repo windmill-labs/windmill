@@ -35,7 +35,7 @@ use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, time::sleep};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -209,28 +209,45 @@ pub async fn cancel_persistent_script_jobs<'c>(
     reason: Option<String>,
     script_path: &str,
     w_id: &str,
-    mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
-) -> error::Result<(Transaction<'c, Postgres>, Vec<ScriptHash>)> {
-    let script_hashes = sqlx::query_scalar::<_, ScriptHash>(
-        "SELECT DISTINCT script_hash FROM queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+) -> error::Result<Vec<Uuid>> {
+    // There can be only one perpetual script run per 10 seconds window. We execute the cancel twice with 5s interval
+    // to avoid the case of a job _about to be restarted_ when the first cancel is run.
+    let cancelled_job_ids_first_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        rsmq.clone(),
     )
-    .bind(w_id)
-    .bind(script_path)
-    .fetch_all(&mut *tx)
     .await?;
-
-    // we start by turning off restart_unless_cancelled for all scripts that are being canceled
-    let unique_script_hashes = script_hashes
-        .clone()
+    sleep(std::time::Duration::from_secs(5)).await;
+    let cancelled_job_ids_second_batch = cancel_persistent_script_jobs_internal(
+        username,
+        reason.clone(),
+        script_path,
+        w_id,
+        db,
+        rsmq.clone(),
+    )
+    .await?;
+    return Ok(cancelled_job_ids_first_batch
         .into_iter()
-        .map(|hash| hash.0)
-        .collect_vec();
-    sqlx::query!(
-        "UPDATE script SET restart_unless_cancelled = NULL WHERE hash = ANY($1) AND workspace_id = $2",
-        &unique_script_hashes, w_id
-    ).execute(&mut *tx).await?;
+        .chain(cancelled_job_ids_second_batch)
+        .collect_vec());
+}
+
+async fn cancel_persistent_script_jobs_internal<'c>(
+    username: &str,
+    reason: Option<String>,
+    script_path: &str,
+    w_id: &str,
+    db: &Pool<Postgres>,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+) -> error::Result<Vec<Uuid>> {
+    let mut tx = db.begin().await?;
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
@@ -242,7 +259,7 @@ pub async fn cancel_persistent_script_jobs<'c>(
     .await?;
 
     // Then we cancel all the jobs currently in the queue, one by one
-    for queued_job_id in jobs_to_cancel {
+    for queued_job_id in jobs_to_cancel.clone() {
         let (new_tx, _) = cancel_job(
             username,
             reason.clone(),
@@ -256,23 +273,9 @@ pub async fn cancel_persistent_script_jobs<'c>(
         .await?;
         tx = new_tx;
     }
+    tx.commit().await?;
 
-    // Finally we toggle restart_unless_cancelled back to 1 again to leave the script definition as it was before
-    sqlx::query!(
-        "UPDATE script SET restart_unless_cancelled = true WHERE hash = ANY($1) AND workspace_id = $2",
-        &unique_script_hashes,
-        w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    return Ok((
-        tx,
-        unique_script_hashes
-            .into_iter()
-            .map(|hash| ScriptHash(hash))
-            .collect_vec(),
-    ));
+    return Ok(jobs_to_cancel);
 }
 
 #[derive(Serialize, Debug)]
@@ -646,6 +649,21 @@ pub async fn add_completed_job<
             if p {
                 let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
+                // perpetual jobs can run one job per 10s max. If the job was faster than 10s, schedule the next one with the appropriate delay
+                let now = chrono::Utc::now();
+                let scheduled_for = if now
+                    .signed_duration_since(queued_job.started_at.unwrap_or(now))
+                    .num_seconds()
+                    < 10
+                {
+                    let next_run =
+                        queued_job.started_at.unwrap_or(now) + chrono::Duration::seconds(10);
+                    tracing::warn!("Perpetual script {:?} is running too fast, only 1 job per 10s it supported. Scheduling next run for {:?}", queued_job.script_path, next_run);
+                    Some(next_run)
+                } else {
+                    None
+                };
+
                 let (_uuid, tx) = push(
                     db,
                     tx,
@@ -667,7 +685,7 @@ pub async fn add_completed_job<
                     &queued_job.created_by,
                     &queued_job.email,
                     queued_job.permissioned_as.clone(),
-                    None,
+                    scheduled_for,
                     queued_job.schedule_path.clone(),
                     None,
                     None,
