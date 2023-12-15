@@ -88,7 +88,6 @@
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">
-												{`condition-${selectedNode.id}-${index}`}
 												<InputsSpecEditor
 													key={`condition-${selectedNode.id}-${index}`}
 													customTitle={`${index > 0 ? 'Otherwise' : ''}Goes to ${subNode.id} if:`}
