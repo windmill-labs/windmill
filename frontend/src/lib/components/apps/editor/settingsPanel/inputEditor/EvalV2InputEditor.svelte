@@ -13,6 +13,7 @@
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
 	export let field: string
+	export let fixedOverflowWidgets: boolean = true
 
 	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
@@ -94,6 +95,7 @@
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight
+				{fixedOverflowWidgets}
 				on:focus={() => {
 					focus = true
 				}}

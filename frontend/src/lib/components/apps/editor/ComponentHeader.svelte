@@ -11,6 +11,7 @@
 
 	import TabsDebug from './TabsDebug.svelte'
 	import ComponentOutputViewer from './contextPanel/ComponentOutputViewer.svelte'
+	import DecisionTreeDebug from './DecisionTreeDebug.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -94,7 +95,10 @@
 			<TabsDebug id={component.id} tabs={component.conditions ?? []} isConditionalDebugMode />
 		{:else if component.type === 'steppercomponent' || (component.type === 'tabscomponent' && component.configuration.tabsKind.type === 'static' && component.configuration.tabsKind.value === 'invisibleOnView')}
 			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
+		{:else if component.type === 'decisiontreecomponent'}
+			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
 		{/if}
+
 		<button
 			title="Expand"
 			class={classNames(

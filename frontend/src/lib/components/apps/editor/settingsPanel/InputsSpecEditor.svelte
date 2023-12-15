@@ -34,6 +34,7 @@
 	export let displayType: boolean = false
 	export let allowTypeChange: boolean = true
 	export let shouldFormatExpression: boolean = false
+	export let fixedOverflowWidgets: boolean = true
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -162,7 +163,13 @@
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'evalv2'}
-			<EvalV2InputEditor field={key} bind:this={evalV2editor} {id} bind:componentInput />
+			<EvalV2InputEditor
+				field={key}
+				bind:this={evalV2editor}
+				{id}
+				bind:componentInput
+				{fixedOverflowWidgets}
+			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}
