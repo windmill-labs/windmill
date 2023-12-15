@@ -20,6 +20,8 @@
 		scriptHash: string
 	}[] = []
 
+	let cancellingInProgress = false
+
 	async function continuouslyLoadQueuedJobs() {
 		while (loadQueuedJobs) {
 			let qjs = await JobService.listQueue({
@@ -47,6 +49,7 @@
 	}
 
 	async function scaleToZero() {
+		cancellingInProgress = true
 		await JobService.cancelPersistentQueuedJobs({
 			workspace: $workspaceStore ?? '',
 			path: script.path,
@@ -55,6 +58,7 @@
 			}
 		})
 		sendUserToast(`All jobs cancelled for ${script.path}`)
+		cancellingInProgress = false
 	}
 
 	export async function open(persistentScript: Script | undefined) {
@@ -135,9 +139,17 @@
 		</TableCustom>
 
 		<div slot="actions" class="flex gap-1">
-			<Button color="red" disabled={queuedJobs.length === 0} on:click={scaleToZero}
-				>Scale down to 0</Button
+			<Button
+				color="red"
+				disabled={cancellingInProgress === true || queuedJobs.length === 0}
+				on:click={scaleToZero}
 			>
+				{#if cancellingInProgress}
+					<Loader2 class="animate-spin" /> Stopping jobs
+				{:else}
+					Scale down to 0
+				{/if}
+			</Button>
 		</div>
 	</DrawerContent>
 </Drawer>
