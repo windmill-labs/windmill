@@ -110,7 +110,7 @@ export async function pushObj(
   } else if (typeEnding === "variable") {
     await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = p.split(".flow/")[0];
+    const flowName = p.split(".flow" + path.sep)[0];
     await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
     await pushResource(workspace, p, befObj, newObj);
