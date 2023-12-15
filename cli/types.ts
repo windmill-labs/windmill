@@ -152,7 +152,7 @@ export function getTypeStrFromPath(
   | "folder"
   | "app"
   | "schedule" {
-  if (p.includes(".flow/")) {
+  if (p.includes(".flow" + path.sep)) {
     return "flow";
   }
   const parsed = path.parse(p);
