@@ -306,6 +306,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
+			nodes: init.nodes,
 			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,

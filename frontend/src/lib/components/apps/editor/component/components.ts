@@ -42,7 +42,8 @@ import {
 	ListIcon,
 	Heading1,
 	FileBarChart,
-	Menu
+	Menu,
+	Network
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -169,6 +170,20 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
+export type DecisionTreeNode = {
+	id: string
+	label: string
+	allowed: RichConfiguration | undefined
+	next: Array<{
+		id: string
+		condition?: RichConfiguration | undefined
+	}>
+}
+
+export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
+	nodes: DecisionTreeNode[]
+}
+
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
@@ -231,6 +246,7 @@ export type TypedComponent =
 	| ChartJsComponentV2
 	| StatisticCardComponent
 	| MenuComponent
+	| DecisionTreeComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -286,6 +302,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	tabs?: string[]
 	panes?: number[]
 	conditions?: AppInputSpec<'boolean', boolean>[]
+	nodes?: DecisionTreeNode[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -2895,6 +2912,33 @@ This is a paragraph.
 				}
 			},
 			menuItems: true
+		}
+	},
+	decisiontreecomponent: {
+		name: 'Decision Tree',
+		icon: Network,
+		documentationLink: `${documentationBaseUrl}/decision_tree`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 1,
+			nodes: [
+				{
+					id: 'a',
+					label: 'a',
+					allowed: {
+						type: 'evalv2',
+						expr: 'true',
+						fieldType: 'boolean',
+						connections: []
+					},
+					next: []
+				}
+			] as DecisionTreeNode[]
 		}
 	}
 } as const

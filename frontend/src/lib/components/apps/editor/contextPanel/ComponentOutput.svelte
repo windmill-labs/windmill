@@ -19,6 +19,11 @@
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
+	const nameOverrides =
+		gridItem.data.type === 'decisiontreecomponent'
+			? gridItem.data.nodes.map((n) => n.label)
+			: undefined
+
 	function getComponentNameById(componentId: string) {
 		if (gridItem?.data?.type) {
 			return components?.[gridItem?.data.type]?.name ?? 'Unknown'
@@ -43,7 +48,7 @@
 			connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
 		}}
 	/>
-	<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
+	<SubGridOutput {name} {nameOverrides} {expanded} {subGrids} parentId={gridItem.id} />
 	<TableActionsOutput {gridItem} />
 	<MenuItemsOutput {gridItem} />
 </OutputHeader>
