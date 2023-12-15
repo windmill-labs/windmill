@@ -119,7 +119,9 @@ export async function pushObj(
   } else if (typeEnding === "schedule") {
     await pushSchedule(workspace, p, befObj, newObj);
   } else {
-    throw new Error("infer type unreachable");
+    throw new Error(
+      `The item ${p} has an unrecognized type ending ${typeEnding}`
+    );
   }
 }
 
