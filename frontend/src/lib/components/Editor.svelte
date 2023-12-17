@@ -32,7 +32,13 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-	import { dbSchemas, type DBSchema, copilotInfo, codeCompletionSessionEnabled } from '$lib/stores'
+	import {
+		dbSchemas,
+		type DBSchema,
+		copilotInfo,
+		codeCompletionSessionEnabled,
+		lspTokenStore
+	} from '$lib/stores'
 
 	import {
 		createHash as randomHash,
@@ -692,11 +698,16 @@
 		let encodedImportMap = ''
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
-				let expiration = new Date()
-				expiration.setHours(expiration.getHours() + 2)
-				const token = await UserService.createToken({
-					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-				})
+				let token = $lspTokenStore
+				if (!token) {
+					let expiration = new Date()
+					expiration.setHours(expiration.getHours() + 72)
+					const newToken = await UserService.createToken({
+						requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+					})
+					$lspTokenStore = newToken
+					token = newToken
+				}
 				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 				const importMap = {
 					imports: {
