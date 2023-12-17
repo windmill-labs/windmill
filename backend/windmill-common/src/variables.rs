@@ -181,12 +181,12 @@ pub async fn get_reserved_variables(
         ContextualVariable {
             name: "WM_STATE_PATH".to_string(),
             value: state_path.clone(),
-            description: "State resource path unique to a script and its trigger".to_string(),
+            description: "State resource path unique to a script and its trigger (legacy)".to_string(),
         },
         ContextualVariable {
             name: "WM_STATE_PATH_NEW".to_string(),
             value: state_path,
-            description: "State resource path unique to a script and its trigger (legacy)".to_string(),
+            description: "State resource path unique to a script and its trigger".to_string(),
         },
         ContextualVariable {
             name: "WM_FLOW_STEP_ID".to_string(),
