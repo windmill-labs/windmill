@@ -150,7 +150,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
     } else {
         let reason: String = reason
             .clone()
-            .unwrap_or_else(|| "unexplicited reasons".to_string());
+            .unwrap_or_else(|| "unspecified reasons".to_string());
         let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
         let add_job = add_completed_job_error(
             &db,
