@@ -398,7 +398,6 @@
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
-				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
 				{:else if $userStore?.is_admin}
@@ -408,6 +407,7 @@
 						options={{ right: `Only f/* and u/${$userStore.username}` }}
 					/>
 				{/if}
+				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
 						wrapperClasses="mb-0.5"
