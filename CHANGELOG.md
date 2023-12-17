@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.227.1](https://github.com/windmill-labs/windmill/compare/v1.227.0...v1.227.1) (2023-12-17)
+
+
+### Bug Fixes
+
+* improve on click behavior of tree view ([fa7261f](https://github.com/windmill-labs/windmill/commit/fa7261f273b517acd85a8c3f465cd8095cdf9f3c))
+
 ## [1.227.0](https://github.com/windmill-labs/windmill/compare/v1.226.1...v1.227.0) (2023-12-17)
 
 
