@@ -24,7 +24,7 @@
 		opened = !collapseAll
 	}
 
-	let showMax = 30
+	let showMax = 15
 </script>
 
 {#if isFolder(item)}
