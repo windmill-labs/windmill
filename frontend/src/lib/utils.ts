@@ -765,9 +765,9 @@ export function computeShow(argName: string, expr: string | undefined, args: any
 	return true
 }
 
-function urlizeTokenInternal(token: string, formatter: "html" | "md"): string {
+function urlizeTokenInternal(token: string, formatter: 'html' | 'md'): string {
 	if (token.startsWith('http://') || token.startsWith('https://')) {
-		if (formatter == "html") {
+		if (formatter == 'html') {
 			return `<a href="${token}" target="_blank" rel="noopener noreferrer">${token}</a>`
 		} else {
 			return `[${token}](${token})`
@@ -777,17 +777,32 @@ function urlizeTokenInternal(token: string, formatter: "html" | "md"): string {
 	}
 }
 
-export function urlize(input: string, formatter: "html" | "md"): string {
+export function urlize(input: string, formatter: 'html' | 'md'): string {
 	if (!input) return ''
-	
+
 	return input
 		.split('\n')
-		.map(line => {
+		.map((line) => {
 			return line
 				.split(' ')
 				.map((word) => urlizeTokenInternal(word, formatter))
 				.join(' ')
 		})
 		.join('\n')
+}
 
+export function storeLocalSetting(name: string, value: string | undefined) {
+	if (value != undefined) {
+		localStorage.setItem(name, value)
+	} else {
+		localStorage.removeItem(name)
+	}
+}
+
+export function getLocalSetting(name: string) {
+	try {
+		return localStorage.getItem(name)
+	} catch (e) {
+		return undefined
+	}
 }
