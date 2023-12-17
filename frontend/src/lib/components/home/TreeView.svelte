@@ -56,7 +56,7 @@
 					</div>
 				</div>
 			</div>
-			<button class="w-full flex flex-row-reverse" on:click={() => (opened = !opened)}>
+			<button class="w-full flex flex-row-reverse">
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
@@ -121,7 +121,7 @@
 					>
 				</div>
 			</div>
-			<div class="w-full flex flex-row-reverse" on:click={() => (opened = !opened)}>
+			<div class="w-full flex flex-row-reverse">
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
