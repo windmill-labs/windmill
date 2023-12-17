@@ -48,6 +48,10 @@
 	let shareModal: ShareModal
 	let deploymentInProgress = false
 
+	let scheduledForStr: string | undefined = undefined
+	let invisible_to_owner: false | undefined = undefined
+	let overrideTag: string | undefined = undefined
+
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
 	$: {
@@ -85,7 +89,8 @@
 	async function runFlow(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
-		invisibleToOwner?: boolean
+		invisibleToOwner: boolean | undefined,
+		overrideTag: string | undefined
 	) {
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -94,7 +99,8 @@
 			path,
 			invisibleToOwner,
 			requestBody: args,
-			scheduledFor
+			scheduledFor,
+			tag: overrideTag
 		})
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
@@ -308,6 +314,9 @@
 							{/if}
 
 							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
 								viewKeybinding
 								{loading}
 								autofocus

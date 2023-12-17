@@ -150,7 +150,7 @@
 				<div class="w-40">
 					{#if $flowStore.tag == undefined}
 						<select
-							placeholder="Worker group"
+							placeholder="Tag"
 							bind:value={module.value.tag}
 							on:change={(e) => {
 								if (module.value.type === 'rawscript') {
@@ -163,7 +163,7 @@
 							{#if module.value.tag}
 								<option value="">reset to default</option>
 							{:else}
-								<option value="" disabled selected>Worker Group</option>
+								<option value="" disabled selected>Tag</option>
 							{/if}
 							{#each $workerTags ?? [] as tag (tag)}
 								<option value={tag}>{tag}</option>

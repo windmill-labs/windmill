@@ -1,29 +1,20 @@
 <script lang="ts">
-	import {
-		defaultIfEmptyString,
-		emptyString,
-		getModifierKey,
-		getToday,
-		truncateHash
-	} from '$lib/utils'
+	import { defaultIfEmptyString, emptyString, getModifierKey, truncateHash } from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
-	import { userStore } from '$lib/stores'
 	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button, Kbd } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
-	import Toggle from './Toggle.svelte'
-	import Tooltip from './Tooltip.svelte'
+
 	import CollapseLink from './CollapseLink.svelte'
-	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI, SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
+	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI } from '$lib/consts'
 	import TimeAgo from './TimeAgo.svelte'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Popup from './common/popup/Popup.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar } from 'lucide-svelte'
-	import CloseButton from './common/CloseButton.svelte'
-	import Label from './Label.svelte'
+	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
 
 	export let runnable:
 		| {
@@ -43,7 +34,8 @@
 	export let runAction: (
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
-		invisible_to_owner?: boolean
+		invisible_to_owner: boolean | undefined,
+		overrideTag: string | undefined
 	) => void
 	export let buttonText = 'Run'
 	export let schedulable = true
@@ -56,6 +48,10 @@
 	export let isFlow: boolean
 	export let viewKeybinding = false
 
+	export let scheduledForStr: string | undefined
+	export let invisible_to_owner: false | undefined
+	export let overrideTag: string | undefined
+
 	export let args: Record<string, any> = {}
 
 	let reloadArgs = 0
@@ -67,13 +63,10 @@
 	}
 
 	export function run() {
-		runAction(scheduledForStr, args, invisible_to_owner)
+		runAction(scheduledForStr, args, invisible_to_owner, overrideTag)
 	}
 
 	export let isValid = true
-
-	let scheduledForStr: string | undefined
-	let invisible_to_owner: false
 
 	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
 		args
@@ -127,7 +120,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}
-			on:click={() => runAction(undefined, args)}
+			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
 		>
 			{buttonText}
 		</Button>
@@ -160,7 +153,7 @@
 					color="dark"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid}
-					on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
+					on:click={() => runAction(scheduledForStr, args, invisible_to_owner, overrideTag)}
 				>
 					{#if viewKeybinding}
 						<div class="inline-flex gap-0 items-center">
@@ -194,67 +187,32 @@
 								>Advanced</Button
 							>
 						</svelte:fragment>
-						<div class="flex flex-col gap-4 p-2">
-							<div class="flex flex-col gap-2">
-								{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
-									<div class="">
-										<Label label="Schedule to run later">
-											<svelte:fragment slot="action">
-												<CloseButton on:close={() => close(null)} noBg />
-											</svelte:fragment>
-										</Label>
-
-										<div class="flex flex-row items-end">
-											<div class="w-max md:w-2/3 mt-2 mb-1">
-												<label for="run-time" />
-												<input
-													class="inline-block"
-													type="datetime-local"
-													id="run-time"
-													name="run-scheduled-time"
-													bind:value={scheduledForStr}
-													min={getToday().toISOString().slice(0, 16)}
-												/>
-											</div>
-											<Button
-												variant="border"
-												color="light"
-												size="sm"
-												btnClasses="mx-2 mb-1"
-												on:click={() => {
-													scheduledForStr = undefined
-												}}
-											>
-												Clear
-											</Button>
-										</div>
-									</div>
-								{/if}
-							</div>
-							{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
-								<div class="flex items-center gap-1">
-									<Toggle
-										options={{
-											right: `make run invisible to others`
-										}}
-										bind:checked={invisible_to_owner}
-									/>
-									<Tooltip
-										>By default, runs are visible to the owner(s) of the script or flow being
-										triggered</Tooltip
-									>
-								</div>
-							{/if}
-						</div>
+						<RunFormAdvancedPopup
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							bind:runnable
+							on:close={() => close(null)}
+						/>
 					</Popup>
 				</div>
 			</div>
+			{#if overrideTag}
+				<div class="flex-row-reverse flex w-full text-primary text-sm">
+					tag override: {overrideTag}
+				</div>
+			{/if}
+			{#if invisible_to_owner}
+				<div class="flex-row-reverse flex w-full text-primary text-sm">
+					Job will be invisible to owner
+				</div>
+			{/if}
 		</div>
 	{:else if !topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}
-			on:click={() => runAction(undefined, args, invisible_to_owner)}
+			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
 		>
 			{#if viewKeybinding}
 				<div>

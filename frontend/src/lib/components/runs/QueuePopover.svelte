@@ -9,7 +9,12 @@
 
 	getQueuedJobs()
 	async function getQueuedJobs() {
-		jobs = await JobService.listQueue({ workspace: $workspaceStore ?? '' })
+		jobs = await JobService.listQueue({
+			workspace: $workspaceStore ?? '',
+			scheduledForBeforeNow: true,
+			suspended: false,
+			running: false
+		})
 	}
 </script>
 
