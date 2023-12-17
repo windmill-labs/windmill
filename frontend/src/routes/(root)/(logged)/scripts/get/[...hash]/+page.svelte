@@ -71,6 +71,10 @@
 	let shareModal: ShareModal
 	let runForm: RunForm
 
+	let scheduledForStr: string | undefined = undefined
+	let invisible_to_owner: false | undefined = undefined
+	let overrideTag: string | undefined = undefined
+
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
 	$: loading = !script
@@ -172,7 +176,8 @@
 	async function runScript(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
-		invisibleToOwner?: boolean
+		invisibleToOwner: boolean | undefined,
+		overrideTag: string | undefined
 	) {
 		try {
 			runLoading = true
@@ -182,7 +187,8 @@
 				hash: script?.hash ?? '',
 				requestBody: args,
 				scheduledFor,
-				invisibleToOwner
+				invisibleToOwner,
+				tag: overrideTag
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
@@ -515,6 +521,9 @@
 				{/if}
 
 				<RunForm
+					bind:scheduledForStr
+					bind:invisible_to_owner
+					bind:overrideTag
 					viewKeybinding
 					loading={runLoading}
 					autofocus
