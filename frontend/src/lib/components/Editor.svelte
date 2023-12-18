@@ -65,6 +65,8 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
+	import { setupTypeAcquisition } from '@windmill-labs/ata/dist/index'
+	import { initWasm, parseDeps } from '$lib/infer'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -698,6 +700,12 @@
 		let encodedImportMap = ''
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
+				ata = undefined
+				languages.typescript.typescriptDefaults.setModeConfiguration({
+					completionItems: false,
+					definitions: false,
+					hovers: false
+				})
 				let token = $lspTokenStore
 				if (!token) {
 					let expiration = new Date()
@@ -769,21 +777,48 @@
 					}
 				)
 			} else if (lang === 'typescript' && scriptLang !== 'deno') {
-				await connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/bun`,
-					'bun',
-					{},
-					(params, token, next) => {
-						return [
-							{
-								diagnostics: {
-									ignoredCodes: [2307]
-								},
-								enable: true
-							}
-						]
+				languages.typescript.typescriptDefaults.setModeConfiguration({
+					completionItems: true,
+					definitions: true,
+					hovers: true,
+					diagnostics: true
+				})
+				languages.typescript.typescriptDefaults.setCompilerOptions({
+					target: languages.typescript.ScriptTarget.Latest,
+					allowNonTsExtensions: true,
+					noSemanticValidation: false,
+					noLib: false,
+					moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+				})
+				// In the future it'd be good to add support for an 'add many files'
+				const addLibraryToRuntime = (code: string, _path: string) => {
+					const path = 'file://' + _path
+					languages.typescript.typescriptDefaults.addExtraLib(code, path)
+					const uri = mUri.file(path)
+					if (meditor.getModel(uri) === null) {
+						meditor.createModel(code, 'javascript', uri)
 					}
-				)
+					console.debug(`[ATA] Adding ${path} to runtime`)
+				}
+				await initWasm()
+				ata = setupTypeAcquisition({
+					projectName: 'TypeScript Playground',
+					depsParser: (c) => parseDeps(c),
+					logger: console,
+					delegate: {
+						receivedFile: addLibraryToRuntime,
+						progress: (downloaded: number, total: number) => {
+							// console.log({ dl, ttl })
+						},
+						started: () => {
+							console.log('ATA start')
+						},
+						finished: (f) => {
+							console.log('ATA done')
+						}
+					}
+				})
+				ata?.(code)
 			} else if (lang === 'python') {
 				await connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/pyright`,
@@ -970,6 +1005,8 @@
 	}
 
 	let initialized = false
+	let ata: ((s: string) => void) | undefined = undefined
+
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
@@ -1004,12 +1041,6 @@
 			folding
 		})
 
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: false,
-			definitions: false,
-			hovers: false
-		})
-
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
@@ -1017,6 +1048,7 @@
 				let ncode = getCode()
 				if (ncode != '' || listenEmptyChanges) {
 					code = ncode
+					ata?.(code)
 					dispatch('change', code)
 				}
 			}, 500)
