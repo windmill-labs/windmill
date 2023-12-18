@@ -13,6 +13,8 @@ from typing import Dict, Any, Union, Literal
 
 import httpx
 
+from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings
+
 _client: "Windmill | None" = None
 
 logger = logging.getLogger("windmill_client")
@@ -318,16 +320,17 @@ class Windmill:
         self,
         s3_resource_path: str = "",
         none_if_undefined: bool = False,
-    ) -> Union[str, None]:
+    ) -> DuckDbConnectionSettings | None:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from DuckDB
         """
         try:
-            return self.post(
+            raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
                 json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
+            return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             if none_if_undefined:
                 return None
@@ -337,16 +340,17 @@ class Windmill:
         self,
         s3_resource_path: str = "",
         none_if_undefined: bool = False,
-    ) -> Any:
+    ) -> PolarsConnectionSettings | None:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from Polars
         """
         try:
-            return self.post(
+            raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
                 json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
+            return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             if none_if_undefined:
                 return None
@@ -356,16 +360,22 @@ class Windmill:
         self,
         s3_resource_path: str = "",
         none_if_undefined: bool = False,
-    ) -> Any:
+    ) -> Boto3ConnectionSettings | None:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection using boto3
         """
         try:
-            return self.post(
+            raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/boto3_connection_settings",
                 json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
+            if "config" in raw_obj:
+                # for now we return only addressing_style and boto3 defaults to 'auto' by default. No need to pass it
+                # to the actual client. If at some point we add more attributes to the config, we will need to convert is
+                # here. For now this allows us to not depend on boto3 in the SDK, which is nice
+                del raw_obj["config"]
+            return Boto3ConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             if none_if_undefined:
                 return None

@@ -1,5 +1,6 @@
 import { ResourceService, VariableService, JobService, HelpersService } from "./index";
 import { OpenAPI } from "./index";
+import { DenoS3LightClientSettings } from "./s3Types";
 
 export {
   AdminService,
@@ -247,24 +248,45 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
 }
 
-export async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
-  const workspace = getWorkspace();
-  return await HelpersService.polarsConnectionSettingsV2({
-    workspace: workspace,
-		requestBody: {
-			s3_resource_path: s3_resource_path
-		}
-  });
-}
+// TODO(gb): need to investigate more how Polars and DuckDB work in TS
+// export async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+//   const workspace = getWorkspace();
+//   return await HelpersService.polarsConnectionSettingsV2({
+//     workspace: workspace,
+// 		requestBody: {
+// 			s3_resource_path: s3_resource_path
+// 		}
+//   });
+// }
 
-export async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+// export async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+//   const workspace = getWorkspace();
+//   return await HelpersService.duckdbConnectionSettingsV2({
+//     workspace: workspace,
+// 		requestBody: {
+// 			s3_resource_path: s3_resource_path
+// 		}
+//   });
+// }
+
+export async function denoS3LightClient(s3_resource_path: string | undefined): DenoS3LightClientSettings {
   const workspace = getWorkspace();
-  return await HelpersService.duckdbConnectionSettingsV2({
+  const boto3_settings = await HelpersService.boto3ConnectionSettings({
     workspace: workspace,
-		requestBody: {
-			s3_resource_path: s3_resource_path
-		}
+    requestBody: {
+      s3_resource_path: s3_resource_path
+    }
   });
+  let settings: DenoS3LightClientSettings = {
+    endPoint: boto3_settings["endPoint"],
+    region: boto3_settings["region"],
+    bucket: boto3_settings["bucket"],
+    useSSL: boto3_settings["useSSL"] ? boto3_settings["useSSL"] : false,
+    accessKey: boto3_settings["accessKey"],
+    secretKey: boto3_settings["secretKey"],
+    pathStyle: (boto3_settings["config"] ? boto3_settings["config"]["s3"] ? boto3_settings["config"]["s3"]["addressing_style"] ? boto3_settings["config"]["s3"]["addressing_style"] : false : false : false)
+  }
+  return settings;
 }
 
 /**
