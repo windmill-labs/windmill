@@ -170,6 +170,9 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
+export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'>
+// #TypeAnchor
+
 export type DecisionTreeNode = {
 	id: string
 	label: string
@@ -185,6 +188,7 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 }
 
 export type TypedComponent =
+	| DBExplorerComponent
 	| DisplayComponent
 	| LogComponent
 	| JobIdLogComponent
@@ -2944,6 +2948,56 @@ This is a paragraph.
 					next: []
 				}
 			] as DecisionTreeNode[]
+		}
+	},
+	dbexplorercomponent: {
+		name: 'DBExplorer',
+		icon: BoxSelect,
+		documentationLink: `${documentationBaseUrl}/dbexplorer`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'oneOf',
+					selected: 'postgresql',
+					labels: {
+						postgresql: 'PostgreSQL',
+						mysql: 'MySQL'
+					},
+					tooltip:
+						'The color of the button can be overridden by the `background-color` property in the styling menu',
+					configuration: {
+						postgresql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								type: 'static',
+								fieldType: 'text',
+								value: ''
+							},
+							columns: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'text',
+								value: [],
+								tooltip: 'Leave empty to select all columns'
+							} as StaticAppInput,
+							pageSize: {
+								type: 'static',
+								fieldType: 'number',
+								value: 10
+							}
+						}
+					}
+				} as const
+			},
+			componentInput: undefined
 		}
 	}
 } as const
