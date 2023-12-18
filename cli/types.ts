@@ -93,34 +93,35 @@ export function showConflict(path: string, local: string, remote: string) {
   log.info("\n");
 }
 
-export function pushObj(
+export async function pushObj(
   workspace: string,
   p: string,
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
-  checkForCreate: boolean,
-  message?: string,
+  message?: string
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    pushApp(workspace, p, befObj, newObj, checkForCreate, message);
+    await pushApp(workspace, p, befObj, newObj, message);
   } else if (typeEnding === "folder") {
-    pushFolder(workspace, p, befObj, newObj, checkForCreate);
+    await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
+    await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = p.split(".flow/")[0];
-    pushFlow(workspace, flowName, flowName + ".flow", message);
+    const flowName = p.split(".flow" + path.sep)[0];
+    await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
-    pushResource(workspace, p, befObj, newObj, checkForCreate);
+    await pushResource(workspace, p, befObj, newObj);
   } else if (typeEnding === "resource-type") {
-    pushResourceType(workspace, p, befObj, newObj, checkForCreate);
+    await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
-    pushSchedule(workspace, p, befObj, newObj, checkForCreate);
+    await pushSchedule(workspace, p, befObj, newObj);
   } else {
-    throw new Error("infer type unreachable");
+    throw new Error(
+      `The item ${p} has an unrecognized type ending ${typeEnding}`
+    );
   }
 }
 
@@ -151,7 +152,7 @@ export function getTypeStrFromPath(
   | "folder"
   | "app"
   | "schedule" {
-  if (p.includes(".flow/")) {
+  if (p.includes(".flow" + path.sep)) {
     return "flow";
   }
   const parsed = path.parse(p);

@@ -24,20 +24,18 @@ export async function pushResourceType(
   workspace: string,
   remotePath: string,
   resource: ResourceTypeFile | ResourceType | undefined,
-  localResource: ResourceTypeFile,
-  raw: boolean
+  localResource: ResourceTypeFile
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource-type");
-  if (raw) {
-    try {
-      resource = await ResourceService.getResourceType({
-        workspace: workspace,
-        path: remotePath,
-      });
-    } catch {
-      // resource type doesn't exist
-    }
+  try {
+    resource = await ResourceService.getResourceType({
+      workspace: workspace,
+      path: remotePath,
+    });
+  } catch {
+    // resource type doesn't exist
   }
+
   if (resource) {
     if (isSuperset(localResource, resource)) {
       return;
@@ -77,8 +75,7 @@ async function push(opts: PushOptions, filePath: string, name: string) {
     workspace.workspaceId,
     name,
     undefined,
-    parseFromFile(filePath),
-    true
+    parseFromFile(filePath)
   );
   log.info(colors.bold.underline.green("Resource pushed"));
 }

@@ -62,8 +62,8 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/main.sh"
-    dst: "/tmp/main.sh"
+    src: "{JOB_DIR}/main.ps1"
+    dst: "/tmp/main.ps1"
     is_bind: true
     mandatory: false
 }

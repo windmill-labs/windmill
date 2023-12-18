@@ -38,6 +38,7 @@
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import {
+		Activity,
 		Archive,
 		ArchiveRestore,
 		FolderOpen,
@@ -60,6 +61,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -68,6 +70,10 @@
 	let intervalId: NodeJS.Timeout
 	let shareModal: ShareModal
 	let runForm: RunForm
+
+	let scheduledForStr: string | undefined = undefined
+	let invisible_to_owner: false | undefined = undefined
+	let overrideTag: string | undefined = undefined
 
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
@@ -170,7 +176,8 @@
 	async function runScript(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
-		invisibleToOwner?: boolean
+		invisibleToOwner: boolean | undefined,
+		overrideTag: string | undefined
 	) {
 		try {
 			runLoading = true
@@ -180,7 +187,8 @@
 				hash: script?.hash ?? '',
 				requestBody: args,
 				scheduledFor,
-				invisibleToOwner
+				invisibleToOwner,
+				tag: overrideTag
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
@@ -198,6 +206,7 @@
 
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
+	let persistentScriptDrawer: PersistentScriptDrawer
 
 	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
 		const buttons: any = []
@@ -258,6 +267,21 @@
 					startIcon: Table2
 				}
 			})
+
+			if (script?.restart_unless_cancelled ?? false) {
+				buttons.push({
+					label: 'Current runs',
+					buttonProps: {
+						onClick: () => {
+							persistentScriptDrawer.open?.(script)
+						},
+						size: 'xs',
+						startIcon: Activity,
+						color: 'dark',
+						variant: 'contained'
+					}
+				})
+			}
 
 			buttons.push({
 				label: 'Edit',
@@ -394,6 +418,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 <ShareModal bind:this={shareModal} />
 
 {#if script}
@@ -428,6 +453,13 @@
 							{`Priority: ${script.priority}`}
 						</Badge>
 					</div>
+				{/if}
+				{#if script?.restart_unless_cancelled ?? false}
+					<button on:click={() => persistentScriptDrawer.open?.(script)}>
+						<div class="hidden md:block">
+							<Badge color="red" variant="outlined" size="xs">Persistent</Badge>
+						</div>
+					</button>
 				{/if}
 				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
 					<div class="hidden md:block">
@@ -489,6 +521,9 @@
 				{/if}
 
 				<RunForm
+					bind:scheduledForStr
+					bind:invisible_to_owner
+					bind:overrideTag
 					viewKeybinding
 					loading={runLoading}
 					autofocus

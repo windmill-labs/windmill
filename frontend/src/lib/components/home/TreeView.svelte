@@ -24,15 +24,16 @@
 		opened = !collapseAll
 	}
 
-	let showMax = 30
+	let showMax = 15
 </script>
 
 {#if isFolder(item)}
 	<div>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
-			class={twMerge(
-				'px-4 py-2 border-b border-t w-full flex flex-row items-center justify-between'
-			)}
+			on:click={() => (opened = !opened)}
+			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
@@ -55,7 +56,7 @@
 					</div>
 				</div>
 			</div>
-			<button class="w-full flex flex-row-reverse" on:click={() => (opened = !opened)}>
+			<button class="w-full flex flex-row-reverse">
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
@@ -97,7 +98,12 @@
 	</div>
 {:else if isUser(item)}
 	<div>
-		<div class={twMerge('px-4 py-2 border-b w-full flex flex-row items-center justify-between')}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div
+			on:click={() => (opened = !opened)}
+			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
@@ -115,13 +121,13 @@
 					>
 				</div>
 			</div>
-			<button class="w-full flex flex-row-reverse" on:click={() => (opened = !opened)}>
+			<div class="w-full flex flex-row-reverse">
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
 					<ChevronDown size={20} />
 				{/if}
-			</button>
+			</div>
 		</div>
 		{#if opened}
 			<div>

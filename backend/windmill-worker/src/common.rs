@@ -585,7 +585,11 @@ pub async fn handle_child(
         };
 
         /* log_remaining is zero when output limit was reached */
-        let mut log_remaining = max_log_size.saturating_sub(logs.chars().count());
+        let mut log_remaining =  if *CLOUD_HOSTED {
+            max_log_size.saturating_sub(logs.chars().count())
+        } else {
+            usize::MAX
+        };
         let mut result = io::Result::Ok(());
         let mut output = output.take_until(rx2.recv()).boxed();
         /* `do_write` resolves the task, but does not contain the Result.
@@ -615,7 +619,7 @@ pub async fn handle_child(
                         if line.is_empty() {
                             continue;
                         }
-                        append_with_limit(&mut joined, &line, &mut log_remaining);
+                        append_with_limit(&mut joined, &line, &mut log_remaining, child_name == "powershell run" || child_name == "bash run");
                         if log_remaining == 0 {
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                             let _ = set_too_many_logs.send(true);
@@ -802,11 +806,24 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
 
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
-fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
-    if *limit > 0 {
+fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize, remove_x00: bool) {
+    let src_str;
+    let src = if remove_x00 {
+        src_str = src.replace('\u{00}', "");
+        src_str.as_str()
+    } else {
+        src
+    };
+    if !*CLOUD_HOSTED {
         dst.push('\n');
+        dst.push_str(&src);
+        return;
+    } else {
+        if *limit > 0 {
+            dst.push('\n');
+        }
+        *limit -= 1;
     }
-    *limit -= 1;
 
     let src_len = src.chars().count();
     if src_len <= *limit {

@@ -27,7 +27,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
 	import ContentSearch from '../ContentSearch.svelte'
@@ -159,12 +159,29 @@
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 			  )
 
+	function filterItemsPathsBaseOnUserFilters(
+		item: TableScript | TableFlow | TableApp | TableRawApp,
+		filterUserFolders: boolean
+	) {
+		if (filterUserFolders) {
+			return !item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
+		} else {
+			return true
+		}
+	}
 	$: preFilteredItems =
 		ownerFilter != undefined
 			? combinedItems?.filter(
-					(x) => x.path.startsWith(ownerFilter ?? '') && (x.type == itemKind || itemKind == 'all')
+					(x) =>
+						x.path.startsWith(ownerFilter + '/' ?? '') &&
+						(x.type == itemKind || itemKind == 'all') &&
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
 			  )
-			: combinedItems?.filter((x) => x.type == itemKind || itemKind == 'all')
+			: combinedItems?.filter(
+					(x) =>
+						(x.type == itemKind || itemKind == 'all') &&
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+			  )
 
 	let ownerFilter: string | undefined = undefined
 
@@ -244,25 +261,15 @@
 	$: items && resetScroll()
 
 	let archived = false
-	let treeView = getTreeView()
 
-	$: storeTreeView(treeView)
+	const TREE_VIEW_SETTING_NAME = 'treeView'
+	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
+	let treeView = getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true'
+	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
 
-	function storeTreeView(treeView: boolean) {
-		if (treeView) {
-			localStorage.setItem('treeView', 'true')
-		} else {
-			localStorage.removeItem('treeView')
-		}
-	}
+	$: storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
+	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 
-	function getTreeView() {
-		try {
-			return localStorage.getItem('treeView') == 'true'
-		} catch (e) {
-			return false
-		}
-	}
 	let contentSearch: ContentSearch
 
 	let viewCodeDrawer: Drawer
@@ -391,6 +398,15 @@
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+				{:else if $userStore?.is_admin}
+					<Toggle
+						size="xs"
+						bind:checked={filterUserFolders}
+						options={{ right: `Only f/* and u/${$userStore.username}` }}
+					/>
+				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button

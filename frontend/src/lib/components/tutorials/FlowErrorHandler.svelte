@@ -25,7 +25,7 @@
 	getSteps={(driver) => [
 		{
 			popover: {
-				title: 'Welcome to the Windmil Flow editor',
+				title: 'Error handler tutorial',
 				description: 'Learn how to recover from an error. You can use arrow keys to navigate.',
 				onNextClick: () => {
 					$flowStore.value.modules = [

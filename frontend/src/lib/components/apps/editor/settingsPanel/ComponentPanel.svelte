@@ -37,6 +37,7 @@
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
+	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -246,7 +247,7 @@
 										<div class="flex flex-wrap gap-2 items-center">
 											<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
 											<div class="flex flex-wrap gap-1">
-												{#each componentSettings.item.data?.componentInput.connections as connection (connection.componentId + '-' + connection.id)}
+												{#each componentSettings.item.data?.componentInput.connections ?? [] as connection (connection.componentId + '-' + connection.id)}
 													<span
 														class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
 													>
@@ -336,6 +337,12 @@
 			<GridCondition
 				bind:conditions={componentSettings.item.data.conditions}
 				bind:component={componentSettings.item.data}
+			/>
+		{:else if componentSettings.item.data.type === 'decisiontreecomponent'}
+			<DecisionTreeGraphEditor
+				bind:nodes={componentSettings.item.data.nodes}
+				bind:component={componentSettings.item.data}
+				rebuildOnChange={componentSettings.item.data.nodes}
 			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane

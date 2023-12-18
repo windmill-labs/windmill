@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.226.0
+  version: 1.227.1
   title: Windmill API
 
   contact:
@@ -1788,6 +1788,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: include_encrypted
+          description: |
+            ask to include the encrypted value if secret and decrypt secret is not true (default: false)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: variable
@@ -2225,7 +2231,8 @@ paths:
 
   /w/{workspace}/resources/get_value_interpolated/{path}:
     get:
-      summary: get resource interpolated (variables and resources are fully unrolled)
+      summary:
+        get resource interpolated (variables and resources are fully unrolled)
       operationId: getResourceValueInterpolated
       tags:
         - resource
@@ -2913,7 +2920,8 @@ paths:
           schema:
             type: string
         - name: first_parent_hash
-          description: mask to filter scripts whom first direct parent has exact hash
+          description:
+            mask to filter scripts whom first direct parent has exact hash
           in: query
           schema:
             type: string
@@ -3108,7 +3116,8 @@ paths:
 
   /workers/custom_tags:
     get:
-      summary: get all instance custom tags (tags are used to dispatch jobs to
+      summary:
+        get all instance custom tags (tags are used to dispatch jobs to
         different worker groups)
       operationId: getCustomTags
       tags:
@@ -3159,7 +3168,8 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary: delete script by hash (erase content but keep hash, require admin)
+      summary:
+        delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -3398,14 +3408,17 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3465,6 +3478,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -3493,6 +3507,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -4436,15 +4451,18 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the flow owner (default false)
+          description:
+            make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4496,15 +4514,18 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the flow owner (default false)
+          description:
+            make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -4542,15 +4563,18 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4581,7 +4605,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4614,7 +4639,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -4655,6 +4681,7 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
+        - $ref: "#/components/parameters/ScheduledForBeforeNow"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/Running"
@@ -4791,6 +4818,7 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
+        - $ref: "#/components/parameters/ScheduledForBeforeNow"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -4829,7 +4857,8 @@ paths:
         - job
       responses:
         "200":
-          description: the timestamp of the db that can be used to compute the drift
+          description:
+            the timestamp of the db that can be used to compute the drift
           content:
             application/json:
               schema:
@@ -5009,6 +5038,34 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs_u/queue/cancel_persistent/{path}:
+    post:
+      summary: cancel all queued jobs for persistent script
+      operationId: cancelPersistentQueuedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: reason
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+
+      responses:
+        "200":
+          description: persistent job scaled down to zero
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/queue/force_cancel/{id}:
     post:
       summary: force cancel queued job
@@ -5065,7 +5122,8 @@ paths:
 
   /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
     get:
-      summary: get resume urls given a job_id, resume_id and a nonce to resume a flow
+      summary:
+        get resume urls given a job_id, resume_id and a nonce to resume a flow
       operationId: getResumeUrls
       tags:
         - job
@@ -5616,7 +5674,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description: only list the groups the user is member of (default false)
+          description:
+            only list the groups the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -5804,7 +5863,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description: only list the folders the user is member of (default false)
+          description:
+            only list the folders the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -6491,7 +6551,9 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: S3 resource path to use to generate the connection settings. If empty, the S3 resource defined in the workspace settings will be used
+        description:
+          S3 resource path to use to generate the connection settings. If empty,
+          the S3 resource defined in the workspace settings will be used
         required: true
         content:
           application/json:
@@ -6569,7 +6631,9 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: S3 resource path to use to generate the connection settings. If empty, the S3 resource defined in the workspace settings will be used
+        description:
+          S3 resource path to use to generate the connection settings. If empty,
+          the S3 resource defined in the workspace settings will be used
         required: true
         content:
           application/json:
@@ -6625,7 +6689,51 @@ paths:
                       - aws_allow_http
                 required:
                   - s3fs_args
-                  - cloud_options
+                  - polars_cloud_options
+  /w/{workspace}/job_helpers/v2/boto3_connection_settings:
+    post:
+      summary:
+        Converts an S3 resource to the set of arguments necessary to connect to
+        an S3 bucket using boto3 in Python
+      operationId: boto3ConnectionSettingsV2
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description:
+          S3 resource path to use to generate the connection settings. If empty,
+          the S3 resource defined in the workspace settings will be used
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_resource_path:
+                  type: string
+      responses:
+        "200":
+          description: Connection settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint_url:
+                    type: string
+                  region_name:
+                    type: string
+                  use_ssl:
+                    type: boolean
+                  aws_access_key_id:
+                    type: string
+                  aws_secret_access_key:
+                    type: string
+                required:
+                  - endpoint_url
+                  - region_name
+                  - use_ssl
 
   /w/{workspace}/job_helpers/test_connection:
     get:
@@ -6840,7 +6948,8 @@ components:
         type: integer
     PerPage:
       name: per_page
-      description: number of items to return for a given page (default 30, max 100)
+      description:
+        number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
@@ -6865,6 +6974,12 @@ components:
       schema:
         type: string
         format: uuid
+    WorkerTag:
+      name: tag
+      description: Override the tag to use
+      in: query
+      schema:
+        type: string
     NewJobId:
       name: job_id
       description:
@@ -6960,6 +7075,13 @@ components:
       in: query
       schema:
         type: boolean
+    ScheduledForBeforeNow:
+      name: scheduled_for_before_now
+      description:
+        filter on jobs scheduled_for before now (hence waitinf for a worker)
+      in: query
+      schema:
+        type: boolean
     Suspended:
       name: suspended
       description: filter on suspended jobs
@@ -6974,7 +7096,8 @@ components:
         type: boolean
     ArgsFilter:
       name: args
-      description: filter on jobs containing those args as a json subset (@> in postgres)
+      description:
+        filter on jobs containing those args as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -6986,7 +7109,8 @@ components:
         type: string
     ResultFilter:
       name: result
-      description: filter on jobs containing those result as a json subset (@> in postgres)
+      description:
+        filter on jobs containing those result as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -8819,6 +8943,8 @@ components:
         content_type:
           type: string
           enum: ["RawText", "Csv", "Parquet", "Unknown"]
+        download_url:
+          type: string
       required:
         - content_type
 

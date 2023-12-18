@@ -232,6 +232,7 @@ lazy_static::lazy_static! {
     pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref BUN_PATH: String = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
+    pub static ref POWERSHELL_PATH: String = std::env::var("POWERSHELL_PATH").unwrap_or_else(|_| "/usr/bin/pwsh".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
@@ -544,6 +545,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     base_internal_url: &str,
     rsmq: Option<R>,
     _sync_barrier: Arc<RwLock<Option<Barrier>>>,
+    agent_mode: bool,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
@@ -1363,7 +1365,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let duration_pull_s = timer.elapsed().as_secs_f64();
                     let err_pull = job.is_ok();
                     let empty = job.as_ref().is_ok_and(|x| x.is_none());
-                    if duration_pull_s > 0.5 {
+                    if !agent_mode && duration_pull_s > 0.5 {
                         tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                         if empty {
                             if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
@@ -1373,7 +1375,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             wp.inc();
                         }
 
-                    } else if duration_pull_s > 0.1 {
+                    } else if !agent_mode && duration_pull_s > 0.1 {
                         tracing::warn!("pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
                         if empty {
                             if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
@@ -1382,7 +1384,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
                             wp.inc();
                         }
-
                     }
                     if let Ok(j) = job.as_ref() {
                         if j.is_some() {

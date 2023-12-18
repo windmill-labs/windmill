@@ -9,8 +9,8 @@
 </script>
 
 <div class="w-full">
-	<div class="flex flex-row justify-between">
-		<h2 class="text-base font-semibold mb-2 flex flex-row gap-1">
+	<div class="flex flex-row justify-between items-center mb-2">
+		<h2 class="text-base font-semibold flex flex-row gap-1">
 			{label}
 			<slot name="header" />
 			{#if tooltip}

@@ -578,7 +578,7 @@
 										</Label>
 									</div>
 								</Section>
-								<Section label="Worker group tag">
+								<Section label="Worker Group Tag">
 									<svelte:fragment slot="header">
 										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
