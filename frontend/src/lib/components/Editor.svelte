@@ -65,7 +65,7 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
-	import { setupTypeAcquisition } from '@windmill-labs/ata/dist/index'
+	import { setupTypeAcquisition } from '$lib/ata/index'
 	import { initWasm, parseDeps } from '$lib/infer'
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -91,8 +91,7 @@
 		ruff: false,
 		deno: false,
 		go: false,
-		shellcheck: false,
-		bun: false
+		shellcheck: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -134,7 +133,7 @@
 
 	let destroyed = false
 	const uri =
-		lang == 'typescript' && scriptLang === 'deno'
+		lang == 'typescript'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -803,7 +802,10 @@
 				await initWasm()
 				ata = setupTypeAcquisition({
 					projectName: 'TypeScript Playground',
-					depsParser: (c) => parseDeps(c),
+					depsParser: (c) => {
+						const r = parseDeps(c)
+						return r
+					},
 					logger: console,
 					delegate: {
 						receivedFile: addLibraryToRuntime,
@@ -818,6 +820,7 @@
 						}
 					}
 				})
+				ata?.('import "bun-types"')
 				ata?.(code)
 			} else if (lang === 'python') {
 				await connectToLanguageServer(
@@ -934,7 +937,6 @@
 							!websocketAlive.deno &&
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
-							!websocketAlive.bun &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff
 						) {
@@ -1042,16 +1044,22 @@
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		let ataModel: NodeJS.Timeout | undefined = undefined
+
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
 				if (ncode != '' || listenEmptyChanges) {
 					code = ncode
-					ata?.(code)
 					dispatch('change', code)
 				}
 			}, 500)
+
+			ata && clearTimeout(ataModel)
+			ataModel = setTimeout(() => {
+				ata?.(getCode())
+			}, 1000)
 		})
 
 		editor.onDidBlurEditorText(() => {
@@ -1089,6 +1097,7 @@
 
 		return () => {
 			console.log('disposing editor')
+			ata = undefined
 			try {
 				closeWebsockets()
 				model?.dispose()
