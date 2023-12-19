@@ -10,12 +10,12 @@ export function makeQuery(
 	if (!table) throw new Error('Table name is required')
 
 	if (!pageSize) {
-		return `SELECT ${columns ? columns.join(', ') : '*'} FROM ${table}`
+		return `SELECT ${columns && columns.length > 0 ? columns.join(', ') : '*'} FROM ${table}`
 	}
 
-	return `SELECT ${columns ? columns.join(', ') : '*'} FROM ${table} LIMIT ${pageSize} OFFSET ${
-		pageSize * page
-	}`
+	return `SELECT ${
+		columns && columns.length > 0 ? columns.join(', ') : '*'
+	} FROM ${table} LIMIT ${pageSize} OFFSET ${pageSize * page}`
 }
 
 export function makeInsertQuery(table: string, values: string[]) {
@@ -28,7 +28,8 @@ export function createPostgresInput(
 	resource: string,
 	table: string | undefined,
 	columns: string[],
-	pageSize: number | undefined
+	pageSize: number | undefined,
+	page: number
 ): AppInput | undefined {
 	if (!resource || !table) {
 		// Return undefined if resource or table is not defined
@@ -39,7 +40,7 @@ export function createPostgresInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeQuery(table, columns, pageSize, 1),
+			content: makeQuery(table, columns, pageSize, page),
 			language: Preview.language.POSTGRESQL,
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -71,4 +72,54 @@ export function createPostgresInput(
 	}
 
 	return getQuery
+}
+
+export function createUpdatePostgresInput(
+	resource: string,
+	table: string | undefined,
+	rowIndex: number,
+	column: string,
+	value: string
+): AppInput | undefined {
+	if (!resource || !table) {
+		// Return undefined if resource or table is not defined
+		return undefined
+	}
+
+	const updateRunnable: RunnableByName = {
+		name: 'AppDbExplorer',
+		type: 'runnableByName',
+		inlineScript: {
+			content: `UPDATE ${table} SET ${column} = '${value}' WHERE id = ${rowIndex}`,
+			language: Preview.language.POSTGRESQL,
+			schema: {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				properties: {
+					database: {
+						description: 'Database name',
+						type: 'object',
+						format: 'resource-postgresql'
+					}
+				},
+				required: ['database'],
+				type: 'object'
+			}
+		}
+	}
+
+	const updateQuery: AppInput = {
+		runnable: updateRunnable,
+		fields: {
+			database: {
+				type: 'static',
+				value: resource,
+				fieldType: 'object',
+				format: 'resource-postgresql'
+			}
+		},
+		type: 'runnable',
+		fieldType: 'object'
+	}
+
+	return updateQuery
 }

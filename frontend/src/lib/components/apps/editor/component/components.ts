@@ -2995,7 +2995,62 @@ This is a paragraph.
 							}
 						}
 					}
-				} as const
+				} as const,
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'ag-grid',
+					value: [
+						{ field: 'id', flex: 1 },
+						{ field: 'name', editable: true, flex: 1 },
+						{ field: 'age', flex: 1 }
+					]
+				} as StaticAppInput,
+				flex: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip: 'default col flex is 1 (see ag-grid docs)'
+				},
+				allEditable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Configure all columns as Editable by users'
+				},
+				multipleSelectable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Make multiple rows selectable at once'
+				},
+				rowMultiselectWithClick: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip: 'If multiple selectable, allow multiselect with click'
+				},
+				pagination: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
+				},
+				selectFirstRowByDefault: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true as boolean,
+					tooltip: 'Select the first row by default on start'
+				},
+				extraConfig: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'any configuration that can be passed to ag-grid top level'
+				}
 			},
 			componentInput: undefined
 		}

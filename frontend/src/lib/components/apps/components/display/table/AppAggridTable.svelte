@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -110,6 +110,8 @@
 	let clientHeight
 	let clientWidth
 
+	const dispatch = createEventDispatcher()
+
 	function onCellValueChanged(event) {
 		if (result) {
 			let dataCell = event.newValue
@@ -124,6 +126,12 @@
 			result[event.node.rowIndex][event.colDef.field] = dataCell
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
+
+			dispatch('update', {
+				row: event.node.rowIndex,
+				column: event.colDef.field,
+				value: dataCell
+			})
 		}
 	}
 
