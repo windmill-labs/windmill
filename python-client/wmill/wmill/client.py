@@ -366,16 +366,22 @@ class Windmill:
         initiate an S3 connection using boto3
         """
         try:
-            raw_obj = self.post(
-                f"/w/{self.workspace}/job_helpers/v2/boto3_connection_settings",
+            s3_resource = self.post(
+                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
                 json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
-            if "config" in raw_obj:
-                # for now we return only addressing_style and boto3 defaults to 'auto' by default. No need to pass it
-                # to the actual client. If at some point we add more attributes to the config, we will need to convert is
-                # here. For now this allows us to not depend on boto3 in the SDK, which is nice
-                del raw_obj["config"]
-            return Boto3ConnectionSettings(raw_obj)
+            endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
+            boto3_settings = Boto3ConnectionSettings(
+                {
+                    "endpoint_url": "{}{}".format(endpoint_url_prefix, s3_resource["endPoint"]),
+                    "region_name": s3_resource["region"],
+                    "use_ssl": s3_resource["useSSL"],
+                    "aws_access_key_id": s3_resource["accessKey"],
+                    "aws_secret_access_key": s3_resource["secretKey"],
+                    # no need for path_style here as boto3 is clever enough to determine which one to use
+                }
+            )
+            return boto3_settings
         except JSONDecodeError as e:
             if none_if_undefined:
                 return None

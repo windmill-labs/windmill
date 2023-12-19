@@ -269,22 +269,16 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 //   });
 // }
 
-export async function denoS3LightClient(s3_resource_path: string | undefined): DenoS3LightClientSettings {
+export async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings> {
   const workspace = getWorkspace();
-  const boto3_settings = await HelpersService.boto3ConnectionSettings({
+  const s3Resource = await HelpersService.s3ResourceInfo({
     workspace: workspace,
     requestBody: {
       s3_resource_path: s3_resource_path
     }
   });
   let settings: DenoS3LightClientSettings = {
-    endPoint: boto3_settings["endPoint"],
-    region: boto3_settings["region"],
-    bucket: boto3_settings["bucket"],
-    useSSL: boto3_settings["useSSL"] ? boto3_settings["useSSL"] : false,
-    accessKey: boto3_settings["accessKey"],
-    secretKey: boto3_settings["secretKey"],
-    pathStyle: (boto3_settings["config"] ? boto3_settings["config"]["s3"] ? boto3_settings["config"]["s3"]["addressing_style"] ? boto3_settings["config"]["s3"]["addressing_style"] : false : false : false)
+    ...s3Resource,
   }
   return settings;
 }
@@ -292,7 +286,7 @@ export async function denoS3LightClient(s3_resource_path: string | undefined): D
 /**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name
- * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
+ * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
 export async function getResumeUrls(approver?: string): Promise<{
   approvalPage: string;

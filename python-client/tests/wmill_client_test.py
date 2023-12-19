@@ -4,7 +4,7 @@ import os
 
 
 class TestStringMethods(unittest.TestCase):
-    _token = "<WM_TOKEN>"
+    _token = "o2oFNmqEPpF4pSJ8IICunWrYfwN7cX"
     _workspace = "storage"
     _host = "http://localhost:8000"
     _resource_path = "u/admin/docker_minio"
