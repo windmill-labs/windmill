@@ -748,5 +748,8 @@ export const quickStyleProperties: Record<
 	statcomponent: {},
 	menucomponent: {
 		button: buttonDefaultProps
+	},
+	decisiontreecomponent: {
+		container: containerDefaultProps
 	}
 }

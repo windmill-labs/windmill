@@ -33,6 +33,7 @@
 	export let prettifyHeader = false
 	export let disablePortal = false
 	export let showSchemaExplorer = false
+	export let showReset = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -41,6 +42,17 @@
 
 	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
+	}
+
+	export function setDefaults() {
+		const nargs = {}
+
+		Object.keys(schema?.properties ?? {}).forEach((key) => {
+			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+				nargs[key] = schema?.properties[key].default
+			}
+		})
+		args = nargs
 	}
 
 	function removeExtraKey() {
@@ -79,6 +91,13 @@
 	loadResourceTypes()
 </script>
 
+{#if showReset}
+	<div class="flex flex-row-reverse w-full">
+		<Button size="xs" color="light" on:click={() => setDefaults()}
+			>Reset args to runnable's defaults</Button
+		>
+	</div>
+{/if}
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}

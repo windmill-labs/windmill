@@ -65,6 +65,7 @@
 	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
 	import AppStatCard from '../../components/display/AppStatCard.svelte'
 	import AppMenu from '../../components/display/AppMenu.svelte'
+	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -694,6 +695,14 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				menuItems={component.menuItems}
+				{render}
+			/>
+		{:else if component.type === 'decisiontreecomponent' && component.nodes}
+			<AppDecisionTree
+				id={component.id}
+				nodes={component.nodes}
+				customCss={component.customCss}
+				{componentContainerHeight}
 				{render}
 			/>
 		{/if}

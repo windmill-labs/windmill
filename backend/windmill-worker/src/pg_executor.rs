@@ -67,7 +67,12 @@ pub async fn do_postgresql(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
-    let sslmode = database.sslmode.unwrap_or("prefer".to_string());
+    let sslmode = match database.sslmode.as_deref() {
+        Some("allow") => "prefer".to_string(),
+        Some("verify-ca") | Some("verify-full") => "require".to_string(),
+        Some(s) => s.to_string(),
+        None => "prefer".to_string(),
+    };
     let database_string = format!(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
         user = encode(&database.user.unwrap_or("postgres".to_string())),

@@ -6,13 +6,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate, sleep, sendUserToast } from '$lib/utils'
 	import TableCustom from './TableCustom.svelte'
-	import { Hourglass, Loader2, Play } from 'lucide-svelte'
+	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'
 
 	let dispatch = createEventDispatcher()
 	let drawer: Drawer
 
 	let script: Script
 	let loadQueuedJobs = true
+	let queuedJobsLoading = false
 	let queuedJobs: {
 		status: 'running' | 'queued'
 		jobId: string
@@ -20,33 +21,50 @@
 		scriptHash: string
 	}[] = []
 
+	let cancellingInProgress = false
+
 	async function continuouslyLoadQueuedJobs() {
 		while (loadQueuedJobs) {
-			let qjs = await JobService.listQueue({
-				workspace: $workspaceStore ?? '',
-				orderDesc: false,
-				scriptPathExact: script.path
-			})
-			let loadingQueuedJobs: {
-				status: 'running' | 'queued'
-				jobId: string
-				scheduledFor: string
-				scriptHash: string
-			}[] = []
-			for (const qj of qjs) {
-				loadingQueuedJobs.push({
-					status: qj.started_at ? 'running' : 'queued',
-					jobId: qj.id,
-					scriptHash: qj.script_hash ?? '',
-					scheduledFor: displayDate(qj.scheduled_for, true)
-				})
-			}
-			queuedJobs = loadingQueuedJobs
+			loadQueuedJobsOnce()
 			await sleep(3 * 1000)
 		}
 	}
 
+	async function loadQueuedJobsOnce() {
+		if (queuedJobsLoading) {
+			return
+		}
+		const timeStart = new Date().getTime()
+		queuedJobsLoading = true
+		let qjs = await JobService.listQueue({
+			workspace: $workspaceStore ?? '',
+			orderDesc: false,
+			scriptPathExact: script.path
+		})
+		let loadingQueuedJobs: {
+			status: 'running' | 'queued'
+			jobId: string
+			scheduledFor: string
+			scriptHash: string
+		}[] = []
+		for (const qj of qjs) {
+			loadingQueuedJobs.push({
+				status: qj.started_at ? 'running' : 'queued',
+				jobId: qj.id,
+				scriptHash: qj.script_hash ?? '',
+				scheduledFor: displayDate(qj.scheduled_for, true)
+			})
+		}
+		queuedJobs = loadingQueuedJobs
+		const endStart = new Date().getTime()
+		// toggle queuedJobsLoading to false in 1 secs to let some time for the animation to play
+		setTimeout(() => {
+			queuedJobsLoading = false
+		}, 1000 - (endStart - timeStart))
+	}
+
 	async function scaleToZero() {
+		cancellingInProgress = true
 		await JobService.cancelPersistentQueuedJobs({
 			workspace: $workspaceStore ?? '',
 			path: script.path,
@@ -55,6 +73,7 @@
 			}
 		})
 		sendUserToast(`All jobs cancelled for ${script.path}`)
+		cancellingInProgress = false
 	}
 
 	export async function open(persistentScript: Script | undefined) {
@@ -62,7 +81,6 @@
 			console.log('Unable to open persistent script drawer without a proper script definition')
 			return
 		}
-		console.log('opening drawer')
 		script = persistentScript!
 		loadQueuedJobs = true
 		continuouslyLoadQueuedJobs()
@@ -71,7 +89,6 @@
 
 	async function exit() {
 		loadQueuedJobs = false
-		console.log('closing drawer')
 		drawer.closeDrawer?.()
 	}
 </script>
@@ -90,9 +107,20 @@
 		on:close={exit}
 		tooltip="Manage runs of persistent scripts. Scaling a persistent script to zero will cancel all current runs of this script based on the script path."
 	>
-		<h2 class="flex gap-2 items-center">
-			<Loader2 class={loadQueuedJobs ? 'animate-spin' : ''} />Queued jobs for {script.path}
-		</h2>
+		<div class="flex gap-2 items-center justify-between">
+			<h2>
+				Queued jobs for {script.path}
+			</h2>
+			<Button
+				color="light"
+				size="md"
+				btnClasses="w-full h-8"
+				variant="border"
+				on:click={loadQueuedJobsOnce}
+			>
+				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size="xs" />Refresh
+			</Button>
+		</div>
 		<TableCustom>
 			<tr slot="header-row">
 				<th class="text-xs">Script Hash</th>
@@ -135,9 +163,17 @@
 		</TableCustom>
 
 		<div slot="actions" class="flex gap-1">
-			<Button color="red" disabled={queuedJobs.length === 0} on:click={scaleToZero}
-				>Scale down to 0</Button
+			<Button
+				color="red"
+				disabled={cancellingInProgress === true || queuedJobs.length === 0}
+				on:click={scaleToZero}
 			>
+				{#if cancellingInProgress}
+					<Loader2 class="animate-spin" /> Stopping jobs
+				{:else}
+					Scale down to 0
+				{/if}
+			</Button>
 		</div>
 	</DrawerContent>
 </Drawer>

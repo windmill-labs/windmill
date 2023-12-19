@@ -2073,7 +2073,7 @@ async fn create_token(
         &mut *tx,
         &email,
         "users.token.create",
-        ActionKind::Delete,
+        ActionKind::Create,
         &"global",
         Some(&token[0..10]),
         None,

@@ -105,6 +105,12 @@ async fn main() -> anyhow::Result<()> {
                 if std::env::var("JOB_TOKEN").is_err() {
                     tracing::warn!("JOB_TOKEN is not passed, hence workers will still create one ephemeral token per job and the DATABASE_URL need to be of a role that can INSERT into the token table")
                 }
+
+                #[cfg(not(feature = "enterprise"))]
+                {
+                    panic!("Agent mode is only available in the EE, ignoring...");
+                }
+
                 Mode::Agent
             } else {
                 if &x != "standalone" {
@@ -330,6 +336,7 @@ Windmill Community Edition {GIT_VERSION}
                     num_workers,
                     base_internal_url.clone(),
                     rsmq.clone(),
+                    mode.clone() == Mode::Agent,
                 )
                 .await?;
                 tracing::info!("All workers exited.");
@@ -499,7 +506,7 @@ Windmill Community Edition {GIT_VERSION}
         let instance_name = rd_string(8);
         schedule_stats(
             instance_name,
-            mode,
+            mode.clone(),
             &db,
             &HTTP_CLIENT,
             cfg!(feature = "enterprise"),
@@ -571,6 +578,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     num_workers: i32,
     base_internal_url: String,
     rsmq: Option<R>,
+    agent_mode: bool,
 ) -> anyhow::Result<()> {
     let instance_name = gethostname()
         .to_str()
@@ -652,6 +660,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 &base_internal_url,
                 rsmq2,
                 sync_barrier,
+                agent_mode,
             )
             .await
         })));

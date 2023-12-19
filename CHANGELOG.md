@@ -1,6 +1,38 @@
 # Changelog
 
 
+## [1.227.1](https://github.com/windmill-labs/windmill/compare/v1.227.0...v1.227.1) (2023-12-17)
+
+
+### Bug Fixes
+
+* improve on click behavior of tree view ([fa7261f](https://github.com/windmill-labs/windmill/commit/fa7261f273b517acd85a8c3f465cd8095cdf9f3c))
+
+## [1.227.0](https://github.com/windmill-labs/windmill/compare/v1.226.1...v1.227.0) (2023-12-17)
+
+
+### Features
+
+* Add download button to S3 file picker ([#2857](https://github.com/windmill-labs/windmill/issues/2857)) ([f8c7a8e](https://github.com/windmill-labs/windmill/commit/f8c7a8edf87226e020cec5e602e2dcb31f87d95e))
+* add filter for home screen to filter u/* ([7fac60c](https://github.com/windmill-labs/windmill/commit/7fac60c37f638c0a717d2062f7e79db655506c4c))
+* Add Kanidm SSO support ([#2871](https://github.com/windmill-labs/windmill/issues/2871)) ([40013cd](https://github.com/windmill-labs/windmill/commit/40013cd6cb00ebaf83eb75ec3f6907a727ba8f63))
+* add overridable tag directly from run page ([9b25faa](https://github.com/windmill-labs/windmill/commit/9b25faaa95a4f659aa2c72b0b8ed46acee31a691))
+* Cancel persistent script runs from drawer ([#2847](https://github.com/windmill-labs/windmill/issues/2847)) ([9b0b919](https://github.com/windmill-labs/windmill/commit/9b0b9197d717c6dad7b1f5e934158e7526455a47))
+* **frontend:** Add submitted text prop ([#2864](https://github.com/windmill-labs/windmill/issues/2864)) ([864e6a5](https://github.com/windmill-labs/windmill/commit/864e6a5b9432e32ed1463972f7f980ae0b52745b))
+* **frontend:** Decision tree ([#2812](https://github.com/windmill-labs/windmill/issues/2812)) ([c80544e](https://github.com/windmill-labs/windmill/commit/c80544e8e4f7b635847603e6e9ef9e661ce20c89))
+
+
+### Bug Fixes
+
+* **cli:** improve flow sync for windows ([65e18ab](https://github.com/windmill-labs/windmill/commit/65e18abe7d17334391b9326cd9968e64fa9f6586))
+* **cli:** improve flow sync for windows ([0118136](https://github.com/windmill-labs/windmill/commit/011813654da596a8c7235408f1cd77e9abc63255))
+* **cli:** remove is_expired from variables ([aa44a88](https://github.com/windmill-labs/windmill/commit/aa44a88960123204405e03efea87f0ba6bbe15ec))
+* **frontend:** fix tutorial typos ([#2852](https://github.com/windmill-labs/windmill/issues/2852)) ([28b8c4b](https://github.com/windmill-labs/windmill/commit/28b8c4be833efd0b4c56584945b823c4e4fafa7a))
+* handle empty result ([#2862](https://github.com/windmill-labs/windmill/issues/2862)) ([e04d8b0](https://github.com/windmill-labs/windmill/commit/e04d8b0d51ed57bd56b28c178dc6668be65fafbd))
+* postgres ssl mode ([#2861](https://github.com/windmill-labs/windmill/issues/2861)) ([6c809b8](https://github.com/windmill-labs/windmill/commit/6c809b86300cd4cb461556eb570620f70ca0e26d))
+* powershell nsjail ([#2856](https://github.com/windmill-labs/windmill/issues/2856)) ([fdd9374](https://github.com/windmill-labs/windmill/commit/fdd9374aa1cc4d21e9543771e9d1ad256e083461))
+* Stopping perpetual scripts ([#2860](https://github.com/windmill-labs/windmill/issues/2860)) ([a84b432](https://github.com/windmill-labs/windmill/commit/a84b4324d2b39eea42fc8c0ed7c9df2a6c2207aa))
+
 ## [1.226.1](https://github.com/windmill-labs/windmill/compare/v1.226.0...v1.226.1) (2023-12-14)
 
 
