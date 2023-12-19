@@ -457,7 +457,7 @@
 										</Section>
 									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
 										<div>
-											<FlowModuleDeleteAfterUse bind:flowModule />
+											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
 										</div>
 									{:else if advancedSelected === 'cache'}
 										<div>
