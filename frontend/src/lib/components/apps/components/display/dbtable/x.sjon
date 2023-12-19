@@ -1,0 +1,150 @@
+{
+	"grid": [
+		{
+			"3": {
+				"fixed": false,
+				"x": 0,
+				"y": 0,
+				"w": 2,
+				"h": 8
+			},
+			"12": {
+				"fixed": false,
+				"x": 0,
+				"y": 0,
+				"w": 6,
+				"h": 8,
+				"id": "a"
+			},
+			"data": {
+				"type": "dbexplorercomponent",
+				"configuration": {
+					"type": {
+						"type": "oneOf",
+						"selected": "postgresql",
+						"configuration": {
+							"postgresql": {
+								"resource": {
+									"type": "static",
+									"value": ""
+								},
+								"columns": {
+									"type": "static",
+									"value": []
+								},
+								"table": {
+									"type": "static"
+								},
+								"orderBy": {
+									"type": "static"
+								},
+								"pageSize": {
+									"type": "static",
+									"value": 10
+								}
+							},
+							"table": {
+								"type": {},
+								"fieldType": {}
+							},
+							"columns": {
+								"type": {},
+								"fieldType": {},
+								"subFieldType": {},
+								"value": {}
+							}
+						}
+					}
+				},
+				"customCss": {
+					"container": {
+						"class": "",
+						"style": ""
+					}
+				},
+				"id": "a"
+			},
+			"id": "a"
+		}
+	],
+	"fullscreen": false,
+	"unusedInlineScripts": [],
+	"hiddenInlineScripts": [
+		{
+			"type": "runnableByName",
+			"inlineScript": {
+				"content": "-- $1 name1 = default arg\n-- $2 name2\n-- $3 name3\nINSERT INTO demo VALUES ($1::TEXT, $2::INT, $3::TEXT[]) RETURNING *\n",
+				"language": "postgresql",
+				"path": "u/faton/newapp/Background_Runnable_0",
+				"schema": {
+					"$schema": "https://json-schema.org/draft/2020-12/schema",
+					"properties": {
+						"database": {
+							"description": "",
+							"type": "object",
+							"format": "resource-postgresql"
+						},
+						"name1": {
+							"description": "",
+							"type": "string",
+							"default": "default arg"
+						},
+						"name2": {
+							"description": "",
+							"type": "integer",
+							"default": null
+						},
+						"name3": {
+							"description": "",
+							"type": "array",
+							"items": {
+								"type": "string",
+								"enum": null
+							},
+							"default": null
+						}
+					},
+					"required": [
+						"database",
+						"name2",
+						"name3"
+					],
+					"type": "object"
+				}
+			},
+			"name": "Background Runnable 0",
+			"fields": {
+				"database": {
+					"type": "static",
+					"value": "$res:u/faton/truthful_postgresql",
+					"fieldType": "object",
+					"format": "resource-postgresql"
+				},
+				"name1": {
+					"type": "static",
+					"value": "default arg",
+					"fieldType": "string"
+				},
+				"name2": {
+					"type": "static",
+					"value": null,
+					"fieldType": "integer"
+				},
+				"name3": {
+					"type": "static",
+					"value": [],
+					"fieldType": "array"
+				}
+			},
+			"autoRefresh": true,
+			"recomputeOnInputChanged": true,
+			"recomputeIds": []
+		}
+	],
+	"theme": {
+		"type": "path",
+		"path": "f/app_themes/theme_0"
+	},
+	"norefreshbar": false,
+	"subgrids": {}
+}
