@@ -590,7 +590,9 @@ def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
 
 
 @init_global_client
-def duckdb_connection_settings(s3_resource_path: str = "", none_if_undefined: bool = False) -> Union[str, None]:
+def duckdb_connection_settings(
+    s3_resource_path: str = "", none_if_undefined: bool = False
+) -> DuckDbConnectionSettings | None:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
@@ -601,7 +603,9 @@ def duckdb_connection_settings(s3_resource_path: str = "", none_if_undefined: bo
 
 
 @init_global_client
-def polars_connection_settings(s3_resource_path: str = "", none_if_undefined: bool = False) -> Any:
+def polars_connection_settings(
+    s3_resource_path: str = "", none_if_undefined: bool = False
+) -> PolarsConnectionSettings | None:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from Polars
@@ -610,7 +614,9 @@ def polars_connection_settings(s3_resource_path: str = "", none_if_undefined: bo
 
 
 @init_global_client
-def boto3_connection_settings(s3_resource_path: str = "", none_if_undefined: bool = False) -> Any:
+def boto3_connection_settings(
+    s3_resource_path: str = "", none_if_undefined: bool = False
+) -> Boto3ConnectionSettings | None:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection using boto3
