@@ -31,7 +31,7 @@ pub fn parse_outputs(code: &str) -> String {
 pub fn parse_ts_imports(code: &str) -> String {
     let parsed = parse_expr_for_imports(code);
     let r = if let Ok(parsed) = parsed {
-        json!({ "imports6": parsed })
+        json!({ "imports": parsed })
     } else {
         json!({"error": parsed.err().unwrap().to_string()})
     };
