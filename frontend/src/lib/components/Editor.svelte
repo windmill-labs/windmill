@@ -1047,6 +1047,7 @@
 			noUnusedLocals: true,
 			strict: true,
 			noLib: false,
+
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 
