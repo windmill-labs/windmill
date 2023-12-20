@@ -144,7 +144,6 @@ pub async fn handle_dedicated_process(
                     }
                     tracing::debug!("processed job: {line}");
                     if line.starts_with("wm_res[") {
-                        tracing::warn!("dedicated worker process returned result: {}", line);
                         let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
                         match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
                             Ok(result) => {
