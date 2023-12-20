@@ -72,6 +72,7 @@
 				draft_only?: boolean
 		  }
 		| undefined = undefined
+	export let version: number | undefined = undefined
 
 	migrateApp(app)
 
@@ -501,6 +502,7 @@
 			bind:this={appEditorHeader}
 			{diffDrawer}
 			bind:savedApp
+			{version}
 		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>

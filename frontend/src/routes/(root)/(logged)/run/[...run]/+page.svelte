@@ -256,7 +256,7 @@
 					color="blue"
 					size="md"
 					startIcon={{ icon: Activity }}
-					on:click|once={() => {
+					on:click={() => {
 						persistentScriptDrawer.open?.(persistentScriptDefinition)
 					}}
 				>
