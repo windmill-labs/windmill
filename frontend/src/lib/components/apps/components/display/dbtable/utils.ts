@@ -1,5 +1,6 @@
 import type { AppInput, RunnableByName } from '../../../inputType'
-import { Preview } from '$lib/gen'
+import { JobService, Preview } from '$lib/gen'
+import { workspace } from 'vscode'
 
 export function makeQuery(
 	table: string,
@@ -77,20 +78,25 @@ export function createPostgresInput(
 export function createUpdatePostgresInput(
 	resource: string,
 	table: string | undefined,
-	rowIndex: number,
 	column: string,
-	value: string
+	value: string,
+	primaryKey: string | undefined,
+	primaryValue: string | undefined
 ): AppInput | undefined {
 	if (!resource || !table) {
 		// Return undefined if resource or table is not defined
 		return undefined
 	}
 
+	if (!primaryKey || !primaryValue) {
+		throw new Error('Primary key and value are required')
+	}
+
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: `UPDATE ${table} SET ${column} = '${value}' WHERE id = ${rowIndex}`,
+			content: `UPDATE ${table} SET ${column} = '${value}' WHERE ${primaryKey} = ${primaryValue}`,
 			language: Preview.language.POSTGRESQL,
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -107,6 +113,8 @@ export function createUpdatePostgresInput(
 		}
 	}
 
+	console.log(updateRunnable.inlineScript?.content)
+
 	const updateQuery: AppInput = {
 		runnable: updateRunnable,
 		fields: {
@@ -122,4 +130,84 @@ export function createUpdatePostgresInput(
 	}
 
 	return updateQuery
+}
+
+export type TableMetadata = Array<{
+	columnname: string
+	datatype: string
+	defaultvalue: string
+	isprimarykey: boolean
+}>
+
+export async function loadTableMetaData(
+	resource: string,
+	workspace: string | undefined,
+	table: string | undefined
+): Promise<TableMetadata | undefined> {
+	if (!resource || !table || !workspace) {
+		return undefined
+	}
+
+	const code = `
+	SELECT 
+	a.attname as ColumnName,
+	pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
+	(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
+	 FROM pg_catalog.pg_attrdef d
+	 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
+	(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
+	 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
+	 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
+				 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname) as IsPrimaryKey
+FROM pg_catalog.pg_attribute a
+WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
+		AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum;
+`
+
+	const maxRetries = 3
+	let attempts = 0
+
+	while (attempts < maxRetries) {
+		try {
+			const job = await JobService.runScriptPreview({
+				workspace: workspace,
+				requestBody: {
+					language: Preview.language.POSTGRESQL,
+					content: code,
+					args: {
+						database: resource
+					}
+				}
+			})
+
+			debugger
+
+			const testResult = await JobService.getCompletedJob({
+				workspace: workspace,
+				id: job
+			})
+
+			if (testResult.success) {
+				// Process and return the result
+				// Assuming the result is in a format that can be directly returned
+
+				attempts = maxRetries // Break out of the loop
+
+				return testResult.result
+			} else {
+				console.error(testResult.result?.['error']?.['message'])
+				// Implement specific error checks here if necessary
+			}
+		} catch (error) {
+			return
+		}
+
+		attempts++
+		await new Promise((resolve) => setTimeout(resolve, 1000 * attempts)) // Exponential back-off
+	}
+
+	// After all retries failed
+	console.error('Failed to load table metadata after maximum retries.')
+	return undefined
 }

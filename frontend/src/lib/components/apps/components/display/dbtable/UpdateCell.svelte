@@ -5,20 +5,19 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdatePostgresInput } from './utils'
+	import { createUpdatePostgresInput, type TableMetadata } from './utils'
 
 	export let id: string
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, `update-${id}`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined
 	})
 
 	let runnableComponent: RunnableComponent
-	let runnableWrapper: RunnableWrapper
 	let loading = false
 
 	let input: AppInput | undefined = undefined
@@ -28,28 +27,30 @@
 		table: string | undefined,
 		rowIndex: number,
 		column: string,
-		value: string
+		value: string,
+		data: Record<string, any>,
+		tableMetaData: TableMetadata | undefined = undefined
 	) {
-		input = createUpdatePostgresInput(resource, table, rowIndex, column, value)
+		const primaryKey = tableMetaData?.find((column) => column.isprimarykey)?.columnname
+		const primaryValue = primaryKey ? data[primaryKey] : undefined
+
+		input = createUpdatePostgresInput(resource, table, column, value, primaryKey, primaryValue)
 
 		await tick()
 
-		if (!runnableComponent) {
-			runnableWrapper?.handleSideEffect(true)
-		} else {
+		if (runnableComponent) {
 			await runnableComponent?.runComponent()
 		}
 	}
 </script>
 
 <RunnableWrapper
-	bind:this={runnableWrapper}
-	recomputeIds={[id]}
 	bind:runnableComponent
 	bind:loading
+	recomputeIds={[id]}
 	componentInput={input}
-	{id}
 	autoRefresh={false}
-	render={true}
+	render={false}
+	id={`update-${id}`}
 	{outputs}
 />

@@ -130,7 +130,8 @@
 			dispatch('update', {
 				row: event.node.rowIndex,
 				column: event.colDef.field,
-				value: dataCell
+				value: dataCell,
+				data: event.node.data
 			})
 		}
 	}
