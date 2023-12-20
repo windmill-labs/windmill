@@ -694,17 +694,7 @@
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
 				ata = undefined
-				let token = $lspTokenStore
-				if (!token) {
-					let expiration = new Date()
-					expiration.setHours(expiration.getHours() + 72)
-					const newToken = await UserService.createToken({
-						requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-					})
-					$lspTokenStore = newToken
-					token = newToken
-				}
-				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+				let root = await genRoot(hostname)
 				const importMap = {
 					imports: {
 						'file:///': root + '/'
@@ -766,7 +756,6 @@
 				)
 			} else if (lang === 'javascript') {
 				const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
-
 				if (scriptLang == 'bun') {
 					languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 				} else {
@@ -781,11 +770,13 @@
 						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 					}
 					await initWasm()
+					const root = await genRoot(hostname)
 					ata = setupTypeAcquisition({
 						projectName: 'Windmill',
 						depsParser: (c) => {
 							return parseDeps(c)
 						},
+						root,
 						logger: console,
 						delegate: {
 							receivedFile: addLibraryToRuntime,
@@ -1009,13 +1000,63 @@
 			hovers: false
 		})
 
+		languages.typescript.typescriptDefaults.setCompilerOptions({
+			target: languages.typescript.ScriptTarget.Latest,
+			allowNonTsExtensions: true,
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			checkJs: true,
+			allowJs: true,
+			noUnusedLocals: true,
+			strict: true,
+			noLib: false,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		})
+
+		languages.typescript.javascriptDefaults.setModeConfiguration({
+			completionItems: true,
+			hovers: true,
+			documentSymbols: true,
+			definitions: true,
+			references: true,
+			documentHighlights: true,
+			rename: true,
+			diagnostics: true,
+			documentRangeFormattingEdits: true,
+			signatureHelp: true,
+			onTypeFormattingEdits: true,
+			codeActions: true,
+			inlayHints: true
+		})
+
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: []
+		})
+
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
 			noSemanticValidation: false,
-			noLib: true,
+			noSyntaxValidation: false,
+			checkJs: true,
+			allowJs: true,
+			noUnusedParameters: true,
+			noUnusedLocals: true,
+			strict: true,
+			noLib: false,
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
+
+		// languages.typescript.javascriptDefaults.setCompilerOptions({
+		// 	target: languages.typescript.ScriptTarget.Latest,
+		// 	allowNonTsExtensions: true,
+		// 	noSemanticValidation: false,
+		// 	noLib: false,
+		// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		// })
 		// languages.typescript.typescriptDefaults.setModeConfiguration({
 		// 	completionItems: true,
 		// 	definitions: true,
@@ -1052,7 +1093,6 @@
 		let ataModel: NodeJS.Timeout | undefined = undefined
 
 		editor.onDidChangeModelContent((event) => {
-			console.log('foo')
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
@@ -1147,6 +1187,21 @@
 		copilotCompletor && copilotCompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 	})
+
+	async function genRoot(hostname: string) {
+		let token = $lspTokenStore
+		if (!token) {
+			let expiration = new Date()
+			expiration.setHours(expiration.getHours() + 72)
+			const newToken = await UserService.createToken({
+				requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+			})
+			$lspTokenStore = newToken
+			token = newToken
+		}
+		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+		return root
+	}
 </script>
 
 <EditorTheme />
