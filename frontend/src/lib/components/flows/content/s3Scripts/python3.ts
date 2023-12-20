@@ -1,19 +1,19 @@
 const python3 = {
-	s3_client: `import wmill
+	s3_client: `#requirements:
+#wmill>=1.228.0
+import wmillimport wmill
+from wmill import S3Object
 import boto3
 
-s3object = dict
 
+def main(input_file: S3Object):
+    bucket = wmill.get_resource("<PATH_TO_S3_RESOURCE>")["bucket"]
 
-def main(input_file: s3object):
-    s3_resource = wmill.get_resource("<PATH_TO_S3_RESOURCE>")
-    bucket = s3_resource["bucket"]
-    s3client = boto3.client(
-        "s3",
-        region_name=s3_resource["region"],
-        aws_access_key_id=s3_resource["accessKey"],
-        aws_secret_access_key=s3_resource["secretKey"],
-    )
+    # this will default to the workspace s3 resource
+    args = wmill.boto3_connection_settings()
+    # this will use the designated resource
+    # args = wmill.boto3_connection_settings("<PATH_TO_S3_RESOURCE>")
+    s3client = boto3.client("s3", **args)
 
     output_file = "output/hello.txt"
 
@@ -41,27 +41,30 @@ def main(input_file: s3object):
     # and https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html
     # for more code examples (listing object, deleting files, etc)
     return [
-        s3object({"s3": output_file}),
-        s3object({"s3": uploaded_file}),
+        S3Object(s3=output_file),
+        S3Object(s3=uploaded_file),
     ]
 `,
 
-    polars: `import wmill
+    polars: `#requirements:
+#polars==0.19.1
+#wmill>=1.228.0
+
+import wmill
+from wmill import S3Object
 import polars as pl
 import s3fs
 
-s3object = dict
 
+def main(input_file: S3Object):
+    bucket = wmill.get_resource("u/admin/windmill-cloud-demo")["bucket"]
 
-def main(input_file: s3object):
-    s3 = s3fs.S3FileSystem(
-        # this will default to the workspace s3 resource
-        **wmill.polars_connection_settings()["s3fs_args"]
-        # this will use the designated resource
-        # **wmill.polars_connection_settings("<PATH_TO_S3_RESOURCE>")["s3fs_args"]
-    )
+    # this will default to the workspace s3 resource
+    args = wmill.polars_connection_settings().s3fs_args
+    # this will use the designated resource
+    # args = wmill.polars_connection_settings("<PATH_TO_S3_RESOURCE>").s3fs_args
+    s3 = s3fs.S3FileSystem(**args)
 
-    bucket = "<S3_BUCKET_NAME>"
     input_uri = "s3://{}/{}".format(bucket, input_file["s3"])
     output_file = "output/result.parquet"
     output_uri = "s3://{}/{}".format(bucket, output_file)
@@ -84,25 +87,32 @@ def main(input_file: s3object):
         # persist the output dataframe back to S3 and return it
         output_df.write_parquet(output_s3)
 
-    return s3object({"s3": output_file})
+    return S3Object(s3=output_file)
 `,
 
-    duckdb: `import wmill
+    duckdb: `#requirements:
+#duckdb==0.9.1
+#wmill>=1.228.0
+import wmill
+from wmill import S3Object
 import duckdb
 
-s3object = dict
 
+def main(input_file: S3Object):
+    bucket = wmill.get_resource("u/admin/windmill-cloud-demo")["bucket"]
 
-def main(input_file: s3object):
     # create a DuckDB database in memory
     # see https://duckdb.org/docs/api/python/dbapi
     conn = duckdb.connect()
-    # connect duck db to the S3 bucket - this will default to the workspace s3 resource
-    conn.execute(wmill.duckdb_connection_settings()["connection_settings_str"])
-    # this will use the designated resource
-    # conn.execute(wmill.duckdb_connection_settings("<PATH_TO_S3_RESOURCE>")["connection_settings_str"])
 
-    bucket = "<S3_BUCKET_NAME>"
+    # this will default to the workspace s3 resource
+    args = wmill.duckdb_connection_settings().connection_settings_str
+    # this will use the designated resource
+    # args = wmill.duckdb_connection_settings("<PATH_TO_S3_RESOURCE>").connection_settings_str
+
+    # connect duck db to the S3 bucket - this will default to the workspace s3 resource
+    conn.execute(args)
+
     input_uri = "s3://{}/{}".format(bucket, input_file["s3"])
     output_file = "output/result.parquet"
     output_uri = "s3://{}/{}".format(bucket, output_file)
@@ -129,7 +139,7 @@ def main(input_file: s3object):
     )
 
     conn.close()
-    return s3object({"s3": output_file})
+    return S3Object(s3=output_file)
 `,
 }
 
