@@ -1,5 +1,6 @@
 import { ResourceService, VariableService, JobService, HelpersService } from "./index";
 import { OpenAPI } from "./index";
+import { DenoS3LightClientSettings } from "./s3Types";
 
 export {
   AdminService,
@@ -247,30 +248,45 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
 }
 
-export async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
-  const workspace = getWorkspace();
-  return await HelpersService.polarsConnectionSettingsV2({
-    workspace: workspace,
-		requestBody: {
-			s3_resource_path: s3_resource_path
-		}
-  });
-}
+// TODO(gb): need to investigate more how Polars and DuckDB work in TS
+// export async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+//   const workspace = getWorkspace();
+//   return await HelpersService.polarsConnectionSettingsV2({
+//     workspace: workspace,
+// 		requestBody: {
+// 			s3_resource_path: s3_resource_path
+// 		}
+//   });
+// }
 
-export async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+// export async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
+//   const workspace = getWorkspace();
+//   return await HelpersService.duckdbConnectionSettingsV2({
+//     workspace: workspace,
+// 		requestBody: {
+// 			s3_resource_path: s3_resource_path
+// 		}
+//   });
+// }
+
+export async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings> {
   const workspace = getWorkspace();
-  return await HelpersService.duckdbConnectionSettingsV2({
+  const s3Resource = await HelpersService.s3ResourceInfo({
     workspace: workspace,
-		requestBody: {
-			s3_resource_path: s3_resource_path
-		}
+    requestBody: {
+      s3_resource_path: s3_resource_path
+    }
   });
+  let settings: DenoS3LightClientSettings = {
+    ...s3Resource,
+  }
+  return settings;
 }
 
 /**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name
- * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
+ * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
 export async function getResumeUrls(approver?: string): Promise<{
   approvalPage: string;

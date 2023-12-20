@@ -1,3 +1,6 @@
+#!/bin/bash
+set -eou pipefail
+
 ./build.sh
 rm client.ts
 tsc
