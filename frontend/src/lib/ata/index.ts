@@ -73,7 +73,10 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 	}
 	async function resolveDeps(initialSourceFile: string, depth: number) {
 		if (depth > 2) {
+			console.log('STOP HERE', depth)
 			return
+		} else {
+			console.log('L', depth)
 		}
 		const depsToGet = config
 			.depsParser(initialSourceFile)

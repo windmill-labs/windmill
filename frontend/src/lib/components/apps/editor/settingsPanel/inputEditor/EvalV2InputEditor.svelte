@@ -93,6 +93,7 @@
 				lang="javascript"
 				bind:code={componentInput.expr}
 				shouldBindKey={false}
+				domLib
 				{extraLib}
 				autoHeight
 				{fixedOverflowWidgets}
