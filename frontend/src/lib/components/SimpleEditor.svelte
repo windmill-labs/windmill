@@ -132,7 +132,9 @@
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
-			noLib: true
+			noSemanticValidation: false,
+			noLib: true,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 		languages.typescript.javascriptDefaults.setExtraLibs([])
 
