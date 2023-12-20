@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.228.1](https://github.com/windmill-labs/windmill/compare/v1.228.0...v1.228.1) (2023-12-20)
+
+
+### Bug Fixes
+
+* TS SDK not found upon install error ([#2895](https://github.com/windmill-labs/windmill/issues/2895)) ([46e9818](https://github.com/windmill-labs/windmill/commit/46e9818c001b040c462ffe0b6f8681a97113ff04))
+
 ## [1.228.0](https://github.com/windmill-labs/windmill/compare/v1.227.1...v1.228.0) (2023-12-20)
 
 
