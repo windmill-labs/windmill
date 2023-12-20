@@ -10,7 +10,9 @@ use crate::push;
 use crate::PushIsolationLevel;
 use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
+use std::collections::HashMap;
 use std::str::FromStr;
+use windmill_common::flows::Retry;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::DB;
@@ -104,20 +106,50 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             &schedule.script_path,
         )
         .await?;
-        (
-            JobPayload::ScriptHash {
-                hash,
-                path: schedule.script_path,
-                concurrent_limit: concurrent_limit,
-                concurrency_time_window_s: concurrency_time_window_s,
-                cache_ttl: cache_ttl,
-                dedicated_worker,
-                language,
-                priority,
-            },
-            tag,
-            timeout,
-        )
+
+        if schedule.retry.is_some() {
+            let parsed_retry =
+                serde_json::from_value::<Retry>(schedule.retry.unwrap()).map_err(|err| {
+                    error::Error::InternalErr(format!(
+                        "Unable to parse retry information from schedule: {}",
+                        err.to_string(),
+                    ))
+                })?;
+            let mut static_args = HashMap::<String, serde_json::Value>::new();
+            for (arg_name, arg_value) in args.clone() {
+                static_args.insert(arg_name, arg_value);
+            }
+            // if retry is set, we wrap the script into a one step flow with a retry on the module
+            (
+                JobPayload::ScheduledScriptWithRetry {
+                    path: schedule.script_path,
+                    hash: hash,
+                    retry: parsed_retry,
+                    args: static_args,
+                    concurrent_limit: concurrent_limit,
+                    concurrency_time_window_s: concurrency_time_window_s,
+                    cache_ttl: cache_ttl,
+                    priority: priority,
+                },
+                Some("flow".to_string()),
+                timeout,
+            )
+        } else {
+            (
+                JobPayload::ScriptHash {
+                    hash,
+                    path: schedule.script_path,
+                    concurrent_limit: concurrent_limit,
+                    concurrency_time_window_s: concurrency_time_window_s,
+                    cache_ttl: cache_ttl,
+                    dedicated_worker,
+                    language,
+                    priority,
+                },
+                tag,
+                timeout,
+            )
+        }
     };
 
     sqlx::query!(

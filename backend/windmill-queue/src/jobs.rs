@@ -49,7 +49,9 @@ use windmill_common::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
         Iterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
-    flows::{add_virtual_items_if_necessary, FlowModuleValue, FlowValue},
+    flows::{
+        add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+    },
     jobs::{
         get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
     },
@@ -1000,6 +1002,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 on_recovery_times: schedule.on_recovery_times,
                 on_recovery_extra_args: schedule.on_recovery_extra_args,
                 ws_error_handler_muted: schedule.ws_error_handler_muted,
+                retry: schedule.retry,
             },
         )
         .await;
@@ -2602,6 +2605,63 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.priority,
             )
         }
+        JobPayload::ScheduledScriptWithRetry {
+            path,
+            hash,
+            retry,
+            args,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            priority,
+        } => {
+            let mut input_transforms = HashMap::<String, InputTransform>::new();
+            for (arg_name, arg_value) in args {
+                input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            }
+            let flow_value = FlowValue {
+                modules: vec![FlowModule {
+                    id: "a".to_string(),
+                    value: windmill_common::flows::FlowModuleValue::Script {
+                        input_transforms: input_transforms,
+                        path: path.clone(),
+                        hash: Some(hash),
+                    },
+                    stop_after_if: None,
+                    summary: None,
+                    suspend: None,
+                    mock: None,
+                    retry: Some(retry),
+                    sleep: None,
+                    cache_ttl: None,
+                    timeout: None,
+                    priority: None,
+                    delete_after_use: None,
+                }],
+                same_worker: false,
+                failure_module: None,
+                concurrency_time_window_s: concurrency_time_window_s,
+                concurrent_limit: concurrent_limit,
+                skip_expr: None,
+                cache_ttl: cache_ttl.map(|val| val as u32),
+                early_return: None,
+                priority: priority,
+            };
+            (
+                None,
+                Some(path),
+                None,
+                JobKind::ScheduledScriptWithRetry,
+                Some(flow_value.clone()),
+                Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
+                None,
+                concurrent_limit,
+                concurrency_time_window_s,
+                cache_ttl,
+                None,
+                priority,
+            )
+        }
         JobPayload::Flow { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
@@ -2907,6 +2967,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             }
             JobKind::Flow => "jobs.run.flow",
             JobKind::FlowPreview => "jobs.run.flow_preview",
+            JobKind::ScheduledScriptWithRetry => "jobs.run.scheduled_script_with_retry",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",

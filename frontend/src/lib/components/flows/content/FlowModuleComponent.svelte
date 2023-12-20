@@ -371,7 +371,15 @@
 								{/if}
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
 									{#if advancedSelected === 'retries'}
-										<FlowRetries bind:flowModule />
+										<Section label="Retries">
+											<svelte:fragment slot="header">
+												<Tooltip documentationLink="https://www.windmill.dev/docs/flows/retries">
+													If defined, upon error this step will be retried with a delay and a
+													maximum number of attempts as defined below.
+												</Tooltip>
+											</svelte:fragment>
+											<FlowRetries bind:flowModuleRetry={flowModule.retry} />
+										</Section>
 									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">

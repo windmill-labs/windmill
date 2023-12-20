@@ -17,14 +17,17 @@
 		Script,
 		ScriptService,
 		type Flow,
-		SettingService
+		SettingService,
+		type Retry
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Save } from 'lucide-svelte'
+	import FlowRetries from './flows/content/FlowRetries.svelte'
 
+	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
 	let schedule: string = '0 0 12 * *'
@@ -45,6 +48,7 @@
 	let failedTimes = 1
 	let failedExact = false
 	let recoveredTimes = 1
+	let retry: Retry | undefined = undefined
 
 	let script_path = ''
 	let initialScriptPath = ''
@@ -118,7 +122,13 @@
 		drawer?.openDrawer()
 	}
 
-	$: is_flow = itemKind == 'flow'
+	async function resetRetries() {
+		if (itemKind === 'flow') {
+			retry = undefined
+		}
+	}
+
+	$: (is_flow = itemKind == 'flow') && resetRetries()
 
 	let runnable: Script | Flow | undefined
 	let args: Record<string, any> = {}
@@ -223,6 +233,7 @@
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
+			retry = s.retry
 			if (s.on_failure) {
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
@@ -281,7 +292,8 @@
 						: undefined,
 					on_recovery_times: recoveredTimes,
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-					ws_error_handler_muted: wsErrorHandlerMuted
+					ws_error_handler_muted: wsErrorHandlerMuted,
+					retry: retry
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -305,7 +317,8 @@
 						: undefined,
 					on_recovery_times: recoveredTimes,
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-					ws_error_handler_muted: wsErrorHandlerMuted
+					ws_error_handler_muted: wsErrorHandlerMuted,
+					retry: retry
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -632,6 +645,18 @@
 						<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
 					</div>
 				</div>
+			</Section>
+			<Section label="Retries">
+				<svelte:fragment slot="header">
+					<Tooltip>
+						If defined, upon error this schedule will be retried with a delay and a maximum number
+						of attempts as defined below.
+						<br />
+						This is only available for individual script. For flows, retries can be set on each flow
+						step in the flow editor.
+					</Tooltip>
+				</svelte:fragment>
+				<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script'} />
 			</Section>
 		</div>
 	</DrawerContent>

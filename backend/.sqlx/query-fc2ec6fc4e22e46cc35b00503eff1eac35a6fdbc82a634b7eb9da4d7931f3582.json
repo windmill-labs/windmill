@@ -40,7 +40,8 @@
                 "postgresql",
                 "noop",
                 "appdependencies",
-                "deploymentcallback"
+                "deploymentcallback",
+                "scheduledscriptwithretry"
               ]
             }
           }
@@ -63,7 +64,8 @@
                 "postgresql",
                 "noop",
                 "appdependencies",
-                "deploymentcallback"
+                "deploymentcallback",
+                "scheduledscriptwithretry"
               ]
             }
           }

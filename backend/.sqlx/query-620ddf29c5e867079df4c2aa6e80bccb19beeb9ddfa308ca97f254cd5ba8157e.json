@@ -41,7 +41,8 @@
                 "postgresql",
                 "noop",
                 "appdependencies",
-                "deploymentcallback"
+                "deploymentcallback",
+                "scheduledscriptwithretry"
               ]
             }
           }
@@ -61,7 +62,6 @@
                 "bash",
                 "postgresql",
                 "nativets",
-                "Nativets",
                 "bun",
                 "mysql",
                 "bigquery",

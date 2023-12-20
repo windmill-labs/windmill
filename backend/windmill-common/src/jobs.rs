@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     error::{self, Error},
     flow_status::{FlowStatus, RestartedFrom},
-    flows::FlowValue,
+    flows::{FlowValue, Retry},
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
 };
@@ -24,6 +24,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
+    ScheduledScriptWithRetry,
     Identity,
     FlowDependencies,
     AppDependencies,
@@ -307,6 +308,16 @@ pub enum JobPayload {
         value: FlowValue,
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
+    },
+    ScheduledScriptWithRetry {
+        path: String,
+        hash: ScriptHash,
+        args: HashMap<String, serde_json::Value>,
+        retry: Retry,
+        concurrent_limit: Option<i32>,
+        concurrency_time_window_s: Option<i32>,
+        cache_ttl: Option<i32>,
+        priority: Option<i16>,
     },
     DeploymentCallback {
         path: String,

@@ -7476,6 +7476,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
+              "scheduledscriptwithretry",
             ]
         schedule_path:
           type: string
@@ -7585,6 +7586,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
+              "scheduledscriptwithretry",
             ]
         schedule_path:
           type: string
@@ -8291,6 +8293,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - edited_by
@@ -8358,6 +8362,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - path
         - schedule
@@ -8392,6 +8398,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         ws_error_handler_muted:
           type: boolean
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
         - schedule
         - timezone
