@@ -21,6 +21,7 @@
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
+	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -224,8 +225,9 @@
 								<AuthentikSetting bind:value={oauths['authentik']} />
 								<AutheliaSetting bind:value={oauths['authelia']} />
 								<KanidmSetting bind:value={oauths['kanidm']} />
+								<ZitadelSetting bind:value={oauths['zitadel']} />
 								{#each Object.keys(oauths) as k}
-									{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack', 'kanidm'].includes(k) && 'login_config' in oauths[k]}
+									{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
 										{#if oauths[k]}
 											<div class="flex flex-col gap-2 pb-4">
 												<div class="flex flex-row items-center gap-2">
@@ -290,7 +292,7 @@
 							<div class="py-1" />
 
 							{#each Object.keys(oauths) as k}
-								{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack', 'kanidm'].includes(k) && !('login_config' in oauths[k])}
+								{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && !('login_config' in oauths[k])}
 									{#if oauths[k]}
 										<div class="flex flex-col gap-2 pb-4">
 											<div class="flex flex-row items-center gap-2">
