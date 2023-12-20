@@ -925,12 +925,12 @@ for line in sys.stdin:
                 if type(v).__name__ == 'bytes':
                     res[k] = to_b_64(v)
         res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
-        sys.stdout.write("wm_res:" + res_json + "\n")
+        sys.stdout.write("wm_res[success]:" + res_json + "\n")
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         tb = traceback.format_tb(exc_traceback)
-        err_json = json.dumps({{ "error": {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }} }}, separators=(',', ':'), default=str).replace('\n', '')
-        sys.stdout.write("wm_res:" + err_json + "\n")
+        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+        sys.stdout.write("wm_res[error]:" + err_json + "\n")
     sys.stdout.flush()
 "#,
         );
