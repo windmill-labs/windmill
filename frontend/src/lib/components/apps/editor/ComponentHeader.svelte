@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, Bug, Expand, Move, Pen, Plug2 } from 'lucide-svelte'
+	import { Anchor, Bug, Cog, Expand, Move, Pen, Plug2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -96,6 +96,22 @@
 		{:else if component.type === 'steppercomponent' || (component.type === 'tabscomponent' && component.configuration.tabsKind.type === 'static' && component.configuration.tabsKind.value === 'invisibleOnView')}
 			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
 		{:else if component.type === 'decisiontreecomponent'}
+			<button
+				title={'Open Decision Tree Editor'}
+				class={classNames(
+					'text-2xs py-0.5 px-1 font-bold w-fit border cursor-pointer rounded-sm',
+					'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+				)}
+				on:click={() => {
+					const element = document.getElementById(`decision-tree-graph-editor`)
+					if (element) {
+						element.click()
+					}
+				}}
+				on:pointerdown|stopPropagation
+			>
+				<Cog size={14} />
+			</button>
 			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
 		{/if}
 
