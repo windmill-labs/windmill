@@ -27,8 +27,7 @@ lazy_static::lazy_static! {
 
     static ref FLOCK_PATH: String =
     std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
-
-
+    static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
     static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
@@ -695,6 +694,8 @@ pub async fn handle_python_reqs(
                 .stderr(Stdio::piped());
             start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
         } else {
+            let fssafe_req = NON_ALPHANUM_CHAR.replace_all(req, "_").to_string();
+            let req = format!("'{}'", req);
             let mut command_args = vec![
                 PYTHON_PATH.as_str(),
                 "-m",
@@ -740,7 +741,7 @@ pub async fn handle_python_reqs(
                 .envs(envs)
                 .args([
                     "-x",
-                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, req),
+                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
                     "--command",
                     &command_args.join(" "),
                 ])
