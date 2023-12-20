@@ -3,7 +3,7 @@
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { initConfig } from '$lib/components/apps/editor/appUtils'
-	import { createPostgresInput, loadTableMetaData, type TableMetadata } from './utils'
+	import { createPostgresInput, insertRow, loadTableMetaData, type TableMetadata } from './utils'
 	import AppAggridTable from '../table/AppAggridTable.svelte'
 	import { getContext, onMount } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
@@ -16,11 +16,10 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
-
-	let initializing: boolean = true
+	export let initializing: boolean = true
 
 	const resolvedConfig = initConfig(
 		components['dbexplorercomponent'].initialData.configuration,
@@ -45,7 +44,6 @@
 			$workspaceStore,
 			resolvedConfig.type.configuration.postgresql.table
 		)
-		console.log(tableMetaData)
 	}
 
 	let updateCell: UpdateCell
@@ -59,6 +57,29 @@
 	onMount(() => {
 		toggleLoadTableData()
 	})
+
+	let componentContainerHeight: number | undefined = undefined
+	let buttonContainerHeight: number | undefined = undefined
+
+	function onUpdate(e: CustomEvent<{ row: number; column: string; value: any; data: any }>) {
+		const { row, column, value, data } = e.detail
+
+		if (!tableMetaData) {
+			return
+		}
+
+		updateCell?.triggerUpdate(
+			resolvedConfig.type.configuration.postgresql.resource,
+			resolvedConfig.type.configuration.postgresql.table,
+			row,
+			column,
+			value,
+			data,
+			tableMetaData
+		)
+	}
+
+	let args: Record<string, any> = {}
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -72,56 +93,56 @@
 {/each}
 
 <UpdateCell {id} bind:this={updateCell} />
-
-<div class="flex flex-start p-2">
-	<Button
-		startIcon={{ icon: Plus }}
-		color="dark"
-		size="xs"
-		on:click={() => {
-			insertDrawer?.openDrawer()
-		}}>Insert</Button
-	>
+<div class="h-full" bind:clientHeight={componentContainerHeight}>
+	<div class="flex flex-start p-2" bind:clientHeight={buttonContainerHeight}>
+		<Button
+			startIcon={{ icon: Plus }}
+			color="dark"
+			size="xs"
+			on:click={() => {
+				insertDrawer?.openDrawer()
+			}}
+		>
+			Insert
+		</Button>
+	</div>
+	{#key renderCount}
+		<AppAggridTable
+			{id}
+			{configuration}
+			bind:initializing
+			componentInput={input}
+			{customCss}
+			{render}
+			containerHeight={componentContainerHeight - buttonContainerHeight}
+			on:update={onUpdate}
+		/>
+	{/key}
 </div>
-{#key renderCount}
-	<AppAggridTable
-		{id}
-		{configuration}
-		bind:initializing
-		componentInput={input}
-		{customCss}
-		{render}
-		on:update={(e) => {
-			const { row, column, value, data } = e.detail
-
-			if (!tableMetaData) {
-				return
-			}
-
-			updateCell?.triggerUpdate(
-				resolvedConfig.type.configuration.postgresql.resource,
-				resolvedConfig.type.configuration.postgresql.table,
-				row,
-				column,
-				value,
-				data,
-				tableMetaData
-			)
-		}}
-	/>
-{/key}
 
 <Portal>
 	<Drawer bind:this={insertDrawer} size="800px">
 		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
-			<InsertRow
-				{tableMetaData}
-				on:insert={(e) => {
-					const { data } = e.detail
+			<svelte:fragment slot="actions">
+				<Button
+					color="dark"
+					size="xs"
+					on:click={() => {
+						console.log(args)
 
-					console.log(data)
-				}}
-			/>
+						insertRow(
+							resolvedConfig.type.configuration.postgresql.resource,
+							$workspaceStore,
+							resolvedConfig.type.configuration.postgresql.table,
+							args
+						)
+					}}
+				>
+					Insert
+				</Button>
+			</svelte:fragment>
+
+			<InsertRow {tableMetaData} bind:args />
 		</DrawerContent>
 	</Drawer>
 </Portal>

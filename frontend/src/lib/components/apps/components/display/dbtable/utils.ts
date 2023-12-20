@@ -1,6 +1,6 @@
 import type { AppInput, RunnableByName } from '../../../inputType'
 import { JobService, Preview } from '$lib/gen'
-import { workspace } from 'vscode'
+import { max } from 'lodash'
 
 export function makeQuery(
 	table: string,
@@ -19,10 +19,24 @@ export function makeQuery(
 	} FROM ${table} LIMIT ${pageSize} OFFSET ${pageSize * page}`
 }
 
-export function makeInsertQuery(table: string, values: string[]) {
+export function makeInsertQuery(table: string, values: Record<string, any>) {
 	if (!table) throw new Error('Table name is required')
+	if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+		throw new Error('Values must be a non-empty object')
+	}
 
-	return `INSERT INTO ${table} VALUES (${values.join(', ')})`
+	// Extracting column names and their corresponding values
+	const columns = Object.keys(values)
+		.map((key) => `\"${key}\"`)
+		.join(', ')
+	const valuesList = Object.values(values)
+		.map((value) => `'${value}'`)
+		.join(', ')
+
+	// Constructing the query
+	const query = `INSERT INTO ${table} (${columns}) VALUES (${valuesList})`
+
+	return query
 }
 
 export function createPostgresInput(
@@ -113,8 +127,6 @@ export function createUpdatePostgresInput(
 		}
 	}
 
-	console.log(updateRunnable.inlineScript?.content)
-
 	const updateQuery: AppInput = {
 		runnable: updateRunnable,
 		fields: {
@@ -181,7 +193,7 @@ ORDER BY a.attnum;
 				}
 			})
 
-			debugger
+			await new Promise((resolve) => setTimeout(resolve, 1000))
 
 			const testResult = await JobService.getCompletedJob({
 				workspace: workspace,
@@ -189,25 +201,45 @@ ORDER BY a.attnum;
 			})
 
 			if (testResult.success) {
-				// Process and return the result
-				// Assuming the result is in a format that can be directly returned
-
-				attempts = maxRetries // Break out of the loop
+				attempts = maxRetries
 
 				return testResult.result
-			} else {
-				console.error(testResult.result?.['error']?.['message'])
-				// Implement specific error checks here if necessary
 			}
 		} catch (error) {
-			return
+			attempts++
 		}
-
-		attempts++
-		await new Promise((resolve) => setTimeout(resolve, 1000 * attempts)) // Exponential back-off
+		// Exponential back-off
+		await new Promise((resolve) => setTimeout(resolve, 2000 * attempts))
 	}
 
-	// After all retries failed
 	console.error('Failed to load table metadata after maximum retries.')
 	return undefined
+}
+
+export async function insertRow(
+	resource: string,
+	workspace: string | undefined,
+	table: string | undefined,
+	values: Record<string, any>
+): Promise<boolean> {
+	if (!resource || !table || !workspace) {
+		return false
+	}
+
+	const code = makeInsertQuery(table, values)
+
+	console.log(code)
+
+	await JobService.runScriptPreview({
+		workspace: workspace,
+		requestBody: {
+			language: Preview.language.POSTGRESQL,
+			content: code,
+			args: {
+				database: resource
+			}
+		}
+	})
+
+	return false
 }

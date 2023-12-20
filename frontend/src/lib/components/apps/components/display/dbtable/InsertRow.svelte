@@ -1,12 +1,11 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import type { TableMetadata } from './utils'
 
 	export let tableMetaData: TableMetadata | undefined = undefined
+	export let args: Record<string, any> = {}
 
-	// Compute what kind of input fields we need to display
 	const fields = tableMetaData?.map((column) => {
 		const type = column.datatype
 		const name = column.columnname
@@ -38,37 +37,52 @@
 		}
 	})
 
+	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
+		if (defaultValue && defaultValue.includes('::')) {
+			const val = defaultValue.split('::')[0]
+			if (val.startsWith("'") && val.endsWith("'")) {
+				return val.slice(1, -1)
+			}
+			return val
+		}
+		return defaultValue
+	}
+
 	function builtSchema(fields: any[]): Schema {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
 
 		fields.forEach((field) => {
 			const schemaProperty: SchemaProperty = {
-				type: field.fieldType,
-				default: field.defaultValue
+				type: field.fieldType
 			}
 
 			// Add specific properties based on field type
 			switch (field.fieldType) {
 				case 'number':
 					schemaProperty.type = 'number'
+					const extractedDefaultValue = extractDefaultValue(field.defaultValue)
+
+					schemaProperty.default = extractedDefaultValue ? Number(extractedDefaultValue) : undefined
 					break
 				case 'checkbox':
 					schemaProperty.type = 'boolean'
+					schemaProperty.default = field.defaultValue === 'true'
 					break
 				case 'date':
 					schemaProperty.type = 'string'
 					schemaProperty.format = 'date'
+					schemaProperty.default = extractDefaultValue(field.defaultValue)
 					break
 				case 'text':
 				default:
 					schemaProperty.type = 'string'
+					schemaProperty.default = extractDefaultValue(field.defaultValue)
 					break
 			}
 
 			properties[field.name] = schemaProperty
 
-			// Add to required array if it's a primary key or doesn't have a default value
 			if (field.isPrimaryKey || field.defaultValue === undefined) {
 				required.push(field.name)
 			}
@@ -83,18 +97,6 @@
 	}
 
 	const schema: Schema = builtSchema(fields ?? [])
-
-	let args: Record<string, any> = {}
 </script>
 
 <SchemaForm {schema} bind:args />
-
-<Button
-	color="dark"
-	size="xs"
-	on:click={() => {
-		console.log(args)
-	}}
->
-	Submit
-</Button>

@@ -26,6 +26,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
+	export let containerHeight: number | undefined = undefined
 
 	const { app, worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -270,7 +271,7 @@
 					css?.container?.class,
 					'wm-aggrid-container'
 				)}
-				style={css?.container?.style}
+				style={containerHeight ? `height: ${containerHeight}px;` : css?.container?.style}
 				bind:clientHeight
 				bind:clientWidth
 			>
