@@ -32,10 +32,10 @@ class Windmill:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.token}",
         }
+        self.verify = verify
         self.client = self.get_client()
         self.workspace = workspace or os.environ.get("WM_WORKSPACE")
         self.path = os.environ.get("WM_JOB_PATH")
-        self.verify = verify
 
         assert self.workspace, f"workspace required as an argument or as WM_WORKSPACE environment variable"
 
