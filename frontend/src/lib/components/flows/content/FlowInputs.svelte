@@ -66,19 +66,52 @@
 		{/if}
 		{#if kind == 'trigger'}
 			<div class="mt-2" />
-			<Alert title="Trigger script automatic schedule" role="info">
+			<Alert title="Trigger scripts" role="info">
+				Trigger scripts are special actions that are meant to run periodically given a schedule.
 				A schedule will be automatically attached to this flow to run every 15 minutes. Adjust
-				frequency in 'Settings -> Schedule'</Alert
-			>
+				frequency in 'Settings' -> 'Schedule'.<br/><br/>
+
+				To see all ways to trigger a flow, check <a
+					href="https://www.windmill.dev/docs/getting_started/trigger_flows"
+					target="_blank"
+					class="text-blue-500"
+					>Triggering Flows</a>.
+			</Alert>
+		{/if}
+
+		{#if kind == 'script'}
+			<div class="mt-2" />
+			<Alert title="Action Scripts" role="info">
+				An action script is simply a script that is neither a trigger nor an approval script. Those are the majority of the scripts.
+			</Alert>
+		{/if}
+
+		{#if kind == 'approval'}
+			<div class="mt-2" />
+			<Alert title="Approval Step" role="info">
+				An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of the secret urls. See dtails in 'Advanced' -> 'Suspend' settings of the step.<br/><br/>
+				For further details, visit <a
+					href="https://www.windmill.dev/docs/flows/flow_approval"
+					target="_blank"
+					class="text-blue-500"
+					>Approval Steps Documentation</a>.
+			</Alert>
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
-			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_error_handler">
-				Embed a script directly inside a flow instead of saving the script into your workspace for
+			<Tooltip documentationLink={
+				kind === 'script'
+					? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
+					: kind === 'trigger'
+					? 'https://www.windmill.dev/docs/flows/flow_trigger'
+					: kind === 'approval'
+					? 'https://www.windmill.dev/docs/flows/flow_approval'
+					: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'
+			}>
+				Embed <span>{kind == 'script' ? 'action' : kind}</span> script directly inside a flow instead of saving the script into your workspace for
 				reuse. You can always save an inline script to your workspace later.
 			</Tooltip>
 		</h3>
-
 		{#if noEditor}
 			<div
 				class="py-0.5 text-2xs {summary == undefined || summary == ''

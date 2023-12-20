@@ -983,6 +983,7 @@
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={initialPath != '' && !savedScript}
+						title="Stage changes"
 					>
 						<span class="hidden sm:flex">
 							Save draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
@@ -995,6 +996,7 @@
 						startIcon={{ icon: Save }}
 						on:click={() => editScript()}
 						dropdownItems={computeDropdownItems(initialPath)}
+						title="Deploy to workspace"
 					>
 						Deploy
 					</Button>

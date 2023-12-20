@@ -31,13 +31,14 @@
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
-					<Alert type="info" title="Only one branch will be run" class="m-2">
+					<Alert type="info" title="Only first branch whose condition is true will be run" tooltip="Branch one" documentationLink="https://www.windmill.dev/docs/flows/flow_branches#branch-one" class="m-2">
 						The result of this step is the result of the branch.
 					</Alert>
 					<div class="p-2">
 						<h3 class="my-4">
 							{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
 						</h3>
+						<p>Add branches and steps directly on the graph.</p>
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>

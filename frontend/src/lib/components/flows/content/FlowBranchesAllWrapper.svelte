@@ -30,7 +30,7 @@
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
-					<Alert notRounded type="info" title="All branches will be run" class="m-2">
+					<Alert notRounded type="info" title="All branches will be run" tooltip="Branch all" documentationLink="http://localhost:3001/docs/flows/flow_branches#branch-all" class="m-2">
 						The result of this step is the list of the result of each branch.
 					</Alert>
 
@@ -38,6 +38,7 @@
 						<h3 class="mb-4"
 							>{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}</h3
 						>
+						<p>Add branches and steps directly on the graph.</p>
 						<div class="flex flex-col gap-y-4 py-2 w-full">
 							{#each value.branches as branch, i}
 								<div class="flex flex-row gap-x-4 w-full items-center">

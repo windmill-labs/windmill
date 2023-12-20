@@ -1212,6 +1212,7 @@
 			on:click={() => saveDraft()}
 			size="xs"
 			disabled={$page.params.path !== undefined && !savedApp}
+			title="Stage changes"
 		>
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
@@ -1221,6 +1222,7 @@
 			on:click={save}
 			size="xs"
 			dropdownItems={appPath != ''
+			title="Deploy to workspace"
 				? () => [
 						{
 							label: 'Fork',
