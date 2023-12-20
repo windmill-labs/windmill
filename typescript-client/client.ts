@@ -1,6 +1,5 @@
 import { ResourceService, VariableService, JobService, HelpersService } from "./index";
 import { OpenAPI } from "./index";
-import { DenoS3LightClientSettings } from "./s3Types";
 
 export {
   AdminService,
@@ -269,19 +268,19 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 //   });
 // }
 
-export async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings> {
-  const workspace = getWorkspace();
-  const s3Resource = await HelpersService.s3ResourceInfo({
-    workspace: workspace,
-    requestBody: {
-      s3_resource_path: s3_resource_path
-    }
-  });
-  let settings: DenoS3LightClientSettings = {
-    ...s3Resource,
-  }
-  return settings;
-}
+// export async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings> {
+//   const workspace = getWorkspace();
+//   const s3Resource = await HelpersService.s3ResourceInfo({
+//     workspace: workspace,
+//     requestBody: {
+//       s3_resource_path: s3_resource_path
+//     }
+//   });
+//   let settings: DenoS3LightClientSettings = {
+//     ...s3Resource,
+//   }
+//   return settings;
+// }
 
 /**
  * Get URLs needed for resuming a flow after this step
