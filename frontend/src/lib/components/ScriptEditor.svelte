@@ -49,7 +49,6 @@
 		go: false,
 		ruff: false,
 		shellcheck: false,
-		bun: false
 	}
 
 	let width = 1200

@@ -52,7 +52,6 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
-		bun: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -487,37 +486,37 @@
 				Reset
 			</Button>
 
-			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={() => editor?.reloadWebsocket()}
-				startIcon={{
-					icon: RotateCw,
-					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
-				}}
-				title="Reload assistants"
-			>
-				{#if !iconOnly}
-					Assistants
-				{/if}
-				<span class="ml-1 -my-1">
-					{#if lang == 'deno'}
-						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-					{:else if lang == 'bun'}
-						(<span class={websocketAlive.bun ? 'green' : 'text-red-700'}>Bun</span>)
-					{:else if lang == 'go'}
-						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-					{:else if lang == 'python3'}
-						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
-						<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
-					{:else if lang == 'bash'}
-						(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+			{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				<Button
+					btnClasses="!font-medium text-tertiary"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={() => editor?.reloadWebsocket()}
+					startIcon={{
+						icon: RotateCw,
+						classes: websocketAlive[lang] == false ? 'animate-spin' : ''
+					}}
+					title="Reload assistants"
+				>
+					{#if !iconOnly}
+						Assistants
 					{/if}
-				</span>
-			</Button>
+					<span class="ml-1 -my-1">
+						{#if lang == 'deno'}
+							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+						{:else if lang == 'go'}
+							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+						{:else if lang == 'python3'}
+							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
+							<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+						{:else if lang == 'bash'}
+							(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+						{/if}
+					</span>
+				</Button>
+			{/if}
 			{#if collabMode}
 				<div class="flex items-center px-1">
 					<Toggle

@@ -47,10 +47,9 @@ impl Visit for ImportsFinder {
 
 pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()), code.into());
     let lexer = Lexer::new(
-        // We want to parse ecmascript
-        Syntax::Es(EsConfig { jsx: false, ..Default::default() }),
+        Syntax::Typescript(TsConfig::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -64,9 +63,9 @@ pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
         err_s += &e.into_kind().msg().to_string();
     }
 
-    let expr = parser
-        .parse_module()
-        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
+    let expr = parser.parse_module().map_err(|e| {
+        anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
+    })?;
 
     let mut visitor = ImportsFinder { imports: HashSet::new() };
     swc_ecma_visit::visit_module(&mut visitor, &expr);
@@ -119,9 +118,9 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
         err_s += &e.into_kind().msg().to_string();
     }
 
-    let expr = parser
-        .parse_module()
-        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
+    let expr = parser.parse_module().map_err(|e| {
+        anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
+    })?;
 
     let mut visitor = OutputFinder { idents: HashSet::new() };
     swc_ecma_visit::visit_module(&mut visitor, &expr);
@@ -150,7 +149,9 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
 
     let ast = parser
         .parse_module()
-        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?
+        .map_err(|e| {
+            anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
+        })?
         .body;
 
     let params = ast.into_iter().find_map(|x| match x {

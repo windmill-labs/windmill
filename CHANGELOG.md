@@ -1,6 +1,30 @@
 # Changelog
 
 
+## [1.228.1](https://github.com/windmill-labs/windmill/compare/v1.228.0...v1.228.1) (2023-12-20)
+
+
+### Bug Fixes
+
+* TS SDK not found upon install error ([#2895](https://github.com/windmill-labs/windmill/issues/2895)) ([46e9818](https://github.com/windmill-labs/windmill/commit/46e9818c001b040c462ffe0b6f8681a97113ff04))
+
+## [1.228.0](https://github.com/windmill-labs/windmill/compare/v1.227.1...v1.228.0) (2023-12-20)
+
+
+### Features
+
+* Add Zitadel IDP ([#2888](https://github.com/windmill-labs/windmill/issues/2888)) ([afbea19](https://github.com/windmill-labs/windmill/commit/afbea19421572f2986bf8ab1e5817f1902c0a22c))
+* bun automatic type acquisition in frontend directly ([#2884](https://github.com/windmill-labs/windmill/issues/2884)) ([d507ce4](https://github.com/windmill-labs/windmill/commit/d507ce449b04bf0be5ea29ec2431ad1eea405f13))
+* not on latest app version warning ([#2889](https://github.com/windmill-labs/windmill/issues/2889)) ([e8b2cc8](https://github.com/windmill-labs/windmill/commit/e8b2cc8835881a7b2c0a273cb8e505644e9be001))
+* S3 objects are now typed in Python and TS SDK ([#2878](https://github.com/windmill-labs/windmill/issues/2878)) ([2155a6c](https://github.com/windmill-labs/windmill/commit/2155a6c1334b79272742ba4626abd9572c9130d2))
+
+
+### Bug Fixes
+
+* Persistent script spinner ([#2879](https://github.com/windmill-labs/windmill/issues/2879)) ([5dd5809](https://github.com/windmill-labs/windmill/commit/5dd58094fde38f13476e79b539e670ee150306d7))
+* Python imports from git repository ([#2886](https://github.com/windmill-labs/windmill/issues/2886)) ([292b230](https://github.com/windmill-labs/windmill/commit/292b2309a7b7093c85614ac9764620c9dce0e316))
+* remove 0x00 from logs automatically from bashoutput ([59397e7](https://github.com/windmill-labs/windmill/commit/59397e7445f78cca2e602d8b45591a0bb123a734))
+
 ## [1.227.1](https://github.com/windmill-labs/windmill/compare/v1.227.0...v1.227.1) (2023-12-17)
 
 

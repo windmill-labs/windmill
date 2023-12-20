@@ -298,3 +298,15 @@ fn test_parse_imports() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[wasm_bindgen_test]
+fn test_parse_imports_dts() -> anyhow::Result<()> {
+    let code = "
+export type foo = number
+";
+    let mut l = parse_expr_for_imports(code)?;
+    l.sort();
+    assert_eq!(l, vec![] as Vec<String>);
+
+    Ok(())
+}
