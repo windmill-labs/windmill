@@ -308,7 +308,7 @@
 			/>
 		{:else if component.type === 'dbexplorercomponent'}
 			<AppDbExplorer
-				configuration={component.configuration}
+				bind:configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
