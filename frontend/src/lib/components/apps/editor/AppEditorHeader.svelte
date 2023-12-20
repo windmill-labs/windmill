@@ -114,6 +114,7 @@
 				draft_only?: boolean
 		  }
 		| undefined = undefined
+	export let version: number | undefined = undefined
 
 	const {
 		app,
@@ -270,6 +271,11 @@
 			path: npath,
 			policy
 		}
+		const appHistory = await AppService.getAppHistoryByPath({
+			workspace: $workspaceStore!,
+			path: npath
+		})
+		version = appHistory[0]?.version
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
@@ -456,6 +462,19 @@
 			throw e
 		}
 	}
+
+	let onLatest = true
+	async function compareVersions() {
+		if (version === undefined) {
+			return
+		}
+		const appHistory = await AppService.getAppHistoryByPath({
+			workspace: $workspaceStore!,
+			path: appPath
+		})
+		onLatest = version === appHistory[0]?.version
+	}
+	$: saveDrawerOpen && compareVersions()
 
 	let selectedJobId: string | undefined = undefined
 	let testJobLoader: TestJobLoader
@@ -679,6 +698,12 @@
 {/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
+		{#if !onLatest}
+			<Alert title="You're not on the latest app version" type="warning">
+				By deploying, you may overwrite changes made by other users.
+			</Alert>
+			<div class="py-2" />
+		{/if}
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
 			<!-- svelte-ignore a11y-autofocus -->
