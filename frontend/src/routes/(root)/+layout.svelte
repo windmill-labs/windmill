@@ -91,7 +91,8 @@
 					monacoEditorUnhandledErrors.includes(message) ||
 					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
-					message.startsWith('Unable to read file')
+					message.startsWith('Unable to read file') ||
+					message.startsWith('Could not find source file')
 				) {
 					console.warn(message)
 					return

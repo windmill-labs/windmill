@@ -12,7 +12,7 @@ export async function initializeVscode() {
 		try {
 			// init vscode-api
 			await initServices({
-				debugLogging: false,
+				debugLogging: true,
 				logLevel: LogLevel.Info
 			})
 			meditor.defineTheme('nord', {

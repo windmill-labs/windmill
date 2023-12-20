@@ -8,7 +8,7 @@
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
-	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
@@ -419,7 +419,9 @@
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
-			noLib: true
+			noSemanticValidation: false,
+			noLib: true,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 
 		languages.register({ id: 'template' })
@@ -587,7 +589,7 @@
 	$: mounted && extraLib && initialized && loadExtraLib()
 
 	function loadExtraLib() {
-		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
+		const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 		if (extraLib != '') {
 			languages.typescript.javascriptDefaults.setExtraLibs([
 				{

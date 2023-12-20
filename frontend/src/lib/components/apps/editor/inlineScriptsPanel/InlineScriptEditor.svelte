@@ -302,6 +302,7 @@
 						{extraLib}
 						bind:code={inlineScript.content}
 						lang="javascript"
+						domLib
 						cmdEnterAction={async () => {
 							runLoading = true
 							await await Promise.all(
