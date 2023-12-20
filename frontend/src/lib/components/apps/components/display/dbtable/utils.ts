@@ -1,6 +1,5 @@
 import type { AppInput, RunnableByName } from '../../../inputType'
 import { JobService, Preview } from '$lib/gen'
-import { max } from 'lodash'
 
 export function makeQuery(
 	table: string,
@@ -227,8 +226,6 @@ export async function insertRow(
 	}
 
 	const code = makeInsertQuery(table, values)
-
-	console.log(code)
 
 	await JobService.runScriptPreview({
 		workspace: workspace,

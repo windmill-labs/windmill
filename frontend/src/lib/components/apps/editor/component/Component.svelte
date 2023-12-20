@@ -312,7 +312,6 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
-				componentInput={component.componentInput}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}
