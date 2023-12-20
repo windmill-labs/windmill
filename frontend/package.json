@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.227.1",
+	"version": "1.228.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -132,7 +132,7 @@
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.1.0",
-		"windmill-parser-wasm": "^1.222.0",
+		"windmill-parser-wasm": "^1.226.9",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yaml": "^2.3.4",

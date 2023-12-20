@@ -25,12 +25,17 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 
+	import libStdContent from '$lib/es6.d.ts.txt?raw'
+	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
+
+	// import nord from '$lib/assets/nord.json'
+
 	// import nord from '$lib/assets/nord.json'
 
 	import { MonacoLanguageClient } from 'monaco-languageclient'
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
-	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
+	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
 	import {
 		dbSchemas,
@@ -65,6 +70,8 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
+	import { setupTypeAcquisition } from '$lib/ata/index'
+	import { initWasm, parseDeps } from '$lib/infer'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -79,6 +86,7 @@
 		| 'graphql'
 		| 'powershell'
 		| 'css'
+		| 'javascript'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -89,8 +97,7 @@
 		ruff: false,
 		deno: false,
 		go: false,
-		shellcheck: false,
-		bun: false
+		shellcheck: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -132,7 +139,7 @@
 
 	let destroyed = false
 	const uri =
-		lang == 'typescript' && scriptLang === 'deno'
+		lang != 'go' && lang != 'typescript' && lang != 'python'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -551,13 +558,7 @@
 						isTrusted: true
 					},
 					workspaceFolder:
-						name == 'bun'
-							? {
-									uri: vscode.Uri.parse('file:///tmp/monaco/'),
-									name: 'windmill',
-									index: 0
-							  }
-							: name != 'deno'
+						name != 'deno'
 							? {
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
@@ -672,17 +673,6 @@
 						} catch (err) {
 							console.error(err)
 						}
-					} else if (name == 'bun') {
-						await languageClient.sendNotification(
-							new NotificationType('workspace/didChangeConfiguration'),
-							{
-								settings: {
-									diagnostics: {
-										ignoredCodes: [2307]
-									}
-								}
-							}
-						)
 					}
 
 					websocketAlive[name] = true
@@ -696,8 +686,14 @@
 		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
+		// if (lang == 'typescript') {
+
+		// 	let worker = await languages.typescript.getTypeScriptWorker()
+		// 	console.log(worker)
+		// }
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
+				ata = undefined
 				let token = $lspTokenStore
 				if (!token) {
 					let expiration = new Date()
@@ -768,22 +764,45 @@
 						]
 					}
 				)
-			} else if (lang === 'typescript' && scriptLang !== 'deno') {
-				await connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/bun`,
-					'bun',
-					{},
-					(params, token, next) => {
-						return [
-							{
-								diagnostics: {
-									ignoredCodes: [2307]
-								},
-								enable: true
-							}
-						]
+			} else if (lang === 'javascript') {
+				const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+
+				if (scriptLang == 'bun') {
+					languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+				} else {
+					const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
+					languages.typescript.javascriptDefaults.setExtraLibs([stdLib, denoFetch])
+				}
+				if (scriptLang == 'bun') {
+					const addLibraryToRuntime = async (code: string, _path: string) => {
+						const path = 'file://' + _path
+						languages.typescript.javascriptDefaults.addExtraLib(code, path)
+						const uri = mUri.parse(path)
+						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 					}
-				)
+					await initWasm()
+					ata = setupTypeAcquisition({
+						projectName: 'Windmill',
+						depsParser: (c) => {
+							return parseDeps(c)
+						},
+						logger: console,
+						delegate: {
+							receivedFile: addLibraryToRuntime,
+							progress: (downloaded: number, total: number) => {
+								// console.log({ dl, ttl })
+							},
+							started: () => {
+								console.log('ATA start')
+							},
+							finished: (f) => {
+								console.log('ATA done')
+							}
+						}
+					})
+					ata?.('import "bun-types"')
+					ata?.(code)
+				}
 			} else if (lang === 'python') {
 				await connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/pyright`,
@@ -899,7 +918,6 @@
 							!websocketAlive.deno &&
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
-							!websocketAlive.bun &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff
 						) {
@@ -970,6 +988,8 @@
 	}
 
 	let initialized = false
+	let ata: ((s: string) => void) | undefined = undefined
+
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
@@ -982,6 +1002,30 @@
 		// console.log('af ready')
 
 		initialized = true
+
+		languages.typescript.typescriptDefaults.setModeConfiguration({
+			completionItems: false,
+			definitions: false,
+			hovers: false
+		})
+
+		languages.typescript.javascriptDefaults.setCompilerOptions({
+			target: languages.typescript.ScriptTarget.Latest,
+			allowNonTsExtensions: true,
+			noSemanticValidation: false,
+			noLib: true,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		})
+		// languages.typescript.typescriptDefaults.setModeConfiguration({
+		// 	completionItems: true,
+		// 	definitions: true,
+		// 	hovers: true,
+		// 	diagnostics: true
+		// })
+
+		// languages.typescript.typescriptDefaults.setCompilerOptions(
+		// 	languages.typescript.typescriptDefaults.getCompilerOptions()
+		// )
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
@@ -1004,14 +1048,11 @@
 			folding
 		})
 
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: false,
-			definitions: false,
-			hovers: false
-		})
-
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		let ataModel: NodeJS.Timeout | undefined = undefined
+
 		editor.onDidChangeModelContent((event) => {
+			console.log('foo')
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
@@ -1020,6 +1061,11 @@
 					dispatch('change', code)
 				}
 			}, 500)
+
+			ataModel && clearTimeout(ataModel)
+			ataModel = setTimeout(() => {
+				ata?.(getCode())
+			}, 1000)
 		})
 
 		editor.onDidBlurEditorText(() => {
@@ -1057,6 +1103,7 @@
 
 		return () => {
 			console.log('disposing editor')
+			ata = undefined
 			try {
 				closeWebsockets()
 				model?.dispose()
