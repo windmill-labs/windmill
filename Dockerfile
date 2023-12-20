@@ -209,7 +209,7 @@ RUN chmod 755 /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=oven/bun:1.0.8 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.0.18 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
