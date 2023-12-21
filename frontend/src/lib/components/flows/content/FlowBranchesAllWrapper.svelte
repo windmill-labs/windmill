@@ -30,7 +30,7 @@
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
-					<Alert notRounded type="info" title="All branches will be run" tooltip="Branch all" documentationLink="http://localhost:3001/docs/flows/flow_branches#branch-all" class="m-2">
+					<Alert notRounded type="info" title="All branches will be run" tooltip="Branch all" documentationLink="https://www.windmill.dev/docs/flows/flow_branches#branch-all" class="m-2">
 						The result of this step is the list of the result of each branch.
 					</Alert>
 
