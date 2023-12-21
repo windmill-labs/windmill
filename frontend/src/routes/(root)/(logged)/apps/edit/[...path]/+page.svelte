@@ -95,16 +95,19 @@
 			app_w_draft.value = stateLoadedFromUrl
 			app = app_w_draft
 		} else if (app_w_draft.draft) {
-			app = (
-				app_w_draft.draft.summary !== undefined // backward compatibility for old drafts missing metadata
-					? app_w_draft.draft
-					: {
-							summary: app_w_draft.summary,
-							value: app_w_draft.draft,
-							path: app_w_draft.path,
-							policy: app_w_draft.policy
-					  }
-			) as AppWithLastVersion
+			if (app_w_draft.summary !== undefined) {
+				// backward compatibility for old drafts missing metadata
+				app = {
+					...app_w_draft,
+					...app_w_draft.draft
+				}
+			} else {
+				app = {
+					...app_w_draft,
+					value: app_w_draft.draft
+				}
+			}
+
 			if (!app_w_draft.draft_only) {
 				const reloadAction = () => {
 					stateLoadedFromUrl = undefined
@@ -113,7 +116,7 @@
 				}
 
 				const deployed = cleanValueProperties(app_w_draft)
-				const draft = cleanValueProperties(app)
+				const draft = cleanValueProperties(app ?? {})
 				sendUserToast('app loaded from latest saved draft', false, [
 					{
 						label: 'Discard draft and load from latest deployed version',
@@ -194,7 +197,7 @@
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
-				version={app?.versions?.length > 0 ? app.versions[app.versions.length - 1] : undefined}
+				version={app.versions[app.versions.length - 1]}
 			/>
 		</div>
 	{/if}
