@@ -1,6 +1,6 @@
 import { ResourceService, VariableService, JobService, HelpersService } from "./index";
 import { OpenAPI } from "./index";
-import { DenoS3LightClientSettings } from "./s3Types";
+import type { DenoS3LightClientSettings } from "./index";
 
 export {
   AdminService,

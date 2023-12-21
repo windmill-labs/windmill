@@ -194,7 +194,7 @@
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
-				version={app.versions.length > 0 ? app.versions[app.versions.length - 1] : undefined}
+				version={app?.versions?.length > 0 ? app.versions[app.versions.length - 1] : undefined}
 			/>
 		</div>
 	{/if}

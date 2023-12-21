@@ -8,6 +8,7 @@ import {
 import { mapModuleNameToModule } from './edgeCases'
 
 export interface ATABootstrapConfig {
+	root: string
 	/** A object you pass in to get callbacks */
 	delegate: {
 		/** The callback which gets called when ATA decides a file needs to be written to your VFS  */
@@ -73,11 +74,9 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 	}
 	async function resolveDeps(initialSourceFile: string, depth: number) {
 		if (depth > 2) {
-			console.log('STOP HERE', depth)
 			return
-		} else {
-			console.log('L', depth)
 		}
+
 		const depsToGet = config
 			.depsParser(initialSourceFile)
 			.map((d: string) => {
