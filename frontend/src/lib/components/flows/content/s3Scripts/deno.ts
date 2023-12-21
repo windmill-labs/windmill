@@ -1,14 +1,15 @@
 const deno = {
-  s3_client: `import * as wmill from "npm:windmill-client@1";
+  s3_client: `import * as wmill from "npm:windmill-client@^1.229.0";
 import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
 
 type s3object = object;
 
 export async function main(inputFile: s3object) {
-  const s3Resource = await wmill.getResource(
-    "<PATH_TO_S3_RESOURCE>",
-  );
-  const s3Client = new S3Client(s3Resource);
+  // this will default to the workspace s3 resource
+  let args = await wmill.denoS3LightClientSettings();
+  // this will use the designated resource
+  // let args = await wmill.denoS3LightClientSettings("<PATH_TO_S3_RESOURCE>");
+  const s3Client = new S3Client(args);
 
   const outputFile = "output/hello.txt"
 
