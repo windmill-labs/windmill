@@ -161,7 +161,7 @@ export function buildExtraLib(
 	goto: boolean
 ): string {
 	const cs = Object.entries(components)
-		.filter(([k, v]) => k != idToExclude)
+		.filter(([k, v]) => k != idToExclude && k != 'state')
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
 		.map(
 			([k, v]) => `declare const ${k}: ${JSON.stringify(v)};
@@ -170,6 +170,10 @@ export function buildExtraLib(
 		.join('\n')
 
 	return `${cs}
+
+/** The mutable state of the app */
+declare const state: ${JSON.stringify(state)} & {[key: string]: any};
+
 ${
 	goto
 		? `
@@ -235,13 +239,9 @@ declare function invalidate(id: string, key: number, error: string): void;
  * @param id component's id
  */
 declare function validateAll(id: string, key: number): void;
-
 `
 		: ''
 }
-
-/** The current's app state */
-declare var state: Record<string, any> = ${JSON.stringify(state)};
 
 /** The iterator within the context of a list */
 declare const iter: {index: number, value: any};

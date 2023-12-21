@@ -129,6 +129,10 @@
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
 			: undefined
 
+	// 	`
+	// /** The current's app state */
+	// const state: Record<string, any>;`
+
 	let drawerIsOpen: boolean | undefined = undefined
 
 	async function inferSuggestions(code: string) {
