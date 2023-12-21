@@ -94,11 +94,15 @@
 			)
 			arg.type = 'javascript'
 			propertyType = 'static'
+			console.log('A')
 		} else {
+			console.log('B')
+
 			if (arg.type === 'javascript' && propertyType === 'static') {
 				arg.type = 'static'
 			}
 			if (arg.type) {
+				console.log('??', arg.type)
 				propertyType = arg.type
 			}
 		}
@@ -111,6 +115,7 @@
 	function connectProperty(rawValue: string) {
 		arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
 		arg.type = 'javascript'
+		console.log('C')
 		propertyType = 'javascript'
 		monaco?.setCode(arg.expr)
 	}
@@ -121,6 +126,7 @@
 				const toAppend = `\$\{${path}}`
 				arg.value = `${arg.value ?? ''}${toAppend}`
 				monacoTemplate?.setCode(arg.value)
+				console.log('D')
 				setPropertyType(arg.value)
 				argInput?.focus()
 				return false
@@ -129,6 +135,7 @@
 			focusProp(argName, 'insert', (path) => {
 				arg.expr = path
 				arg.type = 'javascript'
+				console.log('E')
 				propertyType = 'javascript'
 				monaco?.setCode(arg.expr)
 				return true
@@ -186,8 +193,11 @@
 				<div class="flex flex-row gap-x-6 gap-y-1 flex-wrap z-10">
 					<div>
 						<ToggleButtonGroup
-							bind:selected={propertyType}
+							selected={propertyType}
 							on:selected={(e) => {
+								console.log('FOOO')
+								if (e.detail == propertyType) return
+								console.log(e.detail, propertyType)
 								const staticTemplate = isStaticTemplate(inputCat)
 								if (e.detail === 'javascript') {
 									if (arg.expr == undefined) {
@@ -206,6 +216,7 @@
 										arg.type = 'javascript'
 									}
 									propertyType = 'javascript'
+									console.log('H', arg.expr)
 								} else {
 									if (staticTemplate) {
 										if (arg) {
@@ -221,6 +232,7 @@
 										}
 									}
 									propertyType = 'static'
+									console.log('F', propertyType)
 								}
 							}}
 						>
@@ -342,7 +354,7 @@
 				<DynamicInputHelpBox />
 				<div class="mb-2" />
 			{:else}
-				Not recognized input type {argName}
+				Not recognized input type {argName} ({arg.expr}, {propertyType})
 			{/if}
 		</div>
 	</div>
