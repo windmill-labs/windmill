@@ -1,17 +1,17 @@
 import type { AppComponent } from '.'
 
 export function defaultCode(component: string, language: string): string | undefined {
-    return DEFAULT_CODES[component]?.[language]
+	return DEFAULT_CODES[component]?.[language]
 }
 
 export const DEFAULT_CODES: Partial<
-    Record<
-        AppComponent['type'],
-        Partial<Record<'deno' | 'python3' | 'go' | 'bash' | 'pgsql' | 'mysql', string>>
-    >
+	Record<
+		AppComponent['type'],
+		Partial<Record<'deno' | 'python3' | 'go' | 'bash' | 'pgsql' | 'mysql', string>>
+	>
 > = {
-    tablecomponent: {
-        deno: `export async function main() {
+	tablecomponent: {
+		deno: `export async function main() {
     return [
         {
             "id": 1,
@@ -25,7 +25,7 @@ export const DEFAULT_CODES: Partial<
         }
     ]
 }`,
-        python3: `def main():
+		python3: `def main():
     return [
         {
             "id": 1,
@@ -38,7 +38,7 @@ export const DEFAULT_CODES: Partial<
             "age": 84
         }
     ]`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -46,9 +46,9 @@ export async function main(db: Postgresql) {
     const query = await pgSql(db)\`SELECT * FROM demo;\`;
     return query.rows;
 }`
-    },
-    aggridcomponent: {
-        deno: `export async function main() {
+	},
+	aggridcomponent: {
+		deno: `export async function main() {
     return [
         {
             "id": 1,
@@ -62,7 +62,7 @@ export async function main(db: Postgresql) {
         }
     ]
 }`,
-        python3: `def main():
+		python3: `def main():
     return [
         {
             "id": 1,
@@ -75,7 +75,7 @@ export async function main(db: Postgresql) {
             "age": 84
         }
     ]`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -83,29 +83,29 @@ export async function main(db: Postgresql) {
     const query = await pgSql(db)\`SELECT * FROM demo;\`;
     return query.rows;
 }`
-    },
-    steppercomponent: {
-        deno: `export async function main(stepIndex: number) {
+	},
+	steppercomponent: {
+		deno: `export async function main(stepIndex: number) {
         // if (stepIndex == 0) {
         //     if (page0Invalid) throw Error("first step invalid")
         // } else if ...
 }`,
-        python3: `def main(stepIndex: int):
+		python3: `def main(stepIndex: int):
 # if stepIndex == 0:
 #     if page0Invalid:
 #         raise Exception("first step invalid")
 # elif ...
 `
-    },
-    textcomponent: {
-        deno: `export async function main() {
+	},
+	textcomponent: {
+		deno: `export async function main() {
     return "foo"
 }`,
-        python3: `def main():
+		python3: `def main():
     return "foo"`
-    },
-    barchartcomponent: {
-        deno: `export async function main() {
+	},
+	barchartcomponent: {
+		deno: `export async function main() {
     return {
         "data": [
             25,
@@ -119,7 +119,7 @@ export async function main(db: Postgresql) {
         ]
     }
 }`,
-        python3: `def main():
+		python3: `def main():
     return {
         "data": [
             25,
@@ -132,7 +132,7 @@ export async function main(db: Postgresql) {
             "<3"
         ]
     }`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -143,20 +143,20 @@ export async function main(db: Postgresql) {
         labels: query.rows.map((row) => row['1']?.slice(0, 6))
     };
 }`
-    },
-    displaycomponent: {
-        deno: `export async function main(x = 42) {
+	},
+	displaycomponent: {
+		deno: `export async function main(x = 42) {
     return {
         foo: x
     }
 }`,
-        python3: `def main():
+		python3: `def main():
     return {
         "foo": 42
     }`
-    },
-    htmlcomponent: {
-        deno: `export async function main() {
+	},
+	htmlcomponent: {
+		deno: `export async function main() {
     return \`<img
     src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
     >
@@ -164,16 +164,16 @@ export async function main(db: Postgresql) {
         Hello world
     </h1>\`
 }`,
-        python3: `def main():
+		python3: `def main():
     return '''<img
     src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
     >
     <h1 class="absolute top-4 left-2 text-white">
     Hello world
     </h1>'''`
-    },
-    vegalitecomponent: {
-        deno: `export async function main() {
+	},
+	vegalitecomponent: {
+		deno: `export async function main() {
     return {
         data: {
             values: [
@@ -190,7 +190,7 @@ export async function main(db: Postgresql) {
         }
     }
 }`,
-        python3: `def main():
+		python3: `def main():
     return {
         "data": {
             "values": [
@@ -206,7 +206,7 @@ export async function main(db: Postgresql) {
             "y": { "field": "b", "type": "quantitative" },
         },
     }`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -226,9 +226,9 @@ export async function main(Postgresqlstgresql) {
         }
     };
 }`
-    },
-    plotlycomponent: {
-        deno: `export async function main() {
+	},
+	plotlycomponent: {
+		deno: `export async function main() {
     return {
         type: 'bar',
         x: [1, 2, 3, 4],
@@ -241,7 +241,7 @@ export async function main(Postgresqlstgresql) {
         }
     };
 }`,
-        python3: `def main():
+		python3: `def main():
     return {
         "type": "bar",
         "x": [1, 2, 3, 4],
@@ -253,7 +253,7 @@ export async function main(Postgresqlstgresql) {
             }
         }
     }`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -271,9 +271,9 @@ export async function main(Postgresqlstgresql) {
         }
     };
 }`
-    },
-    piechartcomponent: {
-        deno: `export async function main() {
+	},
+	piechartcomponent: {
+		deno: `export async function main() {
     return {
         "data": [
             25,
@@ -287,7 +287,7 @@ export async function main(Postgresqlstgresql) {
         ]
     }
 }`,
-        python3: `def main():
+		python3: `def main():
     return {
         "data": [
             25,
@@ -300,7 +300,7 @@ export async function main(Postgresqlstgresql) {
             "<3"
         ]
     }`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -311,9 +311,9 @@ export async function main(db: Postgresql) {
         labels: query.rows.map((row) => row['1']?.slice(0, 6))
     };
 }`
-    },
-    scatterchartcomponent: {
-        deno: `export async function main() {
+	},
+	scatterchartcomponent: {
+		deno: `export async function main() {
     return [
         {
             label: "foo",
@@ -335,7 +335,7 @@ export async function main(db: Postgresql) {
         }
     ];
 }`,
-        python3: `def main():
+		python3: `def main():
     return [
         {
             "label": "foo",
@@ -356,7 +356,7 @@ export async function main(db: Postgresql) {
             "backgroundColor": "orange"
         }
     ]`,
-        pgsql: `import { pgSql } from "npm:windmill-client@1";
+		pgsql: `import { pgSql } from "npm:windmill-client@${__pkg__.version}";
 
 type Postgresql = object
 
@@ -386,9 +386,9 @@ export async function main(db: Postgresql) {
         return [];
     }
 }`
-    },
-    timeseriescomponent: {
-        deno: `export async function main() {
+	},
+	timeseriescomponent: {
+		deno: `export async function main() {
     return [
         {
             label: "foo",
@@ -428,7 +428,7 @@ export async function main(db: Postgresql) {
         }
     ]
 }`,
-        python3: `def main():
+		python3: `def main():
     return [
         {
             "label": "foo",
@@ -467,16 +467,16 @@ export async function main(db: Postgresql) {
             "backgroundColor": "orange"
         }
     ]`
-    },
-    iconcomponent: {
-        deno: `export async function main() {
+	},
+	iconcomponent: {
+		deno: `export async function main() {
     return "Smile";
 }`,
-        python3: `def main():
+		python3: `def main():
     return "Smile"`
-    },
-    schemaformcomponent: {
-        deno: `export async function main() {
+	},
+	schemaformcomponent: {
+		deno: `export async function main() {
 return {
         properties: {
             first_name: {
@@ -488,7 +488,7 @@ return {
         required: []
     }
 }`,
-        python3: `def main():
+		python3: `def main():
     return {
         "properties": {
             "first_name": {
@@ -500,9 +500,9 @@ return {
         "required": []
     }
 `
-    },
-    listcomponent: {
-        deno: `export async function main() {
+	},
+	listcomponent: {
+		deno: `export async function main() {
     return [{
         "foo": 1,
     }, {
@@ -511,7 +511,7 @@ return {
         "foo": 3,
     }];
 }`,
-        python3: `def main():
+		python3: `def main():
     return [{"foo": 1}, {"foo": 2}, {"foo": 3}]`
-    }
+	}
 } as const

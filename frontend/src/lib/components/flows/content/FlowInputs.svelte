@@ -120,6 +120,20 @@
 					}}
 				/>
 
+				<FlowScriptPicker
+					disabled={noEditor && (summary == undefined || summary == '')}
+					label="TypeScript (Bun)"
+					lang={Script.language.BUN}
+					on:click={() => {
+						dispatch('new', {
+							language: RawScript.language.BUN,
+							kind,
+							subkind: 'flow',
+							summary
+						})
+					}}
+				/>
+
 				{#if kind != 'approval'}
 					<FlowScriptPicker
 						disabled={noEditor && (summary == undefined || summary == '')}
@@ -298,20 +312,6 @@
 						/> -->
 					{/if}
 				{/if}
-
-				<FlowScriptPicker
-					disabled={noEditor && (summary == undefined || summary == '')}
-					label="TypeScript (Bun)"
-					lang={Script.language.BUN}
-					on:click={() => {
-						dispatch('new', {
-							language: RawScript.language.BUN,
-							kind,
-							subkind: 'flow',
-							summary
-						})
-					}}
-				/>
 			</div>
 		</div>
 
