@@ -2605,7 +2605,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.priority,
             )
         }
-        JobPayload::ScheduledScriptWithRetry {
+        JobPayload::SingleScriptFlow {
             path,
             hash,
             retry,
@@ -2651,7 +2651,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 Some(path),
                 None,
-                JobKind::ScheduledScriptWithRetry,
+                JobKind::SingleScriptFlow,
                 Some(flow_value.clone()),
                 Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
@@ -2967,7 +2967,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             }
             JobKind::Flow => "jobs.run.flow",
             JobKind::FlowPreview => "jobs.run.flow_preview",
-            JobKind::ScheduledScriptWithRetry => "jobs.run.scheduled_script_with_retry",
+            JobKind::SingleScriptFlow => "jobs.run.single_script_flow",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",

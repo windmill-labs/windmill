@@ -47,7 +47,8 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "scheduledscriptwithretry"
+                "scheduledscriptwithretry",
+                "singlescriptflow"
               ]
             }
           }

@@ -7476,7 +7476,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "scheduledscriptwithretry",
+              "singlescriptflow",
             ]
         schedule_path:
           type: string
@@ -7586,7 +7586,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "scheduledscriptwithretry",
+              "singlescriptflow",
             ]
         schedule_path:
           type: string

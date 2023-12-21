@@ -41,7 +41,8 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "scheduledscriptwithretry"
+                "scheduledscriptwithretry",
+                "singlescriptflow"
               ]
             }
           }
@@ -65,7 +66,8 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "scheduledscriptwithretry"
+                "scheduledscriptwithretry",
+                "singlescriptflow"
               ]
             }
           }

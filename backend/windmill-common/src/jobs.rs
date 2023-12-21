@@ -24,7 +24,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
-    ScheduledScriptWithRetry,
+    SingleScriptFlow,
     Identity,
     FlowDependencies,
     AppDependencies,
@@ -309,11 +309,11 @@ pub enum JobPayload {
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
     },
-    ScheduledScriptWithRetry {
+    SingleScriptFlow {
         path: String,
         hash: ScriptHash,
         args: HashMap<String, serde_json::Value>,
-        retry: Retry,
+        retry: Retry, // for now only used to retry the script, so retry is necessarily present
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,

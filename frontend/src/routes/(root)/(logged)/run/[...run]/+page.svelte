@@ -492,7 +492,7 @@
 					tag={job?.tag}
 				/>
 			</div>
-		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'scheduledscriptwithretry'}
+		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
 			<!-- Logs and outputs-->
 			<div class="mr-2 sm:mr-0 mt-12">
 				<Tabs bind:selected={viewTab}>

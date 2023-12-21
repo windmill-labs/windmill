@@ -6981,7 +6981,7 @@ paths:
                         - script_hub
                         - identity
                         - deploymentcallback
-                        - scheduledscriptwithretry
+                        - singlescriptflow
                     schedule_path:
                       type: string
                     permissioned_as:
@@ -7345,7 +7345,7 @@ paths:
                         - script_hub
                         - identity
                         - deploymentcallback
-                        - scheduledscriptwithretry
+                        - singlescriptflow
                     schedule_path:
                       type: string
                     permissioned_as:

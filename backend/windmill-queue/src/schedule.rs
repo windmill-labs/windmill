@@ -121,7 +121,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             }
             // if retry is set, we wrap the script into a one step flow with a retry on the module
             (
-                JobPayload::ScheduledScriptWithRetry {
+                JobPayload::SingleScriptFlow {
                     path: schedule.script_path,
                     hash: hash,
                     retry: parsed_retry,
