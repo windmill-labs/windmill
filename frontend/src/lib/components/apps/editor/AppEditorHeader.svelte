@@ -1247,13 +1247,13 @@
 			size="xs"
 			dropdownItems={appPath != ''
 				? () => [
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
-							}
+					{
+						label: 'Fork',
+						onClick: () => {
+							window.open(`/apps/add?template=${appPath}`)
 						}
-				  ]
+					}
+				]
 				: undefined}
 		>
 			Deploy
