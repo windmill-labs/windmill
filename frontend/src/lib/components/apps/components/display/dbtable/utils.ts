@@ -1,5 +1,8 @@
 import type { AppInput, RunnableByName } from '../../../inputType'
 import { JobService, Preview } from '$lib/gen'
+import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
+import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
+import { tryEvery } from '$lib/utils'
 
 export function makeQuery(
 	table: string,
@@ -239,4 +242,284 @@ export async function insertRow(
 	})
 
 	return false
+}
+
+export function resourceTypeToLang(rt: string) {
+	if (rt === 'ms_sql_server') {
+		return 'mssql'
+	} else {
+		return rt
+	}
+}
+
+const scripts: Record<
+	string,
+	{
+		code: string
+		lang: string
+		processingFn?: (any: any) => SQLSchema['schema']
+		argName: string
+	}
+> = {
+	postgresql: {
+		code: `SELECT table_name, column_name, udt_name, column_default, is_nullable, table_schema FROM information_schema.columns WHERE table_schema != 'pg_catalog' AND table_schema != 'information_schema'`,
+		processingFn: (rows) => {
+			const schemas = rows.reduce((acc, a) => {
+				const table_schema = a.table_schema
+				delete a.table_schema
+				acc[table_schema] = acc[table_schema] || []
+				acc[table_schema].push(a)
+				return acc
+			}, {})
+			const data = {}
+			for (const key in schemas) {
+				data[key] = schemas[key].reduce((acc, a) => {
+					const table_name = a.table_name
+					delete a.table_name
+					acc[table_name] = acc[table_name] || {}
+					const p: {
+						type: string
+						required: boolean
+						default?: string
+					} = {
+						type: a.udt_name,
+						required: a.is_nullable === 'NO'
+					}
+					if (a.column_default) {
+						p.default = a.column_default
+					}
+					acc[table_name][a.column_name] = p
+					return acc
+				}, {})
+			}
+			return data
+		},
+		lang: 'postgresql',
+		argName: 'database'
+	},
+	mysql: {
+		code: "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'information_schema'",
+		processingFn: (rows) => {
+			const schemas = rows.reduce((acc, a) => {
+				const table_schema = a.TABLE_SCHEMA
+				delete a.TABLE_SCHEMA
+				acc[table_schema] = acc[table_schema] || []
+				acc[table_schema].push(a)
+				return acc
+			}, {})
+			const data = {}
+			for (const key in schemas) {
+				data[key] = schemas[key].reduce((acc, a) => {
+					const table_name = a.TABLE_NAME
+					delete a.TABLE_NAME
+					acc[table_name] = acc[table_name] || {}
+					const p: {
+						type: string
+						required: boolean
+						default?: string
+					} = {
+						type: a.DATA_TYPE,
+						required: a.is_nullable === 'NO'
+					}
+					if (a.column_default) {
+						p.default = a.COLUMN_DEFAULT
+					}
+					acc[table_name][a.COLUMN_NAME] = p
+					return acc
+				}, {})
+			}
+			return data
+		},
+		lang: 'mysql',
+		argName: 'database'
+	},
+	graphql: {
+		code: getIntrospectionQuery(),
+		lang: 'graphql',
+		argName: 'api'
+	},
+	bigquery: {
+		code: `import { BigQuery } from 'npm:@google-cloud/bigquery@7.2.0';
+export async function main(args: bigquery) {
+const bq = new BigQuery({
+	credentials: args
+})
+const [datasets] = await bq.getDatasets();
+const schema = {}
+for (const dataset of datasets) {
+	schema[dataset.id] = {}
+	const query = "SELECT table_name, ARRAY_AGG(STRUCT(if(is_nullable = 'YES', true, false) AS required, column_name AS name, data_type AS type, if(column_default = 'NULL', null, column_default) AS \`default\`) ORDER BY ordinal_position) AS schema \
+FROM \`{dataset.id}\`.INFORMATION_SCHEMA.COLUMNS \
+GROUP BY table_name".replace('{dataset.id}', dataset.id)
+	const [rows] = await bq.query(query)
+	for (const row of rows) {
+		schema[dataset.id][row.table_name] = {}
+		for (const col of row.schema) {
+			const colName = col.name
+			delete col.name
+			if (col.default === null) {
+				delete col.default
+			}
+			schema[dataset.id][row.table_name][colName] = col
+		}
+	}
+}
+return schema
+}`, // nested template literals
+		lang: 'deno',
+		argName: 'args'
+	},
+	snowflake: {
+		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE from information_schema.columns where table_schema != 'INFORMATION_SCHEMA'`,
+		lang: 'snowflake',
+		processingFn: (rows) => {
+			const schema = {}
+			for (const row of rows) {
+				if (!(row.TABLE_SCHEMA in schema)) {
+					schema[row.TABLE_SCHEMA] = {}
+				}
+				if (!(row.TABLE_NAME in schema[row.TABLE_SCHEMA])) {
+					schema[row.TABLE_SCHEMA][row.TABLE_NAME] = {}
+				}
+				schema[row.TABLE_SCHEMA][row.TABLE_NAME][row.COLUMN_NAME] = {
+					type: row.DATA_TYPE,
+					required: row.IS_NULLABLE === 'YES'
+				}
+				if (row.COLUMN_DEFAULT !== null) {
+					schema[row.TABLE_SCHEMA][row.TABLE_NAME][row.COLUMN_NAME]['default'] = row.COLUMN_DEFAULT
+				}
+			}
+			return schema
+		},
+		argName: 'database'
+	},
+	ms_sql_server: {
+		argName: 'database',
+		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
+		lang: 'mssql',
+		processingFn: (rows) => {
+			const schemas = rows[0].reduce((acc, a) => {
+				const table_schema = a.TABLE_SCHEMA
+				delete a.TABLE_SCHEMA
+				acc[table_schema] = acc[table_schema] || []
+				acc[table_schema].push(a)
+				return acc
+			}, {})
+			const data = {}
+			for (const key in schemas) {
+				data[key] = schemas[key].reduce((acc, a) => {
+					const table_name = a.TABLE_NAME
+					delete a.TABLE_NAME
+					acc[table_name] = acc[table_name] || {}
+					const p: {
+						type: string
+						required: boolean
+						default?: string
+					} = {
+						type: a.DATA_TYPE,
+						required: a.is_nullable === 'NO'
+					}
+					if (a.column_default) {
+						p.default = a.COLUMN_DEFAULT
+					}
+					acc[table_name][a.COLUMN_NAME] = p
+					return acc
+				}, {})
+			}
+			return data
+		}
+	}
+}
+
+export { scripts }
+export async function getDbSchemas(
+	resourceType: string,
+	resourcePath: string,
+	workspace: string | undefined,
+	dbSchemas: DBSchemas,
+	errorCallback: (message: string) => void
+) {
+	if (!resourceType || !resourcePath || !workspace) {
+		return dbSchemas
+	}
+
+	const job = await JobService.runScriptPreview({
+		workspace: workspace,
+		requestBody: {
+			language: scripts[resourceType].lang as Preview.language,
+			content: scripts[resourceType].code,
+			args: {
+				[scripts[resourceType].argName]: '$res:' + resourcePath
+			}
+		}
+	})
+
+	tryEvery({
+		tryCode: async () => {
+			if (resourcePath) {
+				const testResult = await JobService.getCompletedJob({
+					workspace,
+					id: job
+				})
+				if (!testResult.success) {
+					console.error(testResult.result?.['error']?.['message'])
+				} else {
+					if (resourceType !== undefined) {
+						if (resourceType !== 'graphql') {
+							const { processingFn } = scripts[resourceType]
+							const schema =
+								processingFn !== undefined ? processingFn(testResult.result) : testResult.result
+							dbSchemas[resourcePath] = {
+								lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
+								schema,
+								publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+							}
+						} else {
+							if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
+								console.error('Invalid GraphQL schema')
+
+								errorCallback('Invalid GraphQL schema')
+							} else {
+								dbSchemas[resourcePath] = {
+									lang: 'graphql',
+									schema: testResult.result
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		timeoutCode: async () => {
+			console.error('Could not query schema within 5s')
+			errorCallback('Could not query schema within 5s')
+			try {
+				await JobService.cancelQueuedJob({
+					workspace,
+					id: job,
+					requestBody: {
+						reason: 'Could not query schema within 5s'
+					}
+				})
+			} catch (err) {
+				console.error(err)
+			}
+		},
+		interval: 500,
+		timeout: 5000
+	})
+}
+
+export function formatSchema(dbSchema: DBSchema) {
+	if (dbSchema.lang !== 'graphql' && dbSchema.publicOnly) {
+		return dbSchema.schema.public || dbSchema.schema.PUBLIC || dbSchema.schema.dbo || dbSchema
+	} else if (dbSchema.lang === 'mysql' && Object.keys(dbSchema.schema).length === 1) {
+		return dbSchema.schema[Object.keys(dbSchema.schema)[0]]
+	} else {
+		return dbSchema.schema
+	}
+}
+
+export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
+	return printSchema(buildClientSchema(dbSchema.schema))
 }

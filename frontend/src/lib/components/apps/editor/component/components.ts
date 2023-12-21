@@ -2977,11 +2977,18 @@ This is a paragraph.
 								value: ''
 							} as StaticAppInput,
 
+							/*
 							table: {
 								fieldType: 'select',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
+							},
+							*/
+							table: {
+								type: 'static',
+								fieldType: 'text',
+								value: ''
 							},
 							columns: {
 								type: 'static',
