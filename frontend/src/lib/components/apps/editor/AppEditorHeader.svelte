@@ -1237,7 +1237,6 @@
 			on:click={() => saveDraft()}
 			size="xs"
 			disabled={$page.params.path !== undefined && !savedApp}
-			title="Stage changes"
 		>
 			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
@@ -1256,7 +1255,6 @@
 					}
 				]
 				: undefined}
-			title="Deploy to workspace"
 		>
 			Deploy
 		</Button>

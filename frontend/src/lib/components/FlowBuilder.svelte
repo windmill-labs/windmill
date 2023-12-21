@@ -1109,7 +1109,6 @@
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={!newFlow && !savedFlow}
-						title="Stage changes"
 					>
 						Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 					</Button>
@@ -1119,7 +1118,6 @@
 						startIcon={{ icon: Save }}
 						on:click={() => saveFlow()}
 						dropdownItems={!newFlow ? dropdownItems : undefined}
-						title="Deploy to workspace"
 					>
 						Deploy
 					</Button>
