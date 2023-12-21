@@ -1033,7 +1033,7 @@
 			noSemanticValidation: false,
 			noSyntaxValidation: false,
 			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: []
+			diagnosticCodesToIgnore: [1108]
 		})
 
 		languages.typescript.javascriptDefaults.setCompilerOptions({

@@ -424,6 +424,13 @@
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
+		})
+
 		languages.register({ id: 'template' })
 
 		// Register a tokens provider for the language

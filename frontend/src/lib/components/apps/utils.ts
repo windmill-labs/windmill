@@ -241,7 +241,7 @@ declare function validateAll(id: string, key: number): void;
 }
 
 /** The current's app state */
-declare const state: ${JSON.stringify(state)};
+declare var state: Record<string, any> = ${JSON.stringify(state)};
 
 /** The iterator within the context of a list */
 declare const iter: {index: number, value: any};
