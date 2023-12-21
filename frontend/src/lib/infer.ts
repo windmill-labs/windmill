@@ -15,7 +15,8 @@ import init, {
 	parse_graphql,
 	parse_powershell,
 	parse_outputs,
-	parse_mssql
+	parse_mssql,
+	parse_ts_imports
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -23,6 +24,20 @@ import { workspaceStore } from './stores.js'
 init(wasmUrl)
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
+
+export async function initWasm() {
+	await init(wasmUrl)
+}
+
+export function parseDeps(code: string): string[] {
+	let r = JSON.parse(parse_ts_imports(code))
+	if (r.error) {
+		console.error(r.error)
+		return []
+	} else {
+		return r.imports
+	}
+}
 
 export async function inferArgs(
 	language: SupportedLanguage,

@@ -66,8 +66,7 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
-		bun: false
+		shellcheck: false
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
@@ -458,7 +457,7 @@
 										</Section>
 									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
 										<div>
-											<FlowModuleDeleteAfterUse bind:flowModule />
+											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
 										</div>
 									{:else if advancedSelected === 'cache'}
 										<div>

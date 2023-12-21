@@ -18,7 +18,6 @@ FROM nikolaik/python-nodejs:python3.11-nodejs19-slim
 RUN apt-get update \
     && apt-get install -y shellcheck
 RUN yarn global add diagnostic-languageserver
-RUN yarn global add typescript-language-server-bun@3.3.4 typescript
 RUN yarn global add pyright
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -57,7 +56,7 @@ COPY pyls_launcher.py .
 
 RUN mkdir -p /tmp/monaco
 
-RUN cd /tmp/monaco && yarn add -D bun-types windmill-client
+RUN cd /tmp/monaco && yarn add -D windmill-client
 
 EXPOSE 3001
 

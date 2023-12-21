@@ -29,7 +29,8 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import libStdContent from '$lib/es6.d.ts.txt?raw'
+	import domContent from '$lib/dom.d.ts.txt?raw'
 	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
@@ -53,6 +54,7 @@
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
+	export let domLib = false
 
 	const dispatch = createEventDispatcher()
 
@@ -130,8 +132,17 @@
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
-			noLib: true
+			noSemanticValidation: false,
+			noLib: true,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: true,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
+		})
+		languages.typescript.javascriptDefaults.setExtraLibs([])
 
 		languages.json.jsonDefaults.setDiagnosticsOptions({
 			validate: true,
@@ -290,17 +301,19 @@
 
 	function loadExtraLib() {
 		if (lang == 'javascript') {
-			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
+			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+			const domDTS = { content: domContent, filePath: 'dom.d.ts' }
+			const stds = domLib ? [stdLib, domDTS] : [stdLib]
 			if (extraLib != '') {
 				languages.typescript.javascriptDefaults.setExtraLibs([
 					{
 						content: extraLib,
 						filePath: 'windmill.d.ts'
 					},
-					stdLib
+					...stds
 				])
 			} else {
-				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+				languages.typescript.javascriptDefaults.setExtraLibs(stds)
 			}
 		}
 	}

@@ -56,8 +56,8 @@ pub fn workspaced_service() -> Router {
             post(polars_connection_settings_v2).layer(cors.clone()),
         )
         .route(
-            "/v2/boto3_connection_settings",
-            post(boto3_connection_settings_v2).layer(cors.clone()),
+            "/v2/s3_resource_info",
+            post(s3_resource_info).layer(cors.clone()),
         )
         .route("/test_connection", get(test_connection).layer(cors.clone()))
         .route(
@@ -74,7 +74,7 @@ pub fn workspaced_service() -> Router {
         )
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct S3Resource {
     #[serde(rename = "bucket")]
     bucket: String,
@@ -272,27 +272,18 @@ async fn polars_connection_settings_v2(
 }
 
 #[derive(Deserialize)]
-struct Boto3ConnectionSettingsQueryV2 {
+struct S3ResourceInfoQuery {
     s3_resource_path: Option<String>,
 }
 
-#[derive(Serialize)]
-struct Boto3ConnectionSettingsResponse {
-    region_name: String,
-    use_ssl: bool,
-    endpoint_url: String,
-    aws_access_key_id: Option<String>,
-    aws_secret_access_key: Option<String>,
-}
-
-async fn boto3_connection_settings_v2(
+async fn s3_resource_info(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
-    Json(query): Json<Boto3ConnectionSettingsQueryV2>,
-) -> error::JsonResult<Boto3ConnectionSettingsResponse> {
+    Json(query): Json<S3ResourceInfoQuery>,
+) -> error::JsonResult<S3Resource> {
     let s3_resource_opt = match query.s3_resource_path {
         Some(s3_resource_path) => {
             get_s3_resource(
@@ -310,14 +301,7 @@ async fn boto3_connection_settings_v2(
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
     ))?;
-    let response = Boto3ConnectionSettingsResponse {
-        endpoint_url: render_endpoint(&s3_resource),
-        region_name: s3_resource.region,
-        use_ssl: s3_resource.use_ssl,
-        aws_access_key_id: s3_resource.access_key,
-        aws_secret_access_key: s3_resource.secret_key,
-    };
-    return Ok(Json(response));
+    return Ok(Json(s3_resource));
 }
 
 #[derive(Serialize, Deserialize, Clone)]
