@@ -6813,6 +6813,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/delete_s3_file:
+    delete:
+      summary: Permanently delete file from S3
+      operationId: deleteS3File
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Confirmation
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_helpers/multipart_upload_s3_file:
+    post:
+      summary: Upload file to S3 bucket using multipart upload
+      operationId: multipartFileUpload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Query args for a multipart file upload to S3
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_key:
+                  type: string
+                part_content:
+                  type: array
+                  items:
+                    type: integer
+                upload_id:
+                  type: string
+                parts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/UploadFilePart"
+                is_final:
+                  type: boolean
+                cancel_upload:
+                  type: boolean
+              required:
+                - file_key
+                - part_content_base64
+                - parts
+                - is_final
+                - cancel_upload
+      responses:
+        "200":
+          description: Chunk upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_id:
+                    type: string
+                  parts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UploadFilePart"
+                  is_done:
+                    type: boolean
+                required:
+                  - upload_id
+                  - parts
+                  - is_done
+
 components:
   securitySchemes:
     bearerAuth:
@@ -8941,3 +9020,14 @@ components:
       required:
         - script_path
         - git_repo_resource_path
+
+    UploadFilePart:
+      type: object
+      properties:
+        part_number:
+          type: integer
+        tag:
+          type: string
+      required:
+        - part_number
+        - tag
