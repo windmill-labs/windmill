@@ -1222,16 +1222,16 @@
 			on:click={save}
 			size="xs"
 			dropdownItems={appPath != ''
-			title="Deploy to workspace"
 				? () => [
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
-							}
+					{
+						label: 'Fork',
+						onClick: () => {
+							window.open(`/apps/add?template=${appPath}`)
 						}
-				  ]
+					}
+				]
 				: undefined}
+			title="Deploy to workspace"
 		>
 			Deploy
 		</Button>
