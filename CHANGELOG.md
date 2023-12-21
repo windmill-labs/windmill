@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.229.0](https://github.com/windmill-labs/windmill/compare/v1.228.1...v1.229.0) (2023-12-21)
+
+
+### Features
+
+* **frontend:** add a quick button to open decision tree graph ([#2897](https://github.com/windmill-labs/windmill/issues/2897)) ([3f7c19f](https://github.com/windmill-labs/windmill/commit/3f7c19f267a9965f21cf8a08040a45e088d24918))
+
+
+### Bug Fixes
+
+* **frontend:** fix save draft when the app has no versions ([#2904](https://github.com/windmill-labs/windmill/issues/2904)) ([0170fcc](https://github.com/windmill-labs/windmill/commit/0170fcc338e0b59f8af1894d868f3819cad8aca3))
+* Re-add TS SDK changes for S3 ([#2899](https://github.com/windmill-labs/windmill/issues/2899)) ([5fafd71](https://github.com/windmill-labs/windmill/commit/5fafd71135c5d4d1764e9f96984bc5f5e5810465))
+
 ## [1.228.1](https://github.com/windmill-labs/windmill/compare/v1.228.0...v1.228.1) (2023-12-20)
 
 
