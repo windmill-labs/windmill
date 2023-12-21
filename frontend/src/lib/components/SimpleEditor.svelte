@@ -136,6 +136,12 @@
 			noLib: true,
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: true,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
+		})
 		languages.typescript.javascriptDefaults.setExtraLibs([])
 
 		languages.json.jsonDefaults.setDiagnosticsOptions({
