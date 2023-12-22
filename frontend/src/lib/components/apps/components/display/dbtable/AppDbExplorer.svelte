@@ -2,18 +2,12 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
-	import { findGridItem, initConfig } from '$lib/components/apps/editor/appUtils'
-	import {
-		createPostgresInput,
-		getDbSchemas,
-		insertRow,
-		loadTableMetaData,
-		type TableMetadata
-	} from './utils'
+	import { initConfig } from '$lib/components/apps/editor/appUtils'
+	import { createPostgresInput, insertRow, loadTableMetaData, type TableMetadata } from './utils'
 	import AppAggridTable from '../table/AppAggridTable.svelte'
 	import { getContext, onMount } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
-	import { workspaceStore, type DBSchemas } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -32,7 +26,7 @@
 		configuration
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: input = createPostgresInput(
 		resolvedConfig.type.configuration.postgresql.resource,
@@ -87,8 +81,25 @@
 
 	let args: Record<string, any> = {}
 
+	/*
 	async function listTableIfAvailable() {
+		const gridItem = findGridItem($app, id)
+
+		if (!gridItem) {
+			return
+		}
+
 		if (!resolvedConfig.type.configuration.postgresql.resource) {
+			if (
+				'configuration' in gridItem.data.configuration.type &&
+				'selectOptions' in gridItem.data.configuration.type.configuration.postgresql.table
+			) {
+				gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = []
+			}
+
+			$app = {
+				...$app
+			}
 			return
 		}
 
@@ -102,27 +113,23 @@
 			(message: string) => {}
 		)
 
-		const gridItem = findGridItem($app, id)
-
-		if (!gridItem) {
-			return
+		if (
+			'configuration' in gridItem.data.configuration.type &&
+			'selectOptions' in gridItem.data.configuration.type.configuration.postgresql.table
+		) {
+			gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = dbSchemas
+				? // @ts-ignore
+				  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public)
+				: []
 		}
-
-		debugger
-
-		// @ts-ignore
-		gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = Object.keys(
-			// @ts-ignore
-
-			Object.values(dbSchemas)[0].schema.public
-		)
 
 		$app = {
 			...$app
 		}
 	}
+	*/
 
-	$: listTableIfAvailable()
+	// $: resolvedConfig.type && listTableIfAvailable()
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}

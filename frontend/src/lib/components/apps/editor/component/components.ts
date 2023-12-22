@@ -171,7 +171,6 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 }
 
 export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'>
-// #TypeAnchor
 
 export type DecisionTreeNode = {
 	id: string
@@ -2976,12 +2975,18 @@ This is a paragraph.
 								fieldType: 'resource',
 								value: ''
 							} as StaticAppInput,
-
+							/*
 							table: {
 								fieldType: 'select',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
+							},
+							*/
+							table: {
+								type: 'static',
+								fieldType: 'text',
+								value: ''
 							},
 							columns: {
 								type: 'static',
