@@ -94,10 +94,7 @@
 			)
 			arg.type = 'javascript'
 			propertyType = 'static'
-			console.log('A')
 		} else {
-			console.log('B')
-
 			if (arg.type === 'javascript' && propertyType === 'static') {
 				arg.type = 'static'
 			}

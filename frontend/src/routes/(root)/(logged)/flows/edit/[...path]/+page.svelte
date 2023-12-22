@@ -189,7 +189,7 @@
 	}
 </script>
 
-<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
+<!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 <FlowBuilder

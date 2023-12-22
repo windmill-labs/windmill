@@ -770,7 +770,11 @@
 						const path = 'file://' + _path
 						let uri = mUri.parse(path)
 						languages.typescript.javascriptDefaults.addExtraLib(code, path)
-						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+						try {
+							await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+						} catch (e) {
+							console.log('error writing file', e)
+						}
 					}
 
 					const addLocalFile = async (code: string, _path: string) => {
@@ -982,7 +986,7 @@
 		websocketInterval && clearInterval(websocketInterval)
 	}
 
-	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
+	// let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 	let model: meditor.ITextModel | undefined = undefined
 
 	let monacoBinding: MonacoBinding | undefined = undefined
@@ -1089,7 +1093,7 @@
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
 			fontSize: !small ? 14 : 12,
-			overflowWidgetsDomNode: widgets,
+			// overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
 		})
@@ -1114,10 +1118,12 @@
 		})
 
 		editor.onDidBlurEditorText(() => {
+			console.log('blur')
 			dispatch('blur')
 		})
 
 		editor.onDidFocusEditorText(() => {
+			console.log('focus')
 			dispatch('focus')
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
@@ -1207,6 +1213,7 @@
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 		return root
 	}
+	console.log('FOO')
 </script>
 
 <EditorTheme />
