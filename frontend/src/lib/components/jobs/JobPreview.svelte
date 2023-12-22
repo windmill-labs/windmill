@@ -100,7 +100,10 @@
 			border shadow-xl flex justify-start items-start w-[600px] h-80
 			overflow-hidden"
 		>
-			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5">
+			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5 z-50 bg-surface-primary">
+				{#if job?.started_at}
+					<Badge>{new Date(job?.['started_at']).toLocaleString()}</Badge>
+				{/if}
 				<Badge>
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
