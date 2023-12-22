@@ -188,6 +188,7 @@
 						)
 
 						insertDrawer?.closeDrawer()
+						renderCount++
 					}}
 					disabled={!tableMetaData ||
 						Object.keys(args).length !== tableMetaData.length ||
