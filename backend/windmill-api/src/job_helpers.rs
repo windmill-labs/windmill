@@ -80,6 +80,7 @@ pub fn workspaced_service() -> Router {
             "/delete_s3_file",
             delete(delete_s3_file).layer(cors.clone()),
         )
+        .route("/move_s3_file", get(move_s3_file).layer(cors.clone()))
         .route(
             "/multipart_upload_s3_file",
             post(multipart_upload_s3_file).layer(cors.clone()),
@@ -701,6 +702,54 @@ async fn delete_s3_file(
         .delete_object()
         .bucket(&s3_bucket)
         .key(&file_key)
+        .send()
+        .await
+        .map_err(|err| {
+            tracing::error!("{:?}", err);
+            error::Error::InternalErr(err.to_string())
+        })?;
+    return Ok(Json(()));
+}
+
+#[derive(Deserialize)]
+struct MoveS3FileQuery {
+    pub src_file_key: String,
+    pub dest_file_key: String,
+}
+
+async fn move_s3_file(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Query(query): Query<MoveS3FileQuery>,
+) -> error::JsonResult<()> {
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let s3_client = build_s3_client(&s3_resource);
+
+    let s3_bucket = s3_resource.bucket.clone();
+    let source_uri = format!("{}/{}", s3_bucket, query.src_file_key);
+    s3_client
+        .copy_object()
+        .copy_source(&source_uri)
+        .bucket(&s3_bucket)
+        .key(&query.dest_file_key)
+        .send()
+        .await
+        .map_err(|err| {
+            tracing::error!("{:?}", err);
+            error::Error::InternalErr(err.to_string())
+        })?;
+
+    s3_client
+        .delete_object()
+        .bucket(&s3_bucket)
+        .key(&query.src_file_key)
         .send()
         .await
         .map_err(|err| {
