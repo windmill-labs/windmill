@@ -6,7 +6,8 @@
 		createBranches,
 		createLoop,
 		deleteFlowStateById,
-		emptyModule
+		emptyModule,
+		pickScript
 	} from '$lib/components/flows/flowStateUtils'
 	import type { FlowModule } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
@@ -43,12 +44,23 @@
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
-		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger' | 'approval' | 'end'
+		kind:
+			| 'script'
+			| 'forloop'
+			| 'branchone'
+			| 'branchall'
+			| 'flow'
+			| 'trigger'
+			| 'approval'
+			| 'end',
+		wsScript?: { path: string; summary: string; hash: string | undefined }
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
 		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()
-		if (kind == 'forloop') {
+		if (wsScript) {
+			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
+		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(module.id)
 		} else if (kind == 'branchone') {
 			;[module, state] = await createBranches(module.id)
@@ -248,7 +260,12 @@
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
-							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+							await insertNewModuleAtIndex(
+								detail.modules,
+								detail.index ?? 0,
+								detail.detail,
+								detail.script
+							)
 							$selectedId = detail.modules[detail.index ?? 0].id
 						}
 

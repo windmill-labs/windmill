@@ -32,6 +32,34 @@
 	export let parentModule: FlowModule | undefined = undefined
 	// Pointer to previous module, for easy access to testing results
 	export let previousModule: FlowModule | undefined = undefined
+
+	async function createModuleFromScript(
+		path: string,
+		summary: string,
+		kind: string,
+		hash: string | undefined
+	) {
+		const [module, state] = await pickScript(path, summary, flowModule.id, hash)
+
+		if (kind == Script.kind.APPROVAL) {
+			module.suspend = { required_events: 1, timeout: 1800 }
+		}
+
+		if (kind == Script.kind.TRIGGER) {
+			if (!$schedule.cron) {
+				$schedule.cron = '0 */15 * * *'
+			}
+			$schedule.enabled = true
+
+			module.stop_after_if = {
+				expr: 'result == undefined || Array.isArray(result) && result.length == 0',
+				skip_if_stopped: true
+			}
+		}
+
+		flowModule = module
+		$flowStateStore[module.id] = state
+	}
 </script>
 
 {#if flowModule.id === $selectedId}
@@ -69,26 +97,7 @@
 					$selectedId == 'failure'}
 				on:pick={async ({ detail }) => {
 					const { path, summary, kind, hash } = detail
-					const [module, state] = await pickScript(path, summary, flowModule.id, hash)
-
-					if (kind == Script.kind.APPROVAL) {
-						module.suspend = { required_events: 1, timeout: 1800 }
-					}
-
-					if (kind == Script.kind.TRIGGER) {
-						if (!$schedule.cron) {
-							$schedule.cron = '0 */15 * * *'
-						}
-						$schedule.enabled = true
-
-						module.stop_after_if = {
-							expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-							skip_if_stopped: true
-						}
-					}
-
-					flowModule = module
-					$flowStateStore[module.id] = state
+					createModuleFromScript(path, summary, kind, hash)
 				}}
 				on:new={async ({ detail }) => {
 					const { language, kind, subkind, summary } = detail

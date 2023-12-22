@@ -1,13 +1,16 @@
 <script lang="ts">
-	import { copilotInfo } from '$lib/stores'
-	import { getContext } from 'svelte'
+	import { copilotInfo, workspaceStore } from '$lib/stores'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
-	import { ScriptService, type FlowModule } from '$lib/gen'
+	import { ScriptService, type FlowModule, Script } from '$lib/gen'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { sendUserToast } from '$lib/toast'
 	import { nextId } from '../flows/flowModuleNextId'
 	import { Wand2 } from 'lucide-svelte'
+	import SearchItems from '../SearchItems.svelte'
+	import { defaultIfEmptyString, emptyString } from '$lib/utils'
+
 	export let index: number
 	export let open: boolean | undefined
 	export let close: () => void
@@ -20,9 +23,25 @@
 	let hubCompletions: FlowCopilotModule['hubCompletions'] = []
 	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
 	let lang: FlowCopilotModule['lang'] = undefined
+
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { modulesStore: copilotModulesStore, genFlow } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
+
+	let scripts: Script[] | undefined = undefined
+	let filteredItems: (Script & { marked?: string })[] = []
+	$: prefilteredItems = scripts ?? []
+
+	async function loadScripts(): Promise<void> {
+		const loadedScripts = await ScriptService.listScripts({
+			workspace: $workspaceStore!,
+			perPage: 300
+		})
+
+		scripts = loadedScripts
+	}
+
+	$: scripts == undefined && funcDesc?.length > 1 && loadScripts()
 
 	let doneTs = 0
 	async function getHubCompletions(text: string) {
@@ -72,6 +91,7 @@
 		genFlow?.(index, modules, true)
 	}
 
+	const dispatch = createEventDispatcher()
 	$: {
 		if (open) {
 			setTimeout(() => {
@@ -80,6 +100,13 @@
 		}
 	}
 </script>
+
+<SearchItems
+	filter={funcDesc}
+	items={prefilteredItems}
+	bind:filteredItems
+	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
+/>
 
 <div class="text-primary transition-all {funcDesc.length > 0 ? 'w-96' : 'w-60'}">
 	<div>
@@ -95,7 +122,7 @@
 						hubCompletions = []
 					}
 				}}
-				placeholder="AI Gen       or search hub {trigger ? 'triggers' : 'scripts'}"
+				placeholder="AI Gen or search {trigger ? 'triggers' : 'scripts'}"
 			/>
 			{#if funcDesc.length === 0}
 				<Wand2
@@ -151,6 +178,36 @@
 					</button>
 				</li>
 			</ul>
+		{/if}
+		{#if filteredItems.length > 0}
+			<div class="text-left mt-2">
+				<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
+				<ul class="transition-all divide-y">
+					{#each filteredItems.slice(0, 3) as item (item.path)}
+						<li>
+							<button
+								class="py-2 gap-4 flex flex-row hover:bg-surface-hover transition-all items-center justify-between w-full"
+								on:click={() => {
+									dispatch('insert', { path: item.path, summary: item.summary })
+									close()
+								}}
+							>
+								<div class="flex items-center gap-2.5 px-2">
+									<div
+										class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
+									>
+										<svelte:component this={APP_TO_ICON_COMPONENT[item['app']]} />
+									</div>
+
+									<div class="text-left text-xs text-secondary">
+										{defaultIfEmptyString(item.summary, item.path)}
+									</div>
+								</div>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			</div>
 		{/if}
 		{#if hubCompletions.length > 0}
 			<div class="text-left mt-2">

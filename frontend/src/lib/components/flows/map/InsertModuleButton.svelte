@@ -37,7 +37,7 @@
 	</button>
 	<div id="flow-editor-insert-module">
 		{#if !disableAi}
-			<StepGen {index} bind:funcDesc bind:open {close} {modules} />
+			<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} />
 		{/if}
 
 		{#if funcDesc.length === 0}

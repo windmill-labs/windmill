@@ -25,6 +25,7 @@
 
 	const dispatch = createEventDispatcher<{
 		insert: {
+			script?: { path: string; summary: string; hash: string | undefined }
 			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'trigger' | 'move'
 			modules: FlowModule[]
 			index: number
@@ -124,6 +125,16 @@
 				{disableAi}
 				bind:open={openMenu}
 				trigger={label == 'Input'}
+				on:insert={(e) => {
+					if (modules) {
+						dispatch('insert', {
+							modules,
+							index,
+							detail: 'script',
+							script: e.detail
+						})
+					}
+				}}
 				on:new={(e) => {
 					if (modules) {
 						dispatch('insert', {
