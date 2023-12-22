@@ -990,7 +990,7 @@
 	let model: meditor.ITextModel | undefined = undefined
 
 	let monacoBinding: MonacoBinding | undefined = undefined
-	
+
 	$: if (yContent && awareness && model && editor) {
 		monacoBinding && monacoBinding.destroy()
 		monacoBinding = new MonacoBinding(
@@ -1211,7 +1211,6 @@
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 		return root
 	}
-	console.log('FOO')
 </script>
 
 <EditorTheme />
