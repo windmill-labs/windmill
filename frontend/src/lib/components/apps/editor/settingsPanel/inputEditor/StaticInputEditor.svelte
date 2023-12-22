@@ -24,6 +24,8 @@
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let placeholder: string | undefined = undefined
 
+	console.log(selectOptions)
+
 	export let format: string | undefined = undefined
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')

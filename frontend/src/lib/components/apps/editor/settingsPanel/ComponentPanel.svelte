@@ -38,6 +38,7 @@
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
+	import DbExplorerHelpers from './DbExplorerHelpers.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined

@@ -2,12 +2,18 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
-	import { initConfig } from '$lib/components/apps/editor/appUtils'
-	import { createPostgresInput, insertRow, loadTableMetaData, type TableMetadata } from './utils'
+	import { findGridItem, initConfig } from '$lib/components/apps/editor/appUtils'
+	import {
+		createPostgresInput,
+		getDbSchemas,
+		insertRow,
+		loadTableMetaData,
+		type TableMetadata
+	} from './utils'
 	import AppAggridTable from '../table/AppAggridTable.svelte'
 	import { getContext, onMount } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -26,7 +32,7 @@
 		configuration
 	)
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: input = createPostgresInput(
 		resolvedConfig.type.configuration.postgresql.resource,
@@ -80,6 +86,43 @@
 	}
 
 	let args: Record<string, any> = {}
+
+	async function listTableIfAvailable() {
+		if (!resolvedConfig.type.configuration.postgresql.resource) {
+			return
+		}
+
+		const dbSchemas: DBSchemas = {}
+
+		await getDbSchemas(
+			'postgresql',
+			resolvedConfig.type.configuration.postgresql.resource.split(':')[1],
+			$workspaceStore,
+			dbSchemas,
+			(message: string) => {}
+		)
+
+		const gridItem = findGridItem($app, id)
+
+		if (!gridItem) {
+			return
+		}
+
+		debugger
+
+		// @ts-ignore
+		gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = Object.keys(
+			// @ts-ignore
+
+			Object.values(dbSchemas)[0].schema.public
+		)
+
+		$app = {
+			...$app
+		}
+	}
+
+	$: listTableIfAvailable()
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}

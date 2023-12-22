@@ -73,7 +73,11 @@
 	{/if}
 	<div class="flex flex-col gap-4">
 		{#each Object.keys(inputSpecsConfiguration?.[oneOf.selected] ?? {}) as nestedKey}
-			{@const config = inputSpecsConfiguration?.[oneOf.selected]?.[nestedKey]}
+			{@const config = {
+				...inputSpecsConfiguration?.[oneOf.selected]?.[nestedKey],
+				...oneOf.configuration?.[oneOf.selected]?.[nestedKey]
+			}}
+
 			{#if config && oneOf.configuration[oneOf.selected]}
 				<InputsSpecEditor
 					key={nestedKey}

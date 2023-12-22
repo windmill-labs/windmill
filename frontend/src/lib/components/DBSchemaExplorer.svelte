@@ -27,11 +27,17 @@
 		if (!resourceType || !resourcePath) return
 		loading = true
 
-		getDbSchemas(resourceType, resourcePath, $workspaceStore, $dbSchemas, (message: string) => {
-			if (drawer?.isOpen()) {
-				sendUserToast(message, true)
+		await getDbSchemas(
+			resourceType,
+			resourcePath,
+			$workspaceStore,
+			$dbSchemas,
+			(message: string) => {
+				if (drawer?.isOpen()) {
+					sendUserToast(message, true)
+				}
 			}
-		})
+		)
 	}
 
 	$: resourcePath &&

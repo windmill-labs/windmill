@@ -438,75 +438,81 @@ export async function getDbSchemas(
 	workspace: string | undefined,
 	dbSchemas: DBSchemas,
 	errorCallback: (message: string) => void
-) {
-	if (!resourceType || !resourcePath || !workspace) {
-		return dbSchemas
-	}
-
-	const job = await JobService.runScriptPreview({
-		workspace: workspace,
-		requestBody: {
-			language: scripts[resourceType].lang as Preview.language,
-			content: scripts[resourceType].code,
-			args: {
-				[scripts[resourceType].argName]: '$res:' + resourcePath
-			}
+): Promise<void> {
+	return new Promise(async (resolve, reject) => {
+		if (!resourceType || !resourcePath || !workspace) {
+			resolve()
+			return
 		}
-	})
 
-	tryEvery({
-		tryCode: async () => {
-			if (resourcePath) {
-				const testResult = await JobService.getCompletedJob({
-					workspace,
-					id: job
-				})
-				if (!testResult.success) {
-					console.error(testResult.result?.['error']?.['message'])
-				} else {
-					if (resourceType !== undefined) {
-						if (resourceType !== 'graphql') {
-							const { processingFn } = scripts[resourceType]
-							const schema =
-								processingFn !== undefined ? processingFn(testResult.result) : testResult.result
-							dbSchemas[resourcePath] = {
-								lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
-								schema,
-								publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
-							}
-						} else {
-							if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
-								console.error('Invalid GraphQL schema')
+		const job = await JobService.runScriptPreview({
+			workspace: workspace,
+			requestBody: {
+				language: scripts[resourceType].lang as Preview.language,
+				content: scripts[resourceType].code,
+				args: {
+					[scripts[resourceType].argName]: '$res:' + resourcePath
+				}
+			}
+		})
 
-								errorCallback('Invalid GraphQL schema')
-							} else {
+		tryEvery({
+			tryCode: async () => {
+				if (resourcePath) {
+					const testResult = await JobService.getCompletedJob({
+						workspace,
+						id: job
+					})
+					if (!testResult.success) {
+						console.error(testResult.result?.['error']?.['message'])
+					} else {
+						if (resourceType !== undefined) {
+							if (resourceType !== 'graphql') {
+								const { processingFn } = scripts[resourceType]
+								const schema =
+									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
 								dbSchemas[resourcePath] = {
-									lang: 'graphql',
-									schema: testResult.result
+									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
+									schema,
+									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+								}
+							} else {
+								if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
+									console.error('Invalid GraphQL schema')
+
+									errorCallback('Invalid GraphQL schema')
+								} else {
+									dbSchemas[resourcePath] = {
+										lang: 'graphql',
+										schema: testResult.result
+									}
 								}
 							}
 						}
 					}
+
+					resolve()
 				}
-			}
-		},
-		timeoutCode: async () => {
-			console.error('Could not query schema within 5s')
-			errorCallback('Could not query schema within 5s')
-			try {
-				await JobService.cancelQueuedJob({
-					workspace,
-					id: job,
-					requestBody: {
-						reason: 'Could not query schema within 5s'
-					}
-				})
-			} catch (err) {
-				console.error(err)
-			}
-		},
-		interval: 500,
-		timeout: 5000
+			},
+			timeoutCode: async () => {
+				console.error('Could not query schema within 5s')
+				errorCallback('Could not query schema within 5s')
+				try {
+					await JobService.cancelQueuedJob({
+						workspace,
+						id: job,
+						requestBody: {
+							reason: 'Could not query schema within 5s'
+						}
+					})
+				} catch (err) {
+					console.error(err)
+				}
+				reject()
+			},
+			interval: 500,
+			timeout: 5000
+		})
 	})
 }
 
