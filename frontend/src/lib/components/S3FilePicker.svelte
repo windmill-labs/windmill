@@ -1,14 +1,35 @@
 <script lang="ts">
-	import { File, FolderClosed, FolderOpen, RotateCw, Loader2, Download } from 'lucide-svelte'
+	import {
+		File as FileIcon,
+		FolderClosed,
+		FolderOpen,
+		RotateCw,
+		Loader2,
+		Download,
+		Trash,
+		FileUp
+	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService } from '$lib/gen'
-	import { displayDate, displaySize, emptyString } from '$lib/utils'
+	import { HelpersService, type UploadFilePart } from '$lib/gen'
+	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
 	import TableSimple from './TableSimple.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
+
+	let deletionModalOpen = false
+	let fileDeletionInProgress = false
+
+	let uploadModalOpen = false
+	let fileToUpload: File | undefined = undefined
+	let fileToUploadKey: string | undefined = undefined
+	let fileUploadProgress: number | undefined = undefined
+	let fileUploadCancelled: boolean = false
+	let fileUploadErrorMsg: string | undefined = undefined
 
 	let workspaceSettingsInitialized = true
 
@@ -177,6 +198,103 @@
 		filePreviewLoading = false
 	}
 
+	async function deleteFileFromS3(fileKey: string | undefined) {
+		fileDeletionInProgress = true
+		if (fileKey === undefined) {
+			return
+		}
+		try {
+			await HelpersService.deleteS3File({
+				workspace: $workspaceStore!,
+				fileKey: fileKey
+			})
+		} finally {
+			fileDeletionInProgress = false
+		}
+		sendUserToast(`${fileKey} deleted from S3 bucket`)
+		const idx = displayedFileKeys.indexOf(fileKey)
+		if (idx >= 0) {
+			displayedFileKeys.splice(idx, 1)
+			displayedFileKeys = [...displayedFileKeys]
+		}
+		delete allFilesByKey[fileKey]
+	}
+
+	async function uploadFileToS3() {
+		fileUploadErrorMsg = undefined
+		if (fileToUpload === undefined || fileToUploadKey === undefined) {
+			return
+		}
+		if (allFilesByKey[fileToUploadKey] !== undefined) {
+			fileUploadErrorMsg =
+				'A file with this name already exists in the S3 bucket. If you want to replace it, delete it first.'
+			return
+		}
+
+		let upload_id: string | undefined = undefined
+		let parts: UploadFilePart[] = []
+
+		let reader = fileToUpload?.stream().getReader()
+		let { value: chunk, done: readerDone } = await reader.read()
+		if (chunk === undefined || readerDone) {
+			sendUserToast('Error reading file, no data read', true)
+			return
+		}
+
+		fileUploadProgress = 0
+		while (true) {
+			let { value: chunk_2, done: readerDone } = await reader.read()
+			if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
+				// AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
+				chunk = new Uint8Array([...chunk, ...chunk_2])
+				continue
+			}
+			fileUploadProgress += (chunk.length * 100) / fileToUpload.size
+			let response = await HelpersService.multipartFileUpload({
+				workspace: $workspaceStore!,
+				requestBody: {
+					file_key: fileToUploadKey,
+					part_content: Array.from(chunk),
+					upload_id: upload_id,
+					parts: parts,
+					is_final: readerDone,
+					cancel_upload: fileUploadCancelled
+				}
+			})
+			upload_id = response.upload_id
+			parts = response.parts
+			if (response.is_done) {
+				if (fileUploadCancelled) {
+					sendUserToast('File upload cancelled!')
+				} else {
+					sendUserToast('File upload finished!')
+				}
+				break
+			}
+			if (chunk_2 === undefined) {
+				sendUserToast(
+					'File upload is not finished, yet there is no more data to stream. This is unexpected',
+					true
+				)
+				return
+			}
+			chunk = chunk_2
+		}
+		uploadModalOpen = false
+
+		if (!fileUploadCancelled) {
+			selectedFileKey = { s3: fileToUploadKey }
+			await loadFiles()
+			await loadFileMetadataPlusPreviewAsync(selectedFileKey['s3'])
+		}
+
+		fileToUpload = undefined
+		fileToUploadKey = undefined
+		fileUploadProgress = undefined
+		fileUploadCancelled = false
+		fileUploadErrorMsg = undefined
+	}
+
 	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
@@ -185,6 +303,8 @@
 		displayedFileKeys = []
 		allFilesByKey = {}
 		paginationMarker = undefined
+		fileMetadata = undefined
+		filePreview = undefined
 		reloadContent()
 		drawer.openDrawer?.()
 	}
@@ -334,7 +454,7 @@
 												{file_info.display_name}
 											</div>
 										{:else}
-											<File size={16} />
+											<FileIcon size={16} />
 											<div class="truncate text-ellipsis w-56">
 												{file_info.display_name}
 											</div>
@@ -367,7 +487,7 @@
 					{:else}
 						<div class="p-4 gap-2">
 							<Section label={fileMetadata.fileKey}>
-								<div slot="action">
+								<div slot="action" class="flex gap-2">
 									{#if filePreview !== undefined}
 										<Button
 											title="Download file from S3"
@@ -375,6 +495,18 @@
 											color="light"
 											href={filePreview.downloadUrl}
 											startIcon={{ icon: Download }}
+											iconOnly={true}
+										/>
+										<Button
+											title="Delete file from S3"
+											variant="border"
+											color="red"
+											on:click={() => {
+												deletionModalOpen = true
+											}}
+											startIcon={fileDeletionInProgress
+												? { icon: Loader2, classes: 'animate-spin' }
+												: { icon: Trash }}
 											iconOnly={true}
 										/>
 									{/if}
@@ -450,6 +582,15 @@
 		<div slot="actions" class="flex gap-1">
 			{#if !readOnlyMode}
 				<Button
+					variant="border"
+					color="light"
+					disabled={workspaceSettingsInitialized === false}
+					startIcon={{ icon: FileUp }}
+					on:click={() => {
+						uploadModalOpen = true
+					}}>Upload New</Button
+				>
+				<Button
 					disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
 					on:click={selectAndClose}>Select</Button
 				>
@@ -457,3 +598,43 @@
 		</div>
 	</DrawerContent>
 </Drawer>
+
+<ConfirmationModal
+	open={deletionModalOpen}
+	title="Permanently delete file"
+	confirmationText="Delete permanently"
+	on:canceled={() => {
+		deletionModalOpen = false
+	}}
+	on:confirmed={() => {
+		deleteFileFromS3(fileMetadata?.fileKey)
+		deletionModalOpen = false
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Are you sure you want to permanently delete {fileMetadata?.fileKey} from the S3 bucket?</span
+		>
+	</div>
+</ConfirmationModal>
+
+<FileUploadModal
+	open={uploadModalOpen}
+	title="Upload file to S3 bucket"
+	bind:fileToUpload
+	bind:fileKey={fileToUploadKey}
+	on:canceled={() => {
+		if (fileUploadProgress !== undefined) {
+			fileUploadCancelled = true
+			fileUploadErrorMsg = 'Cancelling in progress, it might take a few seconds...'
+		} else {
+			fileUploadErrorMsg = undefined
+			uploadModalOpen = false
+		}
+	}}
+	on:confirmed={() => {
+		uploadFileToS3()
+	}}
+	bind:progressPct={fileUploadProgress}
+	bind:errorMsg={fileUploadErrorMsg}
+/>
