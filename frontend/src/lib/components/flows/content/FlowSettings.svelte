@@ -69,7 +69,7 @@
 				<Tab value="settings-cache">Cache</Tab>
 
 				<svelte:fragment slot="content">
-					<TabContent value="settings-metadata" class="p-4 h-full">
+					<TabContent value="settings-metadata" class="p-4 h-full overflow-auto">
 						<div class="h-full gap-8 flex flex-col">
 							<Label label="Summary">
 								<input

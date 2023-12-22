@@ -5,7 +5,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
 	import type { Writable } from 'svelte/store'
-	import { Badge } from '$lib/components/common'
 	import { X } from 'lucide-svelte'
 	import { getStateColor } from '$lib/components/graph'
 
@@ -46,9 +45,6 @@
 		<div class="ml-2 text-xs font-normal text-primary truncate">
 			{node.label === '' ? `Tab: ${node.id}` : node.label}
 		</div>
-		<Badge color="indigo">
-			{node.id}
-		</Badge>
 	</Button>
 
 	{#if canDelete}

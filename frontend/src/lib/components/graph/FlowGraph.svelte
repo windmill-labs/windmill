@@ -388,7 +388,7 @@
 				1000,
 				loopDepth + 1,
 				0,
-				true,
+				false,
 				undefined,
 				undefined,
 				undefined
