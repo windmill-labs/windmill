@@ -162,13 +162,13 @@
 			model = nmodel
 		}
 		model.updateOptions(updateOptions)
-		let widgets: HTMLElement | undefined =
-			document.getElementById('monaco-widgets-root') ?? undefined
+		// let widgets: HTMLElement | undefined =
+		// 	document.getElementById('monaco-widgets-root') ?? undefined
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
-			overflowWidgetsDomNode: widgets,
+			// overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})
 
