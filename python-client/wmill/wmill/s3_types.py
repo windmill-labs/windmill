@@ -24,12 +24,12 @@ class S3FsArgs(dict):
         return self[attr]
 
 
-class PolarsCloudOptions(dict):
+class StorageOptions(dict):
     aws_endpoint_url: str
     aws_access_key_id: str
     aws_secret_access_key: str
-    aws_region: bool
-    aws_allow_http: bool
+    aws_region: str
+    aws_allow_http: str
 
     def __getattr__(self, attr):
         return self[attr]
@@ -37,7 +37,7 @@ class PolarsCloudOptions(dict):
 
 class PolarsConnectionSettings(dict):
     s3fs_args: S3FsArgs
-    polars_cloud_options: PolarsCloudOptions
+    storage_options: StorageOptions
 
     def __getattr__(self, attr):
         return self[attr]

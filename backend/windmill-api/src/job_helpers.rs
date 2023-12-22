@@ -213,7 +213,7 @@ struct PolarsConnectionSettingsQueryV2 {
 #[derive(Serialize)]
 struct PolarsConnectionSettingsResponse {
     s3fs_args: S3fsArgs,
-    polars_cloud_options: PolarsCloudOptions,
+    storage_options: PolarsStorageOptions,
 }
 
 #[derive(Serialize)]
@@ -229,14 +229,14 @@ struct S3fsArgs {
 }
 
 #[derive(Serialize)]
-struct PolarsCloudOptions {
+struct PolarsStorageOptions {
     aws_endpoint_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     aws_access_key_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     aws_secret_access_key: Option<String>,
     aws_region: String,
-    aws_allow_http: bool,
+    aws_allow_http: String,
 }
 
 async fn polars_connection_settings_v2(
@@ -272,12 +272,12 @@ async fn polars_connection_settings_v2(
     .0;
     let response = PolarsConnectionSettingsResponse {
         s3fs_args: s3fs,
-        polars_cloud_options: PolarsCloudOptions {
+        storage_options: PolarsStorageOptions {
             aws_endpoint_url: render_endpoint(&s3_resource),
             aws_access_key_id: s3_resource.access_key,
             aws_secret_access_key: s3_resource.secret_key,
             aws_region: s3_resource.region,
-            aws_allow_http: !s3_resource.use_ssl,
+            aws_allow_http: (!s3_resource.use_ssl).to_string(),
         },
     };
     return Ok(Json(response));
