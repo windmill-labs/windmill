@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 VERSION=$1
 echo "Updating versions to: $VERSION"
