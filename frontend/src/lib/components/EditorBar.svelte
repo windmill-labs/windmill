@@ -23,6 +23,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
+	import FormatOnSave from './FormatOnSave.svelte'
+
 	import {
 		DollarSign,
 		History,
@@ -42,6 +44,7 @@
 	import { getResetCode } from '$lib/script_helpers'
 	import type { Script } from '$lib/gen'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
+	import Popover from './Popover.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -59,6 +62,7 @@
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let collabMode = false
 	export let collabLive = false
+	export let formatOnSave = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
@@ -520,14 +524,15 @@
 			{#if collabMode}
 				<div class="flex items-center px-1">
 					<Toggle
-						options={{ right: iconOnly ? '' : 'Multiplayer' }}
+						options={{ right: '' }}
 						size="xs"
 						checked={collabLive}
 						on:change={() => dispatch('toggleCollabMode')}
 					/>
-					{#if iconOnly}
+					<Popover>
+						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
 						<Users class="ml-1" size={12} />
-					{/if}
+					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
@@ -554,6 +559,7 @@
 
 			<CodeCompletionStatus />
 
+			<FormatOnSave />
 			<!-- <Popover
 				notClickable
 				placement="bottom"

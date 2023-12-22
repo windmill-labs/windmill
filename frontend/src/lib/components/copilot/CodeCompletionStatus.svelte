@@ -3,40 +3,25 @@
 	import Button from '../common/button/Button.svelte'
 	import { codeCompletionLoading, copilotInfo, codeCompletionSessionEnabled } from '$lib/stores'
 	import Popover from '../Popover.svelte'
+	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 
-	function loadCodeCompletionSessinoEnabled() {
-		let stored
-		try {
-			stored = localStorage.getItem('codeCompletionSessionEnabled')
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
-
-		if (stored) {
-			$codeCompletionSessionEnabled = JSON.parse(stored)
-		}
+	const SETTING_NAME = 'codeCompletionSessionEnabled'
+	function loadSetting() {
+		$codeCompletionSessionEnabled = (getLocalSetting(SETTING_NAME) ?? 'true') == 'true'
 	}
 
-	function toggleCodeCompletionSessionEnabled() {
+	function storeSetting() {
 		$codeCompletionSessionEnabled = !$codeCompletionSessionEnabled
-		try {
-			localStorage.setItem(
-				'codeCompletionSessionEnabled',
-				JSON.stringify($codeCompletionSessionEnabled)
-			)
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		storeLocalSetting(SETTING_NAME, $codeCompletionSessionEnabled.toString())
 	}
 
-	loadCodeCompletionSessinoEnabled()
+	loadSetting()
 </script>
 
 {#if $copilotInfo.exists_openai_resource_path && $copilotInfo.code_completion_enabled}
 	<Popover>
 		<svelte:fragment slot="text"
-			>Click to {$codeCompletionSessionEnabled ? 'disable' : 'enable'} code completion (applies only
-			to you)</svelte:fragment
+			>{$codeCompletionSessionEnabled ? 'Disable' : 'Enable'} code completion (applies only to you)</svelte:fragment
 		>
 		<Button
 			color="light"
@@ -47,8 +32,21 @@
 						icon: $codeCompletionSessionEnabled ? ZapIcon : ZapOffIcon
 				  }}
 			on:click={() => {
-				toggleCodeCompletionSessionEnabled()
+				storeSetting()
 			}}
+		/>
+	</Popover>
+{:else}
+	<Popover>
+		<svelte:fragment slot="text"
+			>Code completion is disabled in the workspace settings</svelte:fragment
+		>
+		<Button
+			color="light"
+			startIcon={{
+				icon: ZapOffIcon
+			}}
+			disabled
 		/>
 	</Popover>
 {/if}
