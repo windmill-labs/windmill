@@ -39,8 +39,6 @@
 	export let depth: number = 0
 	export let menuOpen: boolean = false
 
-	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
-
 	const dispatch = createEventDispatcher()
 
 	async function archiveFlow(path: string, archived: boolean): Promise<void> {
@@ -74,39 +72,39 @@
 {/if}
 
 <Row
-	href={draft_only
-		? `/flows/edit/${path}?nodraft=true`
-		: `/flows/get/${path}?workspace=${$workspaceStore}`}
+	href={flow.draft_only
+		? `/flows/edit/${flow.path}?nodraft=true`
+		: `/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
-	{path}
-	{summary}
+	path={flow.path}
+	summary={flow.summary}
 	{starred}
 	{errorHandlerMuted}
 	on:change
-	canFavorite={!draft_only}
+	canFavorite={!flow.draft_only}
 	{depth}
 >
 	<svelte:fragment slot="badges">
-		{#if archived}
+		{#if flow.archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
+		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
 		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite && !archived}
+				{#if flow.canWrite && !flow.archived}
 					<div>
 						<Button
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/flows/edit/{path}?nodraft=true"
+							href="/flows/edit/{flow.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -118,7 +116,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/flows/add?template={path}"
+							href="/flows/add?template={flow.path}"
 						>
 							Fork
 						</Button>
@@ -129,6 +127,7 @@
 
 		<Dropdown
 			items={() => {
+				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				if (draft_only) {
 					return [
@@ -165,7 +164,7 @@
 						displayName: 'Move/Rename',
 						icon: FileUp,
 						action: () => {
-							moveDrawer.openDrawer(path, summary, 'flow')
+							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
 						disabled: !owner || archived
 					},
