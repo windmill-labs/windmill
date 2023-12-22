@@ -62,7 +62,7 @@
 
 	let loading = true
 
-	let nbDisplayed = 30
+	let nbDisplayed = 15
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -440,6 +440,7 @@
 				{items}
 				{nbDisplayed}
 				{collapseAll}
+				isSearching={filter !== ''}
 				on:scriptChanged={loadScripts}
 				on:flowChanged={loadFlows}
 				on:appChanged={loadApps}
