@@ -4,17 +4,19 @@
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import Badge from '../badge/Badge.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle, Loader2 } from 'lucide-svelte'
 
 	export let title: string
 	export let confirmationText: string
+	export let keyListen: boolean = true
+	export let loading: boolean = false
 
 	export let open: boolean = false
 
 	const dispatch = createEventDispatcher()
 
 	function onKeyDown(event: KeyboardEvent) {
-		if (open) {
+		if (open && keyListen) {
 			event.stopPropagation()
 			event.preventDefault()
 			switch (event.key) {
@@ -73,11 +75,24 @@
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						<Button on:click={() => dispatch('confirmed')} color="red" size="sm">
-							<span>{confirmationText} <Badge>Enter</Badge></span>
+						<Button disabled={loading} on:click={() => dispatch('confirmed')} color="red" size="sm">
+							{#if loading}
+								<Loader2 class="animate-spin" />
+							{/if}
+							<span
+								>{confirmationText}
+								{#if keyListen}<Badge>Enter</Badge>{/if}</span
+							>
 						</Button>
-						<Button on:click={() => dispatch('canceled')} color="light" size="sm">
-							<span>Cancel <Badge color="dark-gray">Escape</Badge></span>
+						<Button
+							disabled={loading}
+							on:click={() => dispatch('canceled')}
+							color="light"
+							size="sm"
+						>
+							<span
+								>Cancel {#if keyListen}<Badge color="dark-gray">Escape</Badge>{/if}</span
+							>
 						</Button>
 					</div>
 				</div>

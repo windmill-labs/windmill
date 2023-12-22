@@ -7,7 +7,8 @@
 		Loader2,
 		Download,
 		Trash,
-		FileUp
+		FileUp,
+		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService, type UploadFilePart } from '$lib/gen'
@@ -23,6 +24,10 @@
 
 	let deletionModalOpen = false
 	let fileDeletionInProgress = false
+
+	let moveModalOpen = false
+	let moveDestKey: string | undefined = undefined
+	let fileMoveInProgress = false
 
 	let uploadModalOpen = false
 	let fileToUpload: File | undefined = undefined
@@ -89,6 +94,8 @@
 			maxKeys: 1000, // fixed pages of 1000 files for now
 			marker: paginationMarker
 		})
+		allFilesByKey = {}
+		displayedFileKeys = []
 		for (let file_path of availableFiles.windmill_large_files) {
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
@@ -210,14 +217,37 @@
 			})
 		} finally {
 			fileDeletionInProgress = false
+			deletionModalOpen = false
 		}
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
+		selectedFileKey = { s3: '' }
 		const idx = displayedFileKeys.indexOf(fileKey)
 		if (idx >= 0) {
 			displayedFileKeys.splice(idx, 1)
 			displayedFileKeys = [...displayedFileKeys]
 		}
 		delete allFilesByKey[fileKey]
+	}
+
+	async function moveS3File(srcFileKey: string | undefined, destFileKey: string | undefined) {
+		fileMoveInProgress = true
+		if (srcFileKey === undefined || emptyString(destFileKey)) {
+			return
+		}
+		try {
+			await HelpersService.moveS3File({
+				workspace: $workspaceStore!,
+				srcFileKey: srcFileKey,
+				destFileKey: destFileKey!
+			})
+		} finally {
+			fileMoveInProgress = false
+			moveModalOpen = false
+		}
+		sendUserToast(`${srcFileKey} moved to ${destFileKey}`)
+		selectedFileKey = { s3: destFileKey! }
+		await loadFiles()
+		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
 	async function uploadFileToS3() {
@@ -498,15 +528,24 @@
 											iconOnly={true}
 										/>
 										<Button
+											title="Move file"
+											variant="border"
+											color="light"
+											on:click={() => {
+												moveDestKey = fileMetadata?.fileKey ?? ''
+												moveModalOpen = true
+											}}
+											startIcon={{ icon: MoveRight }}
+											iconOnly={true}
+										/>
+										<Button
 											title="Delete file from S3"
 											variant="border"
 											color="red"
 											on:click={() => {
 												deletionModalOpen = true
 											}}
-											startIcon={fileDeletionInProgress
-												? { icon: Loader2, classes: 'animate-spin' }
-												: { icon: Trash }}
+											startIcon={{ icon: Trash }}
 											iconOnly={true}
 										/>
 									{/if}
@@ -588,7 +627,7 @@
 					startIcon={{ icon: FileUp }}
 					on:click={() => {
 						uploadModalOpen = true
-					}}>Upload New</Button
+					}}>Upload File</Button
 				>
 				<Button
 					disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
@@ -608,13 +647,41 @@
 	}}
 	on:confirmed={() => {
 		deleteFileFromS3(fileMetadata?.fileKey)
-		deletionModalOpen = false
 	}}
+	keyListen={false}
+	bind:loading={fileDeletionInProgress}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span
 			>Are you sure you want to permanently delete {fileMetadata?.fileKey} from the S3 bucket?</span
 		>
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={moveModalOpen}
+	title="Move file to new location"
+	confirmationText="Move"
+	on:canceled={() => {
+		moveModalOpen = false
+	}}
+	on:confirmed={() => {
+		moveS3File(fileMetadata?.fileKey, moveDestKey)
+	}}
+	keyListen={false}
+	bind:loading={fileMoveInProgress}
+>
+	<div class="flex flex-col space-y-4">
+		<div class="flex items-center justify-between">
+			<span class="w-24">New key: </span>
+			<input
+				type="text"
+				placeholder="folder/nested/file.txt"
+				bind:value={moveDestKey}
+				class="text-2xl"
+			/>
+		</div>
+		<span>Are you sure you want to permanently move {fileMetadata?.fileKey}?</span>
 	</div>
 </ConfirmationModal>
 

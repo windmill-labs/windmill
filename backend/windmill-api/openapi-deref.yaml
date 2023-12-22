@@ -10211,6 +10211,33 @@ paths:
           content:
             application/json:
               schema: {}
+  /w/{workspace}/job_helpers/move_s3_file:
+    get:
+      summary: Move a S3 file from one path to the other within the same bucket
+      operationId: moveS3File
+      tags:
+        - helpers
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: src_file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: dest_file_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Confirmation
+          content:
+            application/json:
+              schema: {}
   /w/{workspace}/job_helpers/multipart_upload_s3_file:
     post:
       summary: Upload file to S3 bucket using multipart upload
