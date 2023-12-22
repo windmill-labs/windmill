@@ -3,7 +3,15 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
+	import {
+		Building,
+		ClipboardCopy,
+		GitBranchPlus,
+		Repeat,
+		Square,
+		ArrowDown,
+		GitBranch
+	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -33,6 +41,7 @@
 			modules: FlowModule[]
 			index: number
 			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'move'
+			script?: { path: string; summary: string; hash: string | undefined }
 		}
 		select: string
 		newBranch: { module: FlowModule }
@@ -80,6 +89,9 @@
 					{disableAi}
 					bind:open={openMenu}
 					{trigger}
+					on:insert={(e) => {
+						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
+					}}
 					on:new={(e) => {
 						dispatch('insert', { modules, index: idx, detail: e.detail })
 					}}
@@ -224,6 +236,9 @@
 					{disableAi}
 					bind:open={openMenu2}
 					{trigger}
+					on:insert={(e) => {
+						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
+					}}
 					on:new={(e) => {
 						dispatch('insert', { modules, index: idx + 1, detail: e.detail })
 					}}
