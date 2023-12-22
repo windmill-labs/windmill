@@ -1,6 +1,31 @@
 # Changelog
 
 
+## [1.230.0](https://github.com/windmill-labs/windmill/compare/v1.229.0...v1.230.0) (2023-12-22)
+
+
+### Features
+
+* add button for auto-formatting ([642c037](https://github.com/windmill-labs/windmill/commit/642c037c1a87efd8d63558cc0ca5e98fb7b51ff7))
+* move S3 file within bucket ([#2913](https://github.com/windmill-labs/windmill/issues/2913)) ([e40787c](https://github.com/windmill-labs/windmill/commit/e40787c616ec288ffc83450fac6f6f7f127ac008))
+* quick search in flow support workspace scripts ([5698a0e](https://github.com/windmill-labs/windmill/commit/5698a0ebf2052fd51b687951595a543f0b6c0308))
+* Retry for scheduled scripts ([#2893](https://github.com/windmill-labs/windmill/issues/2893)) ([5f60d46](https://github.com/windmill-labs/windmill/commit/5f60d468365c65dc48e247107487f64adf77b123))
+* S3 delete file and upload new ([#2909](https://github.com/windmill-labs/windmill/issues/2909)) ([e27e887](https://github.com/windmill-labs/windmill/commit/e27e8874918af84d8afffb26abd5828b4c43ed54))
+
+
+### Bug Fixes
+
+* add relative path handling for bun ATA ([6b570a7](https://github.com/windmill-labs/windmill/commit/6b570a779fa7592c527cee84b0ca238872d86347))
+* edit schedule from trigger page ([9667eb7](https://github.com/windmill-labs/windmill/commit/9667eb74f99b74621e0f00e3f380bbd34dd9654f))
+* Failing jobs in dedicated worker mode are now marked as failing ([#2894](https://github.com/windmill-labs/windmill/issues/2894)) ([5f85b67](https://github.com/windmill-labs/windmill/commit/5f85b67dfcf063fd8a3c3f69f0e7605fc40e473d))
+* fix multiplayer ([b5f1f99](https://github.com/windmill-labs/windmill/commit/b5f1f99daa30627f224f262653e459799fc0d6fe))
+* **frontend:** Fix debug condition + decision tree + add missing date to job preview + prevent header node from being selected in the flow editor ([#2912](https://github.com/windmill-labs/windmill/issues/2912)) ([d7b777a](https://github.com/windmill-labs/windmill/commit/d7b777a8e9b4a2a4f0772f9b29851476f9405dae))
+* improve javascript editors with semantic validation ([b3527f5](https://github.com/windmill-labs/windmill/commit/b3527f5164f9e487840773df57846394f118ebbb))
+* pin deno windmill-client version to relase ([ea322d9](https://github.com/windmill-labs/windmill/commit/ea322d9c14cc92b54cfc39791e162f8f248e74ab))
+* Python wrapper catches BaseException instead of Exception ([#2902](https://github.com/windmill-labs/windmill/issues/2902)) ([4c3c988](https://github.com/windmill-labs/windmill/commit/4c3c988f7bd35f290b9d051369029e790b1e5c5b))
+* remove bad app type forcing ([#2906](https://github.com/windmill-labs/windmill/issues/2906)) ([187c34a](https://github.com/windmill-labs/windmill/commit/187c34a6835e3e748bc609fb4096f42bf3e09a73))
+* Update S3 TS code snippets and Python SDK for Polars 0.20.X ([#2911](https://github.com/windmill-labs/windmill/issues/2911)) ([3cbdd89](https://github.com/windmill-labs/windmill/commit/3cbdd890cd2aaef1d983da0270f8c230c9b9285e))
+
 ## [1.229.0](https://github.com/windmill-labs/windmill/compare/v1.228.1...v1.229.0) (2023-12-21)
 
 
