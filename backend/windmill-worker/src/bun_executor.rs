@@ -16,7 +16,7 @@ use crate::{
         start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{
@@ -83,6 +83,29 @@ pub async fn gen_lockfile(
         ),
     )
     .await?;
+
+    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
+        let registry_toml_string = if s.contains(":_authToken=") {
+            let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
+            format!(
+                "{{ url = \"{}\", token = \"{}\" }}",
+                split_url.get(0).unwrap_or(&""),
+                split_url.get(1).unwrap_or(&"")
+            )
+        } else {
+            format!("\"{}\"", s)
+        };
+        let bunfig_toml = format!(
+            r#"
+[install]
+# set default registry as a string
+registry = {}
+"#,
+            registry_toml_string
+        );
+        tracing::warn!("Writing following bunfig.toml: {bunfig_toml}");
+        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
+    }
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
