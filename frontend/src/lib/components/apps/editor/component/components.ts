@@ -2977,7 +2977,7 @@ This is a paragraph.
 							table: {
 								fieldType: 'select',
 								type: 'static',
-								selectOptions: ['products'],
+								selectOptions: [],
 								value: undefined
 							},
 							columns: {
