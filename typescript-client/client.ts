@@ -270,6 +270,7 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 // }
 
 export async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings> {
+  !clientSet && setClient();
   const workspace = getWorkspace();
   const s3Resource = await HelpersService.s3ResourceInfo({
     workspace: workspace,

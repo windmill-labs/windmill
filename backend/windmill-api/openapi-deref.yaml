@@ -9967,7 +9967,7 @@ paths:
                       - use_ssl
                       - cache_regions
                       - client_kwargs
-                  polars_cloud_options:
+                  storage_options:
                     type: object
                     properties:
                       aws_endpoint_url:
@@ -9979,14 +9979,14 @@ paths:
                       aws_region:
                         type: string
                       aws_allow_http:
-                        type: boolean
+                        type: string
                     required:
                       - aws_endpoint_url
                       - aws_region
                       - aws_allow_http
                 required:
                   - s3fs_args
-                  - polars_cloud_options
+                  - storage_options
   /w/{workspace}/job_helpers/v2/s3_resource_info:
     post:
       summary: >-

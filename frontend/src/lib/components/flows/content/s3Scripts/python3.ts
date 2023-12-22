@@ -1,7 +1,9 @@
 const python3 = {
 	s3_client: `#requirements:
-#wmill>=1.228.0
-import wmillimport wmill
+#boto3==1.34.4
+#wmill>=1.229.0
+
+import wmill
 from wmill import S3Object
 import boto3
 
@@ -47,8 +49,9 @@ def main(input_file: S3Object):
 `,
 
     polars: `#requirements:
-#polars==0.19.1
-#wmill>=1.228.0
+#polars==0.19.19
+#s3fs==2023.12.0
+#wmill>=1.229.0
 
 import wmill
 from wmill import S3Object
@@ -91,8 +94,9 @@ def main(input_file: S3Object):
 `,
 
     duckdb: `#requirements:
+#wmill>=1.229.0
 #duckdb==0.9.1
-#wmill>=1.228.0
+
 import wmill
 from wmill import S3Object
 import duckdb
