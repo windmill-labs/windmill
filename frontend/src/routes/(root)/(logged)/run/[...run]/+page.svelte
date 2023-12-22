@@ -2,6 +2,7 @@
 	import { page } from '$app/stores'
 	import { JobService, Job, ScriptService, Script } from '$lib/gen'
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
 		Activity,
@@ -17,7 +18,8 @@
 		Scroll,
 		TimerOff,
 		Trash,
-		XCircle
+		XCircle,
+		Code2
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -402,9 +404,16 @@
 						>
 					{/if}
 				{/if}
-				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: Scroll }}>
+				<Button 
+					href={viewHref} 
+					color="blue" 
+					size="md" 
+					startIcon={{ 
+						icon: job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Scroll 
+					}}
+					>
 					View {job?.job_kind}
-				</Button>
+					</Button>
 			{/if}
 		</svelte:fragment>
 	</ActionRow>

@@ -23,6 +23,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
+	import FormatOnSave from './FormatOnSave.svelte'
+
 	import {
 		DollarSign,
 		History,
@@ -42,6 +44,7 @@
 	import { getResetCode } from '$lib/script_helpers'
 	import type { Script } from '$lib/gen'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
+	import Popover from './Popover.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -52,7 +55,6 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
-		bun: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -60,6 +62,7 @@
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let collabMode = false
 	export let collabLive = false
+	export let formatOnSave = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
@@ -487,48 +490,49 @@
 				Reset
 			</Button>
 
-			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={() => editor?.reloadWebsocket()}
-				startIcon={{
-					icon: RotateCw,
-					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
-				}}
-				title="Reload assistants"
-			>
-				{#if !iconOnly}
-					Assistants
-				{/if}
-				<span class="ml-1 -my-1">
-					{#if lang == 'deno'}
-						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-					{:else if lang == 'bun'}
-						(<span class={websocketAlive.bun ? 'green' : 'text-red-700'}>Bun</span>)
-					{:else if lang == 'go'}
-						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-					{:else if lang == 'python3'}
-						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
-						<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
-					{:else if lang == 'bash'}
-						(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+			{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				<Button
+					btnClasses="!font-medium text-tertiary"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={() => editor?.reloadWebsocket()}
+					startIcon={{
+						icon: RotateCw,
+						classes: websocketAlive[lang] == false ? 'animate-spin' : ''
+					}}
+					title="Reload assistants"
+				>
+					{#if !iconOnly}
+						Assistants
 					{/if}
-				</span>
-			</Button>
+					<span class="ml-1 -my-1">
+						{#if lang == 'deno'}
+							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+						{:else if lang == 'go'}
+							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+						{:else if lang == 'python3'}
+							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
+							<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+						{:else if lang == 'bash'}
+							(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+						{/if}
+					</span>
+				</Button>
+			{/if}
 			{#if collabMode}
 				<div class="flex items-center px-1">
 					<Toggle
-						options={{ right: iconOnly ? '' : 'Multiplayer' }}
+						options={{ right: '' }}
 						size="xs"
 						checked={collabLive}
 						on:change={() => dispatch('toggleCollabMode')}
 					/>
-					{#if iconOnly}
+					<Popover>
+						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
 						<Users class="ml-1" size={12} />
-					{/if}
+					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
@@ -555,6 +559,7 @@
 
 			<CodeCompletionStatus />
 
+			<FormatOnSave />
 			<!-- <Popover
 				notClickable
 				placement="bottom"

@@ -165,6 +165,8 @@
 		</Button>
 	</div>
 </ConfirmationModal>
+<!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
+
 <Drawer
 	bind:this={scriptEditorDrawer}
 	size="1200px"
@@ -188,7 +190,7 @@
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
-					fixedOverflowWidgets={true}
+					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
 					tag={undefined}

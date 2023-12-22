@@ -4,16 +4,20 @@ use crate::{
     db::DB, resources::get_resource_value_interpolated_internal, users::Tokened,
     workspaces::LargeFileStorage,
 };
+use anyhow::Context;
 use aws_sdk_s3::{
     config::{BehaviorVersion, Credentials, Region},
     presigning::PresigningConfig,
+    primitives::ByteStream,
+    types::{CompletedMultipartUpload, CompletedPart},
 };
 use axum::{
     extract::{Path, Query},
-    routing::{get, post},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use hyper::http;
+use itertools::Itertools;
 use object_store::ClientConfigKey;
 use polars::{
     io::{
@@ -71,6 +75,14 @@ pub fn workspaced_service() -> Router {
         .route(
             "/load_file_preview",
             get(load_file_preview).layer(cors.clone()),
+        )
+        .route(
+            "/delete_s3_file",
+            delete(delete_s3_file).layer(cors.clone()),
+        )
+        .route(
+            "/multipart_upload_s3_file",
+            post(multipart_upload_s3_file).layer(cors.clone()),
         )
 }
 
@@ -201,7 +213,7 @@ struct PolarsConnectionSettingsQueryV2 {
 #[derive(Serialize)]
 struct PolarsConnectionSettingsResponse {
     s3fs_args: S3fsArgs,
-    polars_cloud_options: PolarsCloudOptions,
+    storage_options: PolarsStorageOptions,
 }
 
 #[derive(Serialize)]
@@ -217,14 +229,14 @@ struct S3fsArgs {
 }
 
 #[derive(Serialize)]
-struct PolarsCloudOptions {
+struct PolarsStorageOptions {
     aws_endpoint_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     aws_access_key_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     aws_secret_access_key: Option<String>,
     aws_region: String,
-    aws_allow_http: bool,
+    aws_allow_http: String,
 }
 
 async fn polars_connection_settings_v2(
@@ -260,12 +272,12 @@ async fn polars_connection_settings_v2(
     .0;
     let response = PolarsConnectionSettingsResponse {
         s3fs_args: s3fs,
-        polars_cloud_options: PolarsCloudOptions {
+        storage_options: PolarsStorageOptions {
             aws_endpoint_url: render_endpoint(&s3_resource),
             aws_access_key_id: s3_resource.access_key,
             aws_secret_access_key: s3_resource.secret_key,
             aws_region: s3_resource.region,
-            aws_allow_http: !s3_resource.use_ssl,
+            aws_allow_http: (!s3_resource.use_ssl).to_string(),
         },
     };
     return Ok(Json(response));
@@ -661,6 +673,193 @@ async fn load_file_preview(
     };
 
     return Ok(Json(response));
+}
+
+#[derive(Deserialize)]
+struct DeleteS3FileQuery {
+    pub file_key: String,
+}
+
+async fn delete_s3_file(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Query(query): Query<DeleteS3FileQuery>,
+) -> error::JsonResult<()> {
+    let file_key = query.file_key.clone();
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let s3_client = build_s3_client(&s3_resource);
+
+    let s3_bucket = s3_resource.bucket.clone();
+    s3_client
+        .delete_object()
+        .bucket(&s3_bucket)
+        .key(&file_key)
+        .send()
+        .await
+        .map_err(|err| {
+            tracing::error!("{:?}", err);
+            error::Error::InternalErr(err.to_string())
+        })?;
+    return Ok(Json(()));
+}
+
+#[derive(Deserialize)]
+struct UploadFileQuery {
+    pub file_key: String,
+    pub part_content: Vec<u8>,
+    pub upload_id: Option<String>, // should be None for the first call to initiate the upload
+
+    pub parts: Vec<UploadFilePart>, // parts already uploaded, with their part_number and the tag associated
+
+    pub is_final: bool,      // whether it's the final chunk
+    pub cancel_upload: bool, // whether the upload should be cancelled. upload_id should be set. subsequent calls with this upload_id will fail
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+struct UploadFilePart {
+    pub part_number: u16,
+    pub tag: String,
+}
+
+#[derive(Serialize)]
+struct UploadFileResponse {
+    pub upload_id: String,
+    pub parts: Vec<UploadFilePart>, // parts already uploaded, with their part_number and the tag associated
+    pub is_done: bool, // whether the transfer is finished, either b/c it got cancelled or because the last chunk was uploaded
+}
+
+async fn multipart_upload_s3_file(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(query): Json<UploadFileQuery>,
+) -> error::JsonResult<UploadFileResponse> {
+    tracing::debug!(
+        "Multi part file upload: part number: {} - is_final: {}",
+        query.parts.len(),
+        query.is_final
+    );
+    let file_key = query.file_key.clone();
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let bucket = s3_resource.bucket.clone();
+    let s3_client = build_s3_client(&s3_resource);
+
+    if query.cancel_upload && query.upload_id.clone().is_some() {
+        let upload_id = query.upload_id.unwrap();
+        s3_client
+            .abort_multipart_upload()
+            .bucket(&bucket)
+            .key(&file_key)
+            .upload_id(&upload_id)
+            .send()
+            .await
+            .map_err(|err| {
+                tracing::error!("{:?}", err);
+                error::Error::InternalErr(err.to_string())
+            })?;
+        return Ok(Json(UploadFileResponse {
+            upload_id: upload_id,
+            parts: vec![], // empty parts as the transfer has been cancelled
+            is_done: true,
+        }));
+    }
+
+    let (upload_id, part_number) = match query {
+        UploadFileQuery { upload_id: Some(upload_id), ref parts, .. } if parts.len() > 0 => {
+            (upload_id, parts.len() + 1)
+        }
+        UploadFileQuery { upload_id: None, ref parts, .. } if parts.len() == 0 => {
+            let multipart_upload_res = s3_client
+                .create_multipart_upload()
+                .bucket(&bucket)
+                .key(&file_key)
+                .send()
+                .await
+                .map_err(|err| {
+                    tracing::error!("{:?}", err);
+                    error::Error::InternalErr(err.to_string())
+                })?;
+            let upload_id = multipart_upload_res
+                .upload_id
+                .context("Upload ID is missing in the response")?;
+            (upload_id, 1)
+        }
+        _ => {
+            return Err(error::Error::BadRequest(
+                "parts should be empty when upload_id is not provided, as a new upload will be created."
+                    .to_string(),
+            ))
+        }
+    };
+
+    let chunk_content = query.part_content.clone();
+    let chunk_content_stream = ByteStream::from(chunk_content);
+    let multipart_upload_res = s3_client
+        .upload_part()
+        .bucket(&bucket)
+        .key(&file_key)
+        .upload_id(&upload_id)
+        .body(chunk_content_stream)
+        .part_number(part_number as i32)
+        .send()
+        .await
+        .map_err(|err| {
+            tracing::error!("{:?}", err);
+            error::Error::InternalErr(err.to_string())
+        })?;
+
+    let mut new_parts = query.parts.clone();
+    new_parts.push(UploadFilePart {
+        part_number: part_number as u16,
+        tag: multipart_upload_res.e_tag.unwrap_or_default(),
+    });
+
+    if query.is_final {
+        let completed_parts = new_parts
+            .iter()
+            .map(|part| {
+                CompletedPart::builder()
+                    .e_tag(&part.tag)
+                    .part_number(part.part_number as i32)
+                    .build()
+            })
+            .collect_vec();
+        let _complete_multipart_upload_res = s3_client
+            .complete_multipart_upload()
+            .bucket(&s3_resource.bucket)
+            .key(&query.file_key)
+            .upload_id(&upload_id)
+            .multipart_upload(
+                CompletedMultipartUpload::builder()
+                    .set_parts(Some(completed_parts))
+                    .build(),
+            )
+            .send()
+            .await
+            .map_err(|err| {
+                tracing::error!("{:?}", err);
+                error::Error::InternalErr(err.to_string())
+            })?;
+    }
+
+    return Ok(Json(UploadFileResponse {
+        upload_id: upload_id,
+        parts: new_parts,
+        is_done: query.is_final,
+    }));
 }
 
 async fn get_workspace_s3_resource<'c>(

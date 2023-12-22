@@ -3,14 +3,13 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square } from 'lucide-svelte'
+	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
-	import { ArrowDown, GitBranch } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let mod: FlowModule

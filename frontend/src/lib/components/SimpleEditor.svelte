@@ -29,7 +29,8 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import libStdContent from '$lib/es6.d.ts.txt?raw'
+	import domContent from '$lib/dom.d.ts.txt?raw'
 	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
@@ -49,10 +50,12 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let extraLib: string = ''
+
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
+	export let domLib = false
 
 	const dispatch = createEventDispatcher()
 
@@ -130,7 +133,15 @@
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
-			noLib: true
+			noSemanticValidation: false,
+			noLib: true,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		})
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
 		})
 
 		languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -151,13 +162,13 @@
 			model = nmodel
 		}
 		model.updateOptions(updateOptions)
-		let widgets: HTMLElement | undefined =
-			document.getElementById('monaco-widgets-root') ?? undefined
+		// let widgets: HTMLElement | undefined =
+		// 	document.getElementById('monaco-widgets-root') ?? undefined
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
-			overflowWidgetsDomNode: widgets,
+			// overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})
 
@@ -290,18 +301,19 @@
 
 	function loadExtraLib() {
 		if (lang == 'javascript') {
-			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
-			if (extraLib != '') {
-				languages.typescript.javascriptDefaults.setExtraLibs([
-					{
-						content: extraLib,
-						filePath: 'windmill.d.ts'
-					},
-					stdLib
-				])
-			} else {
-				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+			const libs = [stdLib]
+			if (domLib) {
+				const domDTS = { content: domContent, filePath: 'dom.d.ts' }
+				libs.push(domDTS)
 			}
+			if (extraLib != '') {
+				libs.push({
+					content: extraLib,
+					filePath: 'windmill.d.ts'
+				})
+			}
+			languages.typescript.javascriptDefaults.setExtraLibs(libs)
 		}
 	}
 

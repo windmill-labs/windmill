@@ -163,11 +163,12 @@
 <div class="p-2 flex flex-col gap-2">
 	<Button
 		tooltip="Decision tree graph editor"
+		id="decision-tree-graph-editor"
 		on:click={() => {
 			drawer?.openDrawer()
 		}}
 		size="xs"
-		color="light"
+		color="dark"
 		startIcon={{ icon: Network }}
 	>
 		Graph editor

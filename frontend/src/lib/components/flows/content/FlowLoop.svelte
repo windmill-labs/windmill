@@ -9,7 +9,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Drawer, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Button, Drawer, Tab, TabContent, Tabs, Alert } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
@@ -68,13 +68,16 @@
 		<div slot="header" class="grow">
 			<input bind:value={mod.summary} placeholder={'Summary'} />
 		</div>
+		<Alert type="info" title="For loops" tooltip="For loops" documentationLink="https://www.windmill.dev/docs/flows/flow_loops" class="m-2">
+			Add steps inside the loop and specify an iterator expression that defines the sequence over which your subsequent steps will iterate.
+		</Alert>
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
 				{#if mod.value.type === 'forloopflow'}
 					<div class="flex flex-row gap-8 mt-2 mb-6">
 						<div>
 							<div class="mb-2 text-sm font-bold"
-								>Skip failures <Tooltip
+								>Skip failures <Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
 									the error will be collected as the result of the iteration. Regardless of this
 									setting, if an error handler is defined, it will process the error.</Tooltip
@@ -97,7 +100,7 @@
 							/>
 						</div>
 						<div>
-							<div class="mb-2 text-sm font-bold">Parallelism</div>
+							<div class="mb-2 text-sm font-bold">Parallelism <Tooltip>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip> </div>
 							<input
 								type="number"
 								disabled={!mod.value.parallel}
@@ -107,9 +110,8 @@
 					</div>
 					<div class="my-2 text-sm font-bold">
 						Iterator expression
-						<Tooltip>
-							List to iterate over. For more information see the
-							<a href="https://www.windmill.dev/docs/flows/flow_loops">docs.</a>
+						<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
+							List to iterate over.
 						</Tooltip>
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}

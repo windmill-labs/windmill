@@ -51,7 +51,7 @@ const config = {
 		__pkg__: version
 	},
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core', 'ag-grid-svelte']
+		include: ['highlight.js', 'highlight.js/lib/core']
 	},
 	resolve: {
 		alias: {
