@@ -201,7 +201,7 @@
 	}
 
 	function collabUrl() {
-		let url = new URL(window.location.toString())
+		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
