@@ -124,7 +124,7 @@
 
 	let initialPath: string | undefined = path
 
-	$: path != initialPath && lang == 'typescript' && handlePathChange()
+	$: path != initialPath && (scriptLang == 'deno' || scriptLang == 'bun') && handlePathChange()
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
@@ -765,21 +765,37 @@
 				if (scriptLang == 'bun') {
 					const addLibraryToRuntime = async (code: string, _path: string) => {
 						const path = 'file://' + _path
+						let uri = mUri.parse(path)
 						languages.typescript.javascriptDefaults.addExtraLib(code, path)
-						const uri = mUri.parse(path)
 						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+					}
+
+					const addLocalFile = async (code: string, _path: string) => {
+						let p = new URL(_path, uri).href
+						let nuri = mUri.parse(p)
+						if (editor) {
+							let model = meditor.getModel(nuri)
+							if (model) {
+								model.setValue(code)
+							} else {
+								meditor.createModel(code, 'javascript', nuri)
+							}
+						}
 					}
 					await initWasm()
 					const root = await genRoot(hostname)
+
 					ata = setupTypeAcquisition({
 						projectName: 'Windmill',
 						depsParser: (c) => {
 							return parseDeps(c)
 						},
 						root,
+						scriptPath: path,
 						logger: console,
 						delegate: {
 							receivedFile: addLibraryToRuntime,
+							localFile: addLocalFile,
 							progress: (downloaded: number, total: number) => {
 								// console.log({ dl, ttl })
 							},
@@ -1005,6 +1021,7 @@
 			allowNonTsExtensions: true,
 			noSemanticValidation: false,
 			noSyntaxValidation: false,
+
 			checkJs: true,
 			allowJs: true,
 			noUnusedLocals: true,
@@ -1029,6 +1046,7 @@
 			inlayHints: true
 		})
 
+		languages.typescript.javascriptDefaults.setEagerModelSync(true)
 		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
 			noSemanticValidation: false,
 			noSyntaxValidation: false,
@@ -1041,6 +1059,7 @@
 			allowNonTsExtensions: true,
 			noSemanticValidation: false,
 			noSyntaxValidation: false,
+			allowImportingTsExtensions: true,
 			checkJs: true,
 			allowJs: true,
 			noUnusedParameters: true,
@@ -1050,24 +1069,6 @@
 
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
-
-		// languages.typescript.javascriptDefaults.setCompilerOptions({
-		// 	target: languages.typescript.ScriptTarget.Latest,
-		// 	allowNonTsExtensions: true,
-		// 	noSemanticValidation: false,
-		// 	noLib: false,
-		// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		// })
-		// languages.typescript.typescriptDefaults.setModeConfiguration({
-		// 	completionItems: true,
-		// 	definitions: true,
-		// 	hovers: true,
-		// 	diagnostics: true
-		// })
-
-		// languages.typescript.typescriptDefaults.setCompilerOptions(
-		// 	languages.typescript.typescriptDefaults.getCompilerOptions()
-		// )
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
