@@ -72,7 +72,9 @@
 				case 'date':
 					schemaProperty.type = 'string'
 					schemaProperty.format = 'date'
-					schemaProperty.default = extractDefaultValue(field.defaultValue)
+
+					debugger
+
 					break
 				case 'text':
 				default:

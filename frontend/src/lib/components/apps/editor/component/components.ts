@@ -2975,18 +2975,11 @@ This is a paragraph.
 								fieldType: 'resource',
 								value: ''
 							} as StaticAppInput,
-							/*
 							table: {
 								fieldType: 'select',
 								type: 'static',
-								selectOptions: [],
+								selectOptions: ['products'],
 								value: undefined
-							},
-							*/
-							table: {
-								type: 'static',
-								fieldType: 'text',
-								value: ''
 							},
 							columns: {
 								type: 'static',
