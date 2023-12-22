@@ -50,6 +50,7 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let extraLib: string = ''
+
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
@@ -137,12 +138,11 @@
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: true,
+			noSemanticValidation: false,
 			noSyntaxValidation: false,
 			noSuggestionDiagnostics: false,
 			diagnosticCodesToIgnore: [1108]
 		})
-		languages.typescript.javascriptDefaults.setExtraLibs([])
 
 		languages.json.jsonDefaults.setDiagnosticsOptions({
 			validate: true,
@@ -162,13 +162,13 @@
 			model = nmodel
 		}
 		model.updateOptions(updateOptions)
-		let widgets: HTMLElement | undefined =
-			document.getElementById('monaco-widgets-root') ?? undefined
+		// let widgets: HTMLElement | undefined =
+		// 	document.getElementById('monaco-widgets-root') ?? undefined
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
-			overflowWidgetsDomNode: widgets,
+			// overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})
 
@@ -302,19 +302,18 @@
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
-			const domDTS = { content: domContent, filePath: 'dom.d.ts' }
-			const stds = domLib ? [stdLib, domDTS] : [stdLib]
-			if (extraLib != '') {
-				languages.typescript.javascriptDefaults.setExtraLibs([
-					{
-						content: extraLib,
-						filePath: 'windmill.d.ts'
-					},
-					...stds
-				])
-			} else {
-				languages.typescript.javascriptDefaults.setExtraLibs(stds)
+			const libs = [stdLib]
+			if (domLib) {
+				const domDTS = { content: domContent, filePath: 'dom.d.ts' }
+				libs.push(domDTS)
 			}
+			if (extraLib != '') {
+				libs.push({
+					content: extraLib,
+					filePath: 'windmill.d.ts'
+				})
+			}
+			languages.typescript.javascriptDefaults.setExtraLibs(libs)
 		}
 	}
 

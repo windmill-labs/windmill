@@ -5,14 +5,16 @@ import {
 	getNPMVersionsForModule,
 	type NPMTreeMeta
 } from './apis'
-import { mapModuleNameToModule } from './edgeCases'
+import { isRelativePath, mapModuleNameToModule } from './edgeCases'
 
 export interface ATABootstrapConfig {
 	root: string
+	scriptPath?: string
 	/** A object you pass in to get callbacks */
 	delegate: {
 		/** The callback which gets called when ATA decides a file needs to be written to your VFS  */
-		receivedFile?: (code: string, path: string) => void
+		receivedFile: (code: string, path: string) => void
+		localFile: (code: string, path: string) => void
 		/** A way to display progress */
 		progress?: (downloaded: number, estimatedTotal: number) => void
 		/** Note: An error message does not mean ATA has stopped! */
@@ -26,8 +28,6 @@ export interface ATABootstrapConfig {
 	projectName: string
 	/** code to dependency parser */
 	depsParser: (code: string) => string[]
-	/** If you need a custom version of fetch */
-	fetcher?: typeof fetch
 	/** If you need a custom logger instead of the console global */
 	logger?: Logger
 }
@@ -72,12 +72,13 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		}
 		return 'latest'
 	}
+
 	async function resolveDeps(initialSourceFile: string, depth: number) {
 		if (depth > 2) {
 			return
 		}
 
-		const depsToGet = config
+		let depsToGet = config
 			.depsParser(initialSourceFile)
 			.map((d: string) => {
 				let raw = mapModuleNameToModule(d)
@@ -94,6 +95,22 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		}
 		// Make it so it won't get re-downloaded
 		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
+
+		if (depth == 0) {
+			const relativeDeps = depsToGet.filter((f) => isRelativePath(f.raw))
+			relativeDeps.forEach(async (f) => {
+				let path = f.raw.startsWith('/')
+					? ''
+					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
+				let url = config.root + path
+				console.log('path', config.scriptPath, path, url)
+				const res = await fetch(url)
+				if (res.ok) {
+					config.delegate.localFile?.(await res.text(), f.raw)
+				}
+			})
+			depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
+		}
 
 		// Grab the module trees which gives us a list of files to download
 		const trees = await Promise.all(

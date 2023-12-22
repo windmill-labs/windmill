@@ -37,7 +37,7 @@ export async function main() {
 export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
-// import * as wmill from "npm:windmill-client@1"
+// import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -114,7 +114,7 @@ func main(message string, name string) (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@1"
+export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
   return x
@@ -214,7 +214,7 @@ dflt="\${2:-default value}"
 echo "Hello $msg"
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@1"
+export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main() {
 

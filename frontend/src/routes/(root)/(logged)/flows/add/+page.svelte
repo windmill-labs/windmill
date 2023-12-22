@@ -116,7 +116,7 @@
 	let flowBuilder: FlowBuilder | undefined = undefined
 </script>
 
-<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
+<!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <FlowBuilder
 	on:saveInitial={(e) => {

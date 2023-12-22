@@ -407,7 +407,7 @@
 	let extraModel
 
 	let width = 0
-	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
+	// let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 
 	let initialized = false
 
@@ -447,7 +447,7 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
-			overflowWidgetsDomNode: widgets,
+			// overflowWidgetsDomNode: widgets,
 			lineNumbers: 'off',
 			fontSize,
 			suggestOnTriggerCharacters: true,
@@ -576,7 +576,7 @@
 					}
 				})
 			} catch (e) {
-				console.error('Error setting template js worker', e)
+				console.error('Error loading javascipt worker:', e)
 			}
 		}, 300)
 	}
@@ -597,17 +597,14 @@
 
 	function loadExtraLib() {
 		const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+		const libs = [stdLib]
 		if (extraLib != '') {
-			languages.typescript.javascriptDefaults.setExtraLibs([
-				{
-					content: extraLib,
-					filePath: 'windmill.d.ts'
-				},
-				stdLib
-			])
-		} else {
-			languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+			libs.push({
+				content: extraLib,
+				filePath: 'windmill.d.ts'
+			})
 		}
+		languages.typescript.javascriptDefaults.setExtraLibs(libs)
 	}
 
 	onDestroy(() => {
