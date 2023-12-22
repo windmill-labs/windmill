@@ -439,6 +439,10 @@
 		}, 10)
 		mounted = true
 	})
+
+	$: if (nodes.length > 0 && !$selectedNodeId) {
+		$selectedNodeId = nodes[0].id
+	}
 </script>
 
 {#if mounted}
