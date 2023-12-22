@@ -42,7 +42,8 @@
 		type DBSchema,
 		copilotInfo,
 		codeCompletionSessionEnabled,
-		lspTokenStore
+		lspTokenStore,
+		formatOnSave
 	} from '$lib/stores'
 
 	import {
@@ -257,7 +258,9 @@
 		if (editor) {
 			code = getCode()
 			if (lang != 'shell') {
-				await editor?.getAction('editor.action.formatDocument')?.run()
+				if ($formatOnSave != false) {
+					await editor?.getAction('editor.action.formatDocument')?.run()
+				}
 				code = getCode()
 			}
 			if (formatAction) {
