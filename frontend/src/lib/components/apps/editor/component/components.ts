@@ -2966,8 +2966,7 @@ This is a paragraph.
 						postgresql: 'PostgreSQL',
 						mysql: 'MySQL'
 					},
-					tooltip:
-						'The color of the button can be overridden by the `background-color` property in the styling menu',
+
 					configuration: {
 						postgresql: {
 							resource: {

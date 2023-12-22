@@ -179,14 +179,19 @@
 				<Button
 					color="dark"
 					size="xs"
-					on:click={() => {
-						insertRow(
+					on:click={async () => {
+						await insertRow(
 							resolvedConfig.type.configuration.postgresql.resource,
 							$workspaceStore,
 							resolvedConfig.type.configuration.postgresql.table,
 							args
 						)
+
+						insertDrawer?.closeDrawer()
 					}}
+					disabled={!tableMetaData ||
+						Object.keys(args).length !== tableMetaData.length ||
+						Object.values(args).some((value) => value === undefined)}
 				>
 					Insert
 				</Button>
