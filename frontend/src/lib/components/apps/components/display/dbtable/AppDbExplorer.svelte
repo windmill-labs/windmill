@@ -146,11 +146,11 @@
 
 <UpdateCell {id} bind:this={updateCell} />
 <div class="h-full" bind:clientHeight={componentContainerHeight}>
-	<div class="flex flex-start p-2" bind:clientHeight={buttonContainerHeight}>
+	<div class="flex flex-start justify-end p-2" bind:clientHeight={buttonContainerHeight}>
 		<Button
 			startIcon={{ icon: Plus }}
 			color="dark"
-			size="xs"
+			size="xs2"
 			on:click={() => {
 				insertDrawer?.openDrawer()
 			}}
