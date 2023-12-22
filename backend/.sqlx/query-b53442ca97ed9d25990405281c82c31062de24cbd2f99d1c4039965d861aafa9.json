@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, ws_error_handler_muted) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *",
+  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry ) VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19 ) RETURNING *",
   "describe": {
     "columns": [
       {
@@ -107,6 +107,11 @@
         "ordinal": 20,
         "name": "ws_error_handler_muted",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "retry",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -128,7 +133,8 @@
         "Varchar",
         "Int4",
         "Json",
-        "Bool"
+        "Bool",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -152,8 +158,9 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "47a01c0924df7bc2695f8238425aa7eadf845e4156da8cf645582737e046589d"
+  "hash": "b53442ca97ed9d25990405281c82c31062de24cbd2f99d1c4039965d861aafa9"
 }
