@@ -163,6 +163,7 @@
 		item: TableScript | TableFlow | TableApp | TableRawApp,
 		filterUserFolders: boolean
 	) {
+		if ($workspaceStore == 'admins') return true
 		if (filterUserFolders) {
 			return !item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
 		} else {
@@ -472,7 +473,7 @@
 					/>
 				{/each}
 			</div>
-			{#if items && items?.length > 30 && nbDisplayed < items.length}
+			{#if items && items?.length > 15 && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
