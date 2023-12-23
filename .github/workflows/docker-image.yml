@@ -6,7 +6,7 @@ env:
 name: Build windmill:main
 on:
   push:
-    branches: [main]
+    branches: [main, gbouv/integration-tests] # TODO: update
     tags: ["*"]
 
 concurrency:
@@ -56,7 +56,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
@@ -64,6 +64,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
+    if: github.event_name != 'pull_request' # TODO: remove
     steps:
       - uses: actions/checkout@v3
         with:
@@ -102,7 +103,7 @@ jobs:
             features=enterprise,enterprise_saml
             nsjail=true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
@@ -110,6 +111,7 @@ jobs:
 
   build_ee_reports_privately:
     needs: [build_ee]
+    if: github.event_name != 'pull_request' # TODO: remove
     runs-on: ubicloud
     steps:
       - uses: actions/checkout@v3
@@ -322,3 +324,47 @@ jobs:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
           bucket-region: us-east-1
+
+  run_integration_test:
+    runs-on: ubicloud
+    needs: [build_ee]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Prepare test run
+        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        run: cd integration_tests && ./build.sh
+      - name: Test run
+        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        timeout-minutes: 15
+        env:
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
+        run: cd integration_tests && ./run.sh
+      - name: Archive logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: Windmill logs
+          path: |
+            integration_tests/logs
+
+  tag_latest:
+    runs-on: ubicloud
+    needs: [run_integration_test]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Login to registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull dev
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+      - name: Tag latest
+        run: docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-ok # TODO: update tag to latest
+      - name: Push latest
+        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-ok
