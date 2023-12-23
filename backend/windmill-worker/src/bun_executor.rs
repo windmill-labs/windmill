@@ -84,26 +84,41 @@ pub async fn gen_lockfile(
     )
     .await?;
 
+    // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        let registry_toml_string = if s.contains(":_authToken=") {
+        let (raw_url, token_opt) = if s.contains(":_authToken=") {
             let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
-            format!(
-                "{{ url = \"{}\", token = \"{}\" }}",
-                split_url.get(0).unwrap_or(&""),
-                split_url.get(1).unwrap_or(&"")
-            )
+            let url = split_url
+                .get(0)
+                .map(|u| u.to_string())
+                .unwrap_or("".to_string());
+            let token = split_url
+                .get(1)
+                .map(|t| t.to_string())
+                .unwrap_or("".to_string());
+            (url, Some(token))
         } else {
-            format!("\"{}\"", s)
+            (s.to_owned(), None)
+        };
+        // somehow bun fails to resolve deps if the url does not end with a slash ...
+        let url = if !raw_url.ends_with("/") {
+            format!("{raw_url}/")
+        } else {
+            raw_url.to_string()
+        };
+        let registry_toml_string = if let Some(token) = token_opt {
+            format!("{{ url = \"{url}\", token = \"{token}\" }}")
+        } else {
+            format!("\"{url}\"")
         };
         let bunfig_toml = format!(
             r#"
 [install]
-# set default registry as a string
 registry = {}
 "#,
             registry_toml_string
         );
-        tracing::warn!("Writing following bunfig.toml: {bunfig_toml}");
+        tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
         let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
     }
 
