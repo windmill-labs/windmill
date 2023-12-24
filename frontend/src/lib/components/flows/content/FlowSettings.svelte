@@ -18,13 +18,14 @@
 	import { copyToClipboard } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { WorkerService } from '$lib/gen'
-	import { AlertTriangle, Clipboard, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, Clipboard, Loader2, RotateCw } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
+	import AssignableTags from '$lib/components/AssignableTags.svelte'
 
 	export let noEditor: boolean
 
@@ -319,48 +320,61 @@
 					</TabContent>
 
 					<TabContent value="settings-worker-group" class="p-4 flex flex-col">
-						<Alert type="info" title="Worker Group">
-							When a worker group is defined at the flow level, any steps inside the flow will run
-							on that worker group, regardless of the steps' worker group. If no worker group is
-							defined, the flow controls will be executed by the default worker group 'flow' and the
-							steps will be executed in their respective worker group.
+						<Alert type="info" title="Worker Group Tag (Queue)">
+							When a worker group tag is defined at the flow level, any steps inside the flow will
+							run on any worker group that listen to that tag, regardless of the steps' tag. If no
+							worker group tags is defined, the flow controls will be executed with the default tag
+							'flow' and the steps will be executed with their respective tag
 						</Alert>
-						<span class="my-4 text-lg font-bold">Worker Group</span>
-						{#if $workerTags}
-							{#if $workerTags?.length > 0}
-								<div class="w-40">
-									<select
-										placeholder="Worker group"
-										bind:value={$flowStore.tag}
-										on:change={(e) => {
-											if ($flowStore.tag == '') {
-												$flowStore.tag = undefined
-											}
-										}}
-									>
-										{#if $flowStore.tag}
-											<option value="">reset to default</option>
-										{:else}
-											<option value="" disabled selected>Worker Group</option>
-										{/if}
-										{#each $workerTags ?? [] as tag (tag)}
-											<option value={tag}>{tag}</option>
-										{/each}
-									</select>
-								</div>
+						<span class="my-4 text-lg font-bold">Worker Group Tag (Queue)</span>
+						<div class="flex gap-2 items-center">
+							{#if $workerTags}
+								{#if $workerTags?.length > 0}
+									<div class="max-w-sm grow">
+										<select
+											placeholder="Worker group tag"
+											bind:value={$flowStore.tag}
+											on:change={(e) => {
+												if ($flowStore.tag == '') {
+													$flowStore.tag = undefined
+												}
+											}}
+										>
+											{#if $flowStore.tag}
+												<option value="">reset to default</option>
+											{:else}
+												<option value="" disabled selected>Worker Group Tag</option>
+											{/if}
+											{#each $workerTags ?? [] as tag (tag)}
+												<option value={tag}>{tag}</option>
+											{/each}
+										</select>
+									</div>
+								{:else}
+									<div class="text-sm text-secondary italic mb-2">
+										No custom worker group tag defined on this instance in "Workers {'->'} Assignable
+										Tags". See
+										<a
+											href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+											target="_blank">documentation</a
+										>
+									</div>
+								{/if}
 							{:else}
-								<div class="text-sm text-secondary italic mb-2">
-									No custom worker group tag defined on this instance in "Workers {'->'} Assignable Tags".
-									See
-									<a
-										href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-										target="_blank">documentation</a
-									>
-								</div>
+								<Loader2 class="animate-spin" />
 							{/if}
-						{:else}
-							<Loader2 class="animate-spin" />
-						{/if}
+
+							<Button
+								variant="border"
+								color="light"
+								on:click={() => {
+									$workerTags = undefined
+									loadWorkerGroups()
+								}}
+								startIcon={{ icon: RotateCw }}
+							/>
+							<AssignableTags />
+						</div>
 
 						<div class="py-6" />
 						<span class="my-4 text-lg font-bold flex items-baseline gap-8"
