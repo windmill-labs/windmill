@@ -139,7 +139,6 @@
 	let drawer: Drawer
 
 	let createdTags: string[] = []
-	let selectedItem: string | undefined = undefined
 </script>
 
 <ConfirmationModal

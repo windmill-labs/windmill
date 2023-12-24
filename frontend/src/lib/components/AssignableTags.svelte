@@ -82,9 +82,9 @@
 					loadCustomTags()
 					sendUserToast('Tag added')
 				}}
-				disabled={newTag.trim() == ''}
+				disabled={newTag.trim() == '' || !$superadmin}
 			>
-				Add
+				Add {#if !superadmin} <span class="text-2xs text-tertiary">EE only</span> {/if}
 			</Button>
 			<span class="text-sm text-primary"
 				>Configure <a href="/workers" target="_blank" class="inline-flex gap-1 items-baseline"
