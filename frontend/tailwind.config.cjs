@@ -69,6 +69,10 @@ const config = {
 		'splitpanes__pane',
 		'splitpanes__splitter',
 		'wm-tab',
+		'autocomplete-list',
+		'autocomplete-list-item',
+		'autocomplete-list-item-create',
+		'selected',
 		'wm-tab-selected',
 		...(process.env.NODE_ENV === 'production'
 			? [

@@ -92,6 +92,7 @@
 
 						<span class="text-xs absolute -top-4">User</span>
 						<AutoComplete
+							noInputStyles
 							items={usernames}
 							value={user}
 							bind:selectedItem={user}
@@ -121,6 +122,7 @@
 						<span class="text-xs absolute -top-4">Folder</span>
 
 						<AutoComplete
+							noInputStyles
 							items={folders}
 							value={folder}
 							bind:selectedItem={folder}
@@ -150,6 +152,7 @@
 						<span class="text-xs absolute -top-4">Path</span>
 
 						<AutoComplete
+							noInputStyles
 							items={paths}
 							value={path}
 							bind:selectedItem={path}
@@ -305,6 +308,7 @@
 									{/if}
 
 									<AutoComplete
+										noInputStyles
 										items={folders}
 										value={folder}
 										bind:selectedItem={folder}
@@ -334,6 +338,7 @@
 									{/if}
 
 									<AutoComplete
+										noInputStyles
 										items={paths}
 										value={path}
 										bind:selectedItem={path}

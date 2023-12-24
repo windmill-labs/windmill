@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -15,6 +15,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
+	import AutoComplete from 'simple-svelte-autocomplete'
 
 	export let name: string
 	export let config:
@@ -27,6 +28,7 @@
 				init_bash?: string
 		  }
 	export let activeWorkers: number
+	export let customTags: string[] | undefined
 
 	let nconfig: {
 		dedicated_worker?: string
@@ -135,6 +137,9 @@
 	let openClean = false
 
 	let drawer: Drawer
+
+	let createdTags: string[] = []
+	let selectedItem: string | undefined = undefined
 </script>
 
 <ConfirmationModal
@@ -188,8 +193,8 @@
 	<DrawerContent on:close={() => drawer.closeDrawer()} title="Edit worker config '{name}'">
 		{#if !$enterpriseLicense}
 			<Alert type="warning" title="Worker management UI is EE only">
-				Workers can still have their WORKER_TAGS passed as env. Dedicated workers are an enterprise
-				only feature.
+				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
+				Dedicated workers are an enterprise only feature.
 			</Alert>
 			<div class="pb-4" />
 		{/if}
@@ -245,27 +250,51 @@
 							>
 						{/each}
 					</div>
-					<div class="max-w">
-						<input type="text" placeholder="new tag" bind:value={newTag} />
-						<div class="mt-1" />
-						<Button
-							variant="contained"
-							color="blue"
-							size="xs"
-							disabled={newTag == '' || nconfig.worker_tags?.includes(newTag)}
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags = [
-										...(nconfig?.worker_tags ?? []),
-										newTag.replaceAll(' ', '_')
-									]
-									newTag = ''
-									dirty = true
-								}
+					<div class="max-w-md">
+						<AutoComplete
+							noInputStyles
+							items={[...(customTags ?? []), ...createdTags, ...defaultTags, ...nativeTags].filter(
+								(x) => !nconfig?.worker_tags?.includes(x)
+							)}
+							bind:selectedItem={newTag}
+							hideArrow={true}
+							inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
+							dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
+							className="w-full !font-gray-600 !font-primary !bg-surface-primary"
+							onFocus={() => {
+								dispatch('focus')
 							}}
-						>
-							Add tag
-						</Button>
+							create
+							onCreate={(c) => {
+								createdTags.push(c)
+								createdTags = [...createdTags]
+								return c
+							}}
+							createText="Press enter to use this non-predefined value"
+						/>
+
+						<div class="mt-1" />
+						<div class="flex">
+							<Button
+								variant="contained"
+								color="blue"
+								size="xs"
+								startIcon={{ icon: Plus }}
+								disabled={newTag == '' || nconfig.worker_tags?.includes(newTag)}
+								on:click={() => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = [
+											...(nconfig?.worker_tags ?? []),
+											newTag.replaceAll(' ', '_')
+										]
+										newTag = ''
+										dirty = true
+									}
+								}}
+							>
+								Add tag
+							</Button>
+						</div>
 					</div>
 					<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
 						<Button
@@ -321,7 +350,7 @@
 									</Tooltip>
 								</svelte:fragment>
 								<Multiselect
-									outerDivClass="text-secondary"
+									outerDivClass="text-secondary !bg-surface-disabled"
 									disabled={!$enterpriseLicense}
 									bind:selected={selectedPriorityTags}
 									on:change={(e) => {
@@ -374,7 +403,7 @@
 				>
 			{/if}
 		{/if}
-		<div class="mt-4" />
+		<div class="mt-8" />
 
 		<Section
 			label="Worker Environment Variables"
@@ -426,18 +455,21 @@
 						</button>
 					</div>
 				{/each}
-				<Button
-					variant="contained"
-					color="blue"
-					size="xs"
-					on:click={() => {
-						customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
-						customEnvVars = [...customEnvVars]
-						dirty = true
-					}}
-				>
-					Add Environment Variable
-				</Button>
+				<div class="flex">
+					<Button
+						variant="contained"
+						color="blue"
+						size="xs"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
+							customEnvVars = [...customEnvVars]
+							dirty = true
+						}}
+					>
+						Add Environment Variable
+					</Button>
+				</div>
 			</div>
 			<div class="flex flex-wrap items-center gap-1 pt-2">
 				<Button
@@ -494,7 +526,7 @@
 				</Button>
 			</div>
 		</Section>
-		<div class="mt-4" />
+		<div class="mt-8" />
 
 		<Section
 			label="Init Script"

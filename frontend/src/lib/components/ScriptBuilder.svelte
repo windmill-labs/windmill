@@ -39,6 +39,7 @@
 		Pen,
 		Plus,
 		Rocket,
+		RotateCw,
 		Save,
 		Settings,
 		X
@@ -58,6 +59,7 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
+	import AssignableTags from './AssignableTags.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -578,56 +580,68 @@
 										</Label>
 									</div>
 								</Section>
-								<Section label="Worker Group Tag">
+								<Section label="Worker Group Tag (Queue)">
 									<svelte:fragment slot="header">
 										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 										>
-											The script will be executed on a worker configured to accept its worker group
-											tag. For instance, you could setup an "highmem", or "gpu" worker group.
+											The script will be executed on a worker configured to listen to this worker
+											group tag (queue). For instance, you could setup an "highmem", or "gpu" tag.
 										</Tooltip>
 									</svelte:fragment>
-
-									{#if $workerTags}
-										{#if $workerTags?.length > 0}
-											<div class="max-w-sm">
-												<select
-													bind:value={script.tag}
-													on:change={(e) => {
-														if (script.tag == '') {
-															script.tag = undefined
-														}
-													}}
-												>
-													{#if script.tag}
-														<option value="">reset to default</option>
-													{:else}
-														<option value="" disabled selected>Worker Group</option>
-													{/if}
-													{#each $workerTags ?? [] as tag (tag)}
-														<option value={tag}>{tag}</option>
-													{/each}
-												</select>
-											</div>
-										{:else}
-											<div class="text-sm text-secondary flex flex-row gap-2">
-												No custom worker group tag defined on this instance in "Workers {'->'} Assignable
-												Tags"
-												<a
-													href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-													target="_blank"
-													class="hover:underline"
-												>
-													<div class="flex flex-row gap-2 items-center">
-														See documentation
-														<ExternalLink size="12" />
+									<div class="flex gap-2 items-center">
+										<div class="max-w-sm grow">
+											{#if $workerTags}
+												{#if $workerTags?.length > 0}
+													<select
+														bind:value={script.tag}
+														on:change={(e) => {
+															if (script.tag == '') {
+																script.tag = undefined
+															}
+														}}
+													>
+														{#if script.tag}
+															<option value="">reset to default</option>
+														{:else}
+															<option value="" disabled selected>Worker Group Tag</option>
+														{/if}
+														{#each $workerTags ?? [] as tag (tag)}
+															<option value={tag}>{tag}</option>
+														{/each}
+													</select>
+												{:else}
+													<div class="text-sm text-secondary flex flex-row gap-2">
+														No custom worker group tag defined on this instance in "Workers {'->'} Assignable
+														Tags"
+														<a
+															href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+															target="_blank"
+															class="hover:underline"
+														>
+															<div class="flex flex-row gap-2 items-center">
+																See documentation
+																<ExternalLink size="12" />
+															</div>
+														</a>
 													</div>
-												</a>
-											</div>
-										{/if}
-									{:else}
-										<Loader2 class="animate-spin" />
-									{/if}
+												{/if}
+											{:else}
+												<Loader2 class="animate-spin" />
+											{/if}
+										</div>
+
+										<Button
+											variant="border"
+											color="light"
+											on:click={() => {
+												$workerTags = undefined
+												loadWorkerGroups()
+											}}
+											startIcon={{ icon: RotateCw }}
+										/>
+										<AssignableTags />
+									</div>
 								</Section>
 								<Section label="Cache">
 									<div class="flex gap-2 shrink flex-col">

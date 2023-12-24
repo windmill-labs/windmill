@@ -159,6 +159,7 @@
 
 				{#key ownerKind}
 					<AutoComplete
+						noInputStyles
 						items={ownerKind === 'user' ? usernames : groups}
 						bind:selectedItem={ownerItem}
 					/>
