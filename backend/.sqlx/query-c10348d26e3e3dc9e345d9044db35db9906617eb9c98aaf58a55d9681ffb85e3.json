@@ -107,6 +107,11 @@
         "ordinal": 20,
         "name": "ws_error_handler_muted",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "retry",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -137,7 +142,8 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
   "hash": "c10348d26e3e3dc9e345d9044db35db9906617eb9c98aaf58a55d9681ffb85e3"

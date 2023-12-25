@@ -14,6 +14,7 @@
 	const dispatch = createEventDispatcher()
 
 	let isManuallySelected: boolean = false
+	let selected: number | null = null
 </script>
 
 <button
@@ -28,11 +29,27 @@
 	on:pointerdown|stopPropagation
 >
 	<ButtonDropdown hasPadding={false}>
+		<svelte:fragment slot="buttonReplacement">
+			<div class="px-1">
+				{#if isManuallySelected}
+					<div>
+						{#if selected === tabs.length - 1}
+							{isConditionalDebugMode ? `Debug default condition` : `Debug tab ${selected + 1}`}
+						{:else}
+							{`Debugging ${isConditionalDebugMode ? 'condition' : 'tab'} ${(selected ?? 0) + 1}`}
+						{/if}
+					</div>
+				{:else}
+					{isConditionalDebugMode ? `Debug conditions` : `Debug tabs`}
+				{/if}
+			</div>
+		</svelte:fragment>
 		<svelte:fragment slot="items">
 			{#each tabs ?? [] as { }, index}
 				<MenuItem
 					on:click={() => {
 						$componentControl?.[id]?.setTab?.(index)
+						selected = index
 						isManuallySelected = true
 					}}
 				>
@@ -52,6 +69,7 @@
 			<MenuItem
 				on:click={() => {
 					$componentControl?.[id]?.setTab?.(-1)
+					selected = null
 					isManuallySelected = false
 				}}
 			>

@@ -990,8 +990,8 @@
 	let model: meditor.ITextModel | undefined = undefined
 
 	let monacoBinding: MonacoBinding | undefined = undefined
-	// @ts-ignore
-	$: if (yContent && awareness && modelRef && editor) {
+
+	$: if (yContent && awareness && model && editor) {
 		monacoBinding && monacoBinding.destroy()
 		monacoBinding = new MonacoBinding(
 			yContent,
@@ -1118,12 +1118,10 @@
 		})
 
 		editor.onDidBlurEditorText(() => {
-			console.log('blur')
 			dispatch('blur')
 		})
 
 		editor.onDidFocusEditorText(() => {
-			console.log('focus')
 			dispatch('focus')
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
@@ -1213,7 +1211,6 @@
 		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 		return root
 	}
-	console.log('FOO')
 </script>
 
 <EditorTheme />

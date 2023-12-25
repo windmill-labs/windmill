@@ -27,8 +27,6 @@
 
 	let updateAppDrawer: Drawer
 
-	let { summary, version, path, extra_perms, workspace_id, canWrite } = app
-
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -44,34 +42,34 @@
 				on:change={async ({ detail }) => {
 					await RawAppService.updateRawApp({
 						workspace: $workspaceStore ?? '',
-						path,
+						path: app.path,
 						requestBody: { value: detail?.[0] }
 					})
-					goto(`/apps/get_raw/${version + 1}/${path}`)
+					goto(`/apps/get_raw/${app.version + 1}/${app.path}`)
 				}}
 			/>
 		</DrawerContent>
 	</Drawer>
 {/if}
 <Row
-	href="/apps/get_raw/{version}/{path}"
+	href="/apps/get_raw/{app.version}/{app.path}"
 	kind="raw_app"
 	{marked}
-	{path}
-	{summary}
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	path={app.path}
+	summary={app.summary}
+	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	{starred}
 	on:change
 	canFavorite={true}
 	{depth}
 >
 	<svelte:fragment slot="badges">
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite}
+				{#if app.canWrite}
 					<div>
 						<Button
 							color="light"
@@ -88,6 +86,8 @@
 		</span>
 		<Dropdown
 			items={() => {
+				let { summary, path, canWrite } = app
+
 				return [
 					{
 						displayName: 'Move/Rename',

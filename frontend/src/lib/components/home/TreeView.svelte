@@ -12,6 +12,7 @@
 	export let collapseAll: boolean
 	export let depth: number = 0
 	export let showCode: (path: string, summary: string) => void
+	export let isSearching: boolean = false
 
 	const isFolder = (i: any): i is FolderItem => i && 'folderName' in i
 	const isUser = (i: any): i is UserItem => i && 'username' in i
@@ -64,10 +65,11 @@
 				{/if}
 			</button>
 		</div>
-		{#if opened}
+		{#if opened || isSearching}
 			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
+						{isSearching}
 						{collapseAll}
 						item={subItem}
 						on:scriptChanged
@@ -129,7 +131,7 @@
 				{/if}
 			</div>
 		</div>
-		{#if opened}
+		{#if opened || isSearching}
 			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self

@@ -62,7 +62,7 @@
 
 	let loading = true
 
-	let nbDisplayed = 30
+	let nbDisplayed = 15
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -163,6 +163,7 @@
 		item: TableScript | TableFlow | TableApp | TableRawApp,
 		filterUserFolders: boolean
 	) {
+		if ($workspaceStore == 'admins') return true
 		if (filterUserFolders) {
 			return !item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
 		} else {
@@ -440,6 +441,7 @@
 				{items}
 				{nbDisplayed}
 				{collapseAll}
+				isSearching={filter !== ''}
 				on:scriptChanged={loadScripts}
 				on:flowChanged={loadFlows}
 				on:appChanged={loadApps}
@@ -471,7 +473,7 @@
 					/>
 				{/each}
 			</div>
-			{#if items && items?.length > 30 && nbDisplayed < items.length}
+			{#if items && items?.length > 15 && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span

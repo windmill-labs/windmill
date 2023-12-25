@@ -6,6 +6,8 @@
 	export let showCode: (path: string, summary: string) => void
 	export let nbDisplayed: number
 	export let items: any[] | undefined
+	export let isSearching: boolean = false
+
 	let treeLoading = false
 
 	$: groupedItems = grpItems(items)
@@ -36,6 +38,7 @@
 		{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
 			{#if item}
 				<TreeView
+					{isSearching}
 					{collapseAll}
 					{item}
 					on:scriptChanged

@@ -52,8 +52,12 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
       path: localP.substring(p.length + 1),
       async *getChildren(): AsyncIterable<DynFSElement> {
         if (!isDir) return [];
-        for await (const e of Deno.readDir(localP)) {
-          yield _internal_element(path.join(localP, e.name), e.isDirectory);
+        try {
+          for await (const e of Deno.readDir(localP)) {
+            yield _internal_element(path.join(localP, e.name), e.isDirectory);
+          }
+        } catch (e) {
+          log.warning(`Error reading dir: ${localP}, ${e}`);
         }
       },
       // async getContentBytes(): Promise<Uint8Array> {
@@ -299,37 +303,70 @@ type Change = Added | Deleted | Edit;
 async function elementsToMap(
   els: DynFSElement,
   ignore: (path: string, isDirectory: boolean) => boolean,
-  json: boolean
+  json: boolean,
+  skips: Skips
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
-    if (json && entry.path.endsWith(".yaml")) continue;
-    if (!json && entry.path.endsWith(".json")) continue;
+    const path = entry.path;
+    if (json && path.endsWith(".yaml")) continue;
+    if (!json && path.endsWith(".json")) continue;
+    const ext = json ? ".json" : ".yaml";
+    if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
+    if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+    if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
+
+    if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+
     if (
       !["json", "yaml", "go", "sh", "ts", "py", "sql", "gql", "ps1"].includes(
-        entry.path.split(".").pop() ?? ""
+        path.split(".").pop() ?? ""
       )
     )
       continue;
     const content = await entry.getContentText();
+
+    if (skips.skipSecrets && path.endsWith(".variable" + ext)) {
+      try {
+        let o;
+        if (json) {
+          o = JSON.parse(content);
+        } else {
+          o = yamlParse(content);
+        }
+        if (o["is_secret"]) {
+          continue;
+        }
+      } catch (e) {
+        log.warning(`Error reading variable ${path} to check for secrets`);
+      }
+    }
     map[entry.path] = content;
   }
   return map;
+}
+
+interface Skips {
+  skipVariables?: boolean | undefined;
+  skipResources?: boolean | undefined;
+  skipSecrets?: boolean | undefined;
+  includeSchedules?: boolean | undefined;
 }
 
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
-  json: boolean
+  json: boolean,
+  skips: Skips
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json),
-        elementsToMap(els2, ignore, json),
+        elementsToMap(els1, ignore, json, skips),
+        elementsToMap(els2, ignore, json, skips),
       ])
-    : [await elementsToMap(els1, ignore, json), {}];
+    : [await elementsToMap(els1, ignore, json, skips), {}];
 
   const changes: Change[] = [];
 
@@ -447,7 +484,8 @@ async function pull(
     remote,
     local,
     await ignoreF(),
-    opts.json ?? false
+    opts.json ?? false,
+    opts
   );
 
   log.info(
@@ -665,7 +703,8 @@ async function push(
     local,
     remote,
     await ignoreF(),
-    opts.json ?? false
+    opts.json ?? false,
+    opts
   );
 
   log.info(

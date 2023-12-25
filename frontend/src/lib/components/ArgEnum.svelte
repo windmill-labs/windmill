@@ -32,8 +32,9 @@
 	)}
 	value={value ?? defaultValue}
 	hideArrow={true}
-	dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md"
+	dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md !bg-surface-primary"
 	className="w-full"
+	noInputStyles
 	onFocus={() => {
 		dispatch('focus')
 	}}

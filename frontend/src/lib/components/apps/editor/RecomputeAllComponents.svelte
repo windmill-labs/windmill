@@ -27,6 +27,12 @@
 		if (appEditorContext) {
 			appEditorContext.refreshComponents.set(refresh)
 		}
+		document.addEventListener('visibilitychange', visChange)
+		// setTimeout(() => refresh(), 1000)
+		return () => {
+			document.removeEventListener('visibilitychange', visChange)
+			if (timeout) clearInterval(timeout)
+		}
 	})
 
 	function onClick(stopAfterClear = true) {
@@ -87,15 +93,6 @@
 			timeout = setInterval(refresh, interval)
 		}
 	}
-
-	onMount(() => {
-		document.addEventListener('visibilitychange', visChange)
-		// setTimeout(() => refresh(), 1000)
-		return () => {
-			document.removeEventListener('visibilitychange', visChange)
-			if (timeout) clearInterval(timeout)
-		}
-	})
 
 	let items = [
 		{

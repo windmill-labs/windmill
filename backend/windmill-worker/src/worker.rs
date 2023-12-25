@@ -2454,7 +2454,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
     };
     match job.job_kind {
-        JobKind::FlowPreview | JobKind::Flow => {
+        JobKind::FlowPreview | JobKind::Flow | JobKind::SingleScriptFlow => {
             let timer = worker_flow_initial_transition_duration.map(|x| x.start_timer());
             handle_flow(
                 &job,

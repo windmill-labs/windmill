@@ -40,33 +40,22 @@
 	export let depth: number = 0
 	export let menuOpen: boolean = false
 
-	let {
-		summary,
-		path,
-		extra_perms,
-		canWrite,
-		workspace_id,
-		has_draft,
-		draft_only,
-		execution_mode
-	} = app
-
 	const dispatch = createEventDispatcher()
 
 	let appExport: AppJsonEditor
 	let appDeploymentHistory: AppDeploymentHistory
 
 	async function loadAppJson() {
-		appExport.open(path)
+		appExport.open(app.path)
 	}
 
 	async function loadDeployements() {
-		const app: AppWithLastVersion = (await AppService.getAppByPath({
+		const napp: AppWithLastVersion = (await AppService.getAppByPath({
 			workspace: $workspaceStore!,
-			path
+			path: app.path
 		})) as unknown as AppWithLastVersion
 
-		appDeploymentHistory.open(app.path)
+		appDeploymentHistory.open(napp.path)
 	}
 </script>
 
@@ -76,19 +65,19 @@
 {/if}
 
 <Row
-	href={`/apps/get/${path}`}
+	href={`/apps/get/${app.path}`}
 	kind="app"
 	{marked}
-	{path}
-	{summary}
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	path={app.path}
+	summary={app.summary}
+	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	{starred}
 	on:change
-	canFavorite={!draft_only}
+	canFavorite={!app.draft_only}
 	{depth}
 >
 	<svelte:fragment slot="badges">
-		{#if execution_mode == 'anonymous'}
+		{#if app.execution_mode == 'anonymous'}
 			<Badge small>
 				<div class="flex gap-1 items-center">
 					<Eye size={14} />
@@ -96,21 +85,21 @@
 				</div></Badge
 			>
 		{/if}
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
+		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
 		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite}
+				{#if app.canWrite}
 					<div>
 						<Button
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/apps/edit/{path}?nodraft=true"
+							href="/apps/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -122,7 +111,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/apps/add?template={path}"
+							href="/apps/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -132,6 +121,8 @@
 		</span>
 		<Dropdown
 			items={() => {
+				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
+
 				if (draft_only) {
 					return [
 						{

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, Bug, Cog, Expand, Move, Pen, Plug2 } from 'lucide-svelte'
+	import { Anchor, Bug, Expand, Move, Network, Pen, Plug2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -110,7 +110,7 @@
 				}}
 				on:pointerdown|stopPropagation
 			>
-				<Cog size={14} />
+				<Network size={14} />
 			</button>
 			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
 		{/if}
