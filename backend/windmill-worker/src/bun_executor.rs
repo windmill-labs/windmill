@@ -16,7 +16,7 @@ use crate::{
         start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{
@@ -83,6 +83,44 @@ pub async fn gen_lockfile(
         ),
     )
     .await?;
+
+    // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
+    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
+        let (raw_url, token_opt) = if s.contains(":_authToken=") {
+            let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
+            let url = split_url
+                .get(0)
+                .map(|u| u.to_string())
+                .unwrap_or("".to_string());
+            let token = split_url
+                .get(1)
+                .map(|t| t.to_string())
+                .unwrap_or("".to_string());
+            (url, Some(token))
+        } else {
+            (s.to_owned(), None)
+        };
+        // somehow bun fails to resolve deps if the url does not end with a slash ...
+        let url = if !raw_url.ends_with("/") {
+            format!("{raw_url}/")
+        } else {
+            raw_url.to_string()
+        };
+        let registry_toml_string = if let Some(token) = token_opt {
+            format!("{{ url = \"{url}\", token = \"{token}\" }}")
+        } else {
+            format!("\"{url}\"")
+        };
+        let bunfig_toml = format!(
+            r#"
+[install]
+registry = {}
+"#,
+            registry_toml_string
+        );
+        tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
+        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
+    }
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
