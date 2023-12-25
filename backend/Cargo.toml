@@ -207,5 +207,5 @@ candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
 tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono"] }
-aws-sdk-s3 = "1.5.0"
+aws-sdk-s3 = "1.11.0"
 aws-config = "1.0.3"
