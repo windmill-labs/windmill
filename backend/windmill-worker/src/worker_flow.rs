@@ -1149,6 +1149,41 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let arc_flow_job_args = Arc::new(flow_job_args.clone());
 
     if i == 0 {
+        // if !flow_job.is_flow_step && flow_job.schedule_path.is_some() {
+        //     let not_allow_overlap = sqlx::query_scalar!(
+        //         "SELECT not_allow_overlap FROM schedule WHERE path = $1 AND workspace_id = $2",
+        //         flow_job.schedule_path.as_ref().unwrap(),
+        //         flow_job.workspace_id.as_str()
+        //     )
+        //     .fetch_one(db)
+        //     .await?;
+        //     if not_allow_overlap.fetch_one(db).await? {
+        //         let count = sqlx::query_scalar!(
+        //             "SELECT count(*) FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND (flow_status->>'step')::int = 0",
+        //             flow_job.schedule_path.as_ref().unwrap(),
+        //             flow_job.workspace_id.as_str(),
+        //             flow_job.id
+        //         ).fetch_one(db).await?;
+        //         if count > 1 {
+        //             return update_flow_status_after_job_completion(
+        //                 db,
+        //                 client,
+        //                 flow_job.id,
+        //                 &Uuid::nil(),
+        //                 flow_job.workspace_id.as_str(),
+        //                 true,
+        //                 serde_json::from_str("\"not allowed to overlap\"").unwrap(),
+        //                 true,
+        //                 same_worker_tx,
+        //                 worker_dir,
+        //                 Some(true),
+        //                 rsmq,
+        //                 worker_name,
+        //             )
+        //             .await;
+        //         }
+        //     }
+        // }
         if let Some(skip_expr) = &flow.skip_expr {
             let skip = compute_bool_from_expr(
                 skip_expr.to_string(),
