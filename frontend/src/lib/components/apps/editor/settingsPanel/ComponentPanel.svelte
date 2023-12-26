@@ -105,12 +105,17 @@
 		(componentSettings?.item?.data?.componentInput?.type === 'template' ||
 			componentSettings?.item?.data?.componentInput?.type === 'templatev2') &&
 		$worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, componentSettings?.item?.data?.id, $state, false)
+			? buildExtraLib(
+					$worldStore?.outputsById ?? {},
+					componentSettings?.item?.data?.id,
+					$state,
+					false
+			  )
 			: undefined
 
-// 	`
-// /** The current's app state */
-// const state: Record<string, any> = ${JSON.stringify(state)};`
+	// 	`
+	// /** The current's app state */
+	// const state: Record<string, any> = ${JSON.stringify(state)};`
 
 	function keydown(event: KeyboardEvent) {
 		const { key, metaKey } = event
