@@ -342,26 +342,26 @@ pub async fn handle_bun_job(
         let trusted_deps = get_trusted_deps(inner_content);
         let empty_trusted_deps = trusted_deps.len() == 0;
         let has_custom_config_registry = common_bun_proc_envs.contains_key("NPM_CONFIG_REGISTRY");
-        if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
-            logs.push_str("\n\n--- BUN INSTALL ---\n");
-            set_logs(&logs, &job.id, &db).await;
-            let _ = gen_lockfile(
-                logs,
-                mem_peak,
-                canceled_by,
-                &job.id,
-                &job.workspace_id,
-                db,
-                &client.get_token().await,
-                &job.script_path(),
-                job_dir,
-                base_internal_url,
-                worker_name,
-                false,
-                trusted_deps,
-            )
-            .await?;
-        }
+        // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
+        logs.push_str("\n\n--- BUN INSTALL ---\n");
+        set_logs(&logs, &job.id, &db).await;
+        let _ = gen_lockfile(
+            logs,
+            mem_peak,
+            canceled_by,
+            &job.id,
+            &job.workspace_id,
+            db,
+            &client.get_token().await,
+            &job.script_path(),
+            job_dir,
+            base_internal_url,
+            worker_name,
+            false,
+            trusted_deps,
+        )
+        .await?;
+        // }
 
         if empty_trusted_deps && !has_custom_config_registry {
             let node_modules_path = format!("{}/node_modules", job_dir);
