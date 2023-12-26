@@ -60,19 +60,19 @@ const close = {
 const validate = {
 	title: 'validate',
 	description: 'Validate a specific field of a form',
-	example: 'validate(id: string, key: string)',
+	example: 'validate(id: string, key: string)'
 }
 
 const invalidate = {
 	title: 'invalidate',
 	description: 'Invalidate a specific field of a form',
-	example: 'invalidate(id: string, key: string, error: string)',
+	example: 'invalidate(id: string, key: string, error: string)'
 }
 
 const validateAll = {
 	title: 'validateAll',
 	description: 'Validate all fields of a form',
-	example: 'validateAll(id: string, key: string)',
+	example: 'validateAll(id: string, key: string)'
 }
 
 export function getComponentControl(type: keyof typeof components): Array<ComponentFunction> {
@@ -84,7 +84,6 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'selecttabcomponent':
 			return [setTab, setValue]
 		case 'conditionalwrapper':
-			return [setTab]
 		case 'steppercomponent':
 			return [setTab]
 		case 'modalcomponent':

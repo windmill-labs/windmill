@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10, ws_error_handler_muted = $11, retry = $12\n        WHERE path = $13 AND workspace_id = $14 RETURNING *",
+  "query": "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, on_recovery_extra_args = $10, ws_error_handler_muted = $11, retry = $12, summary = $13, no_flow_overlap = $14 WHERE path = $15 AND workspace_id = $16 RETURNING *",
   "describe": {
     "columns": [
       {
@@ -112,6 +112,16 @@
         "ordinal": 21,
         "name": "retry",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "no_flow_overlap",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -128,6 +138,8 @@
         "Json",
         "Bool",
         "Jsonb",
+        "Varchar",
+        "Bool",
         "Text",
         "Text"
       ]
@@ -154,8 +166,10 @@
       true,
       true,
       false,
-      true
+      true,
+      true,
+      false
     ]
   },
-  "hash": "e1673b211da54039c5cffa5a38fe23073149bc5bfcea1daccb657d5fa6892183"
+  "hash": "b7ed211ec7611c994a49565e46e5893788bcf49b2c9357fbc45a8353a7c84f48"
 }
