@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -83,6 +83,7 @@
 		edit = false
 		itemKind = is_flow ? 'flow' : 'script'
 		initialScriptPath = initial_script_path ?? ''
+		summary = ''
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
@@ -140,6 +141,7 @@
 	let path: string = ''
 	let enabled: boolean = false
 	let pathError = ''
+	let summary = ''
 
 	let validCRON = true
 	$: allowSchedule = isValid && validCRON && script_path != ''
@@ -232,6 +234,7 @@
 			enabled = s.enabled
 			schedule = s.schedule
 			timezone = s.timezone
+			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
@@ -295,7 +298,8 @@
 					on_recovery_times: recoveredTimes,
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 					ws_error_handler_muted: wsErrorHandlerMuted,
-					retry: retry
+					retry: retry,
+					summary: summary != '' ? summary : undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -320,7 +324,8 @@
 					on_recovery_times: recoveredTimes,
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 					ws_error_handler_muted: wsErrorHandlerMuted,
-					retry: retry
+					retry: retry,
+					summary: summary != '' ? summary : undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -351,6 +356,9 @@
 	}
 
 	let drawer: Drawer
+
+	let pathC: Path
+	let dirtyPath = false
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
@@ -402,9 +410,35 @@
 		</svelte:fragment>
 
 		<div class="flex flex-col gap-12">
-			{#if !edit}
-				<Section label="Metadata">
+			<div>
+				<div>
+					<h2 class="text-base font-semibold">Metadata</h2>
+					<div class="w-full py-2">
+						<!-- svelte-ignore a11y-autofocus -->
+						<input
+							autofocus
+							type="text"
+							placeholder="Schedule summary"
+							class="text-sm w-full font-semibold"
+							bind:value={summary}
+							on:keyup={() => {
+								if (!edit && summary?.length > 0 && !dirtyPath) {
+									pathC?.setName(
+										summary
+											.toLowerCase()
+											.replace(/[^a-z0-9_]/g, '_')
+											.replace(/-+/g, '_')
+											.replace(/^-|-$/g, '')
+									)
+								}
+							}}
+						/>
+					</div>
+				</div>
+				{#if !edit}
 					<Path
+						bind:dirty={dirtyPath}
+						bind:this={pathC}
 						checkInitialPathExistence
 						bind:error={pathError}
 						bind:path
@@ -412,8 +446,29 @@
 						namePlaceholder="schedule"
 						kind="schedule"
 					/>
-				</Section>
-			{/if}
+				{:else}
+					<div class="flex justify-start w-full">
+						<Badge
+							color="gray"
+							class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
+						>
+							Schedule path (not editable)
+						</Badge>
+						<input
+							type="text"
+							readonly
+							value={path}
+							size={path?.length || 50}
+							class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+							on:focus={({ currentTarget }) => {
+								currentTarget.select()
+							}}
+						/>
+						<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+					</div>
+				{/if}
+			</div>
+
 			<Section label="Schedule">
 				<svelte:fragment slot="header">
 					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>

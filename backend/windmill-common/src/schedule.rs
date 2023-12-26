@@ -37,6 +37,8 @@ pub struct Schedule {
     pub on_recovery_extra_args: Option<serde_json::Value>,
     pub ws_error_handler_muted: bool,
     pub retry: Option<serde_json::Value>,
+    pub no_flow_overlap: bool,
+    pub summary: Option<String>,
 }
 
 impl Schedule {
