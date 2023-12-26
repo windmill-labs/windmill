@@ -84,6 +84,7 @@
 		itemKind = is_flow ? 'flow' : 'script'
 		initialScriptPath = initial_script_path ?? ''
 		summary = ''
+		no_flow_overlap = false
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
@@ -142,6 +143,7 @@
 	let enabled: boolean = false
 	let pathError = ''
 	let summary = ''
+	let no_flow_overlap = false
 
 	let validCRON = true
 	$: allowSchedule = isValid && validCRON && script_path != ''
@@ -237,6 +239,7 @@
 			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
+			no_flow_overlap = s.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
 			retry = s.retry
 			if (s.on_failure) {
@@ -299,7 +302,8 @@
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
-					summary: summary != '' ? summary : undefined
+					summary: summary != '' ? summary : undefined,
+					no_flow_overlap: no_flow_overlap
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -325,7 +329,8 @@
 					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
-					summary: summary != '' ? summary : undefined
+					summary: summary != '' ? summary : undefined,
+					no_flow_overlap: no_flow_overlap
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -501,6 +506,9 @@
 						allowFlow={true}
 						{itemKind}
 					/>
+				{/if}
+				{#if itemKind == 'flow'}
+					<Toggle options={{ right: 'no overlap of flows' }} bind:checked={no_flow_overlap} />
 				{/if}
 				<div class="mt-6">
 					{#if runnable}
