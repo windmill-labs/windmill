@@ -77,8 +77,8 @@
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
 					return {
-						label: item.label,
-						value: JSON.stringify(item.value)
+						label: item?.label ?? 'undefined',
+						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
 					}
 			  })
 			: []

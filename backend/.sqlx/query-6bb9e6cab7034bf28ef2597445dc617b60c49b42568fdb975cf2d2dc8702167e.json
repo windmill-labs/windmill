@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE\n        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL ORDER BY started_at DESC LIMIT 20) AS jobs ) t\n        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
+  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry, summary, no_flow_overlap ) VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21 ) RETURNING *",
   "describe": {
     "columns": [
       {
@@ -115,15 +115,38 @@
       },
       {
         "ordinal": 22,
-        "name": "jobs",
-        "type_info": "JsonArray"
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "no_flow_overlap",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8",
-        "Int8"
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "Bool",
+        "Json",
+        "Varchar",
+        "Int4",
+        "Json",
+        "Bool",
+        "Jsonb",
+        "Varchar",
+        "Bool"
       ]
     },
     "nullable": [
@@ -149,8 +172,9 @@
       true,
       false,
       true,
-      null
+      true,
+      false
     ]
   },
-  "hash": "7a00843921db4ac1eb20a1045e83363587c1a2cb62d2df25d5564ae78a03b097"
+  "hash": "6bb9e6cab7034bf28ef2597445dc617b60c49b42568fdb975cf2d2dc8702167e"
 }

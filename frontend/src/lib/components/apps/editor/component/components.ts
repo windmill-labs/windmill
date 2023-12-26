@@ -2782,14 +2782,16 @@ This is a paragraph.
 			numberOfSubgrids: 2,
 			conditions: [
 				{
-					type: 'eval',
+					type: 'evalv2',
 					expr: 'false',
-					fieldType: 'boolean'
+					fieldType: 'boolean',
+					connections: []
 				},
 				{
-					type: 'eval',
+					type: 'evalv2',
 					expr: 'true',
-					fieldType: 'boolean'
+					fieldType: 'boolean',
+					connections: []
 				}
 			] as AppInputSpec<'boolean', boolean>[]
 		}

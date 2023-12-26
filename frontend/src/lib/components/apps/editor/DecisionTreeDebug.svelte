@@ -9,8 +9,6 @@
 	export let nodes: DecisionTreeNode[] = []
 	export let id: string
 
-	export let isConditionalDebugMode: boolean = false
-
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
@@ -18,7 +16,7 @@
 </script>
 
 <button
-	title={isConditionalDebugMode ? 'Debug conditions' : 'Debug tabs'}
+	title={'Debug tabs'}
 	class={classNames(
 		'text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
 		isManuallySelected

@@ -1003,6 +1003,8 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 on_recovery_extra_args: schedule.on_recovery_extra_args,
                 ws_error_handler_muted: schedule.ws_error_handler_muted,
                 retry: schedule.retry,
+                summary: schedule.summary,
+                no_flow_overlap: schedule.no_flow_overlap,
             },
         )
         .await;
