@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.231.0](https://github.com/windmill-labs/windmill/compare/v1.230.0...v1.231.0) (2023-12-26)
+
+
+### Features
+
+* bun can read private npm package ([#2915](https://github.com/windmill-labs/windmill/issues/2915)) ([5fa5ab1](https://github.com/windmill-labs/windmill/commit/5fa5ab1514a2d20083d30809c30e50bfcb29e82f))
+* **cli:** support skip args for push --raw ([fc07d58](https://github.com/windmill-labs/windmill/commit/fc07d5886893c8d493c3ca507e0c9d4a066622fc))
+
+
+### Bug Fixes
+
+* improve conditional wrapper ([4b65594](https://github.com/windmill-labs/windmill/commit/4b65594cbd138452c471a339aaa548c27fc0a4ce))
+
 ## [1.230.0](https://github.com/windmill-labs/windmill/compare/v1.229.0...v1.230.0) (2023-12-22)
 
 
