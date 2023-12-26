@@ -78,8 +78,7 @@
 			on:blur={saveEdit}
 			id="cell"
 			class="!appearance-none !bg-transparent !border-none !p-0 !m-0 leading-normal !text-xs"
-			style="outline: none; box-shadow: none; width: auto; height: auto; resize: none;"
-			width={width + 'px'}
+			style="outline: none; box-shadow: none; height: auto; resize: none;"
 			on:keypress={(e) => {
 				if (e.key === 'Enter') {
 					saveEdit()

@@ -6,19 +6,32 @@ import { tryEvery } from '$lib/utils'
 
 export function makeQuery(
 	table: string,
-	columns: string[],
+	tableMetadata: TableMetadata | undefined,
+	blacklist: string[],
 	pageSize: number | undefined,
 	page: number
 ) {
 	if (!table) throw new Error('Table name is required')
 
-	if (!pageSize) {
-		return `SELECT ${columns && columns.length > 0 ? columns.join(', ') : '*'} FROM ${table}`
+	let selectClause = '*'
+
+	if (tableMetadata) {
+		const filteredColumns = tableMetadata
+			.filter((column) => !blacklist.includes(column.columnname))
+			.map((column) => column.columnname)
+
+		if (filteredColumns.length > 0) {
+			selectClause = filteredColumns.join(', ')
+		}
 	}
 
-	return `SELECT ${
-		columns && columns.length > 0 ? columns.join(', ') : '*'
-	} FROM ${table} LIMIT ${pageSize} OFFSET ${pageSize * page}`
+	let query = `SELECT ${selectClause} FROM ${table}`
+
+	if (pageSize) {
+		query += ` LIMIT ${pageSize} OFFSET ${pageSize * page}`
+	}
+
+	return query
 }
 
 export function makeInsertQuery(table: string, values: Record<string, any>) {
@@ -46,7 +59,8 @@ export function createPostgresInput(
 	table: string | undefined,
 	columns: string[],
 	pageSize: number | undefined,
-	page: number
+	page: number,
+	tableMetaData: TableMetadata | undefined
 ): AppInput | undefined {
 	if (!resource || !table) {
 		// Return undefined if resource or table is not defined
@@ -57,7 +71,7 @@ export function createPostgresInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeQuery(table, columns, pageSize, page),
+			content: makeQuery(table, tableMetaData, columns, pageSize, page),
 			language: Preview.language.POSTGRESQL,
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -146,11 +160,19 @@ export function createUpdatePostgresInput(
 	return updateQuery
 }
 
+export enum ColumnIdentity {
+	ByDefault = 'By Default',
+	Always = 'Always',
+	No = 'No'
+}
+
 export type TableMetadata = Array<{
 	columnname: string
 	datatype: string
 	defaultvalue: string
 	isprimarykey: boolean
+	isidentity: ColumnIdentity
+	isnullable: 'YES' | 'NO'
 }>
 
 export async function loadTableMetaData(
@@ -172,11 +194,21 @@ export async function loadTableMetaData(
 	(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
 	 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
 	 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-				 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname) as IsPrimaryKey
+							 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname) as IsPrimaryKey,
+	CASE a.attidentity
+			WHEN 'd' THEN 'By Default'
+			WHEN 'a' THEN 'Always'
+			ELSE 'No'
+	END as IsIdentity,
+	CASE a.attnotnull
+			WHEN false THEN 'YES'
+			ELSE 'NO'
+	END as IsNullable
 FROM pg_catalog.pg_attribute a
 WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
-		AND a.attnum > 0 AND NOT a.attisdropped
+	AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY a.attnum;
+
 `
 
 	const maxRetries = 3

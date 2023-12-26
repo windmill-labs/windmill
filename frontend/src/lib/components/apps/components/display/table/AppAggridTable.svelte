@@ -151,7 +151,7 @@
 				eGui,
 				{
 					rowData: value,
-					columnDefs: resolvedConfig?.columnDefs,
+					columnDefs: resolvedConfig?.columnDefs.filter((x) => !x.ignored),
 					pagination: resolvedConfig?.pagination,
 					paginationAutoPageSize: resolvedConfig?.pagination,
 					defaultColDef: {

@@ -28,6 +28,7 @@ export type InputType =
 	| 'chartjs'
 	| 'DecisionTreeNode'
 	| 'resource'
+	| 'db-explorer'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -193,6 +194,7 @@ export type AppInput =
 	| AppInputSpec<'array', object[], 'tab-select'>
 	| AppInputSpec<'schema', object>
 	| AppInputSpec<'array', object[], 'ag-grid'>
+	| AppInputSpec<'array', object[], 'db-explorer'>
 	| AppInputSpec<'array', object[], 'table-column'>
 	| AppInputSpec<'array', object[], 'plotly'>
 	| AppInputSpec<'array', object[], 'chartjs'>

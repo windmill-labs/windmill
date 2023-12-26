@@ -34,6 +34,8 @@
 		const primaryKey = tableMetaData?.find((column) => column.isprimarykey)?.columnname
 		const primaryValue = primaryKey ? data[primaryKey] : undefined
 
+		debugger
+
 		input = createUpdatePostgresInput(resource, table, column, value, primaryKey, primaryValue)
 
 		await tick()

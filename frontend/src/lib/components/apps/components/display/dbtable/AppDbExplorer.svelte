@@ -33,16 +33,18 @@
 	)
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	let tableMetaData: TableMetadata | undefined = undefined
+
+	//$: hasOnePrimaryKey = tableMetaData?.filter((column) => column.isprimarykey).length === 1
 
 	$: input = createPostgresInput(
 		resolvedConfig.type.configuration.postgresql.resource,
 		resolvedConfig.type.configuration.postgresql.table,
-		resolvedConfig.type.configuration.postgresql.columns,
+		resolvedConfig.columnDefs.filter((column) => column.ignored).map((column) => column.field),
 		resolvedConfig.type.configuration.postgresql.pageSize,
-		$worldStore.outputsById[id]?.page.peak() ?? 1
+		$worldStore.outputsById[id]?.page.peak() ?? 1,
+		tableMetaData
 	)
-
-	let tableMetaData: TableMetadata | undefined = undefined
 
 	async function toggleLoadTableData() {
 		tableMetaData = await loadTableMetaData(
@@ -132,6 +134,8 @@
 
 	$: resolvedConfig.type && listTableIfAvailable()
 	$: resolvedConfig.type.configuration.postgresql.resource && toggleLoadTableData()
+
+	let isInsertable: boolean = false
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -190,15 +194,15 @@
 						insertDrawer?.closeDrawer()
 						renderCount++
 					}}
-					disabled={!tableMetaData ||
-						Object.keys(args).length !== tableMetaData.length ||
-						Object.values(args).some((value) => value === undefined)}
+					disabled={!tableMetaData || !isInsertable}
 				>
 					Insert
 				</Button>
 			</svelte:fragment>
 
-			<InsertRow {tableMetaData} bind:args />
+			{JSON.stringify(args)}
+
+			<InsertRow {tableMetaData} bind:args bind:isInsertable />
 		</DrawerContent>
 	</Drawer>
 </Portal>

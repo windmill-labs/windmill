@@ -43,7 +43,8 @@ import {
 	Heading1,
 	FileBarChart,
 	Menu,
-	Network
+	Network,
+	Database
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -170,7 +171,9 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
-export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'>
+export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
+	columns: RichConfiguration
+}
 
 export type DecisionTreeNode = {
 	id: string
@@ -2950,8 +2953,8 @@ This is a paragraph.
 		}
 	},
 	dbexplorercomponent: {
-		name: 'DBExplorer',
-		icon: BoxSelect,
+		name: 'Database Editor',
+		icon: Database,
 		documentationLink: `${documentationBaseUrl}/dbexplorer`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
@@ -2966,7 +2969,6 @@ This is a paragraph.
 						postgresql: 'PostgreSQL',
 						mysql: 'MySQL'
 					},
-
 					configuration: {
 						postgresql: {
 							resource: {
@@ -2980,13 +2982,6 @@ This is a paragraph.
 								selectOptions: [],
 								value: undefined
 							},
-							columns: {
-								type: 'static',
-								fieldType: 'array',
-								subFieldType: 'text',
-								value: [],
-								tooltip: 'Leave empty to select all columns'
-							} as StaticAppInput,
 							pageSize: {
 								type: 'static',
 								fieldType: 'number',
@@ -2998,12 +2993,9 @@ This is a paragraph.
 				columnDefs: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'ag-grid',
-					value: [
-						{ field: 'id', flex: 1 },
-						{ field: 'name', editable: true, flex: 1 },
-						{ field: 'age', flex: 1 }
-					]
+					subFieldType: 'db-explorer',
+					editionDisabled: true,
+					value: []
 				} as StaticAppInput,
 				flex: {
 					type: 'static',
