@@ -132,7 +132,8 @@
 				row: event.node.rowIndex,
 				column: event.colDef.field,
 				value: dataCell,
-				data: event.node.data
+				data: event.node.data,
+				oldValue: event.oldValue
 			})
 		}
 	}

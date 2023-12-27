@@ -29,10 +29,14 @@
 		column: string,
 		value: string,
 		data: Record<string, any>,
-		tableMetaData: TableMetadata | undefined = undefined
+		tableMetaData: TableMetadata | undefined = undefined,
+		oldValue: string | undefined = undefined
 	) {
 		const primaryKey = tableMetaData?.find((column) => column.isprimarykey)?.columnname
 		const primaryValue = primaryKey ? data[primaryKey] : undefined
+
+		const clonnedData = { ...data }
+		clonnedData[column] = oldValue
 
 		input = createUpdatePostgresInput(
 			resource,
@@ -41,7 +45,7 @@
 			value,
 			primaryKey,
 			primaryValue,
-			data
+			clonnedData
 		)
 
 		await tick()

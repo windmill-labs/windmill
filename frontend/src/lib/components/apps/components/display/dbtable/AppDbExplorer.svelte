@@ -78,8 +78,16 @@
 	let componentContainerHeight: number | undefined = undefined
 	let buttonContainerHeight: number | undefined = undefined
 
-	function onUpdate(e: CustomEvent<{ row: number; column: string; value: any; data: any }>) {
-		const { row, column, value, data } = e.detail
+	function onUpdate(
+		e: CustomEvent<{
+			row: number
+			column: string
+			value: any
+			data: any
+			oldValue: string | undefined
+		}>
+	) {
+		const { row, column, value, data, oldValue } = e.detail
 
 		if (!tableMetaData) {
 			return
@@ -92,7 +100,8 @@
 			column,
 			value,
 			data,
-			tableMetaData
+			tableMetaData,
+			oldValue
 		)
 	}
 
@@ -195,7 +204,14 @@
 					on:click={async () => {
 						try {
 							const defaultValue = resolvedConfig.columnDefs.reduce((acc, column) => {
-								if (column.ignored && !column.insert && !column.defaultValue) {
+								if (
+									column.ignored &&
+									!column.insert &&
+									!column.defaultValue &&
+									(args[column.field] === undefined ||
+										args[column.field] === null ||
+										args[column.field] === '')
+								) {
 									throw new Error(
 										`Column ${column.field} is not nullable is should have a default value defined in the column definition.`
 									)
@@ -227,6 +243,8 @@
 						} catch (e) {
 							sendUserToast(e.message, true)
 						}
+
+						args = {}
 					}}
 					disabled={!tableMetaData || !isInsertable}
 				>
