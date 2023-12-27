@@ -1,3 +1,7 @@
+<script context="module" lang="ts">
+	export let tableMetadataShared: TableMetadata | undefined = undefined
+</script>
+
 <script lang="ts">
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
@@ -52,6 +56,10 @@
 			$workspaceStore,
 			resolvedConfig.type.configuration.postgresql.table
 		)
+
+		if (tableMetaData) {
+			tableMetadataShared = tableMetaData
+		}
 	}
 
 	let updateCell: UpdateCell
@@ -123,7 +131,7 @@
 		if ('configuration' in gridItem.data.configuration.type) {
 			gridItem.data.configuration.type.configuration.postgresql.table['selectOptions'] = dbSchemas
 				? // @ts-ignore
-				  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public)
+				  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
 				: []
 		}
 
@@ -200,9 +208,12 @@
 				</Button>
 			</svelte:fragment>
 
-			{JSON.stringify(args)}
-
-			<InsertRow {tableMetaData} bind:args bind:isInsertable />
+			<InsertRow
+				{tableMetaData}
+				bind:args
+				bind:isInsertable
+				columnDefs={resolvedConfig.columnDefs}
+			/>
 		</DrawerContent>
 	</Drawer>
 </Portal>

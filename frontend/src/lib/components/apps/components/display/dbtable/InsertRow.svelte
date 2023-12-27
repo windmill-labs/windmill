@@ -5,6 +5,13 @@
 
 	export let tableMetaData: TableMetadata | undefined = undefined
 	export let args: Record<string, any> = {}
+	export let columnDefs: Array<{
+		field: string
+
+		ignored: boolean
+		insert: boolean
+		defaultValue: any
+	}> = []
 
 	type FieldMetadata = {
 		type: string
@@ -16,10 +23,13 @@
 		nullable: 'YES' | 'NO'
 	}
 
-	const fields: FieldMetadata[] | undefined = tableMetaData
+	$: fields = tableMetaData
 		?.filter((t) => {
-			// Filter out columns that are always generated
-			return t.isidentity !== ColumnIdentity.Always
+			const col = columnDefs.find((c) => c.field === t.columnname)
+
+			const shouldFilter = t.isidentity !== ColumnIdentity.Always && col?.ignored === true
+
+			return !shouldFilter
 		})
 		.map((column) => {
 			const type = column.datatype
@@ -51,7 +61,7 @@
 				identity: column.isidentity,
 				nullable: column.isnullable
 			}
-		})
+		}) as FieldMetadata[] | undefined
 
 	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
 		if (defaultValue && defaultValue.includes('::')) {
@@ -74,7 +84,17 @@
 		}
 
 		if (date && date.includes('now()')) {
-			return new Date().toISOString().split('T')[0]
+			// format is 2023-06-19 15:07:51.168209 UTC
+			const now = new Date()
+			const year = now.getFullYear()
+			const month = now.getMonth() + 1
+			const day = now.getDate()
+			const hours = now.getHours()
+			const minutes = now.getMinutes()
+			const seconds = now.getSeconds()
+			const milliseconds = now.getMilliseconds()
+
+			return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds} UTC`
 		}
 
 		return undefined
@@ -93,8 +113,6 @@
 				schemaProperty.description = `If left empty, the value will be auto-generated`
 			}
 
-			console.log(field)
-
 			switch (field.fieldType) {
 				case 'number':
 					schemaProperty.type = 'number'
@@ -109,7 +127,6 @@
 					schemaProperty.type = 'string'
 					schemaProperty.format = 'date'
 					schemaProperty.default = parsePsqlDate(field.defaultValue)
-
 					break
 				case 'text':
 				default:
@@ -138,7 +155,7 @@
 		}
 	}
 
-	let schema: Schema = builtSchema(fields ?? [])
+	$: schema = builtSchema(fields ?? []) as Schema
 
 	export let isInsertable: boolean = false
 
@@ -150,6 +167,8 @@
 		)
 		isInsertable = requiredFields.every((field) => filledFields.includes(field))
 	}
+
+	$: console.log(fields)
 </script>
 
 <SchemaForm {schema} bind:args />

@@ -249,6 +249,10 @@
 	{#if subFieldType === 'db-explorer'}
 		<SynchronizeColumns
 			columns={componentInput.value?.map((item) => item.field)}
+			on:removeAll={() => {
+				componentInput.value = []
+				items = []
+			}}
 			on:add={({ detail }) => {
 				if (!componentInput.value) componentInput.value = []
 				if (subFieldType === 'table-column') {

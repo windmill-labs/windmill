@@ -2996,7 +2996,6 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'db-explorer',
-					editionDisabled: true,
 					value: []
 				} as StaticAppInput,
 				flex: {

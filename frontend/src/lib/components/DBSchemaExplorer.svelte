@@ -15,6 +15,7 @@
 		getDbSchemas,
 		scripts
 	} from './apps/components/display/dbtable/utils'
+	import Alert from './common/alert/Alert.svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: string | undefined = undefined
@@ -46,6 +47,8 @@
 		getSchema()
 
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
+
+	$: shouldDisplayError = resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
 </script>
 
 {#if dbSchema}
@@ -87,4 +90,8 @@
 			{/if}
 		</DrawerContent>
 	</Drawer>
+{:else if shouldDisplayError}
+	<Alert type="error" size="xs" title="Schema not available" class="mt-2">
+		Schema could not be loaded. Please check the permissions of the resource.
+	</Alert>
 {/if}

@@ -49,12 +49,32 @@
 	$: $selectedComponent?.[0] &&
 		subscribeToAllOutputs($worldStore?.outputsById?.[$selectedComponent?.[0]])
 	$: updateRemainingColumns(result, columns)
+
+	function haveSameStringElements(arr1: string[], arr2: string[]): boolean {
+		if (arr1.length !== arr2.length) {
+			return false
+		}
+
+		const sortedArr1 = [...arr1].sort()
+		const sortedArr2 = [...arr2].sort()
+
+		for (let i = 0; i < sortedArr1.length; i++) {
+			if (sortedArr1[i] !== sortedArr2[i]) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	$: shouldDisplaySyncButton = !haveSameStringElements(columns, remainingColumns)
 </script>
 
-{#if remainingColumns.length > 0}
+{#if shouldDisplaySyncButton}
 	<div class="flex flex-row gap-2 items-center flex-wrap">
 		<Button
 			on:click={() => {
+				dispatch('removeAll')
 				remainingColumns.forEach((column) => dispatch('add', column))
 			}}
 			size="xs2"

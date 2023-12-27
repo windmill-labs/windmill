@@ -31,6 +31,9 @@
 
 	export let value: Column | undefined
 
+	import { tableMetadataShared } from '../apps/components/display/dbtable/AppDbExplorer.svelte'
+	import Alert from '../common/alert/Alert.svelte'
+
 	const presets = [
 		{
 			label: 'None',
@@ -84,6 +87,20 @@
 
 	let renderCount = 0
 	let selected = 'column'
+	$: columnMetadata = tableMetadataShared?.find((x) => x.columnname === value?.field)
+
+	let shouldHaveDefaultValue = false
+
+	$: if (value?.ignored) {
+		const col = tableMetadataShared?.find((x) => x.columnname === value?.field)
+		if (col?.isnullable === 'NO' && !col?.defaultvalue) {
+			value.insert = true
+			shouldHaveDefaultValue = true
+		}
+	}
+	$: if (value?.defaultValue && shouldHaveDefaultValue) {
+		shouldHaveDefaultValue = false
+	}
 </script>
 
 <Popup
@@ -96,7 +113,7 @@
 	{#if value}
 		<div class="flex flex-col w-96 p-2 gap-4">
 			<span class="text-sm mb-2 leading-6 font-semibold">
-				Column definition
+				Column definition - {value.headerName}
 				<Tooltip
 					documentationLink="https://www.ag-grid.com/javascript-data-grid/column-definitions/"
 				>
@@ -117,13 +134,19 @@
 						}}
 						bind:checked={value.ignored}
 						size="xs"
+						disabled={columnMetadata?.isprimarykey}
 					/>
+					{#if columnMetadata?.isprimarykey}
+						<Alert type="warning" size="xs" title="Primary key" class="mt-2">
+							You cannot ignore a primary key
+						</Alert>
+					{/if}
 				</Label>
 
 				<div
-					class={twMerge('flex flex-col gap-4', value.ignored ? 'opacity-50 cursor-none ' : '')}
+					class={twMerge('flex flex-col gap-4', !value.ignored ? 'opacity-50 cursor-none ' : '')}
 					on:pointerdown={(e) => {
-						if (value?.ignored) {
+						if (!value?.ignored) {
 							e?.stopPropagation()
 						}
 					}}
@@ -146,6 +169,11 @@
 							bind:value={value.defaultValue}
 							disabled={!value.insert}
 						/>
+						{#if shouldHaveDefaultValue}
+							<Alert type="warning" size="xs" title="No default value" class="mt-2">
+								You cannot insert a value without a default value
+							</Alert>
+						{/if}
 					</Label>
 				</div>
 			{/if}
