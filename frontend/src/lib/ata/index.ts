@@ -74,9 +74,9 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 	}
 
 	async function resolveDeps(initialSourceFile: string, depth: number) {
-		if (depth > 2) {
-			return
-		}
+		// if (depth > 2) {
+		// 	return
+		// }
 
 		let depsToGet = config
 			.depsParser(initialSourceFile)
@@ -103,7 +103,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 					? ''
 					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
-				console.log('path', config.scriptPath, path, url)
 				const res = await fetch(url)
 				if (res.ok) {
 					config.delegate.localFile?.(await res.text(), f.raw)
@@ -156,7 +155,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 				tree.version,
 				'/package.json'
 			)
-			let prefix = `/node_modules/${tree.moduleName}`
+			let prefix = `/node_modules/${tree.raw}`
 			if (dtTreesOnly.includes(tree))
 				prefix = `/node_modules/@types/${getDTName(tree.raw).replace('types__', '')}`
 			const path = prefix + '/package.json'
