@@ -74,8 +74,7 @@
 	<div class="flex flex-row gap-2 items-center flex-wrap">
 		<Button
 			on:click={() => {
-				dispatch('removeAll')
-				remainingColumns.forEach((column) => dispatch('add', column))
+				dispatch('add', remainingColumns)
 			}}
 			size="xs2"
 			color="dark"

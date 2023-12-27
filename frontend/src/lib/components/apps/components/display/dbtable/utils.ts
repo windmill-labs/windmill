@@ -111,22 +111,44 @@ export function createUpdatePostgresInput(
 	column: string,
 	value: string,
 	primaryKey: string | undefined,
-	primaryValue: string | undefined
+	primaryValue: string | undefined,
+	data: Record<string, any>
 ): AppInput | undefined {
 	if (!resource || !table) {
-		// Return undefined if resource or table is not defined
 		return undefined
 	}
 
-	if (!primaryKey || !primaryValue) {
-		throw new Error('Primary key and value are required')
+	const query =
+		!primaryKey || !primaryValue
+			? updateWithAllValues()
+			: `UPDATE ${table} SET ${column} = '${value}' WHERE ${primaryKey} = ${primaryValue}`
+
+	function updateWithAllValues() {
+		let query = `UPDATE ${table} SET ${column} = '${value}'`
+		const columns = Object.keys(data)
+		const values = Object.values(data)
+
+		// Remove AG Grid's internal columns
+		const filteredColumns = columns.filter((column) => !column.startsWith('__'))
+
+		query += ' WHERE '
+
+		for (let i = 0; i < filteredColumns.length; i++) {
+			query += `${filteredColumns[i]} = '${values[i]}'`
+
+			if (i !== filteredColumns.length - 1) {
+				query += ' AND '
+			}
+		}
+		query += ';'
+		return query
 	}
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: `UPDATE ${table} SET ${column} = '${value}' WHERE ${primaryKey} = ${primaryValue}`,
+			content: query,
 			language: Preview.language.POSTGRESQL,
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',

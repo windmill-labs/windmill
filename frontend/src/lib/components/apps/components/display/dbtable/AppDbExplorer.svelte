@@ -23,6 +23,7 @@
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import InsertRow from './InsertRow.svelte'
 	import Portal from 'svelte-portal'
+	import { sendUserToast } from '$lib/toast'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -192,15 +193,40 @@
 					color="dark"
 					size="xs"
 					on:click={async () => {
-						await insertRow(
-							resolvedConfig.type.configuration.postgresql.resource,
-							$workspaceStore,
-							resolvedConfig.type.configuration.postgresql.table,
-							args
-						)
+						try {
+							const defaultValue = resolvedConfig.columnDefs.reduce((acc, column) => {
+								if (column.ignored && !column.insert && !column.defaultValue) {
+									throw new Error(
+										`Column ${column.field} is not nullable is should have a default value defined in the column definition.`
+									)
+								}
 
-						insertDrawer?.closeDrawer()
-						renderCount++
+								if (column.insert) {
+									if (!column.defaultValue) {
+										throw new Error(
+											`Column ${column.field} is not nullable is should have a default value defined in the column definition.`
+										)
+									}
+
+									acc[column.field] = column.defaultValue
+								}
+								return acc
+							}, {})
+
+							const allArgs = { ...args, ...defaultValue }
+
+							await insertRow(
+								resolvedConfig.type.configuration.postgresql.resource,
+								$workspaceStore,
+								resolvedConfig.type.configuration.postgresql.table,
+								allArgs
+							)
+
+							insertDrawer?.closeDrawer()
+							renderCount++
+						} catch (e) {
+							sendUserToast(e.message, true)
+						}
 					}}
 					disabled={!tableMetaData || !isInsertable}
 				>

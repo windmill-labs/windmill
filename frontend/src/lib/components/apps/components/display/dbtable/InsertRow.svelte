@@ -27,7 +27,7 @@
 		?.filter((t) => {
 			const col = columnDefs.find((c) => c.field === t.columnname)
 
-			const shouldFilter = t.isidentity !== ColumnIdentity.Always && col?.ignored === true
+			const shouldFilter = t.isidentity !== ColumnIdentity.Always && col?.insert === true
 
 			return !shouldFilter
 		})
@@ -159,7 +159,6 @@
 
 	export let isInsertable: boolean = false
 
-	// Check is all mandatory fields are filled
 	$: if (schema) {
 		const requiredFields = schema.required ?? []
 		const filledFields = Object.keys(args).filter(
@@ -167,8 +166,6 @@
 		)
 		isInsertable = requiredFields.every((field) => filledFields.includes(field))
 	}
-
-	$: console.log(fields)
 </script>
 
 <SchemaForm {schema} bind:args />

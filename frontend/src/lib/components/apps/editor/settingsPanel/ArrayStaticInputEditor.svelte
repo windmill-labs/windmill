@@ -249,27 +249,36 @@
 	{#if subFieldType === 'db-explorer'}
 		<SynchronizeColumns
 			columns={componentInput.value?.map((item) => item.field)}
-			on:removeAll={() => {
+			on:add={({ detail }) => {
+				if (!Array.isArray(detail)) {
+					return
+				}
+
+				if (detail.length === 0) {
+					return
+				}
+
 				componentInput.value = []
 				items = []
-			}}
-			on:add={({ detail }) => {
-				if (!componentInput.value) componentInput.value = []
-				if (subFieldType === 'table-column') {
-					componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
-				} else if (subFieldType === 'ag-grid') {
-					componentInput.value.push({ field: detail, headerName: detail, flex: 1 })
-				} else if (subFieldType === 'db-explorer') {
-					componentInput.value.push({ field: detail, headerName: detail, flex: 1 })
-				}
-				componentInput = componentInput
 
-				if (componentInput.value) {
-					items.push({
-						value: componentInput.value[componentInput.value.length - 1],
-						id: generateRandomString()
-					})
-				}
+				detail.forEach((col) => {
+					if (!componentInput.value) componentInput.value = []
+					if (subFieldType === 'table-column') {
+						componentInput.value.push({ field: col, headerName: col, type: 'text' })
+					} else if (subFieldType === 'ag-grid') {
+						componentInput.value.push({ field: col, headerName: col, flex: 1 })
+					} else if (subFieldType === 'db-explorer') {
+						componentInput.value.push({ field: col, headerName: col, flex: 1 })
+					}
+					componentInput = componentInput
+
+					if (componentInput.value) {
+						items.push({
+							value: componentInput.value[componentInput.value.length - 1],
+							id: generateRandomString()
+						})
+					}
+				})
 			}}
 		/>
 	{/if}
