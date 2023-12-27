@@ -170,13 +170,15 @@
 	{#if nodes[0].id !== currentNodeId}
 		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
 	{/if}
-	<Button
-		on:click={next}
-		size="xs2"
-		color="dark"
-		endIcon={{ icon: ArrowRight }}
-		disabled={isNextDisabled}
-	>
-		{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
-	</Button>
+	{#if currentNodeId !== lastNodeId}
+		<Button
+			on:click={next}
+			size="xs2"
+			color="dark"
+			endIcon={{ icon: ArrowRight }}
+			disabled={isNextDisabled}
+		>
+			Next
+		</Button>
+	{/if}
 </div>
