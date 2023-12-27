@@ -171,9 +171,11 @@
 							}
 						}
 						api = e.api
+						resolvedConfig?.extraConfig?.['onGridReady']?.(e)
 					},
 					onSelectionChanged: (e) => {
 						onSelectionChanged(e.api)
+						resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
 					},
 					getRowId: (data) => data.data['__index']
 				},
