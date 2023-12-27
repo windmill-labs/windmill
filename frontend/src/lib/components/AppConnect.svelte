@@ -93,7 +93,7 @@
 	let filter = ''
 	let manual = false
 	let value: string = ''
-	let valueToken: TokenResponse
+	let valueToken: TokenResponse | undefined = undefined
 	let connects:
 		| Record<string, { scopes: string[]; extra_params?: Record<string, string> }>
 		| undefined = undefined
@@ -158,7 +158,7 @@
 		description = ''
 		no_back = false
 		resourceType = rt ?? ''
-
+		valueToken = undefined
 		await loadConnects()
 
 		const connect = connects?.[resourceType]
