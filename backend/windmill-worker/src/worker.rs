@@ -25,6 +25,7 @@ use std::{
     },
     time::Duration,
 };
+use windmill_parser_py_imports::parse_relative_imports;
 
 use uuid::Uuid;
 #[cfg(feature = "enterprise")]
@@ -3614,6 +3615,14 @@ async fn capture_dependency_job(
                         e,
                         logs
                     );
+                }
+            }
+            tracing::error!("{}", job_raw_code);
+            if let Ok(relative_imports) = parse_relative_imports(job_raw_code, script_path) {
+                if !relative_imports.is_empty() {
+                    tracing::error!("{:?}", relative_imports);
+                } else {
+                    tracing::error!("No relative imports found");
                 }
             }
             req
