@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.232.0](https://github.com/windmill-labs/windmill/compare/v1.231.0...v1.232.0) (2023-12-27)
+
+
+### Features
+
+* add summary to schedules ([606b03d](https://github.com/windmill-labs/windmill/commit/606b03d7613cf15ab9a60ef34a82657ff49ccdbd))
+* no overlap for flows togglable on schedules ([4935528](https://github.com/windmill-labs/windmill/commit/49355280f6442c342a46f90b2fe2cb089b3f4eff))
+
+
+### Bug Fixes
+
+* fix file input ([263f41c](https://github.com/windmill-labs/windmill/commit/263f41cda3dba24bcaa2bbabfc3f5bc54c70f9cb))
+* improve ata for bun ([b66fcbf](https://github.com/windmill-labs/windmill/commit/b66fcbf6261f69a57e6711fa8b9d1d499c1b47ed))
+* use bun install in every case ([948b0da](https://github.com/windmill-labs/windmill/commit/948b0da59e6bcd3b6312373a1bbe52d541e54d56))
+
 ## [1.231.0](https://github.com/windmill-labs/windmill/compare/v1.230.0...v1.231.0) (2023-12-26)
 
 
