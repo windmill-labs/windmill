@@ -63,6 +63,7 @@
 		}
 
 		initializing = false
+		renderCount++
 	}
 
 	let updateCell: UpdateCell
