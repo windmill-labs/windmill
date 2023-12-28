@@ -84,6 +84,11 @@
 		{
 			label: 'Boolean (True/False)',
 			value: 'value ? "True" : "False"'
+		},
+
+		{
+			label: 'Object',
+			value: 'JSON.stringify(value, null, 2)'
 		}
 	]
 

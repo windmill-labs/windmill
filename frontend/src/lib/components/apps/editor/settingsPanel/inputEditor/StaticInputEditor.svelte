@@ -18,6 +18,7 @@
 	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
 	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
 	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
+	import UpdateValueFormatter from './UpdateValueFormatter.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -159,6 +160,8 @@
 			</div>
 		</div>
 	{:else if fieldType === 'db-explorer'}
+		<UpdateValueFormatter bind:value={componentInput.value} />
+
 		<div class="flex flex-row rounded-md bg-surface items-center h-full">
 			<div class="relative w-full">
 				<input

@@ -142,7 +142,6 @@ export function createUpdatePostgresInput(
 		}
 		query += ';'
 
-		console.log(query)
 		return query
 	}
 

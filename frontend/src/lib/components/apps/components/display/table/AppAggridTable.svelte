@@ -139,9 +139,7 @@
 	}
 
 	let extraConfig = resolvedConfig.extraConfig
-
 	let api: GridApi<any> | undefined = undefined
-
 	let eGui: HTMLDivElement
 
 	$: loaded && eGui && mountGrid()
@@ -194,7 +192,6 @@
 	}
 
 	$: resolvedConfig && updateOptions()
-
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {

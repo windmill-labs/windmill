@@ -130,7 +130,6 @@
 						: true
 			  })
 			: preFilteredItemsOwners?.filter((x) => {
-					console.log(x.resource_type)
 					return (
 						x.resource_type === typeFilter &&
 						(tab === 'workspace'

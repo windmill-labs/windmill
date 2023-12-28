@@ -67,16 +67,12 @@
 
 	let updateCell: UpdateCell
 	let renderCount = 0
+	let insertDrawer: Drawer | undefined = undefined
+	let componentContainerHeight: number | undefined = undefined
+	let buttonContainerHeight: number | undefined = undefined
 
 	$: input && renderCount++
 	$: tableMetaData === undefined && toggleLoadTableData()
-
-	let insertDrawer: Drawer | undefined = undefined
-
-	$: console.log(tableMetaData)
-
-	let componentContainerHeight: number | undefined = undefined
-	let buttonContainerHeight: number | undefined = undefined
 
 	function onUpdate(
 		e: CustomEvent<{
