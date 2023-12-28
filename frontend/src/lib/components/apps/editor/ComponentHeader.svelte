@@ -112,7 +112,7 @@
 			>
 				<Network size={14} />
 			</button>
-			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} isConditionalDebugMode />
+			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
 		{/if}
 
 		<button
