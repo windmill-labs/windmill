@@ -8,6 +8,7 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig } from '$lib/components/apps/editor/appUtils'
 	import {
+		ColumnIdentity,
 		createPostgresInput,
 		getDbSchemas,
 		insertRow,
@@ -157,37 +158,57 @@
 
 	$: resolvedConfig.type && listTableIfAvailable()
 
+	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
+		if (defaultValue && defaultValue.includes('::')) {
+			const val = defaultValue.split('::')[0]
+			if (val.startsWith("'") && val.endsWith("'")) {
+				return val.slice(1, -1)
+			}
+			return val
+		}
+		return defaultValue
+	}
+
 	let isInsertable: boolean = false
 
 	async function insert() {
 		try {
 			const defaultValue = resolvedConfig.columnDefs.reduce((acc, column) => {
+				const tableColumn = tableMetaData?.find((col) => col.columnname === column.field)
+				const hasValue =
+					args[column.field] !== undefined &&
+					args[column.field] !== null &&
+					args[column.field] !== ''
+				const hasDefaultValue =
+					column.defaultValue || extractDefaultValue(tableColumn?.defaultvalue)
+
 				if (
-					column.ignored &&
-					!column.insert &&
-					!column.defaultValue &&
-					(args[column.field] === undefined ||
-						args[column.field] === null ||
-						args[column.field] === '')
+					column.insert &&
+					!tableColumn?.isnullable &&
+					!hasValue &&
+					!hasDefaultValue &&
+					tableColumn?.isidentity !== ColumnIdentity.Always
 				) {
 					throw new Error(
-						`Column ${column.field} is not nullable is should have a default value defined in the column definition.`
+						`Column ${column.field} requires a default value as it is non-nullable and no value is provided.`
 					)
 				}
 
-				if (column.insert) {
-					if (!column.defaultValue) {
-						throw new Error(
-							`Column ${column.field} is not nullable is should have a default value defined in the column definition.`
-						)
-					}
-
-					acc[column.field] = column.defaultValue
+				// Set the default value for columns with insert true, if no value is provided
+				if (column.insert && !hasValue) {
+					acc[column.field] = column.defaultValue || extractDefaultValue(tableColumn?.defaultvalue)
 				}
+
 				return acc
 			}, {})
 
 			const allArgs = { ...args, ...defaultValue }
+
+			Object.keys(allArgs).forEach((key) => {
+				if (allArgs[key] === null || allArgs[key] === undefined) {
+					delete allArgs[key]
+				}
+			})
 
 			await insertRow(
 				resolvedConfig.type.configuration.postgresql.resource,
