@@ -15,7 +15,7 @@
 		type TableMetadata
 	} from './utils'
 	import AppAggridTable from '../table/AppAggridTable.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -36,6 +36,14 @@
 		components['dbexplorercomponent'].initialData.configuration,
 		configuration
 	)
+
+	let mounted: boolean = false
+
+	$: mounted && input && renderCount++
+
+	onMount(() => {
+		mounted = true
+	})
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	let tableMetaData: TableMetadata | undefined = undefined
@@ -72,7 +80,7 @@
 	let componentContainerHeight: number | undefined = undefined
 	let buttonContainerHeight: number | undefined = undefined
 
-	$: tableMetaData === undefined && toggleLoadTableData()
+	$: input && tableMetaData === undefined && toggleLoadTableData()
 
 	function onUpdate(
 		e: CustomEvent<{
@@ -86,6 +94,7 @@
 		const { row, column, value, data, oldValue } = e.detail
 
 		if (!tableMetaData) {
+			sendUserToast('Table metadata is not available yet', true)
 			return
 		}
 

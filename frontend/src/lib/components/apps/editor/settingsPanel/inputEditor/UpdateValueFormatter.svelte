@@ -13,7 +13,7 @@
 	$: if (
 		tableMetadataShared?.find((x) => x.columnname === value?.field)?.datatype === 'jsonb' &&
 		value &&
-		value?.valueFormatter === undefined &&
+		(value?.valueFormatter === undefined || value?.valueFormatter === null) &&
 		!synced
 	) {
 		synced = true
