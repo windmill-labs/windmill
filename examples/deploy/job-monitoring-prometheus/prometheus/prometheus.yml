@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 1s
+  external_labels:
+    env: "infrastructure"
+
+scrape_configs:
+  - job_name: "prometheus_gateway"
+    static_configs:
+      - targets: ["prometheus_gateway:9091"]
+    scrape_interval: 1s
