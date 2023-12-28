@@ -11,7 +11,6 @@
 			const { LicenseManager } = await import('ag-grid-enterprise')
 
 			let details = LicenseManager.getLicenseDetails(key)
-			console.log(details)
 			valid = details.valid
 		} catch (e) {
 			console.error(e)
