@@ -16,7 +16,7 @@
 		type TableMetadata
 	} from './utils'
 	import AppAggridTable from '../table/AppAggridTable.svelte'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -38,18 +38,8 @@
 		configuration
 	)
 
-	let mounted: boolean = false
-
-	$: mounted && input && renderCount++
-
-	onMount(() => {
-		mounted = true
-	})
-
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	let tableMetaData: TableMetadata | undefined = undefined
-
-	//$: hasOnePrimaryKey = tableMetaData?.filter((column) => column.isprimarykey).length === 1
 
 	$: input = createPostgresInput(
 		resolvedConfig.type.configuration.postgresql.resource,
@@ -71,9 +61,10 @@
 			tableMetadataShared = tableMetaData
 		}
 
-		initializing = false
 		renderCount++
 	}
+
+	initializing = false
 
 	let updateCell: UpdateCell
 	let renderCount = 0
@@ -112,6 +103,25 @@
 	}
 
 	let args: Record<string, any> = {}
+
+	let table: AppAggridTable | undefined = undefined
+	$: input && shouldReRender()
+
+	function shouldReRender() {
+		const result = table?.getResult()
+
+		resolvedConfig?.columnDefs.forEach((column) => {
+			if (column.ignored && result && Object.keys(result[0]).includes(column.field)) {
+				renderCount++
+				return
+			}
+
+			if (!column.ignored && result && !Object.keys(result[0]).includes(column.field)) {
+				renderCount++
+				return
+			}
+		})
+	}
 
 	async function listTableIfAvailable() {
 		const gridItem = findGridItem($app, id)
@@ -254,6 +264,7 @@
 	{#key renderCount}
 		{#if resolvedConfig.type.configuration.postgresql.resource && resolvedConfig.type.configuration.postgresql.table}
 			<AppAggridTable
+				bind:this={table}
 				{id}
 				{configuration}
 				bind:initializing

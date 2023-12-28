@@ -239,6 +239,10 @@
 			...(resolvedConfig?.extraConfig ?? {})
 		})
 	}
+
+	export function getResult() {
+		return result
+	}
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}

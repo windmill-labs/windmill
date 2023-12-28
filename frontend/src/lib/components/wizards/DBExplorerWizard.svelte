@@ -127,17 +127,11 @@
 			}
 		}
 
-		if (
-			columnMetadata?.isnullable === 'YES' &&
-			columnMetadata?.defaultvalue !== null &&
-			value?.insert
-		) {
+		if (columnMetadata?.isnullable === 'YES' && value?.insert) {
 			return {
 				type: 'info' as AlertType,
 				title: 'Default value',
-				message: `The column has a default value defined in the database. The default value is: ${
-					tableMetadataShared?.find((x) => x.columnname === value?.field)?.defaultvalue
-				}`
+				message: `The column can be null. If no value is provided, the default value will be null.`
 			}
 		}
 
@@ -153,8 +147,14 @@
 			return true
 		}
 
+		if (columnMetadata?.isnullable === 'YES' && value?.insert) {
+			return true
+		}
+
 		return false
 	}
+
+	let nullDefaultValue: boolean = true
 
 	$: warning = computeWarning(columnMetadata, value)
 	$: shouldDisplayDefaultValueInput = computeShouldDisplayDefaultValueInput(columnMetadata, value)
@@ -239,16 +239,34 @@
 								(x) => x.columnname === value?.field
 							)?.datatype}
 
-							<Badge color="dark-gray">
-								Type:
-								{type}
-							</Badge>
+							<div class="flex flex-row items-center gap-2">
+								<Badge color="dark-gray">
+									Type:
+									{type}
+								</Badge>
+
+								{#if columnMetadata?.isnullable}
+									<Toggle
+										bind:checked={nullDefaultValue}
+										size="xs"
+										options={{
+											right: 'Set to null'
+										}}
+										on:change={() => {
+											if (nullDefaultValue && value) {
+												value.defaultValue = null
+											}
+										}}
+									/>
+								{/if}
+							</div>
+
 							{#if type === 'integer'}
 								<input
 									type="number"
 									class="mt-2"
 									bind:value={value.defaultValue}
-									disabled={!value.insert}
+									disabled={!value.insert || nullDefaultValue}
 								/>
 							{:else}
 								<input
@@ -256,7 +274,7 @@
 									placeholder="Default value"
 									class="mt-2"
 									bind:value={value.defaultValue}
-									disabled={!value.insert}
+									disabled={!value.insert || nullDefaultValue}
 								/>
 							{/if}
 						{/if}
