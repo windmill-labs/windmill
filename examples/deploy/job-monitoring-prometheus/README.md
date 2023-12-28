@@ -1,13 +1,15 @@
-Job metrics with Prometheus Push Gateway
-========================================
+Windmill monitoring with Prometheus
+===================================
 
-### Intro
+## Intro
+
+Windmill servers and workers both produces metrics Prometheus can scrap.
 
 Individual jobs producing their own metric can be difficult to achieve due to the ephemeral nature of a job. Prometheus might not have the time to scrape the metric if the job is too quick. Prometheus has developed the [Prometheus Gateway](https://prometheus.io/docs/practices/pushing/) exactly for this usecase, and we're going to go through the initial setup. By the end of this example, you'll have a Windmill stack running a job that produces its own metric, and a Grafana simple dashboard displaying it.
 
 Prometheus push gateway is hosted in [this repository](https://github.com/prometheus/pushgateway)
 
-### Setup
+## Setup
 
 First, we need to setup an entire stack composed of:
 - Windmill: a database, a server, and at least one worker
@@ -21,6 +23,47 @@ docker compose up -d
 Once all the services are running, Windmill can be accessed at http://localhost:8000, Prometheus at http://localhost:9090, Grafana at http://localhost:3000 (credentials are set in [grafana.ini](./grafana/grafana.ini) config file).
 
 The Gateway exposes the metrics on http://localhost:9091/metrics and also has an interface at http://localhost:9091 to manage metric groups (see the Gateway documentation for what a metric group is). You can check that Prometheus can collect them directly on [Prometheus status page](http://localhost:9090/targets)
+
+## Monitoring Windmill servers and workers
+
+Metrics need to be enabled on Windmill server and workers. They can be enabled only on Windmill Enterprise Edition by setting the environment variable `METRICS_ADDR` to `1` on each container (additional "debug-level" metrics can be enabled in the instance settings > debug menu).
+
+Once metrics are enabled, Prometheus needs to discover Windmill service containers. Using docker-compose, it requires a few adjustments:
+- Each Windmill containers need to expose the metrics port (`8001` by default) so that Prometheus discovery knows which ports to scrap. This is done by adding the value `8001` to the `expose` block to both `windmill_server` and `windmill_worker`.
+- Each Windmill container needs to be labelled so that Prometheus service discovery filters out other services. Here we're using the `prometheus-job=windmill_server` and `prometheus-job=windmill_worker` in the docker compose to differentiate between server and worker
+- The Prometheus container needs to have access to the docker socket to discover other containers. To achieve this, Prometheus container needs to be run as root and the docker socket needs to be mounted on the container (see `user: root` and `/var/run/docker.sock:/var/run/docker.sock` in the `prometheus` block of docker-compose.yml) 
+- Finally, the following block should be added to `prometheus.yml` config file:
+
+```yaml
+scrape_configs:
+  - job_name: "windmill_server"
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_job]
+        regex: windmill_server
+        action: keep
+    scrape_interval: 1s
+
+  - job_name: "windmill_worker"
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_job]
+        regex: windmill_worker
+        action: keep
+    scrape_interval: 1s
+```
+
+With all this in place, Windmill servers and workers metrics will be scrapped by Prometheus and can be visualized in Grafana. We've added a simple dashboard in [grafana/dashboards/](./grafana/dashboards) showing the most interesting metrics.
+
+![Windmill monitoring dashboard](./static/windmill_monitoring_dashboard.png "Windmill monitoring dashboard")
+
+Note: If your Windmill containers are split onto multiple docker daemon, the above still works. Instead of pointing to the docker socket in Prometheus' `docker_sd_config` block, simply expose docker daemon to http or https and point to the remote docker daemon host: `http://remote_docker_daemon:2375`. Multiple remote docker daemons can be listed.
+
+## Producing metrics from individual Windmill jobs
+
+Here is an example of how a job can "push" its own metrics to Prometheus via Prometheus Gateway
 
 ### Windmill script
 
