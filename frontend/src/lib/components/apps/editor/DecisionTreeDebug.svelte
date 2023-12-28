@@ -32,10 +32,10 @@
 			<div class="px-1">
 				{#if isManuallySelected}
 					<div>
-						{`Debugging condition ${nodes[selected ?? 0].id}`}
+						{`Debugging node ${nodes[selected ?? 0].id}`}
 					</div>
 				{:else}
-					{`Debug conditions`}
+					{`Debug nodes`}
 				{/if}
 			</div>
 		</svelte:fragment>
@@ -53,7 +53,7 @@
 							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
 						)}
 					>
-						{`Debug step ${node.label}`}
+						{`Debug node ${node.label}`}
 					</div>
 				</MenuItem>
 			{/each}
