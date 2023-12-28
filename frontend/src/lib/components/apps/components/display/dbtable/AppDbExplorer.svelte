@@ -71,7 +71,6 @@
 	let componentContainerHeight: number | undefined = undefined
 	let buttonContainerHeight: number | undefined = undefined
 
-	$: input && renderCount++
 	$: tableMetaData === undefined && toggleLoadTableData()
 
 	function onUpdate(
