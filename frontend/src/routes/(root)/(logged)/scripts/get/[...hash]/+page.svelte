@@ -223,6 +223,20 @@
 			})
 		}
 
+		if (!script) {
+			return buttons
+		}
+
+		buttons.push({
+			label: `View runs`,
+			buttonProps: {
+				href: `/runs/${script.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: History
+			}
+		})
+
 		if (!script || $userStore?.operator || !can_write) {
 			return buttons
 		}
