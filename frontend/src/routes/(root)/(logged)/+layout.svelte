@@ -346,7 +346,7 @@
 			id="content"
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
-				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200'
 			)}
 		>

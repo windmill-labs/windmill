@@ -230,9 +230,10 @@
 								size="xs"
 								color="light"
 								variant="border"
-								iconOnly
 								startIcon={{ icon: MenuIcon }}
-							/>
+							>
+								Menu
+							</Button>
 						</div>
 						<MenuItem />
 					</Menu>
