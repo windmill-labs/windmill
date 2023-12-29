@@ -67,14 +67,16 @@
 		{#if kind == 'trigger'}
 			<div class="mt-2" />
 			<Alert title="Trigger scripts" role="info">
-				Trigger scripts are special actions that are meant to run periodically given a schedule.
-				A schedule will be automatically attached to this flow to run every 15 minutes. Adjust
-				frequency in 'Settings' -> 'Schedule'.<br/><br/>
+				Trigger scripts are designed to pull data from an external source and return all of the new items since the last run, without resorting to external webhooks.<br/><br/>
+
+				A trigger script is intended to be used with <a href="https://www.windmill.dev/docs/core_concepts/scheduling" target="_blank" class="text-blue-400">schedules</a> and <a href="https://www.windmill.dev/docs/core_concepts/resources_and_types#states" target="_blank" class="text-blue-400">states</a> in order to compare the execution to the previous one and process each new item in a <a href="https://www.windmill.dev/docs/flows/flow_loops" target="_blank" class="text-blue-400">for loop</a>. If there are no new items, the flow will be skipped.<br/><br/>
+
+				By default, adding a trigger will set the schedule to 15 minutes.
 
 				To see all ways to trigger a flow, check <a
 					href="https://www.windmill.dev/docs/getting_started/trigger_flows"
 					target="_blank"
-					class="text-blue-500"
+					class="text-blue-400"
 					>Triggering Flows</a>.
 			</Alert>
 		{/if}
