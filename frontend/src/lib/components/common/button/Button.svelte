@@ -49,6 +49,10 @@
 		}
 	}
 
+	export function focus() {
+		element?.focus({})
+	}
+
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 	const colorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {

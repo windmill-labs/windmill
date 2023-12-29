@@ -4,7 +4,6 @@
 	import Button from '../../common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { ReadFileAs } from './model'
-	import { sendUserToast } from '$lib/toast'
 
 	type ConvertedFile = string | ArrayBuffer | null
 
