@@ -13,6 +13,7 @@
 	const dispatch = createEventDispatcher()
 
 	let isManuallySelected: boolean = false
+	let selected: number | null = null
 </script>
 
 <button
@@ -27,11 +28,23 @@
 	on:pointerdown|stopPropagation
 >
 	<ButtonDropdown hasPadding={false}>
+		<svelte:fragment slot="buttonReplacement">
+			<div class="px-1">
+				{#if isManuallySelected}
+					<div>
+						{`Debugging node ${nodes[selected ?? 0].id}`}
+					</div>
+				{:else}
+					{`Debug nodes`}
+				{/if}
+			</div>
+		</svelte:fragment>
 		<svelte:fragment slot="items">
 			{#each nodes ?? [] as node, index}
 				<MenuItem
 					on:click={() => {
 						$componentControl?.[id]?.setTab?.(index)
+						selected = index
 						isManuallySelected = true
 					}}
 				>
@@ -40,7 +53,7 @@
 							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
 						)}
 					>
-						{`Debug step ${node.label}`}
+						{`Debug node ${node.label}`}
 					</div>
 				</MenuItem>
 			{/each}
