@@ -11,7 +11,7 @@
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
+	import { Building, ExternalLink, GitFork, Globe2, Loader2, Menu as MenuIcon } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -22,6 +22,8 @@
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
+	import Menu from '$lib/components/common/menu/MenuV2.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -220,6 +222,20 @@
 					<CreateActionsScript />
 					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+				{:else}
+					<Menu>
+						<div slot="trigger">
+							<Button
+								nonCaptureEvent
+								size="xs"
+								color="light"
+								variant="border"
+								iconOnly
+								startIcon={{ icon: MenuIcon }}
+							/>
+						</div>
+						<MenuItem />
+					</Menu>
 				{/if}
 			</div>
 		</PageHeader>
