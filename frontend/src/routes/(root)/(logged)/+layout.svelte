@@ -38,6 +38,7 @@
 	import { getUserExt } from '$lib/user'
 	import { workspacedOpenai } from '$lib/components/copilot/lib'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -401,12 +402,11 @@
 		{/if}
 		<div
 			class={classNames(
-				'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
-
-				menuSlide ? 'opacity-100' : 'opacity-0'
+				'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
+				menuSlide ? 'opacity-100 z-40' : 'opacity-0'
 			)}
 		>
-			<div class="fixed inset-0 flex z-40">
+			<div class={twMerge('fixed inset-0 flex ', menuSlide ? ' z-40' : '-z-0')}>
 				<div
 					class={classNames(
 						'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
