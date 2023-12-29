@@ -112,6 +112,16 @@
         "ordinal": 21,
         "name": "retry",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "no_flow_overlap",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -143,7 +153,9 @@
       true,
       true,
       false,
-      true
+      true,
+      true,
+      false
     ]
   },
   "hash": "dd74fa9468b5fe8c8ad657ded06076c11a78d0206af2af20685c691d4d9520bb"

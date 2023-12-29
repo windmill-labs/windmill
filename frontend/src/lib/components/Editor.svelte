@@ -769,6 +769,7 @@
 					const addLibraryToRuntime = async (code: string, _path: string) => {
 						const path = 'file://' + _path
 						let uri = mUri.parse(path)
+						console.log('adding library to runtime', path)
 						languages.typescript.javascriptDefaults.addExtraLib(code, path)
 						try {
 							await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))

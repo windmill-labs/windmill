@@ -33,7 +33,7 @@
 		}
 		for (let i = 0; i < fileList.length; i++) {
 			const file = fileList.item(i)
-			if (file && isAcceptedFileType(file)) {
+			if (file) {
 				files.push(file)
 			}
 		}
@@ -47,14 +47,6 @@
 		input.value = ''
 
 		dispatchChange()
-	}
-
-	function isAcceptedFileType(file: File): boolean {
-		const acceptedTypes = accept?.split(',').map((type) => type.trim()) ?? []
-		return (
-			acceptedTypes.includes(file.type) ||
-			acceptedTypes.includes(`.${file?.name?.split('.').pop()}`)
-		)
 	}
 
 	async function convertFile(file: File): Promise<string | ArrayBuffer | null> {
@@ -92,7 +84,6 @@
 
 	async function dispatchChange() {
 		files = files
-
 		if (convertTo && files) {
 			const promises = files.map(convertFile)
 			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(

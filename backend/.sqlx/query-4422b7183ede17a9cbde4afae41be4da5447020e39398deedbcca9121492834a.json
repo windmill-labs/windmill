@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry ) VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19 ) RETURNING *",
+  "query": "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE\n        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t\n        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -112,29 +112,28 @@
         "ordinal": 21,
         "name": "retry",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "no_flow_overlap",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 24,
+        "name": "jobs",
+        "type_info": "JsonArray"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Bool",
-        "Jsonb",
-        "Bool",
-        "Varchar",
-        "Varchar",
-        "Int4",
-        "Bool",
-        "Json",
-        "Varchar",
-        "Int4",
-        "Json",
-        "Bool",
-        "Jsonb"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -159,8 +158,11 @@
       true,
       true,
       false,
-      true
+      true,
+      true,
+      false,
+      null
     ]
   },
-  "hash": "b53442ca97ed9d25990405281c82c31062de24cbd2f99d1c4039965d861aafa9"
+  "hash": "4422b7183ede17a9cbde4afae41be4da5447020e39398deedbcca9121492834a"
 }

@@ -67,7 +67,7 @@
 			const actions: ToastAction[] = []
 			if (stateLoadedFromUrl) {
 				actions.push({
-					label: 'Discard URL stored autosave and reload',
+					label: 'Discard browser autosave and reload',
 					callback: reloadAction
 				})
 
