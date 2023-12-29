@@ -34,9 +34,11 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft } from 'lucide-svelte'
+	import { ArrowLeft, Menu as MenuIcon } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspacedOpenai } from '$lib/components/copilot/lib'
+	import Menu from '$lib/components/common/menu/MenuV2.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -232,6 +234,7 @@
 				<div
 					class={classNames(
 						'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+
 						menuOpen ? 'opacity-100' : 'opacity-0'
 					)}
 				/>
@@ -339,6 +342,23 @@
 							/>
 						</button>
 					</div>
+				</div>
+			</div>
+		{:else}
+			<div class="relative">
+				<div class="absolute top-1 left-1 z5000">
+					<Menu lightMode>
+						<div slot="trigger">
+							<Button
+								nonCaptureEvent
+								size="xs"
+								color="dark"
+								iconOnly
+								startIcon={{ icon: MenuIcon }}
+							/>
+						</div>
+						<SidebarContent {isCollapsed} noGap />
+					</Menu>
 				</div>
 			</div>
 		{/if}
