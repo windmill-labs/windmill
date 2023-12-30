@@ -1,9 +1,10 @@
-<script context="module" lang="ts">
-	export let tableMetadataShared: TableMetadata | undefined = undefined
-</script>
-
 <script lang="ts">
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
+	import type {
+		AppEditorContext,
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfigurations
+	} from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig } from '$lib/components/apps/editor/appUtils'
@@ -13,6 +14,7 @@
 		getDbSchemas,
 		insertRow,
 		loadTableMetaData,
+		type ColumnMetadata,
 		type TableMetadata
 	} from './utils'
 	import AppAggridTable from '../table/AppAggridTable.svelte'
@@ -25,6 +27,7 @@
 	import InsertRow from './InsertRow.svelte'
 	import Portal from 'svelte-portal'
 	import { sendUserToast } from '$lib/toast'
+	import type { StaticInput } from '$lib/components/apps/inputType'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -38,31 +41,17 @@
 		configuration
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
-	let tableMetaData: TableMetadata | undefined = undefined
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	$: input = createPostgresInput(
 		resolvedConfig.type.configuration.postgresql.resource,
 		resolvedConfig.type.configuration.postgresql.table,
-		resolvedConfig.columnDefs.filter((column) => column.ignored).map((column) => column.field),
-		resolvedConfig.type.configuration.postgresql.pageSize,
-		$worldStore.outputsById[id]?.page.peak() ?? 1,
-		tableMetaData
+		resolvedConfig.columnDefs?.filter((column) => !column?.ignored) ?? [],
+		resolvedConfig.pageSize,
+		resolvedConfig.whereClause,
+		$worldStore.outputsById[id]?.page.peak() ?? 1
 	)
-
-	async function toggleLoadTableData() {
-		tableMetaData = await loadTableMetaData(
-			resolvedConfig.type.configuration.postgresql.resource,
-			$workspaceStore,
-			resolvedConfig.type.configuration.postgresql.table
-		)
-
-		if (tableMetaData) {
-			tableMetadataShared = tableMetaData
-		}
-
-		renderCount++
-	}
 
 	initializing = false
 
@@ -72,101 +61,152 @@
 	let componentContainerHeight: number | undefined = undefined
 	let buttonContainerHeight: number | undefined = undefined
 
-	$: input && tableMetaData === undefined && toggleLoadTableData()
-
 	function onUpdate(
 		e: CustomEvent<{
 			row: number
+			columnDef: ColumnMetadata
 			column: string
 			value: any
 			data: any
 			oldValue: string | undefined
 		}>
 	) {
-		const { row, column, value, data, oldValue } = e.detail
-
-		if (!tableMetaData) {
-			sendUserToast('Table metadata is not available yet', true)
-			return
-		}
+		const { row, columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
 			resolvedConfig.type.configuration.postgresql.resource,
-			resolvedConfig.type.configuration.postgresql.table,
+			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
 			row,
-			column,
+			columnDef,
+			resolvedConfig.columnDefs,
 			value,
 			data,
-			tableMetaData,
 			oldValue
 		)
 	}
 
 	let args: Record<string, any> = {}
 
-	let table: AppAggridTable | undefined = undefined
-	$: input && shouldReRender()
+	$: input && resolvedConfig.pageSize && shouldReRender()
 
+	let lastInput = input
 	function shouldReRender() {
-		const result = table?.getResult()
-
-		resolvedConfig?.columnDefs.forEach((column) => {
-			if (column.ignored && result && Object.keys(result[0]).includes(column.field)) {
-				renderCount++
-				return
-			}
-
-			if (!column.ignored && result && !Object.keys(result[0]).includes(column.field)) {
-				renderCount++
-				return
-			}
-		})
+		if (lastInput !== input) {
+			lastInput = input
+			renderCount++
+		}
 	}
 
+	let lastResource: string | undefined = undefined
 	async function listTableIfAvailable() {
+		let resource = resolvedConfig.type.configuration?.postgresql?.resource
+		if (lastResource === resource) return
+		lastResource = resource
 		const gridItem = findGridItem($app, id)
 
 		if (!gridItem) {
 			return
 		}
 
-		if (!resolvedConfig.type.configuration.postgresql.resource) {
-			if (
-				'configuration' in gridItem.data.configuration.type &&
-				'selectOptions' in gridItem.data.configuration.type.configuration.postgresql.table
-			) {
-				gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = []
-			}
+		if (
+			'configuration' in gridItem.data?.configuration?.type &&
+			'selectOptions' in gridItem.data?.configuration?.type?.configuration?.postgresql?.table
+		) {
+			gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = []
+		}
 
+		if (!resolvedConfig.type?.configuration?.postgresql?.resource) {
 			$app = {
 				...$app
 			}
 			return
 		}
 
-		const dbSchemas: DBSchemas = {}
-
-		await getDbSchemas(
-			'postgresql',
-			resolvedConfig.type.configuration.postgresql.resource.split(':')[1],
-			$workspaceStore,
-			dbSchemas,
-			(message: string) => {}
-		)
-
-		if ('configuration' in gridItem.data.configuration.type) {
-			gridItem.data.configuration.type.configuration.postgresql.table['selectOptions'] = dbSchemas
-				? // @ts-ignore
-				  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
-				: []
+		if (
+			'configuration' in gridItem.data?.configuration?.type &&
+			gridItem.data.configuration.type.configuration.postgresql.table
+		) {
+			gridItem.data.configuration.type.configuration.postgresql.table.loading = true
 		}
 
-		$app = {
-			...$app
+		try {
+			const dbSchemas: DBSchemas = {}
+
+			await getDbSchemas(
+				'postgresql',
+				resolvedConfig.type.configuration.postgresql.resource.split(':')[1],
+				$workspaceStore,
+				dbSchemas,
+				(message: string) => {}
+			)
+
+			if ('configuration' in gridItem.data.configuration.type) {
+				gridItem.data.configuration.type.configuration.postgresql.table['selectOptions'] = dbSchemas
+					? // @ts-ignore
+					  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
+					: []
+			}
+
+			$app = {
+				...$app
+			}
+		} catch (e) {}
+		if (
+			'configuration' in gridItem.data?.configuration?.type &&
+			gridItem.data.configuration.type.configuration.postgresql.table
+		) {
+			gridItem.data.configuration.type.configuration.postgresql.table.loading = false
 		}
 	}
 
-	$: resolvedConfig.type && listTableIfAvailable()
+	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
+
+	$: editorContext != undefined &&
+		$mode == 'dnd' &&
+		resolvedConfig.type.configuration?.postgresql?.table &&
+		listColumnsIfAvailable()
+
+	let lastTable: string | undefined = undefined
+	async function listColumnsIfAvailable() {
+		let table = resolvedConfig.type.configuration?.postgresql?.table
+		if (lastTable === table) return
+		lastTable = table
+
+		let tableMetadata = await loadTableMetaData(
+			resolvedConfig.type.configuration.postgresql.resource,
+			$workspaceStore,
+			resolvedConfig.type.configuration.postgresql.table
+		)
+		if (!tableMetadata) return
+
+		const gridItem = findGridItem($app, id)
+		if (!gridItem) return
+
+		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
+
+		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
+		if (!Array.isArray(old)) {
+			console.log('old is not an array RESET')
+			old = []
+		}
+		const keys = tableMetadata.map((col) => col.field)
+		Object.keys(old).forEach((key) => {
+			if (!keys.includes(key)) {
+				delete old[key]
+			}
+		})
+		Object.entries(tableMetadata).forEach(([key, value], i) => {
+			old[i] = {
+				...old.find((col) => col?.field === key),
+				...value
+			}
+		})
+
+		//@ts-ignore
+		gridItem.data.configuration.columnDefs = { value: old, type: 'static' }
+
+		$app = $app
+	}
 
 	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
 		if (defaultValue && defaultValue.includes('::')) {
@@ -184,20 +224,18 @@
 	async function insert() {
 		try {
 			const defaultValue = resolvedConfig.columnDefs.reduce((acc, column) => {
-				const tableColumn = tableMetaData?.find((col) => col.columnname === column.field)
 				const hasValue =
 					args[column.field] !== undefined &&
 					args[column.field] !== null &&
 					args[column.field] !== ''
-				const hasDefaultValue =
-					column.defaultValue || extractDefaultValue(tableColumn?.defaultvalue)
+				const hasDefaultValue = column.defaultValue || extractDefaultValue(column?.defaultvalue)
 
 				if (
 					column.insert &&
-					!tableColumn?.isnullable &&
+					!column?.isnullable &&
 					!hasValue &&
 					!hasDefaultValue &&
-					tableColumn?.isidentity !== ColumnIdentity.Always
+					column?.isidentity !== ColumnIdentity.Always
 				) {
 					throw new Error(
 						`Column ${column.field} requires a default value as it is non-nullable and no value is provided.`
@@ -206,7 +244,7 @@
 
 				// Set the default value for columns with insert true, if no value is provided
 				if (column.insert && !hasValue) {
-					acc[column.field] = column.defaultValue || extractDefaultValue(tableColumn?.defaultvalue)
+					acc[column.field] = column.defaultValue || extractDefaultValue(column?.defaultvalue)
 				}
 
 				return acc
@@ -262,15 +300,16 @@
 		</Button>
 	</div>
 	{#key renderCount}
-		{#if resolvedConfig.type.configuration.postgresql.resource && resolvedConfig.type.configuration.postgresql.table}
+		{#if resolvedConfig.type.configuration?.postgresql?.resource && resolvedConfig.type.configuration?.postgresql?.table}
+			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
 			<AppAggridTable
-				bind:this={table}
 				{id}
 				{configuration}
 				bind:initializing
 				componentInput={input}
 				{customCss}
 				{render}
+				pageSize={resolvedConfig.pageSize}
 				containerHeight={componentContainerHeight - buttonContainerHeight}
 				on:update={onUpdate}
 			/>
@@ -282,17 +321,10 @@
 	<Drawer bind:this={insertDrawer} size="800px">
 		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
 			<svelte:fragment slot="actions">
-				<Button color="dark" size="xs" on:click={insert} disabled={!tableMetaData || !isInsertable}>
-					Insert
-				</Button>
+				<Button color="dark" size="xs" on:click={insert} disabled={!isInsertable}>Insert</Button>
 			</svelte:fragment>
 
-			<InsertRow
-				{tableMetaData}
-				bind:args
-				bind:isInsertable
-				columnDefs={resolvedConfig.columnDefs}
-			/>
+			<InsertRow bind:args bind:isInsertable columnDefs={resolvedConfig.columnDefs} />
 		</DrawerContent>
 	</Drawer>
 </Portal>

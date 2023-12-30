@@ -83,6 +83,7 @@
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
 
 	async function hash(message) {
 		try {
@@ -1002,6 +1003,11 @@
 											<JobArgs args={job?.args} />
 										</div>
 									{/if}
+									{#if job?.raw_code}
+										<div class="p-2 w-full overflow-auto max-h-[100px]">
+											<HighlightCode language={job?.language} code={job?.raw_code} />
+										</div>
+									{/if}
 
 									{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 										{@const jobResult = $jobsById[selectedJobId]}
@@ -1247,13 +1253,13 @@
 			size="xs"
 			dropdownItems={appPath != ''
 				? () => [
-					{
-						label: 'Fork',
-						onClick: () => {
-							window.open(`/apps/add?template=${appPath}`)
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/apps/add?template=${appPath}`)
+							}
 						}
-					}
-				]
+				  ]
 				: undefined}
 		>
 			Deploy

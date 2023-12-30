@@ -575,7 +575,7 @@ const aggridcomponentconst = {
 				type: 'static',
 				fieldType: 'boolean',
 				value: false,
-
+				hide: true,
 				tooltip: 'Configure all columns as Editable by users'
 			},
 			multipleSelectable: {
@@ -2955,7 +2955,7 @@ This is a paragraph.
 		}
 	},
 	dbexplorercomponent: {
-		name: 'Database Editor',
+		name: 'Database Studio',
 		icon: Database,
 		documentationLink: `${documentationBaseUrl}/dbexplorer`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -2969,7 +2969,7 @@ This is a paragraph.
 					selected: 'postgresql',
 					labels: {
 						postgresql: 'PostgreSQL',
-						mysql: 'MySQL'
+						msql: 'MySQL'
 					},
 					configuration: {
 						postgresql: {
@@ -2980,24 +2980,30 @@ This is a paragraph.
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
+								subfieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
-							},
-							pageSize: {
-								type: 'static',
-								fieldType: 'number',
-								value: 10
 							}
 						}
 					}
 				} as const,
+				pageSize: {
+					type: 'static',
+					fieldType: 'number',
+					value: 10
+				},
 				columnDefs: {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'db-explorer',
 					value: []
 				} as StaticAppInput,
+				whereClause: {
+					type: 'static',
+					fieldType: 'text',
+					value: ''
+				},
 				flex: {
 					type: 'static',
 					fieldType: 'boolean',
@@ -3009,6 +3015,7 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
+					hide: true,
 
 					tooltip: 'Configure all columns as Editable by users'
 				},
@@ -3025,11 +3032,6 @@ This is a paragraph.
 					value: true,
 
 					tooltip: 'If multiple selectable, allow multiselect with click'
-				},
-				pagination: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false
 				},
 				selectFirstRowByDefault: {
 					type: 'static',

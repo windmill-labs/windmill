@@ -429,7 +429,6 @@ pub fn pg_cell_to_json_value(
         Type::TS_VECTOR => get_basic(row, column, column_i, |a: StringCollector| {
             Ok(JSONValue::String(a.0))
         })?,
-
         // array types
         Type::BOOL_ARRAY => get_array(row, column, column_i, |a: bool| Ok(JSONValue::Bool(a)))?,
         Type::INT2_ARRAY => get_array(row, column, column_i, |a: i16| {

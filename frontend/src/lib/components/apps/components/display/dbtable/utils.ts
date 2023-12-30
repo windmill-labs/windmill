@@ -6,24 +6,15 @@ import { tryEvery } from '$lib/utils'
 
 export function makeQuery(
 	table: string,
-	tableMetadata: TableMetadata | undefined,
-	blacklist: string[],
+	tableMetadata: TableMetadata,
 	pageSize: number | undefined,
 	page: number
 ) {
 	if (!table) throw new Error('Table name is required')
 
-	let selectClause = '*'
+	const filteredColumns = tableMetadata.map((column) => `${column.field}::text`)
 
-	if (tableMetadata) {
-		const filteredColumns = tableMetadata
-			.filter((column) => !blacklist.includes(column.columnname))
-			.map((column) => column.columnname)
-
-		if (filteredColumns.length > 0) {
-			selectClause = filteredColumns.join(', ')
-		}
-	}
+	let selectClause = filteredColumns.join(', ')
 
 	let query = `SELECT ${selectClause} FROM ${table}`
 
@@ -57,12 +48,12 @@ export function makeInsertQuery(table: string, values: Record<string, any>) {
 export function createPostgresInput(
 	resource: string,
 	table: string | undefined,
-	columns: string[],
+	columns: TableMetadata,
 	pageSize: number | undefined,
-	page: number,
-	tableMetaData: TableMetadata | undefined
+	whereClause: string | undefined,
+	page: number
 ): AppInput | undefined {
-	if (!resource || !table) {
+	if (!resource || !table || !columns) {
 		// Return undefined if resource or table is not defined
 		return undefined
 	}
@@ -71,7 +62,7 @@ export function createPostgresInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeQuery(table, tableMetaData, columns, pageSize, page),
+			content: makeQuery(table, columns, pageSize, whereClause, page),
 			language: Preview.language.POSTGRESQL,
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -107,39 +98,37 @@ export function createPostgresInput(
 
 export function createUpdatePostgresInput(
 	resource: string,
-	table: string | undefined,
-	column: string,
+	table: string,
+	column: ColumnMetadata,
+	columns: ColumnMetadata[],
 	value: string,
-	primaryKey: string | undefined,
-	primaryValue: string | undefined,
 	data: Record<string, any>
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined
 	}
 
-	const query =
-		!primaryKey || !primaryValue
-			? updateWithAllValues()
-			: `UPDATE ${table} SET ${column} = '${value}' WHERE ${primaryKey} = ${primaryValue}`
+	const query = updateWithAllValues()
 
 	function updateWithAllValues() {
-		let query = `UPDATE ${table} SET ${column} = '${value}'`
-		const columns = Object.keys(data)
-		const values = Object.values(data)
-
-		// Remove AG Grid's internal columns
-		const filteredColumns = columns.filter((column) => !column.startsWith('__'))
+		let query = `UPDATE ${table} SET ${column.field} = '${value}'::${column.datatype}`
 
 		query += ' WHERE '
 
-		for (let i = 0; i < filteredColumns.length; i++) {
-			query += `${filteredColumns[i]} = '${values[i]}'`
+		// Remove AG Grid's internal columns
+		Object.entries(data)
+			.filter((c) => !c[0].startsWith('__'))
+			.forEach(([key, value], i) => {
+				if (i != 0) {
+					query += ' AND '
+				}
 
-			if (i !== filteredColumns.length - 1) {
-				query += ' AND '
-			}
-		}
+				if (value === null) {
+					query += `${key} IS NULL`
+				} else {
+					query += `${key} = '${value}'::${columns.find((c) => c.field === key)?.datatype}`
+				}
+			})
 		query += ';'
 
 		return query
@@ -189,14 +178,15 @@ export enum ColumnIdentity {
 	No = 'No'
 }
 
-export type TableMetadata = Array<{
-	columnname: string
+export type ColumnMetadata = {
+	field: string
 	datatype: string
 	defaultvalue: string
 	isprimarykey: boolean
 	isidentity: ColumnIdentity
 	isnullable: 'YES' | 'NO'
-}>
+}
+export type TableMetadata = ColumnMetadata[]
 
 export async function loadTableMetaData(
 	resource: string,
@@ -209,7 +199,7 @@ export async function loadTableMetaData(
 
 	const code = `
 	SELECT 
-	a.attname as ColumnName,
+	a.attname as field,
 	pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
 	(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
 	 FROM pg_catalog.pg_attrdef d
@@ -217,7 +207,7 @@ export async function loadTableMetaData(
 	(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
 	 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
 	 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-							 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname) as IsPrimaryKey,
+							 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
 	CASE a.attidentity
 			WHEN 'd' THEN 'By Default'
 			WHEN 'a' THEN 'Always'
@@ -250,7 +240,7 @@ ORDER BY a.attnum;
 				}
 			})
 
-			await new Promise((resolve) => setTimeout(resolve, 1000))
+			await new Promise((resolve) => setTimeout(resolve, 3000))
 
 			const testResult = await JobService.getCompletedJob({
 				workspace: workspace,
@@ -261,6 +251,8 @@ ORDER BY a.attnum;
 				attempts = maxRetries
 
 				return testResult.result
+			} else {
+				attempts++
 			}
 		} catch (error) {
 			attempts++
@@ -545,7 +537,6 @@ export async function getDbSchemas(
 							}
 						}
 					}
-
 					resolve()
 				}
 			},

@@ -12,7 +12,7 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Loader2, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import { Button } from '$lib/components/common'
@@ -35,6 +35,7 @@
 	export let allowTypeChange: boolean = true
 	export let shouldFormatExpression: boolean = false
 	export let fixedOverflowWidgets: boolean = true
+	export let loading: boolean = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -73,6 +74,9 @@
 							? capitalize(addWhitespaceBeforeCapitals(key))
 							: key}
 					</span>
+					{#if loading}
+						<Loader2 size={14} class="animate-spin ml-2" />
+					{/if}
 					{#if tooltip}
 						<Tooltip small>
 							{tooltip}

@@ -1,17 +1,17 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { ColumnIdentity, type TableMetadata } from './utils'
+	import { ColumnIdentity, type ColumnMetadata } from './utils'
 
-	export let tableMetaData: TableMetadata | undefined = undefined
 	export let args: Record<string, any> = {}
-	export let columnDefs: Array<{
-		field: string
-
-		ignored: boolean
-		insert: boolean
-		defaultValue: any
-	}> = []
+	export let columnDefs: Array<
+		{
+			field: string
+			ignored: boolean
+			insert: boolean
+			defaultValue: any
+		} & ColumnMetadata
+	> = []
 
 	type FieldMetadata = {
 		type: string
@@ -23,17 +23,15 @@
 		nullable: 'YES' | 'NO'
 	}
 
-	$: fields = tableMetaData
+	$: fields = columnDefs
 		?.filter((t) => {
-			const col = columnDefs.find((c) => c.field === t.columnname)
-
-			const shouldFilter = t.isidentity !== ColumnIdentity.Always && col?.insert === true
+			const shouldFilter = t.isidentity !== ColumnIdentity.Always && t?.insert === true
 
 			return !shouldFilter
 		})
 		.map((column) => {
 			const type = column.datatype
-			const name = column.columnname
+			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultvalue
 

@@ -94,6 +94,7 @@
 					customTitle={config?.['customTitle']}
 					tooltip={config?.['tooltip']}
 					fileUpload={config?.['fileUpload']}
+					loading={config?.['loading']}
 				/>
 			{/if}
 		{/each}

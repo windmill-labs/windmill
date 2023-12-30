@@ -8,7 +8,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
-	import { RefreshCcw } from 'lucide-svelte'
+	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import {
 		formatGraphqlSchema,
 		formatSchema,
@@ -26,30 +26,39 @@
 
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
+		if ($dbSchemas[resourcePath]) return
+
 		loading = true
 
-		await getDbSchemas(
-			resourceType,
-			resourcePath,
-			$workspaceStore,
-			$dbSchemas,
-			(message: string) => {
-				if (drawer?.isOpen()) {
-					sendUserToast(message, true)
+		try {
+			await getDbSchemas(
+				resourceType,
+				resourcePath,
+				$workspaceStore,
+				$dbSchemas,
+				(message: string) => {
+					if (drawer?.isOpen()) {
+						sendUserToast(message, true)
+					}
 				}
-			}
-		)
+			)
+			$dbSchemas = $dbSchemas
+		} catch (e) {
+			console.error(e)
+		}
+		loading = false
 	}
 
-	$: resourcePath &&
-		Object.keys(scripts).includes(resourceType || '') &&
-		!$dbSchemas[resourcePath] &&
-		getSchema()
+	$: resourcePath && Object.keys(scripts).includes(resourceType || '') && getSchema()
 
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 
 	$: shouldDisplayError = resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
 </script>
+
+{#if loading}
+	<Loader2 size={14} class="animate-spin " />
+{/if}
 
 {#if dbSchema}
 	<Button

@@ -5,7 +5,7 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdatePostgresInput, type TableMetadata } from './utils'
+	import { createUpdatePostgresInput, type ColumnMetadata } from './utils'
 
 	export let id: string
 
@@ -24,29 +24,19 @@
 
 	export async function triggerUpdate(
 		resource: string,
-		table: string | undefined,
+		table: string,
 		rowIndex: number,
-		column: string,
+		column: ColumnMetadata,
+		columns: ColumnMetadata[],
 		value: string,
 		data: Record<string, any>,
-		tableMetaData: TableMetadata | undefined = undefined,
 		oldValue: string | undefined = undefined
 	) {
-		const primaryKey = tableMetaData?.find((column) => column.isprimarykey)?.columnname
-		const primaryValue = primaryKey ? data[primaryKey] : undefined
-
+		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 		const clonnedData = { ...data }
-		clonnedData[column] = oldValue
+		clonnedData[column.field] = oldValue
 
-		input = createUpdatePostgresInput(
-			resource,
-			table,
-			column,
-			value,
-			primaryKey,
-			primaryValue,
-			clonnedData
-		)
+		input = createUpdatePostgresInput(resource, table, column, columns, value, clonnedData)
 
 		await tick()
 

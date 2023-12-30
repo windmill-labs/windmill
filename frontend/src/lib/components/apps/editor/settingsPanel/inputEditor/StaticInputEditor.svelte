@@ -18,7 +18,6 @@
 	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
 	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
 	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
-	import UpdateValueFormatter from './UpdateValueFormatter.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -42,7 +41,7 @@
 	{:else if fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} size="xs" />
 	{:else if fieldType === 'select' && selectOptions}
-		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
+		<select on:keydown|stopPropagation bind:value={componentInput.value}>
 			{#each selectOptions ?? [] as option}
 				{#if typeof option == 'string'}
 					<option value={option}>
@@ -160,8 +159,6 @@
 			</div>
 		</div>
 	{:else if fieldType === 'db-explorer'}
-		<UpdateValueFormatter bind:value={componentInput.value} />
-
 		<div class="flex flex-row rounded-md bg-surface items-center h-full">
 			<div class="relative w-full">
 				<input

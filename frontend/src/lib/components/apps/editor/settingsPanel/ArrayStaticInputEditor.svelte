@@ -9,7 +9,6 @@
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
-	import SynchronizeColumns from './SynchronizeColumns.svelte'
 
 	export let componentInput: StaticInput<any[]>
 	export let subFieldType: InputType | undefined = undefined
@@ -246,7 +245,7 @@
 			/>
 		{/if}
 	{/if}
-	{#if subFieldType === 'db-explorer'}
+	<!-- {#if subFieldType === 'db-explorer'}
 		<SynchronizeColumns
 			columns={componentInput.value?.map((item) => item.field)}
 			on:add={({ detail }) => {
@@ -281,5 +280,5 @@
 				})
 			}}
 		/>
-	{/if}
+	{/if} -->
 </div>

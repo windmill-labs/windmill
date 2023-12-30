@@ -7,6 +7,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { ColumnIdentity, type ColumnMetadata } from '../apps/components/display/dbtable/utils'
 
 	type Column = {
 		minWidth: number
@@ -27,14 +28,13 @@
 		// DBExplorer
 		ignored: boolean
 		insert: boolean
+		editable: boolean
 		defaultValue: any
-	}
+	} & ColumnMetadata
 
 	export let value: Column | undefined
 
-	import { tableMetadataShared } from '../apps/components/display/dbtable/AppDbExplorer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { ColumnIdentity } from '../apps/components/display/dbtable/utils'
 
 	const presets = [
 		{
@@ -93,7 +93,6 @@
 	]
 
 	let renderCount = 0
-	$: columnMetadata = tableMetadataShared?.find((x) => x.columnname === value?.field)
 
 	function computeWarning(columnMetadata, value) {
 		if (columnMetadata?.isnullable === 'NO' && !columnMetadata?.defaultvalue && value?.insert) {
@@ -121,9 +120,7 @@
 			return {
 				type: 'info' as AlertType,
 				title: 'Default value',
-				message: `The column has a default value defined in the database. The default value is: ${
-					tableMetadataShared?.find((x) => x.columnname === value?.field)?.defaultvalue
-				}`
+				message: `The column has a default value defined in the database. The default value is: ${value?.defaultvalue}`
 			}
 		}
 
@@ -156,12 +153,12 @@
 
 	let nullDefaultValue: boolean = true
 
-	$: warning = computeWarning(columnMetadata, value)
-	$: shouldDisplayDefaultValueInput = computeShouldDisplayDefaultValueInput(columnMetadata, value)
+	$: warning = computeWarning(value, value)
+	$: shouldDisplayDefaultValueInput = computeShouldDisplayDefaultValueInput(value, value)
 </script>
 
 <Popup
-	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
+	floatingConfig={{ strategy: 'fixed', placement: 'left-start' }}
 	containerClasses="border rounded-lg shadow-lg bg-surface p-4 h-[512px] max-h-[512px] overflow-y-auto"
 >
 	<svelte:fragment slot="button">
@@ -190,17 +187,17 @@
 							}}
 							bind:checked={value.ignored}
 							size="xs"
-							disabled={columnMetadata?.isprimarykey}
+							disabled={value?.isprimarykey}
 						/>
 					</svelte:fragment>
-					{#if columnMetadata?.isprimarykey}
+					{#if value?.isprimarykey}
 						<Alert type="warning" size="xs" title="Primary key" class="mt-2">
 							You cannot skip a primary key.
 						</Alert>
 					{/if}
 				</Label>
 
-				<Label label="Should hide from insert">
+				<Label label="Hide from insert">
 					<svelte:fragment slot="header">
 						<Tooltip>
 							By default, all columns are used to generate the submit form. If you want to exclude a
@@ -234,10 +231,8 @@
 								not nullable or doesn't have a default value, a default value will be required.
 							</Tooltip>
 						</svelte:fragment>
-						{#if tableMetadataShared?.find((x) => x.columnname === value?.field)?.datatype}
-							{@const type = tableMetadataShared?.find(
-								(x) => x.columnname === value?.field
-							)?.datatype}
+						{#if value?.datatype}
+							{@const type = value?.datatype}
 
 							<div class="flex flex-row items-center gap-2">
 								<Badge color="dark-gray">
@@ -245,7 +240,7 @@
 									{type}
 								</Badge>
 
-								{#if columnMetadata?.isnullable}
+								{#if value?.isnullable}
 									<Toggle
 										bind:checked={nullDefaultValue}
 										size="xs"
@@ -293,6 +288,17 @@
 				>
 					<Label label="Header name">
 						<input type="text" placeholder="Header name" bind:value={value.headerName} />
+					</Label>
+
+					<Label label="Editable value">
+						<Toggle
+							on:pointerdown={(e) => {
+								e?.stopPropagation()
+							}}
+							options={{ right: 'Editable' }}
+							bind:checked={value.editable}
+							size="xs"
+						/>
 					</Label>
 
 					<Label label="Min width (px)">
@@ -379,7 +385,13 @@
 									</select>
 								</div>
 
-								<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
+								<SimpleEditor
+									extraLib={'declare const value: any'}
+									autoHeight
+									lang="javascript"
+									bind:code={value.valueFormatter}
+								/>
+								<div class="text-xs text-secondary -mt-4">Use `value` in the formatter</div>
 							</div>
 						{/key}
 					</div>

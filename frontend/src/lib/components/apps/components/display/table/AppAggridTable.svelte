@@ -27,6 +27,7 @@
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let containerHeight: number | undefined = undefined
+	export let pageSize: number | undefined = undefined
 
 	const { app, worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -133,7 +134,8 @@
 				column: event.colDef.field,
 				value: dataCell,
 				data: event.node.data,
-				oldValue: event.oldValue
+				oldValue: event.oldValue,
+				columnDef: event.colDef
 			})
 		}
 	}
@@ -152,8 +154,10 @@
 				{
 					rowData: value,
 					columnDefs: resolvedConfig?.columnDefs.filter((x) => !x.ignored),
-					pagination: resolvedConfig?.pagination,
-					paginationAutoPageSize: resolvedConfig?.pagination,
+					pagination: pageSize != undefined ? true : resolvedConfig?.pagination,
+					paginationAutoPageSize: pageSize != undefined ? false : resolvedConfig?.pagination,
+					paginationPageSize: pageSize,
+					paginationPageSizeSelector: pageSize ? false : undefined,
 					defaultColDef: {
 						flex: resolvedConfig.flex ? 1 : 0,
 						editable: resolvedConfig?.allEditable,
