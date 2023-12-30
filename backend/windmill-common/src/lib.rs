@@ -26,6 +26,7 @@ pub mod global_settings;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod s3_helpers;
 pub mod schedule;
 pub mod scripts;
 pub mod server;
