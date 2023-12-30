@@ -26,7 +26,7 @@ The Gateway exposes the metrics on http://localhost:9091/metrics and also has an
 
 ## Monitoring Windmill servers and workers
 
-Metrics need to be enabled on Windmill server and workers. They can be enabled only on Windmill Enterprise Edition by setting the environment variable `METRICS_ADDR` to `1` on each container (additional "debug-level" metrics can be enabled in the instance settings > debug menu).
+Metrics need to be enabled on Windmill server and workers. They can be enabled only on Windmill Enterprise Edition by setting the environment variable `METRICS_ADDR` to `1` on each container or toggle on "Expose Metrics" in instance settings -> core (additional "debug-level" metrics can be enabled in the instance settings > debug menu).
 
 Once metrics are enabled, Prometheus needs to discover Windmill service containers. Using docker-compose, it requires a few adjustments:
 - Each Windmill containers need to expose the metrics port (`8001` by default) so that Prometheus discovery knows which ports to scrap. This is done by adding the value `8001` to the `expose` block to both `windmill_server` and `windmill_worker`.
