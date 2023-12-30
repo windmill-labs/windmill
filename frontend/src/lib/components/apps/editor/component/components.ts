@@ -2192,7 +2192,7 @@ This is a paragraph.
 	carousellistcomponent: {
 		name: 'Carousel List',
 		icon: ListIcon,
-		documentationLink: `${documentationBaseUrl}/list`,
+		documentationLink: `${documentationBaseUrl}/carousel`,
 		dims: '3:8-12:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2205,7 +2205,7 @@ This is a paragraph.
 
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
-					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
+					tooltip: 'Sets how an animation progresses through the duration of each cycle, see https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function',
 				}
 			},
 			componentInput: {
