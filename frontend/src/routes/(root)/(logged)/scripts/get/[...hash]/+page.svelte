@@ -211,7 +211,7 @@
 	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
 		const buttons: any = []
 
-		if (!topHash && script) {
+		if (!topHash && script && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
