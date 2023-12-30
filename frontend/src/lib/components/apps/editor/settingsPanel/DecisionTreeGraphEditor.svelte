@@ -84,15 +84,19 @@
 							</Label>
 
 							{#if selectedNode.next.length > 1}
-								{#each selectedNode.next as subNode, index (subNode.id)}
+								{#each selectedNode.next.sort((n1, n2) => {
+									return n1.id.localeCompare(n2.id)
+								}) as subNode, index (subNode.id)}
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">
 												<InputsSpecEditor
 													key={`condition-${selectedNode.id}-${index}`}
-													customTitle={`${index > 0 ? 'Otherwise ' : ''}Goes to "${
+													customTitle={`${index > 0 ? 'Otherwise ' : ''}Goes to branch ${
+														index + 1
+													} (First node: ${
 														nodes?.find((node) => node.id == subNode.id)?.label
-													}" if:`}
+													}) if:`}
 													bind:componentInput={subNode.condition}
 													id={selectedNode.id}
 													userInputEnabled={false}
