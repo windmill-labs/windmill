@@ -364,7 +364,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull dev
-        run: 
+        run: |
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
