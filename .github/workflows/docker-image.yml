@@ -388,4 +388,4 @@ jobs:
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+          docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
