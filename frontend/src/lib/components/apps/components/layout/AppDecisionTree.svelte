@@ -41,6 +41,8 @@
 	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
 	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
 
+	const history: string[] = []
+
 	function next() {
 		const resolvedNodeConditions = resolvedConditions[currentNodeId]
 
@@ -55,6 +57,8 @@
 				found = true
 				currentNodeId = node.next[index].id
 
+				history.push(node.id)
+
 				selectedConditionIndex = index + 1
 
 				$focusedGrid = {
@@ -66,12 +70,10 @@
 	}
 
 	function prev() {
-		const previousNode = nodes.find((node) => {
-			return node.next.find((next) => next.id == currentNodeId)
-		})
+		const previsouNodeId = history.pop()
 
-		if (previousNode) {
-			currentNodeId = previousNode.id
+		if (previsouNodeId) {
+			currentNodeId = previsouNodeId
 
 			selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
 
@@ -175,8 +177,8 @@
 		size="xs2"
 		color="dark"
 		endIcon={{ icon: ArrowRight }}
-		disabled={isNextDisabled}
+		disabled={isNextDisabled || currentNodeId === lastNodeId}
 	>
-		{currentNodeId === lastNodeId ? 'Finish' : 'Next'}
+		Next
 	</Button>
 </div>
