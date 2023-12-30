@@ -119,7 +119,7 @@
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
-		if (flow) {
+		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
