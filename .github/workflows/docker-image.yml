@@ -43,6 +43,8 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -79,6 +81,8 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -347,6 +351,7 @@ jobs:
           path: |
             integration_tests/logs
 
+
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test]
@@ -361,8 +366,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull dev
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-      - name: Tag latest
-        run: docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-      - name: Push latest
-        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        run: 
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
