@@ -83,14 +83,24 @@ pub async fn pip_compile(
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
     {
         let deps = pip_local_dependencies.clone();
+        let compiled_deps = deps.iter().map(|dep| {
+            let compiled_dep = Regex::new(dep);
+            match compiled_dep {
+                Ok(compiled_dep) => Some(compiled_dep),
+                Err(e) => {
+                    tracing::warn!("regex compilation failed for Python local dependency: '{}' - it will be ignored", e);
+                    return None;
+                }
+            }
+        }).filter(|dep_maybe| dep_maybe.is_some()).map(|dep| dep.unwrap()).collect::<Vec<Regex>>();
         requirements
             .lines()
             .filter(|s| {
-                if !deps.contains(&s.to_string()) {
-                    return true;
-                } else {
+                if compiled_deps.iter().any(|dep| dep.is_match(s)) {
                     logs.push_str(&format!("\nignoring local dependency: {}", s));
                     return false;
+                } else {
+                    return true;
                 }
             })
             .join("\n")
@@ -566,7 +576,7 @@ async fn handle_python_deps(
     };
 
     if requirements.len() > 0 {
-        additional_python_paths = handle_python_reqs(
+        let mut venv_path = handle_python_reqs(
             requirements
                 .split("\n")
                 .filter(|x| !x.starts_with("--"))
@@ -582,6 +592,7 @@ async fn handle_python_deps(
             worker_dir,
         )
         .await?;
+        additional_python_paths.append(&mut venv_path);
     }
     Ok(additional_python_paths)
 }

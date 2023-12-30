@@ -43,8 +43,9 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -56,7 +57,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
@@ -79,8 +80,9 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+          flavor: |
+            latest=false
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -102,7 +104,7 @@ jobs:
             features=enterprise,enterprise_saml
             nsjail=true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
@@ -322,3 +324,53 @@ jobs:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
           bucket-region: us-east-1
+
+  run_integration_test:
+    runs-on: ubicloud
+    needs: [build_ee]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Prepare test run
+        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        run: cd integration_tests && ./build.sh
+      - name: Test run
+        if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+        timeout-minutes: 15
+        env:
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
+        run: cd integration_tests && ./run.sh
+      - name: Archive logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: Windmill Integration Tests Logs
+          path: |
+            integration_tests/logs
+
+
+  tag_latest:
+    runs-on: ubicloud
+    needs: [run_integration_test]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Login to registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull dev
+        run: 
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee

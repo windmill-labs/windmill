@@ -3,12 +3,13 @@ use itertools::Itertools;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
+use windmill_common::s3_helpers::{get_etag_or_empty, LargeFileStorage, S3Object, S3Resource};
 use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
@@ -31,7 +32,7 @@ use std::{
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::variables;
+use windmill_common::{variables, DB};
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -841,13 +842,26 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize, remove_x00:
     }
 }
 
-pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> String {
+pub async fn hash_args(
+    db: &DB,
+    client: &AuthedClient,
+    workspace_id: &str,
+    job_id: &Uuid,
+    v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+) -> String {
     if let Some(vs) = v {
         let mut dh = DefaultHasher::new();
         let hm = &vs.0;
         for k in hm.keys().sorted() {
             k.hash(&mut dh);
-            hm.get(k).unwrap().get().hash(&mut dh);
+            let arg_value = hm.get(k).unwrap();
+            let arg_additions =
+                arg_value_hash_additions(db, client, workspace_id, job_id, hm.get(k).unwrap())
+                    .await;
+            arg_value.get().hash(&mut dh);
+            for (_, arg_addition) in arg_additions {
+                arg_addition.hash(&mut dh);
+            }
         }
         hex::encode(dh.finish().to_be_bytes())
     } else {
@@ -855,21 +869,152 @@ pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) 
     }
 }
 
-#[derive(Serialize)]
-struct StoreCachedResource<'a> {
-    expire: i64,
-    value: &'a RawValue,
+async fn get_workspace_s3_resource_path(
+    db: &DB,
+    client: &AuthedClient,
+    workspace_id: &str,
+    job_id: &Uuid,
+) -> Option<S3Resource> {
+    let raw_lfs_opt = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .map(|val| serde_json::from_value::<LargeFileStorage>(val).ok())
+    .flatten();
+
+    if let Some(LargeFileStorage::S3Storage(s3_storage)) = raw_lfs_opt {
+        let resource_path = s3_storage.s3_resource_path.trim_start_matches("$res:");
+        client
+            .get_resource_value_interpolated::<S3Resource>(&resource_path, Some(job_id.to_string()))
+            .await
+            .ok()
+    } else {
+        return None;
+    }
 }
 
-pub async fn save_in_cache<'a>(
+async fn arg_value_hash_additions(
+    db: &DB,
+    client: &AuthedClient,
+    workspace_id: &str,
+    job_id: &Uuid,
+    raw_value: &Box<RawValue>,
+) -> HashMap<String, String> {
+    let mut result: HashMap<String, String> = HashMap::new();
+    let parsed_s3_values: &mut Vec<S3Object> = &mut Vec::new();
+    extract_all_s3_object_from_raw_value(raw_value, parsed_s3_values);
+    if parsed_s3_values.is_empty() {
+        // no s3 object, nothing to return
+        return result;
+    }
+
+    let s3_resource_opt = get_workspace_s3_resource_path(db, client, workspace_id, job_id).await;
+    if let Some(s3_resource) = s3_resource_opt {
+        for s3_object in parsed_s3_values {
+            let etag = get_etag_or_empty(&s3_resource, s3_object.clone()).await;
+            tracing::warn!("Enriching s3 arg value with etag: {:?}", etag);
+            result.insert(s3_object.s3.clone(), etag.unwrap_or_default()); // TODO: maybe inject a random value to invalidate the cache?
+        }
+    }
+
+    return result;
+}
+
+fn extract_all_s3_object_from_raw_value(raw_value: &Box<RawValue>, result: &mut Vec<S3Object>) {
+    let parsed_value = serde_json::from_str::<S3Object>(raw_value.get());
+    if let Ok(parsed_value) = parsed_value {
+        result.push(parsed_value);
+    } else {
+        let parsed_value = serde_json::from_str::<HashMap<String, Box<RawValue>>>(raw_value.get());
+        if let Ok(parsed_value) = parsed_value {
+            for (_, v) in parsed_value {
+                extract_all_s3_object_from_raw_value(&v, result);
+            }
+        } else {
+            let parsed_value = serde_json::from_str::<Vec<Box<RawValue>>>(raw_value.get());
+            if let Ok(parsed_value) = parsed_value {
+                for v in parsed_value {
+                    extract_all_s3_object_from_raw_value(&v, result);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct CachedResource {
+    expire: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    s3_etags: Option<HashMap<String, String>>,
+    value: Box<RawValue>,
+}
+
+pub async fn get_cached_resource_value_if_valid(
+    db: &DB,
+    client: &AuthedClient,
+    job_id: &Uuid,
+    workspace_id: &str,
+    cached_res_path: &str,
+) -> Option<Box<RawValue>> {
+    let resource_opt = client
+        .get_resource_value::<CachedResource>(cached_res_path)
+        .await
+        .ok();
+    if let Some(cached_resource) = resource_opt {
+        if cached_resource.expire <= chrono::Utc::now().timestamp() {
+            // cache expired
+            return None;
+        }
+        let s3_etags = cached_resource.s3_etags.unwrap_or_default();
+        let s3_resource_opt: Option<S3Resource> = if s3_etags.is_empty() {
+            None
+        } else {
+            get_workspace_s3_resource_path(db, &client, workspace_id, job_id).await
+        };
+        if !s3_etags.is_empty() && s3_resource_opt.is_none() {
+            tracing::warn!("Cached result references s3 files that are not retrievable anymore because the workspace S3 resource can't be fetched. Cache will be invalidated");
+            return None;
+        }
+        for (s3_file_key, s3_file_etag) in s3_etags {
+            if let Some(s3_resource) = s3_resource_opt.clone() {
+                let etag =
+                    get_etag_or_empty(&s3_resource, S3Object { s3: s3_file_key.clone() }).await;
+                if etag.is_none() || etag.clone().unwrap() != s3_file_etag {
+                    tracing::warn!("S3 file etag for '{}' has changed. Value from cache is {:?} while current value from S3 is {:?}. Cache will be invalidated", s3_file_key.clone(), s3_file_etag, etag);
+                    return None;
+                }
+            }
+        }
+        return Some(cached_resource.value);
+    }
+    return None;
+}
+
+pub async fn save_in_cache(
     db: &Pool<Postgres>,
+    client: &AuthedClient,
     job: &QueuedJob,
     cached_path: String,
-    r: &'a RawValue,
+    r: &Box<RawValue>,
 ) {
     let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
 
-    let store_cache_resource = StoreCachedResource { expire, value: r };
+    let s3_etags =
+        arg_value_hash_additions(db, client, job.workspace_id.as_str(), &job.id, r).await;
+
+    let store_cache_resource = CachedResource {
+        expire,
+        s3_etags: if s3_etags.is_empty() {
+            None
+        } else {
+            Some(s3_etags)
+        },
+        value: r.clone(),
+    };
     let raw_json = sqlx::types::Json(store_cache_resource);
 
     if let Err(e) = sqlx::query!(
@@ -879,7 +1024,7 @@ pub async fn save_in_cache<'a>(
     DO UPDATE SET value = $3",
         job.workspace_id,
         cached_path,
-        raw_json as sqlx::types::Json<StoreCachedResource>,
+        raw_json as sqlx::types::Json<CachedResource>,
         "cache"
     )
     .execute(db)

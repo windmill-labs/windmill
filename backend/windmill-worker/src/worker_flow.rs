@@ -633,7 +633,8 @@ pub async fn update_flow_status_after_job_completion_internal<
         } else {
             if flow_job.cache_ttl.is_some() {
                 let cached_res_path = {
-                    let args_hash = hash_args(&flow_job.args);
+                    let args_hash =
+                        hash_args(db, client, w_id, job_id_for_status, &flow_job.args).await;
                     let flow_path = flow_job.script_path();
                     let version_hash = if let Some(rc) = flow_job.raw_flow.as_ref() {
                         use std::hash::Hasher;
@@ -648,7 +649,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     format!("{flow_path}/cache/{version_hash}/{args_hash}")
                 };
 
-                save_in_cache(db, &flow_job, cached_res_path, &nresult).await;
+                save_in_cache(db, client, &flow_job, cached_res_path, &nresult).await;
             }
             let success = success && !is_failure_step && !skip_error_handler;
             if success {

@@ -1499,9 +1499,9 @@ dependencies = [
 
 [[package]]
 name = "chrono-tz"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e23185c0e21df6ed832a12e2bda87c7d1def6842881fb634a8511ced741b0d76"
+checksum = "91d7b79e99bfaa0d47da0687c43aa3b7381938a62ad3a6498599039321f660b7"
 dependencies = [
  "chrono",
  "chrono-tz-build",
@@ -1551,9 +1551,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.4.11"
+version = "4.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfaff671f6b22ca62406885ece523383b9b64022e341e53e009a62ebc47a45f2"
+checksum = "dcfab8ba68f3668e89f6ff60f5b205cea56aa7b769451a59f34b8682f51c056d"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1561,9 +1561,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.4.11"
+version = "4.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a216b506622bb1d316cd51328dce24e07bdff4a6128a47c7e7fad11878d5adbb"
+checksum = "fb7fb5e4e979aec3be7791562fcba452f94ad85e954da024396433e0e25a79e9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -3744,6 +3744,15 @@ dependencies = [
 
 [[package]]
 name = "itertools"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
@@ -3811,6 +3820,15 @@ dependencies = [
  "serde",
  "serde_json",
  "simple_asn1",
+]
+
+[[package]]
+name = "keccak"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f6d5ed8676d904364de097082f4e7d240b571b67989ced0240f08b7f966f940"
+dependencies = [
+ "cpufeatures",
 ]
 
 [[package]]
@@ -4104,9 +4122,9 @@ dependencies = [
 
 [[package]]
 name = "mail-send"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e373c9ec9178397af6ea2964568e49e1d486b2d80d17b06aa19da75566416422"
+checksum = "4e38e7453c5cb25cbeaa251e480c74592ec121360a6bcb822928926bf69e3d1e"
 dependencies = [
  "base64 0.21.5",
  "gethostname",
@@ -4121,9 +4139,9 @@ dependencies = [
 
 [[package]]
 name = "malachite"
-version = "0.4.4"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "220cb36c52aa6eff45559df497abe0e2a4c1209f92279a746a399f622d7b95c7"
+checksum = "f6cf7f4730c30071ba374fac86ad35b1cb7a0716f774737768667ea3fa1828e3"
 dependencies = [
  "malachite-base",
  "malachite-nz",
@@ -4132,19 +4150,22 @@ dependencies = [
 
 [[package]]
 name = "malachite-base"
-version = "0.4.4"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6538136c5daf04126d6be4899f7fe4879b7f8de896dd1b4210fe6de5b94f2555"
+checksum = "2b06bfa98a4b4802af5a4263b4ad4660e28e51e8490f6354eb9336c70767e1c5"
 dependencies = [
- "itertools 0.11.0",
+ "itertools 0.9.0",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
  "ryu",
+ "sha3",
 ]
 
 [[package]]
 name = "malachite-bigint"
-version = "0.1.1"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76c3eca3b5df299486144c8423c45c24bdf9e82e2452c8a1eeda547c4d8b5d41"
+checksum = "8a5110aee54537b0cef214efbebdd7df79b7408db8eef4f6a4b6db9d0d8fc01b"
 dependencies = [
  "derive_more",
  "malachite",
@@ -4155,22 +4176,22 @@ dependencies = [
 
 [[package]]
 name = "malachite-nz"
-version = "0.4.4"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0b05577b7a3f09433106460b10304f97fc572f0baabf6640e6cb1e23f5fc52"
+checksum = "c89e21c64b7af5be3dc8cef16f786243faf59459fe4ba93b44efdeb264e5ade4"
 dependencies = [
  "embed-doc-image",
- "itertools 0.11.0",
+ "itertools 0.9.0",
  "malachite-base",
 ]
 
 [[package]]
 name = "malachite-q"
-version = "0.4.4"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1cfdb4016292e6acd832eaee261175f3af8bbee62afeefe4420ebce4c440cb5"
+checksum = "3755e541d5134b5016594c9043094172c4dda9259b3ce824a7b8101941850360"
 dependencies = [
- "itertools 0.11.0",
+ "itertools 0.9.0",
  "malachite-base",
  "malachite-nz",
 ]
@@ -4219,9 +4240,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.6.4"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
+checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
 
 [[package]]
 name = "memmap2"
@@ -7001,6 +7022,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f81199417d4e5de3f04b1e871023acea7389672c4135918f05aa9cbf2f2fa809"
+dependencies = [
+ "block-buffer 0.9.0",
+ "digest 0.9.0",
+ "keccak",
+ "opaque-debug",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7116,9 +7149,9 @@ dependencies = [
 
 [[package]]
 name = "smtp-proto"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4b756ac662e92a0e5b360349bea5f0b0784d4be4541eff2972049dfdfd7f862"
+checksum = "0f7278d054ed6844babe3d760d03ccae24e26207c3c27b68d8385a03d3324619"
 
 [[package]]
 name = "snafu"
@@ -8156,15 +8189,15 @@ checksum = "cfb5fa503293557c5158bd215fdc225695e567a77e453f5d4452a50a193969bd"
 
 [[package]]
 name = "tempfile"
-version = "3.8.1"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef1adac450ad7f4b3c28589471ade84f25f731a7a0fe30d71dfa9f60fd808e5"
+checksum = "01ce4141aa927a6d1bd34a041795abd0db1cccba5d5f24b009f694bdf3a1f3fa"
 dependencies = [
  "cfg-if",
  "fastrand 2.0.1",
  "redox_syscall 0.4.1",
  "rustix 0.38.28",
- "windows-sys 0.48.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9452,7 +9485,6 @@ dependencies = [
  "async-recursion",
  "async-stripe",
  "async_zip",
- "aws-config",
  "aws-sdk-s3",
  "axum",
  "base64 0.21.5",
@@ -9550,6 +9582,8 @@ name = "windmill-common"
 version = "1.232.0"
 dependencies = [
  "anyhow",
+ "aws-config",
+ "aws-sdk-s3",
  "axum",
  "chrono",
  "cron",
@@ -9996,9 +10030,9 @@ checksum = "dff9641d1cd4be8d1a070daf9e3773c5f67e78b4d9d42263020c057706765c04"
 
 [[package]]
 name = "winnow"
-version = "0.5.30"
+version = "0.5.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b5c3db89721d50d0e2a673f5043fc4722f76dcc352d7b1ab8b8288bed4ed2c5"
+checksum = "97a4882e6b134d6c28953a387571f1acdd3496830d5e36c5e3a1075580ea641c"
 dependencies = [
  "memchr",
 ]
@@ -10024,9 +10058,9 @@ dependencies = [
 
 [[package]]
 name = "xattr"
-version = "1.1.3"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7dae5072fe1f8db8f8d29059189ac175196e410e40ba42d5d4684ae2f750995"
+checksum = "914566e6413e7fa959cc394fb30e563ba80f3541fbd40816d4c05a0fc3f2a0f1"
 dependencies = [
  "libc",
  "linux-raw-sys 0.4.12",
