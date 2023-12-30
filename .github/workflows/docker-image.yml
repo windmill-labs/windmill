@@ -363,7 +363,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pull dev
+      - name: Tag main and latest
         run: |
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -371,6 +371,6 @@ jobs:
           docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
