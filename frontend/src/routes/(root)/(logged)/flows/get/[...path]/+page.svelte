@@ -119,7 +119,7 @@
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
-		if (flow) {
+		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
@@ -132,7 +132,7 @@
 			})
 		}
 
-		if (!flow || $userStore?.operator || !can_write) {
+		if (!flow) {
 			return buttons
 		}
 
@@ -145,6 +145,10 @@
 				startIcon: History
 			}
 		})
+
+		if (!flow || $userStore?.operator || !can_write) {
+			return buttons
+		}
 
 		if (!$userStore?.operator) {
 			buttons.push({
