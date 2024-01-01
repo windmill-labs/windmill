@@ -4122,9 +4122,9 @@ dependencies = [
 
 [[package]]
 name = "mail-send"
-version = "0.4.4"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e38e7453c5cb25cbeaa251e480c74592ec121360a6bcb822928926bf69e3d1e"
+checksum = "5f5982137dccf24ca038daa022eb0ea97a31e9739477445a787a8ef77e015ebb"
 dependencies = [
  "base64 0.21.5",
  "gethostname",

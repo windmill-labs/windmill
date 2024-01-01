@@ -124,7 +124,7 @@ magic-crypt = "^3"
 git-version = "^0"
 rustpython-parser = "0.3.0"
 cron = "^0"
-mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
+mail-send = { version = "0.4.6", features = ["builder"], default-features=false }
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
