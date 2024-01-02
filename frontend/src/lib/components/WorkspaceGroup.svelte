@@ -26,6 +26,8 @@
 				priority_tags?: Map<string, number>
 				cache_clear?: number
 				init_bash?: string
+				additional_python_paths?: string[]
+				pip_local_dependencies?: string[]
 		  }
 	export let activeWorkers: number
 	export let customTags: string[] | undefined
@@ -38,6 +40,8 @@
 		init_bash?: string
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
+		additional_python_paths?: string[]
+		pip_local_dependencies?: string[]
 	} = {}
 
 	function loadNConfig() {
@@ -402,11 +406,110 @@
 				>
 			{/if}
 		{/if}
+
+		<div class="mt-8" />
+		<Section
+			label="Python runtime settings"
+			collapsable={true}
+			tooltip="Add Python runtime specific settings like additional python paths and PIP local dependencies"
+		>
+			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
+				<span class="text-sm text-primary">Additional Python Paths</span>
+				{#each nconfig.additional_python_paths ?? [] as additional_python_path, i}
+					<div class="flex gap-1 items-center">
+						<input
+							type="text"
+							placeholder="/path/to/python3.X/site-packages"
+							bind:value={additional_python_path}
+						/>
+						<button
+							class="rounded-full bg-surface/60 hover:bg-gray-200"
+							aria-label="Clear"
+							on:click={() => {
+								if (
+									nconfig.additional_python_paths === undefined ||
+									nconfig.additional_python_paths.length == 0
+								) {
+									return
+								}
+								nconfig.additional_python_paths.splice(i, 1)
+								nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+								dirty = true
+							}}
+						>
+							<X size={14} />
+						</button>
+					</div>
+				{/each}
+				<div class="flex">
+					<Button
+						variant="contained"
+						color="blue"
+						size="xs"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							if (nconfig.additional_python_paths === undefined) {
+								nconfig.additional_python_paths = []
+							}
+							nconfig.additional_python_paths.push('')
+							nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+							dirty = true
+						}}
+					>
+						Add Additional Python Path
+					</Button>
+				</div>
+
+				<span class="text-sm text-primary">PIP local dependencies</span>
+				{#each nconfig.pip_local_dependencies ?? [] as pip_local_dependency, i}
+					<div class="flex gap-1 items-center">
+						<input type="text" placeholder="httpx" bind:value={pip_local_dependency} />
+						<button
+							class="rounded-full bg-surface/60 hover:bg-gray-200"
+							aria-label="Clear"
+							on:click={() => {
+								if (
+									nconfig.pip_local_dependencies === undefined ||
+									nconfig.pip_local_dependencies.length == 0
+								) {
+									return
+								}
+								nconfig.pip_local_dependencies.splice(i, 1)
+								nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+								dirty = true
+							}}
+						>
+							<X size={14} />
+						</button>
+					</div>
+				{/each}
+				<div class="flex">
+					<Button
+						variant="contained"
+						color="blue"
+						size="xs"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							if (nconfig.pip_local_dependencies === undefined) {
+								nconfig.pip_local_dependencies = []
+							}
+							nconfig.pip_local_dependencies.push('')
+							nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+							dirty = true
+						}}
+					>
+						Add PIP local dependency
+					</Button>
+				</div>
+			</div>
+		</Section>
+
 		<div class="mt-8" />
 
 		<Section
-			label="Worker Environment Variables"
-			tooltip="Add static and dynamic environment variables to workers. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
+			label="Environment Variables passed to Jobs"
+			collapsable={true}
+			tooltip="Add static and dynamic environment variables that will be passed to jobs handled by this worker group. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
 		>
 			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
 				{#each customEnvVars as envvar, i}

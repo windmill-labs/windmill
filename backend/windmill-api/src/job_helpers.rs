@@ -1,12 +1,8 @@
 use std::{cmp, time::Duration};
 
-use crate::{
-    db::DB, resources::get_resource_value_interpolated_internal, users::Tokened,
-    workspaces::LargeFileStorage,
-};
+use crate::{db::DB, resources::get_resource_value_interpolated_internal, users::Tokened};
 use anyhow::Context;
 use aws_sdk_s3::{
-    config::{BehaviorVersion, Credentials, Region},
     presigning::PresigningConfig,
     primitives::ByteStream,
     types::{CompletedMultipartUpload, CompletedPart},
@@ -32,7 +28,11 @@ use polars::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
-use windmill_common::{db::UserDB, error};
+use windmill_common::{
+    db::UserDB,
+    error,
+    s3_helpers::{build_s3_client, render_endpoint, LargeFileStorage, S3Resource},
+};
 
 use crate::db::ApiAuthed;
 
@@ -85,23 +85,6 @@ pub fn workspaced_service() -> Router {
             "/multipart_upload_s3_file",
             post(multipart_upload_s3_file).layer(cors.clone()),
         )
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-struct S3Resource {
-    #[serde(rename = "bucket")]
-    bucket: String,
-    region: String,
-    #[serde(rename = "endPoint")]
-    endpoint: String,
-    #[serde(rename = "useSSL")]
-    use_ssl: bool,
-    #[serde(rename = "accessKey")]
-    access_key: Option<String>,
-    #[serde(rename = "secretKey")]
-    secret_key: Option<String>,
-    #[serde(rename = "pathStyle")]
-    path_style: bool,
 }
 
 #[derive(Deserialize)]
@@ -346,7 +329,10 @@ async fn test_connection(
         .max_keys(1)
         .send()
         .await
-        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+        .map_err(|err| {
+            tracing::error!("Error testing connection to S3 bucket: {:?}", err);
+            error::Error::InternalErr(err.to_string())
+        })?;
     return Ok(Json(()));
 }
 
@@ -911,6 +897,11 @@ async fn multipart_upload_s3_file(
     }));
 }
 
+#[derive(Deserialize)]
+pub struct S3Object {
+    pub s3: String,
+}
+
 async fn get_workspace_s3_resource<'c>(
     authed: &ApiAuthed,
     user_db: &UserDB,
@@ -983,30 +974,6 @@ async fn get_s3_resource<'c>(
     return Ok(Some(s3_resource));
 }
 
-fn build_s3_client(s3_resource_ref: &S3Resource) -> aws_sdk_s3::Client {
-    let s3_resource = s3_resource_ref.clone();
-
-    let endpoint = render_endpoint(&s3_resource);
-    let mut s3_config_builder = aws_sdk_s3::Config::builder()
-        .endpoint_url(endpoint)
-        .behavior_version(BehaviorVersion::latest())
-        .region(Region::new(s3_resource.region));
-    if s3_resource.access_key.is_some() {
-        s3_config_builder = s3_config_builder.credentials_provider(Credentials::new(
-            s3_resource.access_key.unwrap_or_default(),
-            s3_resource.secret_key.unwrap_or_default(),
-            None,
-            None,
-            "s3_storage",
-        ));
-    }
-    if s3_resource.path_style {
-        s3_config_builder = s3_config_builder.force_path_style(true);
-    }
-    let s3_config = s3_config_builder.build();
-    return aws_sdk_s3::Client::from_conf(s3_config);
-}
-
 fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
     let s3_resource = s3_resource_ref.to_owned();
     let mut s3_configs: Vec<(AmazonS3ConfigKey, String)> = vec![
@@ -1032,16 +999,6 @@ fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
         s3_configs.push((AmazonS3ConfigKey::SecretAccessKey, secret_key));
     }
     return CloudOptions::default().with_aws(s3_configs);
-}
-
-fn render_endpoint(s3_resource: &S3Resource) -> String {
-    if s3_resource.endpoint.starts_with("http://") || s3_resource.endpoint.starts_with("https://") {
-        s3_resource.endpoint.clone()
-    } else if s3_resource.use_ssl {
-        format!("https://{}", s3_resource.endpoint)
-    } else {
-        format!("http://{}", s3_resource.endpoint)
-    }
 }
 
 async fn read_s3_text_object_head(
