@@ -84,7 +84,6 @@ candle-core.workspace = true
 candle-transformers.workspace = true
 candle-nn.workspace = true
 aws-sdk-s3.workspace = true
-aws-config.workspace = true
-polars = { version = "0.35.2", features = ["lazy", "parquet", "aws", "csv", "dtype-full"] }
-polars-io = { version = "0.35.2", features = ["csv"] }
-object_store = { version = "0.8.0", features = ["aws"] }
+polars.workspace = true
+polars-io.workspace = true
+object_store.workspace = true
