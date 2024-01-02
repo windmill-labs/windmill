@@ -1,23 +1,41 @@
 <script lang="ts">
-	import { Chart } from 'svelte-chartjs'
-	import { Chart as ChartJS, registerables, type ChartOptions } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { AgCharts, type AgChartOptions, type AgBarSeriesOptions } from 'ag-charts-community'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'piechartcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'agchartcomponent'> | undefined = undefined
 	export let render: boolean
+
+	interface IData {
+		// Chart Data Interface
+		month:
+			| 'Jan'
+			| 'Feb'
+			| 'Mar'
+			| 'Apr'
+			| 'May'
+			| 'Jun'
+			| 'Jul'
+			| 'Aug'
+			| 'Sep'
+			| 'Oct'
+			| 'Nov'
+			| 'Dec'
+		avgTemp: number
+		iceCreamSales: number
+	}
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -26,25 +44,40 @@
 		loading: false
 	})
 
-	ChartJS.register(...registerables)
-
 	let result: undefined = undefined
 
 	const resolvedConfig = initConfig(
-		components['chartjscomponent'].initialData.configuration,
+		components['agchartcomponent'].initialData.configuration,
 		configuration
 	)
-	$: options = {
-		responsive: true,
-		animation: false,
-		maintainAspectRatio: false,
-		...(resolvedConfig.options ?? {})
-	} as ChartOptions
 
-	let css = initCss($app.css?.chartjscomponent, customCss)
+	let css = initCss($app.css?.agchartcomponent, customCss)
+
+	onMount(() => {
+		try {
+			// Chart Options
+			const options: AgChartOptions = {
+				container: document.getElementById('myChart') as HTMLElement, // Container: HTML Element to hold the chart
+				// Data: Data to be displayed in the chart
+				data: [
+					{ month: 'Jan', avgTemp: 2.3, iceCreamSales: 162000 },
+					{ month: 'Mar', avgTemp: 6.3, iceCreamSales: 302000 },
+					{ month: 'May', avgTemp: 16.2, iceCreamSales: 800000 },
+					{ month: 'Jul', avgTemp: 22.8, iceCreamSales: 1254000 },
+					{ month: 'Sep', avgTemp: 14.5, iceCreamSales: 950000 },
+					{ month: 'Nov', avgTemp: 8.9, iceCreamSales: 200000 }
+				] as IData[],
+				// Series: Defines which chart type and data to use
+				series: [{ type: 'bar', xKey: 'month', yKey: 'iceCreamSales' } as AgBarSeriesOptions]
+			}
+			AgCharts.create(options)
+		} catch (error) {
+			console.error(error)
+		}
+	})
 </script>
 
-{#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['agchartcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
@@ -63,17 +96,9 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div
-		class={twMerge('w-full h-full', css?.container?.class, 'wm-chartjs')}
-		style={css?.container?.style ?? ''}
-	>
-		{#if result && resolvedConfig.type}
-			{#key resolvedConfig.type}
-				{#key options}
-					<Chart type={resolvedConfig.type} data={result} {options} />
-				{/key}
-			{/key}
-		{/if}
-	</div>
-</RunnableWrapper>
+<div
+	class={twMerge('w-full h-full', css?.container?.class, 'wm-agchart')}
+	style={css?.container?.style ?? ''}
+>
+	<div id="myChart" />
+</div>

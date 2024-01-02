@@ -211,7 +211,7 @@
 	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
 		const buttons: any = []
 
-		if (!topHash && script) {
+		if (!topHash && script && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
@@ -222,6 +222,20 @@
 				}
 			})
 		}
+
+		if (!script) {
+			return buttons
+		}
+
+		buttons.push({
+			label: `View runs`,
+			buttonProps: {
+				href: `/runs/${script.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: History
+			}
+		})
 
 		if (!script || $userStore?.operator || !can_write) {
 			return buttons

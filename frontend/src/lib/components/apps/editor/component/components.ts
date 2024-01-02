@@ -109,6 +109,8 @@ export type ChartJsComponentV2 = BaseComponent<'chartjscomponentv2'> & {
 	datasets: RichConfiguration | undefined
 }
 
+export type AgChartComponent = BaseComponent<'agchartcomponent'>
+
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
 export type TableComponent = BaseComponent<'tablecomponent'> & {
@@ -247,6 +249,7 @@ export type TypedComponent =
 	| StatisticCardComponent
 	| MenuComponent
 	| DecisionTreeComponent
+	| AgChartComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1226,6 +1229,33 @@ export const components = {
 			}
 		}
 	},
+	agchartcomponent: {
+		name: 'AG Charts',
+		icon: BarChart4,
+		documentationLink: `${documentationBaseUrl}/agchart`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					data: [
+						{ country: 'USA', gold: 10, silver: 20 },
+						{ country: 'UK', gold: 5, silver: 10 },
+						{ country: 'France', gold: 15, silver: 5 }
+					],
+					series: [
+						{ xKey: 'country', yKey: 'gold', label: 'Gold Medals' },
+						{ xKey: 'country', yKey: 'silver', label: 'Silver Medals' }
+					]
+				}
+			}
+		}
+	},
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,
@@ -2192,7 +2222,7 @@ This is a paragraph.
 	carousellistcomponent: {
 		name: 'Carousel List',
 		icon: ListIcon,
-		documentationLink: `${documentationBaseUrl}/list`,
+		documentationLink: `${documentationBaseUrl}/carousel`,
 		dims: '3:8-12:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2205,7 +2235,8 @@ This is a paragraph.
 
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
-					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
+					tooltip:
+						'Sets how an animation progresses through the duration of each cycle, see https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
 				}
 			},
 			componentInput: {

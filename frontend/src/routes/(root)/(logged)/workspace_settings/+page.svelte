@@ -373,7 +373,7 @@
 						<div class="flex gap-2 items-center my-1"> Slack </div>
 					</Tab>
 				{/if}
-				{#if isCloudHosted()}
+				{#if isCloudHosted() || true}
 					<Tab size="xs" value="premium">
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>

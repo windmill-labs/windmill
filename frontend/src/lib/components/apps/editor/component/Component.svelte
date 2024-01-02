@@ -66,6 +66,7 @@
 	import AppStatCard from '../../components/display/AppStatCard.svelte'
 	import AppMenu from '../../components/display/AppMenu.svelte'
 	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
+	import AppAgChart from '../../components/display/AppAgChart.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -288,6 +289,15 @@
 			/>
 		{:else if component.type === 'piechartcomponent'}
 			<AppPieChart
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'agchartcomponent'}
+			<AppAgChart
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
