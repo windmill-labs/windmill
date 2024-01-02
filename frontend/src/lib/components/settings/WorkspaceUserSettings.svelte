@@ -152,7 +152,7 @@
 						<Cell>
 							<div>
 								<ToggleButtonGroup
-									selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
+									selected={is_admin ? 'admin' : operator ? 'operator' : 'developer'}
 									on:selected={async (e) => {
 										if (is_admin && email == $userStore?.email && e.detail != 'admin') {
 											sendUserToast(
@@ -185,10 +185,10 @@
 									/>
 
 									<ToggleButton
-										value="author"
+										value="developer"
 										size="xs"
-										label="Author"
-										tooltip="An Author can execute and view scripts/flows/apps, but they can also create new ones."
+										label="Developer"
+										tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 									/>
 
 									<ToggleButton
@@ -330,7 +330,7 @@
 						<Cell>
 							<div>
 								<ToggleButtonGroup
-									selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
+									selected={is_admin ? 'admin' : operator ? 'operator' : 'developer'}
 									on:selected={async (e) => {
 										const body =
 											e.detail == 'admin'
@@ -356,10 +356,10 @@
 									/>
 
 									<ToggleButton
-										value="author"
+										value="developer"
 										size="xs"
-										label="Author"
-										tooltip="An Author can execute and view scripts/flows/apps, but they can also create new ones."
+										label="Developer"
+										tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 									/>
 
 									<ToggleButton
