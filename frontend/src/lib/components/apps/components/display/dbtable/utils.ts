@@ -8,16 +8,21 @@ export function makeQuery(
 	table: string,
 	tableMetadata: TableMetadata,
 	pageSize: number | undefined,
+	whereClause: string | undefined,
 	page: number
 ) {
 	if (!table) throw new Error('Table name is required')
 
-	const filteredColumns = tableMetadata.map((column) => `${column.field}::text`)
+	const filteredColumns = tableMetadata
+		.filter((x) => x != undefined)
+		.map((column) => `${column?.field}::text`)
 
 	let selectClause = filteredColumns.join(', ')
 
 	let query = `SELECT ${selectClause} FROM ${table}`
-
+	if (whereClause) {
+		query += ` WHERE ${whereClause}`
+	}
 	if (pageSize) {
 		query += ` LIMIT ${pageSize} OFFSET ${pageSize * page}`
 	}
@@ -79,6 +84,8 @@ export function createPostgresInput(
 		}
 	}
 
+	console.log(getRunnable.inlineScript?.content)
+
 	const getQuery: AppInput = {
 		runnable: getRunnable,
 		fields: {
@@ -133,6 +140,51 @@ export function createUpdatePostgresInput(
 
 		return query
 	}
+
+	const updateRunnable: RunnableByName = {
+		name: 'AppDbExplorer',
+		type: 'runnableByName',
+		inlineScript: {
+			content: query,
+			language: Preview.language.POSTGRESQL,
+			schema: {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				properties: {
+					database: {
+						description: 'Database name',
+						type: 'object',
+						format: 'resource-postgresql'
+					}
+				},
+				required: ['database'],
+				type: 'object'
+			}
+		}
+	}
+
+	const updateQuery: AppInput = {
+		runnable: updateRunnable,
+		fields: {
+			database: {
+				type: 'static',
+				value: resource,
+				fieldType: 'object',
+				format: 'resource-postgresql'
+			}
+		},
+		type: 'runnable',
+		fieldType: 'object'
+	}
+
+	return updateQuery
+}
+
+export function getCountPostgresql(resource: string, table: string): AppInput | undefined {
+	if (!resource || !table) {
+		return undefined
+	}
+
+	const query = `SELECT COUNT(*) FROM ${table}`
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',

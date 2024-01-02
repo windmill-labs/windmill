@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -26,8 +26,6 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
-	export let containerHeight: number | undefined = undefined
-	export let pageSize: number | undefined = undefined
 
 	const { app, worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -112,8 +110,6 @@
 	let clientHeight
 	let clientWidth
 
-	const dispatch = createEventDispatcher()
-
 	function onCellValueChanged(event) {
 		if (result) {
 			let dataCell = event.newValue
@@ -128,20 +124,13 @@
 			result[event.node.rowIndex][event.colDef.field] = dataCell
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
-
-			dispatch('update', {
-				row: event.node.rowIndex,
-				column: event.colDef.field,
-				value: dataCell,
-				data: event.node.data,
-				oldValue: event.oldValue,
-				columnDef: event.colDef
-			})
 		}
 	}
 
 	let extraConfig = resolvedConfig.extraConfig
+
 	let api: GridApi<any> | undefined = undefined
+
 	let eGui: HTMLDivElement
 
 	$: loaded && eGui && mountGrid()
@@ -153,11 +142,9 @@
 				eGui,
 				{
 					rowData: value,
-					columnDefs: resolvedConfig?.columnDefs.filter((x) => !x.ignored),
-					pagination: pageSize != undefined ? true : resolvedConfig?.pagination,
-					paginationAutoPageSize: pageSize != undefined ? false : resolvedConfig?.pagination,
-					paginationPageSize: pageSize,
-					paginationPageSizeSelector: pageSize ? false : undefined,
+					columnDefs: resolvedConfig?.columnDefs,
+					pagination: resolvedConfig?.pagination,
+					paginationAutoPageSize: resolvedConfig?.pagination,
 					defaultColDef: {
 						flex: resolvedConfig.flex ? 1 : 0,
 						editable: resolvedConfig?.allEditable,
@@ -204,6 +191,7 @@
 	}
 
 	$: resolvedConfig && updateOptions()
+
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
@@ -251,10 +239,6 @@
 			...(resolvedConfig?.extraConfig ?? {})
 		})
 	}
-
-	export function getResult() {
-		return result
-	}
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -285,7 +269,7 @@
 					css?.container?.class,
 					'wm-aggrid-container'
 				)}
-				style={containerHeight ? `height: ${containerHeight}px;` : css?.container?.style}
+				style={css?.container?.style}
 				bind:clientHeight
 				bind:clientWidth
 			>

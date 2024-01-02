@@ -595,7 +595,7 @@ const aggridcomponentconst = {
 			pagination: {
 				type: 'static',
 				fieldType: 'boolean',
-				value: false
+				value: false as boolean | undefined
 			},
 			selectFirstRowByDefault: {
 				type: 'static',
@@ -2211,7 +2211,8 @@ This is a paragraph.
 
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
-					tooltip: 'Sets how an animation progresses through the duration of each cycle, see https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function',
+					tooltip:
+						'Sets how an animation progresses through the duration of each cycle, see https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
 				}
 			},
 			componentInput: {
@@ -2988,11 +2989,6 @@ This is a paragraph.
 						}
 					}
 				} as const,
-				pageSize: {
-					type: 'static',
-					fieldType: 'number',
-					value: 10
-				},
 				columnDefs: {
 					type: 'static',
 					fieldType: 'array',

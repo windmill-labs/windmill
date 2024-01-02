@@ -81,10 +81,13 @@
 		componentInput = componentInput
 
 		if (componentInput.value) {
-			items.push({
-				value: componentInput.value[componentInput.value.length - 1],
-				id: generateRandomString()
-			})
+			let value = componentInput.value[componentInput.value.length - 1]
+			if (value) {
+				items.push({
+					value,
+					id: generateRandomString()
+				})
+			}
 		}
 	}
 
@@ -139,16 +142,16 @@
 		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
 
-	let items = (Array.isArray(componentInput.value) ? componentInput.value : []).map(
-		(item, index) => {
+	let items = (Array.isArray(componentInput.value) ? componentInput.value : [])
+		.filter((x) => x != undefined)
+		.map((item, index) => {
 			return { value: item, id: generateRandomString() }
-		}
-	)
+		})
 
 	$: items != undefined && handleItemsChange()
 
 	function handleItemsChange() {
-		componentInput.value = items.map((item) => item.value)
+		componentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
 	}
 
 	let raw: boolean = false
@@ -236,10 +239,13 @@
 					componentInput = componentInput
 
 					if (componentInput.value) {
-						items.push({
-							value: componentInput.value[componentInput.value.length - 1],
-							id: generateRandomString()
-						})
+						let value = componentInput.value[componentInput.value.length - 1]
+						if (value) {
+							items.push({
+								value,
+								id: generateRandomString()
+							})
+						}
 					}
 				}}
 			/>

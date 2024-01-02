@@ -220,7 +220,8 @@
 		noToast = false,
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean
-	) {
+	): Promise<string | undefined> {
+		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
@@ -288,7 +289,7 @@
 		}
 
 		try {
-			const jobId = await resultJobLoader?.abstractRun(async () => {
+			jobId = await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
 				for (const k of Object.keys(fields ?? {})) {
@@ -343,10 +344,11 @@
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
 						...p,
-						jobs: { ...p.jobs, [id]: jobId }
+						jobs: { ...p.jobs, [id]: jobId as string }
 					}
 				})
 			}
+			return jobId
 		} catch (e) {
 			updateResult({ error: e.body ?? e.message })
 			loading = false
@@ -359,7 +361,7 @@
 				await cancellableRun()
 			} else {
 				console.log('Run component')
-				executeComponent()
+				return await executeComponent()
 			}
 		} catch (e) {
 			updateResult({ error: e.body ?? e.message })
@@ -592,6 +594,7 @@
 		lastJobId = e.detail.id
 		setResult(e.detail.result, e.detail.id)
 		loading = false
+		dispatch('done', { id: e.detail.id, result: e.detail.result })
 	}}
 	on:cancel={(e) => {
 		let jobId = e.detail
@@ -603,6 +606,7 @@
 				duration_ms: Date.now() - (job.started_at ?? job.created_at)
 			}
 		}
+		dispatch('cancel', { id: e.detail })
 	}}
 	on:running={(e) => {
 		let jobId = e.detail

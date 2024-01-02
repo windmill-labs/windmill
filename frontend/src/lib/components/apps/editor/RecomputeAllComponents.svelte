@@ -106,7 +106,8 @@
 	]
 </script>
 
-<!-- {$initialized.initializedComponents?.join(', ')} -->
+<!-- {$initialized.initializedComponents?.join(', ')}
+{allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length} -->
 <!-- {allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length}
 {$initialized.initializedComponents}
 {allItems($app.grid, $app.subgrids)

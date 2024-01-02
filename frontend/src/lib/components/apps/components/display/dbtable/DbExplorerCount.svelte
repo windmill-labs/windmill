@@ -5,13 +5,13 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdatePostgresInput, type ColumnMetadata } from './utils'
+	import { getCountPostgresql } from './utils'
 
 	export let id: string
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_update`, {
+	let outputs = initOutput($worldStore, `${id}_count`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined
@@ -22,21 +22,8 @@
 
 	let input: AppInput | undefined = undefined
 
-	export async function triggerUpdate(
-		resource: string,
-		table: string,
-		rowIndex: number,
-		column: ColumnMetadata,
-		columns: ColumnMetadata[],
-		value: string,
-		data: Record<string, any>,
-		oldValue: string | undefined = undefined
-	) {
-		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
-		const clonnedData = { ...data }
-		clonnedData[column.field] = oldValue
-
-		input = createUpdatePostgresInput(resource, table, column, columns, value, clonnedData)
+	export async function getCount(resource: string, table: string) {
+		input = getCountPostgresql(resource, table)
 
 		await tick()
 
@@ -54,6 +41,6 @@
 	componentInput={input}
 	autoRefresh={false}
 	render={false}
-	id={`${id}_update`}
+	id={`${id}_count`}
 	{outputs}
 />

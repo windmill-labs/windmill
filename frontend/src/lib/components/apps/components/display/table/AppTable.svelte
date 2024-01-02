@@ -555,6 +555,7 @@
 															}}
 															{#if actionButton.type == 'buttoncomponent'}
 																<AppButton
+																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	noWFull
@@ -571,6 +572,7 @@
 																/>
 															{:else if actionButton.type == 'checkboxcomponent'}
 																<AppCheckbox
+																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	id={actionButton.id}
@@ -585,6 +587,7 @@
 															{:else if actionButton.type == 'selectcomponent'}
 																<div class="w-40">
 																	<AppSelect
+																		noInitialize
 																		extraKey={'idx' + rowIndex}
 																		{render}
 																		id={actionButton.id}
@@ -600,6 +603,7 @@
 															{/if}
 														{:else if actionButton.type == 'buttoncomponent'}
 															<AppButton
+																noInitialize
 																extraKey={'idx' + rowIndex}
 																{render}
 																noWFull
@@ -615,6 +619,7 @@
 															/>
 														{:else if actionButton.type == 'checkboxcomponent'}
 															<AppCheckbox
+																noInitialize
 																extraKey={'idx' + rowIndex}
 																{render}
 																id={actionButton.id}
@@ -628,6 +633,7 @@
 														{:else if actionButton.type == 'selectcomponent'}
 															<div class="w-40">
 																<AppSelect
+																	noInitialize
 																	--font-size="10px"
 																	extraKey={'idx' + rowIndex}
 																	{render}

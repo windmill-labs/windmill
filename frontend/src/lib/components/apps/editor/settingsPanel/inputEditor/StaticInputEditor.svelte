@@ -158,7 +158,7 @@
 				</div>
 			</div>
 		</div>
-	{:else if fieldType === 'db-explorer'}
+	{:else if fieldType === 'db-explorer' && componentInput.value != undefined}
 		<div class="flex flex-row rounded-md bg-surface items-center h-full">
 			<div class="relative w-full">
 				<input

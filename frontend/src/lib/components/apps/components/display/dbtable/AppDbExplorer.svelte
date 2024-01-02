@@ -7,7 +7,7 @@
 	} from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
-	import { findGridItem, initConfig } from '$lib/components/apps/editor/appUtils'
+	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
 		ColumnIdentity,
 		createPostgresInput,
@@ -17,8 +17,7 @@
 		type ColumnMetadata,
 		type TableMetadata
 	} from './utils'
-	import AppAggridTable from '../table/AppAggridTable.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -27,13 +26,17 @@
 	import InsertRow from './InsertRow.svelte'
 	import Portal from 'svelte-portal'
 	import { sendUserToast } from '$lib/toast'
-	import type { StaticInput } from '$lib/components/apps/inputType'
+	import type { AppInput, StaticInput } from '$lib/components/apps/inputType'
+	import DbExplorerCount from './DbExplorerCount.svelte'
+	import AppAggridExplorerTable from '../table/AppAggridExplorerTable.svelte'
+	import type { IDatasource } from 'ag-grid-community'
+	import { RunnableWrapper } from '../../helpers'
+	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
 	export let render: boolean
-	export let extraKey: string | undefined = undefined
 	export let initializing: boolean = true
 
 	const resolvedConfig = initConfig(
@@ -41,21 +44,24 @@
 		configuration
 	)
 
-	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	$: input = createPostgresInput(
-		resolvedConfig.type.configuration.postgresql.resource,
-		resolvedConfig.type.configuration.postgresql.table,
-		resolvedConfig.columnDefs?.filter((column) => !column?.ignored) ?? [],
-		resolvedConfig.pageSize,
-		resolvedConfig.whereClause,
-		$worldStore.outputsById[id]?.page.peak() ?? 1
-	)
+	let input: AppInput | undefined = undefined
+
+	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
+
+	$: editorContext != undefined &&
+		$mode == 'dnd' &&
+		resolvedConfig.type.configuration?.postgresql?.table &&
+		listColumnsIfAvailable()
 
 	initializing = false
 
 	let updateCell: UpdateCell
+	let explorerCount: DbExplorerCount
+
 	let renderCount = 0
 	let insertDrawer: Drawer | undefined = undefined
 	let componentContainerHeight: number | undefined = undefined
@@ -87,15 +93,16 @@
 
 	let args: Record<string, any> = {}
 
-	$: input && resolvedConfig.pageSize && shouldReRender()
-
-	let lastInput = input
-	function shouldReRender() {
-		if (lastInput !== input) {
-			lastInput = input
-			renderCount++
-		}
-	}
+	let outputs = initOutput($worldStore, id, {
+		selectedRowIndex: 0,
+		selectedRow: {},
+		selectedRows: [] as any[],
+		result: [] as any[],
+		loading: false,
+		page: 0,
+		newChange: { row: 0, column: '', value: undefined },
+		ready: undefined as boolean | undefined
+	})
 
 	let lastResource: string | undefined = undefined
 	async function listTableIfAvailable() {
@@ -159,12 +166,34 @@
 		}
 	}
 
-	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
+	let datasource: IDatasource = {
+		rowCount: 0,
+		getRows: function (params) {
+			console.log('asking for ' + params.startRow + ' to ' + params.endRow)
+			runnableComponent?.executeComponent(
+				{
+					...params,
+					...extraQueryParams,
+					...resolvedConfig.type.configuration.postgresql
+				},
+				{
+					id: `${id}_count`,
+					result: outputs.result,
+					loading: outputs.loading
+				}
+			)
+			params.successCallback([], 0)
+		}
+	}
 
-	$: editorContext != undefined &&
-		$mode == 'dnd' &&
-		resolvedConfig.type.configuration?.postgresql?.table &&
-		listColumnsIfAvailable()
+	$: resolvedConfig.type.configuration.postgresql.table && computeCount()
+
+	async function computeCount() {
+		let table = resolvedConfig.type.configuration.postgresql.table
+		if (table) {
+			await explorerCount?.getCount(resolvedConfig.type.configuration.postgresql.resource, table)
+		}
+	}
 
 	let lastTable: string | undefined = undefined
 	async function listColumnsIfAvailable() {
@@ -189,23 +218,36 @@
 			console.log('old is not an array RESET')
 			old = []
 		}
-		const keys = tableMetadata.map((col) => col.field)
-		Object.keys(old).forEach((key) => {
-			if (!keys.includes(key)) {
-				delete old[key]
+		// console.log('OLD', old)
+		// console.log(tableMetadata)
+		const oldMap = Object.fromEntries(old.filter((x) => x != undefined).map((x) => [x.field, x]))
+		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
+
+		let ncols: any[] = []
+		Object.entries(oldMap).forEach(([key, value]) => {
+			if (newMap[key]) {
+				ncols.push({
+					...value,
+					...newMap[key]
+				})
 			}
 		})
-		Object.entries(tableMetadata).forEach(([key, value], i) => {
-			old[i] = {
-				...old.find((col) => col?.field === key),
-				...value
+		Object.entries(newMap).forEach(([key, value]) => {
+			if (!oldMap[key]) {
+				ncols.push(value)
 			}
 		})
 
+		console.log(ncols, tableMetadata)
 		//@ts-ignore
-		gridItem.data.configuration.columnDefs = { value: old, type: 'static' }
-
+		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
+		gridItem.data = gridItem.data
 		$app = $app
+		let oldS = $selectedComponent
+		$selectedComponent = []
+		await tick()
+		$selectedComponent = oldS
+		renderCount++
 	}
 
 	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
@@ -273,12 +315,34 @@
 
 		args = {}
 	}
+
+	$: $worldStore && connectToComponents()
+
+	function connectToComponents() {
+		if ($worldStore) {
+			const outputs = $worldStore.outputsById[`${id}_count`]
+			if (outputs) {
+				outputs.result.subscribe(
+					{
+						id: 'dbexplorer-count-' + id,
+						next: (value) => {
+							datasource.rowCount = value?.[0]?.count
+						}
+					},
+					datasource.rowCount
+				)
+			}
+		}
+	}
+
+	let runnableComponent: RunnableComponent
+	let state: any = undefined
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
-		{extraKey}
+		extraKey="db_explorer"
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
@@ -286,37 +350,50 @@
 {/each}
 
 <UpdateCell {id} bind:this={updateCell} />
-<div class="h-full" bind:clientHeight={componentContainerHeight}>
-	<div class="flex flex-start justify-end p-2" bind:clientHeight={buttonContainerHeight}>
-		<Button
-			startIcon={{ icon: Plus }}
-			color="dark"
-			size="xs2"
-			on:click={() => {
-				insertDrawer?.openDrawer()
-			}}
-		>
-			Insert
-		</Button>
-	</div>
-	{#key renderCount}
-		{#if resolvedConfig.type.configuration?.postgresql?.resource && resolvedConfig.type.configuration?.postgresql?.table}
-			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			<AppAggridTable
-				{id}
-				{configuration}
-				bind:initializing
-				componentInput={input}
-				{customCss}
-				{render}
-				pageSize={resolvedConfig.pageSize}
-				containerHeight={componentContainerHeight - buttonContainerHeight}
-				on:update={onUpdate}
-			/>
-		{/if}
-	{/key}
-</div>
+<DbExplorerCount {id} bind:this={explorerCount} />
 
+{datasource.rowCount}
+<RunnableWrapper
+	noInitialize
+	bind:runnableComponent
+	recomputeIds={[id]}
+	componentInput={input}
+	autoRefresh={false}
+	{render}
+	id={`${id}_count`}
+	{outputs}
+>
+	<div class="h-full" bind:clientHeight={componentContainerHeight}>
+		<div class="flex flex-start justify-end p-2" bind:clientHeight={buttonContainerHeight}>
+			<Button
+				startIcon={{ icon: Plus }}
+				color="dark"
+				size="xs2"
+				on:click={() => {
+					insertDrawer?.openDrawer()
+				}}
+			>
+				Insert
+			</Button>
+		</div>
+		{#if resolvedConfig.type.configuration?.postgresql?.resource && resolvedConfig.type.configuration?.postgresql?.table}
+			<!-- {JSON.stringify(lastInput)} -->
+			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
+			{#key resolvedConfig}
+				<AppAggridExplorerTable
+					bind:state
+					{id}
+					{datasource}
+					{resolvedConfig}
+					{customCss}
+					{outputs}
+					containerHeight={componentContainerHeight - buttonContainerHeight}
+					on:update={onUpdate}
+				/>
+			{/key}
+		{/if}
+	</div>
+</RunnableWrapper>
 <Portal>
 	<Drawer bind:this={insertDrawer} size="800px">
 		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>

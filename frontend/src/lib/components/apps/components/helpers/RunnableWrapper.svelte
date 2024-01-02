@@ -10,6 +10,7 @@
 	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
+	export let noInitialize = false
 
 	type SideEffectAction =
 		| {
@@ -208,7 +209,9 @@
 </script>
 
 {#if componentInput === undefined}
-	<InitializeComponent {id} />
+	{#if !noInitialize}
+		<InitializeComponent {id} />
+	{/if}
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
@@ -242,7 +245,7 @@
 		<slot />
 	</RunnableComponent>
 {:else}
-	<NonRunnableComponent {hasChildrens} {render} bind:result {id} {componentInput}>
+	<NonRunnableComponent {noInitialize} {hasChildrens} {render} bind:result {id} {componentInput}>
 		<slot />
 	</NonRunnableComponent>
 {/if}

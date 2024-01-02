@@ -26,6 +26,7 @@
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
+	export let noInitialize = false
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -111,7 +112,10 @@
 	/>
 {/each}
 
-<InitializeComponent {id} />
+{#if !noInitialize}
+	<InitializeComponent {id} />
+{/if}
+
 <AlignWrapper
 	{render}
 	{horizontalAlignment}
