@@ -181,6 +181,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			tooltip: 'Expose additional metrics (require metrics to be enabled)',
 			storage: 'setting'
+		},
+		{
+			label: 'Persist job metrics',
+			key: 'persist_job_metrics',
+			fieldType: 'boolean',
+			tooltip: 'Job metrics will be persisted to Windmill\'s database and be displayed in each job run page.',
+			storage: 'setting',
+			ee_only: 'Only available on Windmill Enterprise Edition'
 		}
 	],
 	Telemetry: [

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job, ScriptService, Script } from '$lib/gen'
+	import { JobService, Job, ScriptService, Script, type MetricDataPoint } from '$lib/gen'
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -49,10 +49,12 @@
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import Portal from 'svelte-portal'
+	import MemoryFootprintViewer from '$lib/components/MemoryFootprintViewer.svelte'
 
 	let job: Job | undefined
+	let jobMemoryStats: MetricDataPoint[] | undefined
 
-	let viewTab: 'result' | 'logs' | 'code' = 'result'
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
 	let branchOrIterationN: number = 0
 
@@ -171,6 +173,7 @@
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job
+	bind:jobMemoryStats
 	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
@@ -404,16 +407,17 @@
 						>
 					{/if}
 				{/if}
-				<Button 
-					href={viewHref} 
-					color="blue" 
-					size="md" 
-					startIcon={{ 
-						icon: job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Scroll 
+				<Button
+					href={viewHref}
+					color="blue"
+					size="md"
+					startIcon={{
+						icon:
+							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Scroll
 					}}
-					>
+				>
 					View {job?.job_kind}
-					</Button>
+				</Button>
 			{/if}
 		</svelte:fragment>
 	</ActionRow>
@@ -507,6 +511,7 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
+					<Tab value="stats">Memory</Tab>
 					{#if job?.job_kind == 'dependencies'}
 						<Tab value="code">Code</Tab>
 					{:else if job?.job_kind == 'preview'}
@@ -538,6 +543,10 @@
 							{:else}
 								<Skeleton layout={[[5]]} />
 							{/if}
+						{:else if viewTab == 'stats'}
+							<div class="w-full">
+								<MemoryFootprintViewer bind:jobStats={jobMemoryStats} />
+							</div>
 						{:else if job !== undefined && 'result' in job && job.result !== undefined}
 							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />
 						{:else if job}

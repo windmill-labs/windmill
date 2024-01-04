@@ -49,6 +49,19 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 	}
 }
 
+export function displayTime(dateString: string | Date | undefined): string {
+	const date = new Date(dateString ?? '')
+	if (date.toString() === 'Invalid Date') {
+		return ''
+	} else {
+		return `${date.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+		})}.${date.getMilliseconds()}`
+	}
+}
+
 export function displaySize(sizeInBytes: number | undefined): string | undefined {
 	if (sizeInBytes === undefined) {
 		return undefined

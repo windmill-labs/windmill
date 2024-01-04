@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { Job, JobService, MetricsService, type MetricDataPoint } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -10,6 +10,9 @@
 	export let job: Job | undefined = undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
+
+	export let jobMemoryStats: MetricDataPoint[] | undefined = undefined
+	let jobMetricsLastFetch: Date | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -139,6 +142,36 @@
 		}
 	}
 
+	async function loadMetricsNoFailure(id: string, fetchUpdate: boolean): Promise<boolean> {
+		try {
+			let jobStatsPromise = MetricsService.getJobMetrics({
+				workspace: workspace!,
+				id,
+				requestBody: {
+					from_timestamp: fetchUpdate ? jobMetricsLastFetch?.toISOString() : undefined,
+					timeseries_max_datapoints: 0
+				}
+			})
+			jobMetricsLastFetch = new Date()
+			let jobStats = await jobStatsPromise
+
+			let memory_timeseries =
+				jobStats.timeseries_metrics?.filter((ts) => ts.metric_id === 'memory_kb') ?? []
+
+			if (memory_timeseries.length > 0) {
+				if (fetchUpdate) {
+					jobMemoryStats = (jobMemoryStats ?? []).concat(memory_timeseries[0].values)
+				} else {
+					jobMemoryStats = memory_timeseries[0].values
+				}
+				return true
+			}
+		} catch {
+			// do nothing, failure is not critical
+		}
+		return false
+	}
+
 	async function loadTestJob(id: string): Promise<boolean> {
 		let isCompleted = false
 		if (currentId === id) {
@@ -150,7 +183,7 @@
 						running: job.running,
 						logOffset: job.logs?.length ? job.logs?.length + 1 : 0
 					})
-
+					loadMetricsNoFailure(id, true)
 					if (previewJobUpdates.new_logs) {
 						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 					}
@@ -159,9 +192,11 @@
 					}
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
 						job = await JobService.getJob({ workspace: workspace!, id })
+						loadMetricsNoFailure(id, false)
 					}
 				} else {
 					job = await JobService.getJob({ workspace: workspace!, id })
+					loadMetricsNoFailure(id, false)
 				}
 
 				if (job?.type === 'CompletedJob') {
