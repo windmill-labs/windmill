@@ -102,21 +102,22 @@ pub async fn record_metric(
     metric_id: String,
     value: MetricNumericValue,
 ) -> error::Result<()> {
-    let metric_record_opt = sqlx::query_as::<_, JobStatsRecord>(
-        "SELECT * FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+    let metric_kind_opt: Option<MetricKind> = sqlx::query_scalar(
+        "SELECT metric_kind FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
     )
     .bind(&workspace_id)
     .bind(&job_id)
     .bind(&metric_id)
     .fetch_optional(db)
     .await?;
-    if metric_record_opt.is_none() {
+
+    if metric_kind_opt.is_none() {
         return Err(error::Error::BadRequest(format!(
             "Metric {} not yet registered for job {}.",
             metric_id, job_id
         )));
     }
-    let metric_kind = metric_record_opt.unwrap().metric_kind;
+    let metric_kind = metric_kind_opt.unwrap();
 
     let (value_int, value_float) = match value {
         MetricNumericValue::Integer(val) => {

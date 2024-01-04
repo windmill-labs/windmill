@@ -9,7 +9,7 @@
         "Uuid",
         "Text",
         "TimestamptzArray",
-        "Float8Array"
+        "Float4Array"
       ]
     },
     "nullable": []

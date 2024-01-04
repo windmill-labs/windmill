@@ -8,7 +8,7 @@
         "Text",
         "Uuid",
         "Text",
-        "Float8"
+        "Float4"
       ]
     },
     "nullable": []
