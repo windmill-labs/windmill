@@ -11,10 +11,10 @@ pub struct JobStatsRecord {
     pub metric_name: Option<String>,
     pub metric_kind: MetricKind,
     pub scalar_int: Option<i32>,
-    pub scalar_float: Option<f64>,
+    pub scalar_float: Option<f32>,
     pub timestamps: Option<Vec<chrono::DateTime<chrono::Utc>>>,
     pub timeseries_int: Option<Vec<i32>>,
-    pub timeseries_float: Option<Vec<f64>>,
+    pub timeseries_float: Option<Vec<f32>>,
 }
 
 #[derive(sqlx::Type, Debug, PartialEq, Deserialize, Serialize)]
@@ -26,15 +26,9 @@ pub enum MetricKind {
     TimeseriesFloat,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct DataPoint {
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub value: f64,
-}
-
 pub enum MetricNumericValue {
     Integer(i32),
-    Float(f64),
+    Float(f32),
 }
 
 pub async fn register_metric_for_job(
@@ -64,7 +58,7 @@ pub async fn register_metric_for_job(
     let (scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float) = match metric_kind
     {
         MetricKind::ScalarInt | MetricKind::ScalarFloat => {
-            (None as Option<i32>, None as Option<f64>, None, None, None)
+            (None as Option<i32>, None as Option<f32>, None, None, None)
         }
         MetricKind::TimeseriesInt => (
             None,
@@ -78,7 +72,7 @@ pub async fn register_metric_for_job(
             None,
             Some(&[] as &[chrono::DateTime<chrono::Utc>]),
             None,
-            Some(&[] as &[f64]),
+            Some(&[] as &[f32]),
         ),
     };
 
@@ -110,7 +104,6 @@ pub async fn record_metric(
 ) -> error::Result<()> {
     let metric_record_opt = sqlx::query_as::<_, JobStatsRecord>(
         "SELECT * FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
-        // &workspace_id, &job_id, &metric_id
     )
     .bind(&workspace_id)
     .bind(&job_id)
@@ -133,7 +126,7 @@ pub async fn record_metric(
                     metric_id
                 )));
             }
-            (val, 0 as f64)
+            (val, 0 as f32)
         }
         MetricNumericValue::Float(val) => {
             if metric_kind != MetricKind::TimeseriesFloat && metric_kind != MetricKind::ScalarFloat

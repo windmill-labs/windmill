@@ -7,7 +7,7 @@ use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 use windmill_common::{
     error,
-    job_metrics::{DataPoint, JobStatsRecord, MetricKind},
+    job_metrics::{JobStatsRecord, MetricKind},
 };
 
 pub fn workspaced_service() -> Router {
@@ -51,6 +51,12 @@ struct TimeseriesMetric {
     values: Vec<DataPoint>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DataPoint {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub value: f64,
+}
+
 async fn get_job_metrics(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
@@ -78,7 +84,7 @@ async fn get_job_metrics(
                 scalar_metrics.push(ScalarMetric { metric_id: metric_id.clone(), value });
             }
             MetricKind::ScalarFloat => {
-                let value = record.scalar_float.unwrap_or_default();
+                let value = record.scalar_float.unwrap_or_default() as f64;
                 scalar_metrics.push(ScalarMetric { metric_id: metric_id.clone(), value });
             }
             MetricKind::TimeseriesInt => {
@@ -118,7 +124,10 @@ async fn get_job_metrics(
                 );
                 let mut values: Vec<DataPoint> = vec![];
                 for (idx, value) in timeseries_float.iter().enumerate() {
-                    values.push(DataPoint { timestamp: timestamps[idx], value: value.to_owned() });
+                    values.push(DataPoint {
+                        timestamp: timestamps[idx],
+                        value: value.to_owned() as f64,
+                    });
                 }
                 timeseries_metrics.push(TimeseriesMetric { metric_id: metric_id.clone(), values });
             }
