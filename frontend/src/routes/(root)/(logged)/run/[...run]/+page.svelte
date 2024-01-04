@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job, ScriptService, Script, type MetricDataPoint } from '$lib/gen'
+	import { JobService, Job, ScriptService, Script } from '$lib/gen'
 	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -52,7 +52,7 @@
 	import MemoryFootprintViewer from '$lib/components/MemoryFootprintViewer.svelte'
 
 	let job: Job | undefined
-	let jobMemoryStats: MetricDataPoint[] | undefined
+	let jobUpdateLastFetch: Date | undefined
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
@@ -173,7 +173,7 @@
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job
-	bind:jobMemoryStats
+	bind:jobUpdateLastFetch
 	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
@@ -511,7 +511,7 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
-					<Tab value="stats">Memory</Tab>
+					<Tab value="stats">Metrics</Tab>
 					{#if job?.job_kind == 'dependencies'}
 						<Tab value="code">Code</Tab>
 					{:else if job?.job_kind == 'preview'}
@@ -545,7 +545,7 @@
 							{/if}
 						{:else if viewTab == 'stats'}
 							<div class="w-full">
-								<MemoryFootprintViewer bind:jobStats={jobMemoryStats} />
+								<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 							</div>
 						{:else if job !== undefined && 'result' in job && job.result !== undefined}
 							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />

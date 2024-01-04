@@ -1,6 +1,4 @@
-use std::sync::atomic::Ordering;
-
-use crate::{db::DB, error, PERSIST_JOB_METRICS};
+use crate::{db::DB, error};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -12,10 +10,10 @@ pub struct JobStatsRecord {
     pub metric_id: String,
     pub metric_name: Option<String>,
     pub metric_kind: MetricKind,
-    pub scalar_int: Option<i64>,
+    pub scalar_int: Option<i32>,
     pub scalar_float: Option<f64>,
     pub timestamps: Option<Vec<chrono::DateTime<chrono::Utc>>>,
-    pub timeseries_int: Option<Vec<i64>>,
+    pub timeseries_int: Option<Vec<i32>>,
     pub timeseries_float: Option<Vec<f64>>,
 }
 
@@ -35,7 +33,7 @@ pub struct DataPoint {
 }
 
 pub enum MetricNumericValue {
-    Integer(i64),
+    Integer(i32),
     Float(f64),
 }
 
@@ -47,10 +45,6 @@ pub async fn register_metric_for_job(
     metric_kind: MetricKind,
     metric_name: Option<String>,
 ) -> error::Result<String> {
-    if !PERSIST_JOB_METRICS.load(Ordering::Relaxed) {
-        tracing::debug!("Registering metric skipped as it is disabled in the instance settings");
-        return Ok(metric_id);
-    }
     let exists = sqlx::query_scalar!(
         "SELECT true FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
         workspace_id,
@@ -70,13 +64,13 @@ pub async fn register_metric_for_job(
     let (scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float) = match metric_kind
     {
         MetricKind::ScalarInt | MetricKind::ScalarFloat => {
-            (None as Option<i64>, None as Option<f64>, None, None, None)
+            (None as Option<i32>, None as Option<f64>, None, None, None)
         }
         MetricKind::TimeseriesInt => (
             None,
             None,
             Some(&[] as &[chrono::DateTime<chrono::Utc>]),
-            Some(&[] as &[i64]),
+            Some(&[] as &[i32]),
             None,
         ),
         MetricKind::TimeseriesFloat => (
@@ -114,10 +108,6 @@ pub async fn record_metric(
     metric_id: String,
     value: MetricNumericValue,
 ) -> error::Result<()> {
-    if !PERSIST_JOB_METRICS.load(Ordering::Relaxed) {
-        tracing::debug!("Recoding metric skipped as it is disabled in the instance settings");
-        return Ok(());
-    }
     let metric_record_opt = sqlx::query_as::<_, JobStatsRecord>(
         "SELECT * FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
         // &workspace_id, &job_id, &metric_id
@@ -153,7 +143,7 @@ pub async fn record_metric(
                     metric_id
                 )));
             }
-            (0 as i64, val)
+            (0 as i32, val)
         }
     };
 

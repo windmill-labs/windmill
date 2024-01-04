@@ -9143,7 +9143,7 @@ components:
         metric_id:
           type: string
         value:
-          type: float
+          type: number
       required:
         - id
         - value
@@ -9156,7 +9156,7 @@ components:
         values:
           type: array
           items:
-            type: MetricDataPoint
+            $ref: "#/components/schemas/MetricDataPoint"
       required:
         - id
         - values

@@ -466,16 +466,8 @@ pub async fn handle_child(
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let mut i = 0;
-
-        let memory_metric_id = job_metrics::register_metric_for_job(
-            &db,
-            w_id.to_string(),
-            job_id,
-            "memory_kb".to_string(),
-            job_metrics::MetricKind::TimeseriesInt,
-            Some("Job Memory Footprint (kB)".to_string()),
-        )
-        .await;
+        let mut memory_metric_id: Result<String, Error> =
+            Err(Error::NotFound("not yet initialized".to_string()));
 
         loop {
             tokio::select!(
@@ -498,11 +490,27 @@ pub async fn handle_child(
                     }
                     tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
 
-                    if let Ok(ref metric_id) = memory_metric_id {
-                        if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem as i64)).await {
-                            tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                    #[cfg(feature = "enterprise")]
+                    {
+                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                        if i == 2 {
+                            memory_metric_id = job_metrics::register_metric_for_job(
+                                &db,
+                                w_id.to_string(),
+                                job_id,
+                                "memory_kb".to_string(),
+                                job_metrics::MetricKind::TimeseriesInt,
+                                Some("Job Memory Footprint (kB)".to_string()),
+                            )
+                            .await;
+                        }
+                        if let Ok(ref metric_id) = memory_metric_id {
+                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                            }
                         }
                     }
+
                     let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
                         .bind(*mem_peak)
                         .bind(job_id)

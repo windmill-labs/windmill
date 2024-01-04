@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { PERSIST_JOB_METRICS_SETTING } from '$lib/consts'
-	import { type MetricDataPoint, SettingService } from '$lib/gen'
+	import { type MetricDataPoint, MetricsService } from '$lib/gen'
 	import { displayTime } from '$lib/utils'
-	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
 		CategoryScale,
 		Chart as ChartJS,
@@ -18,19 +17,43 @@
 
 	ChartJS.register(Title, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale)
 
-	let jobMetricsEnabled: boolean | undefined = undefined
-	export let jobStats: MetricDataPoint[] | undefined = undefined
+	export let jobId: string
+	export let jobUpdateLastFetch: Date | undefined
+
+	let jobMetricsLastFetch: Date | undefined = undefined
+	let jobMemoryStats: MetricDataPoint[] | undefined = undefined
 
 	let data: {
 		x: number
 		y: number
 	}[] = []
 	let labels: string[] = []
-	async function computeData() {
-		if (jobMetricsEnabled === undefined) {
-			await checkJobMetricsEnabled()
+
+	async function loadMetricsData() {
+		try {
+			let jobStatsPromise = MetricsService.getJobMetrics({
+				workspace: $workspaceStore!,
+				id: jobId,
+				requestBody: {
+					from_timestamp: jobMetricsLastFetch?.toISOString(),
+					timeseries_max_datapoints: 0
+				}
+			})
+			jobMetricsLastFetch = new Date()
+			let jobStats = await jobStatsPromise
+
+			let memoryTimeseries =
+				jobStats.timeseries_metrics?.filter((ts) => ts.metric_id === 'memory_kb') ?? []
+
+			if (memoryTimeseries.length > 0) {
+				jobMemoryStats = (jobMemoryStats ?? []).concat(memoryTimeseries[0].values)
+			}
+		} catch {
+			console.error('Unable to load metrics data for job', jobId)
+			return
 		}
-		for (let dp of jobStats ?? []) {
+
+		for (let dp of jobMemoryStats ?? []) {
 			let ts = new Date(dp.timestamp).valueOf()
 			if (data.length === 0 || ts > data[data.length - 1].x) {
 				data.push({
@@ -43,14 +66,7 @@
 		data = [...data]
 	}
 
-	async function checkJobMetricsEnabled() {
-		let setting_value = await SettingService.getGlobal({ key: PERSIST_JOB_METRICS_SETTING })
-		console.log('persist_job_metrics', setting_value)
-		jobMetricsEnabled = setting_value ?? true
-	}
-
-	$: checkJobMetricsEnabled()
-	$: jobStats && computeData()
+	$: jobUpdateLastFetch && loadMetricsData()
 </script>
 
 <div class="relative max-h-100">
@@ -58,18 +74,11 @@
 		<Alert type="error" title="Enterprise Edition only feature">
 			Job metrics are only available on Windmill Enterprise Edition.
 		</Alert>
-	{:else if !(jobMetricsEnabled ?? true) && $userStore?.is_super_admin}
-		<Alert type="warning" title="Not seeing any metrics?">
-			Job metrics need to be enabled. Go to the <a href="#superadmin-settings"
-				>Windmill Instance Settings</a
-			> Debug tab and toggle "Persist job metrics" on.
-		</Alert>
-	{:else if !(jobMetricsEnabled ?? true) && (jobStats?.length ?? 0) === 0}
-		<Alert type="warning" title="Not seeing any metrics?">
-			Job metrics need to be enabled by a Windmill Administrator.
-		</Alert>
-	{:else if (jobStats?.length ?? 0) === 0}
-		<Alert type="info" title="No metric available">No metric available for this job.</Alert>
+	{:else if (jobMemoryStats?.length ?? 0) === 0}
+		<Alert type="info" title="No metric available"
+			>No data points available for this job. Metrics are recorded only for jobs running for more
+			than 500ms.</Alert
+		>
 	{/if}
 
 	<Line

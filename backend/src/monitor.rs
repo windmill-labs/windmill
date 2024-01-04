@@ -24,15 +24,15 @@ use windmill_common::{
         BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PERSIST_JOB_METRICS_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
     users::truncate_token,
     worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
-    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED, PERSIST_JOB_METRICS,
+    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
@@ -138,11 +138,6 @@ pub async fn initial_load(
     if worker_mode {
         reload_npm_config_registry_setting(&db).await;
     }
-
-    #[cfg(feature = "enterprise")]
-    if worker_mode {
-        load_persist_job_metrics(db).await;
-    }
 }
 
 pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
@@ -171,22 +166,6 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
         _ => (),
     };
     Ok(())
-}
-
-pub async fn load_persist_job_metrics(db: &DB) {
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        PERSIST_JOB_METRICS_SETTING
-    )
-    .fetch_optional(db)
-    .await;
-    match value {
-        Ok(Some(serde_json::Value::Bool(t))) => PERSIST_JOB_METRICS.store(t, Ordering::Relaxed),
-        Err(e) => {
-            tracing::error!("Error loading persist job metrics: {e}");
-        }
-        _ => (),
-    };
 }
 
 pub async fn load_keep_job_dir(db: &DB) {

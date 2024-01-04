@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.232.0
+  version: 1.233.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -3352,32 +3352,32 @@ paths:
                                 id:
                                   type: string
                                 value:
-                                  oneOf: &ref_202
+                                  oneOf: &ref_204
                                     - type: object
-                                      properties: &ref_186
+                                      properties: &ref_188
                                         input_transforms:
                                           type: object
                                           additionalProperties:
                                             oneOf: &ref_26
                                               - type: object
-                                                properties: &ref_182
+                                                properties: &ref_184
                                                   value: {}
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_183
+                                                required: &ref_185
                                                   - expr
                                                   - type
                                               - type: object
-                                                properties: &ref_184
+                                                properties: &ref_186
                                                   expr:
                                                     type: string
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_185
+                                                required: &ref_187
                                                   - expr
                                                   - type
                                             discriminator: &ref_27
@@ -3417,13 +3417,13 @@ paths:
                                           type: number
                                         concurrency_time_window_s:
                                           type: number
-                                      required: &ref_187
+                                      required: &ref_189
                                         - type
                                         - content
                                         - language
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_188
+                                      properties: &ref_190
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3437,12 +3437,12 @@ paths:
                                           type: string
                                           enum:
                                             - script
-                                      required: &ref_189
+                                      required: &ref_191
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_190
+                                      properties: &ref_192
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3454,12 +3454,12 @@ paths:
                                           type: string
                                           enum:
                                             - flow
-                                      required: &ref_191
+                                      required: &ref_193
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_192
+                                      properties: &ref_194
                                         modules:
                                           type: array
                                           items:
@@ -3481,13 +3481,13 @@ paths:
                                           type: boolean
                                         parallelism:
                                           type: integer
-                                      required: &ref_193
+                                      required: &ref_195
                                         - modules
                                         - iterator
                                         - skip_failures
                                         - type
                                     - type: object
-                                      properties: &ref_194
+                                      properties: &ref_196
                                         branches:
                                           type: array
                                           items:
@@ -3518,12 +3518,12 @@ paths:
                                           type: string
                                           enum:
                                             - branchone
-                                      required: &ref_195
+                                      required: &ref_197
                                         - branches
                                         - default
                                         - type
                                     - type: object
-                                      properties: &ref_196
+                                      properties: &ref_198
                                         branches:
                                           type: array
                                           items:
@@ -3548,28 +3548,28 @@ paths:
                                             - branchall
                                         parallel:
                                           type: boolean
-                                      required: &ref_197
-                                        - branches
-                                        - type
-                                    - type: object
-                                      properties: &ref_198
-                                        type:
-                                          type: string
-                                          enum:
-                                            - identity
-                                        flow:
-                                          type: boolean
                                       required: &ref_199
+                                        - branches
                                         - type
                                     - type: object
                                       properties: &ref_200
                                         type:
                                           type: string
                                           enum:
-                                            - graphql
+                                            - identity
+                                        flow:
+                                          type: boolean
                                       required: &ref_201
                                         - type
-                                  discriminator: &ref_203
+                                    - type: object
+                                      properties: &ref_202
+                                        type:
+                                          type: string
+                                          enum:
+                                            - graphql
+                                      required: &ref_203
+                                        - type
+                                  discriminator: &ref_205
                                     propertyName: type
                                     mapping:
                                       rawscript: '#/components/schemas/RawScript'
@@ -10379,7 +10379,7 @@ paths:
                         metric_id:
                           type: string
                         value:
-                          type: float
+                          type: number
                       required: &ref_179
                         - id
                         - value
@@ -10393,7 +10393,16 @@ paths:
                         values:
                           type: array
                           items:
-                            type: MetricDataPoint
+                            type: object
+                            properties: &ref_182
+                              timestamp:
+                                type: string
+                                format: date-time
+                              value:
+                                type: number
+                            required: &ref_183
+                              - timestamp
+                              - value
                       required: &ref_181
                         - id
                         - values
@@ -11062,65 +11071,58 @@ components:
       required: *ref_181
     MetricDataPoint:
       type: object
-      properties:
-        timestamp:
-          type: string
-          format: date-time
-        value:
-          type: number
-      required:
-        - timestamp
-        - value
-    StaticTransform:
-      type: object
       properties: *ref_182
       required: *ref_183
-    JavascriptTransform:
+    StaticTransform:
       type: object
       properties: *ref_184
       required: *ref_185
+    JavascriptTransform:
+      type: object
+      properties: *ref_186
+      required: *ref_187
     InputTransform:
       oneOf: *ref_26
       discriminator: *ref_27
     RawScript:
       type: object
-      properties: *ref_186
-      required: *ref_187
-    PathScript:
-      type: object
       properties: *ref_188
       required: *ref_189
-    PathFlow:
+    PathScript:
       type: object
       properties: *ref_190
       required: *ref_191
+    PathFlow:
+      type: object
+      properties: *ref_192
+      required: *ref_193
     FlowModule:
       type: object
       properties: *ref_28
       required: *ref_29
     ForloopFlow:
       type: object
-      properties: *ref_192
-      required: *ref_193
-    BranchOne:
-      type: object
       properties: *ref_194
       required: *ref_195
-    BranchAll:
+    BranchOne:
       type: object
       properties: *ref_196
       required: *ref_197
-    Identity:
+    BranchAll:
       type: object
       properties: *ref_198
       required: *ref_199
-    Graphql:
+    Identity:
       type: object
       properties: *ref_200
       required: *ref_201
+    Graphql:
+      type: object
+      properties: *ref_202
+      required: *ref_203
     FlowModuleValue:
-      oneOf: *ref_202
-      discriminator: *ref_203
+      oneOf: *ref_204
+      discriminator: *ref_205
     Retry:
       type: object
       properties: *ref_78

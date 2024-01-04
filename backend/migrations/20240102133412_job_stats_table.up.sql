@@ -7,10 +7,10 @@ CREATE TABLE IF NOT EXISTS job_stats (
 	metric_id VARCHAR(50) NOT NULL,
 	metric_name VARCHAR(255),
 	metric_kind METRIC_KIND NOT NULL,
-	scalar_int BIGINT,
+	scalar_int INTEGER,
 	scalar_float DOUBLE PRECISION,
 	timestamps TIMESTAMP WITH TIME ZONE[],
-	timeseries_int BIGINT[],
+	timeseries_int INTEGER[],
 	timeseries_float DOUBLE PRECISION[],
     PRIMARY KEY (workspace_id, job_id, metric_id)
 );
