@@ -1523,6 +1523,12 @@ async fn delete_workspace(
     sqlx::query!("DELETE FROM app WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM raw_app WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM input WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM variable WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1541,6 +1547,13 @@ async fn delete_workspace(
     sqlx::query!("DELETE FROM job_stats WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1569,6 +1582,10 @@ async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query!("DELETE FROM account WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!("DELETE FROM workspace_key WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1579,6 +1596,10 @@ async fn delete_workspace(
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query!("DELETE FROM token WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
