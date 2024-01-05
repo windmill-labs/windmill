@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.234.0](https://github.com/windmill-labs/windmill/compare/v1.233.0...v1.234.0) (2024-01-05)
+
+
+### Features
+
+* Detailed job memory footprint on job run page ([#2956](https://github.com/windmill-labs/windmill/issues/2956)) ([0710ce6](https://github.com/windmill-labs/windmill/commit/0710ce6ef25d8f2344ac1350e96aa906f16d1be1))
+* git sync can now push commits to individual branches ([#2959](https://github.com/windmill-labs/windmill/issues/2959)) ([fb5cd6a](https://github.com/windmill-labs/windmill/commit/fb5cd6a4298c88e26481b76258bf5b09a11cf4b0))
+
+
+### Bug Fixes
+
+* Deleting workspace delete all workspace related values in DB ([#2961](https://github.com/windmill-labs/windmill/issues/2961)) ([c05d119](https://github.com/windmill-labs/windmill/commit/c05d119ae5dfb6f1bae88fc9d53b48a707cd2f15))
+
 ## [1.233.0](https://github.com/windmill-labs/windmill/compare/v1.232.0...v1.233.0) (2024-01-03)
 
 
