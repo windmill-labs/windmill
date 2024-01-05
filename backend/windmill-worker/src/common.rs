@@ -32,7 +32,7 @@ use std::{
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::{variables, DB};
+use windmill_common::{job_metrics, variables, DB};
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -408,6 +408,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
         }
         -2
     } else {
+        // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
         -3
     }
 }
@@ -427,7 +428,7 @@ pub async fn handle_child(
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
-    _w_id: &str,
+    w_id: &str,
     child_name: &str,
     custom_timeout: Option<i32>,
     sigterm: bool,
@@ -465,6 +466,8 @@ pub async fn handle_child(
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let mut i = 0;
+        let mut memory_metric_id: Result<String, Error> =
+            Err(Error::NotFound("not yet initialized".to_string()));
 
         loop {
             tokio::select!(
@@ -485,7 +488,29 @@ pub async fn handle_child(
                     if current_mem > *mem_peak {
                         *mem_peak = current_mem
                     }
-                    tracing::info!("{worker_name}/{job_id} in {_w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                    tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+
+                    #[cfg(feature = "enterprise")]
+                    {
+                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                        if i == 2 {
+                            memory_metric_id = job_metrics::register_metric_for_job(
+                                &db,
+                                w_id.to_string(),
+                                job_id,
+                                "memory_kb".to_string(),
+                                job_metrics::MetricKind::TimeseriesInt,
+                                Some("Job Memory Footprint (kB)".to_string()),
+                            )
+                            .await;
+                        }
+                        if let Ok(ref metric_id) = memory_metric_id {
+                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                            }
+                        }
+                    }
+
                     let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
                         .bind(*mem_peak)
                         .bind(job_id)
@@ -516,7 +541,7 @@ pub async fn handle_child(
     }
 
     let (timeout_duration, timeout_warn_msg) =
-        resolve_job_timeout(&db, _w_id, job_id, custom_timeout).await;
+        resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
         logs.push_str(msg.as_str());
         append_logs(job_id, msg.as_str(), db).await;
