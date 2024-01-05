@@ -5,7 +5,6 @@
 	import nord from 'svelte-highlight/styles/nord'
 	import { each } from 'chart.js/helpers'
 	import { Chart } from 'chart.js'
-	import { deepMergeWithPriority } from '$lib/utils'
 
 	let darkMode: boolean = false
 
@@ -13,67 +12,41 @@
 		if (document.documentElement.classList.contains('dark')) {
 			darkMode = true
 			each(Chart.instances, (instance) => {
-				instance.options = deepMergeWithPriority(instance.options, {
-					scales: {
-						y: {
-							ticks: {
-								color: '#e0e7ed'
-							},
-							grid: {
-								color: '#4a5568'
-							}
-						},
-						x: {
-							ticks: {
-								color: '#e0e7ed'
-							},
-							grid: {
-								color: '#4a5568'
-							}
-						}
-					},
-					plugins: {
-						legend: {
-							labels: {
-								color: '#e0e7ed'
-							}
-						}
-					}
-				})
+				if (instance.options.scales?.y?.ticks?.color !== undefined) {
+					instance.options.scales.y.ticks.color = '#e0e7ed'
+				}
+				if (instance.options.scales?.y?.grid?.color !== undefined) {
+					instance.options.scales.y.grid.color = '#4a5568'
+				}
+				if (instance.options.scales?.x?.ticks?.color !== undefined) {
+					instance.options.scales.x.ticks.color = '#e0e7ed'
+				}
+				if (instance.options.scales?.x?.grid?.color !== undefined) {
+					instance.options.scales.x.grid.color = '#4a5568'
+				}
+				if (instance.options.plugins?.legend?.labels?.color !== undefined) {
+					instance.options.plugins.legend.labels.color = '#e0e7ed'
+				}
 				instance.update()
 			})
 		} else {
 			darkMode = false
-
 			each(Chart.instances, (instance) => {
-				instance.options = deepMergeWithPriority(instance.options, {
-					scales: {
-						y: {
-							ticks: {
-								color: '#4a5568'
-							},
-							grid: {
-								color: '#e0e7ed'
-							}
-						},
-						x: {
-							ticks: {
-								color: '#4a5568'
-							},
-							grid: {
-								color: '#e0e7ed'
-							}
-						}
-					},
-					plugins: {
-						legend: {
-							labels: {
-								color: '#4a5568'
-							}
-						}
-					}
-				})
-
+				if (instance.options.scales?.y?.ticks?.color !== undefined) {
+					instance.options.scales.y.ticks.color = '#4a5568'
+				}
+				if (instance.options.scales?.y?.grid?.color !== undefined) {
+					instance.options.scales.y.grid.color = '#e0e7ed'
+				}
+				if (instance.options.scales?.x?.ticks?.color !== undefined) {
+					instance.options.scales.x.ticks.color = '#4a5568'
+				}
+				if (instance.options.scales?.x?.grid?.color !== undefined) {
+					instance.options.scales.x.grid.color = '#e0e7ed'
+				}
+				if (instance.options.plugins?.legend?.labels?.color !== undefined) {
+					instance.options.plugins.legend.labels.color = '#4a5568'
+				}
 				instance.update()
 			})
 		}
