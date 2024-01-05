@@ -1049,6 +1049,7 @@ struct EditGitSyncConfig {
 pub struct WorkspaceGitRepo {
     pub script_path: String,
     pub git_repo_resource_path: String,
+    pub use_individual_branch: Option<bool>,
 }
 
 async fn edit_git_sync_config(

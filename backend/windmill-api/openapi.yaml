@@ -9112,6 +9112,8 @@ components:
           type: string
         git_repo_resource_path:
           type: string
+        use_individual_branch:
+          type: boolean
       required:
         - script_path
         - git_repo_resource_path

@@ -1531,6 +1531,8 @@ paths:
                         type: string
                       git_repo_resource_path:
                         type: string
+                      use_individual_branch:
+                        type: boolean
                     required: &ref_17
                       - script_path
                       - git_repo_resource_path
