@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.234.1](https://github.com/windmill-labs/windmill/compare/v1.234.0...v1.234.1) (2024-01-05)
+
+
+### Bug Fixes
+
+* fix double view runs button ([9efcb53](https://github.com/windmill-labs/windmill/commit/9efcb53bcd903bf756c4beb92a5c7634e8e016ad))
+* fix typo "Wourker" -&gt; "Worker" ([4385edc](https://github.com/windmill-labs/windmill/commit/4385edc6ffdb1b2e4544347928b4cf08faf1eaa1))
+
 ## [1.234.0](https://github.com/windmill-labs/windmill/compare/v1.233.0...v1.234.0) (2024-01-05)
 
 
