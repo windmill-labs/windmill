@@ -81,7 +81,7 @@
 					{#if overrideTag}
 						<option value="">reset to default</option>
 					{:else}
-						<option value="" disabled selected>Override Wourker Group</option>
+						<option value="" disabled selected>Override Worker Group Tag</option>
 					{/if}
 					{#each $workerTags ?? [] as tag (tag)}
 						<option value={tag}>{tag}</option>

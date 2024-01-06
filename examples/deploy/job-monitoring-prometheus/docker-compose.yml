@@ -1,0 +1,100 @@
+version: "3.7"
+
+services:
+  db:
+    image: postgres:14
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill_server:
+    image: ghcr.io/windmill-labs/windmill-ee:main
+    deploy:
+      replicas: 1
+    labels:
+      - prometheus-job=windmill_server
+    expose:
+      - 8001
+    ports:
+      - 8000:8000
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
+      - MODE=server
+      - METRICS_ADDR=1
+    depends_on:
+      db:
+        condition: service_healthy
+
+  windmill_worker:
+    image: ghcr.io/windmill-labs/windmill-ee:main
+    pull_policy: always
+    deploy:
+      replicas: 3
+    labels:
+      - prometheus-job=windmill_worker
+    expose:
+      - 8001
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
+      - MODE=worker
+      - WORKER_GROUP=default
+      - METRICS_ADDR=1
+    depends_on:
+      db:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus
+    user: root
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - /var/run/docker.sock:/var/run/docker.sock:ro # for service discovery
+    ports:
+      - 9090:9090
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=365d"
+
+  prometheus_gateway:
+    image: prom/pushgateway
+    ports:
+      - 9091:9091
+    command:
+      - "--persistence.file=/data/persistence.dat"
+    volumes:
+      - prometheus_gateway_data:/data
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    environment:
+      - GF_PATHS_CONFIG=/etc/grafana/grafana.ini
+    deploy:
+      replicas: 1
+    depends_on:
+      - prometheus
+    ports:
+      - 3030:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+
+volumes:
+  db_data: null
+  prometheus_data: null
+  prometheus_gateway_data: null
+  grafana_data: null

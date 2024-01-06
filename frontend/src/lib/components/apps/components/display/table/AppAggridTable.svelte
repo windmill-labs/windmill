@@ -135,6 +135,7 @@
 
 	$: loaded && eGui && mountGrid()
 
+	let state: any = undefined
 	function mountGrid() {
 		if (eGui) {
 			createGrid(
@@ -156,8 +157,13 @@
 					onPaginationChanged: (event) => {
 						outputs?.page.set(event.api.paginationGetCurrentPage())
 					},
+					initialState: state,
 					suppressRowDeselection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
+					onStateUpdated: (e) => {
+						state = e?.api?.getState()
+						resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
+					},
 					onGridReady: (e) => {
 						outputs?.ready.set(true)
 						value = value

@@ -34,7 +34,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window on:keydown|capture={onKeyDown} />
 
 {#if open}
 	<div

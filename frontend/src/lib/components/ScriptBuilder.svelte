@@ -179,7 +179,7 @@
 		}
 	}
 
-	async function editScript(): Promise<void> {
+	async function editScript(stay: boolean): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -223,7 +223,11 @@
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
-			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+			if (stay) {
+				script.parent_hash = newHash
+			} else {
+				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+			}
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
@@ -332,6 +336,12 @@
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != ''
 				? [
+						{
+							label: 'Deploy & Stay here',
+							onClick: () => {
+								editScript(true)
+							}
+						},
 						{
 							label: 'Fork',
 							onClick: () => {
@@ -1007,7 +1017,7 @@
 						loading={loadingSave}
 						size="xs"
 						startIcon={{ icon: Save }}
-						on:click={() => editScript()}
+						on:click={() => editScript(false)}
 						dropdownItems={computeDropdownItems(initialPath)}
 					>
 						Deploy

@@ -70,7 +70,7 @@
 		selectedRowIndex: 0,
 		selectedRow: undefined,
 		loading: false,
-		result: [],
+		result: [] as Record<string, any>[],
 		inputs: {},
 		search: '',
 		page: 1
@@ -289,6 +289,16 @@
 	}
 
 	$: $table && updateTable(resolvedConfig, searchValue)
+
+	function updateCellValue(rowIndex: number, columnIndex: number, newCellValue: string) {
+		if (result && rowIndex < result.length) {
+			const updatedRow = { ...result[rowIndex] }
+			const columnName = Object.keys(updatedRow)[columnIndex]
+			updatedRow[columnName] = newCellValue
+			result[rowIndex] = updatedRow
+			outputs?.result.set([result])
+		}
+	}
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -396,21 +406,20 @@
 									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}
-											<td
+											<AppCell
 												on:keydown={() => toggleRow(row)}
 												on:click={() => toggleRow(row)}
-												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
-												style={'width: ' + cell.column.getSize() + 'px'}
-											>
-												<AppCell
-													type={resolvedConfig.columnDefs?.find(
-														// TS types are wrong here
-														// @ts-ignore
-														(c) => c.field === cell.column.columnDef.accessorKey
-													)?.type ?? 'text'}
-													value={cell.getValue()}
-												/>
-											</td>
+												type={resolvedConfig.columnDefs?.find(
+													// TS types are wrong here
+													// @ts-ignore
+													(c) => c.field === cell.column.columnDef.accessorKey
+												)?.type ?? 'text'}
+												value={cell.getValue()}
+												width={cell.column.getSize()}
+												on:update={(event) => {
+													updateCellValue(rowIndex, index, event.detail.value)
+												}}
+											/>
 										{/if}
 									{/if}
 								{/each}
@@ -546,6 +555,7 @@
 															}}
 															{#if actionButton.type == 'buttoncomponent'}
 																<AppButton
+																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	noWFull
@@ -562,6 +572,7 @@
 																/>
 															{:else if actionButton.type == 'checkboxcomponent'}
 																<AppCheckbox
+																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	id={actionButton.id}
@@ -576,6 +587,7 @@
 															{:else if actionButton.type == 'selectcomponent'}
 																<div class="w-40">
 																	<AppSelect
+																		noInitialize
 																		extraKey={'idx' + rowIndex}
 																		{render}
 																		id={actionButton.id}
@@ -591,6 +603,7 @@
 															{/if}
 														{:else if actionButton.type == 'buttoncomponent'}
 															<AppButton
+																noInitialize
 																extraKey={'idx' + rowIndex}
 																{render}
 																noWFull
@@ -606,6 +619,7 @@
 															/>
 														{:else if actionButton.type == 'checkboxcomponent'}
 															<AppCheckbox
+																noInitialize
 																extraKey={'idx' + rowIndex}
 																{render}
 																id={actionButton.id}
@@ -619,6 +633,7 @@
 														{:else if actionButton.type == 'selectcomponent'}
 															<div class="w-40">
 																<AppSelect
+																	noInitialize
 																	--font-size="10px"
 																	extraKey={'idx' + rowIndex}
 																	{render}

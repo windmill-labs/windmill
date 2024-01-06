@@ -61,6 +61,7 @@ mod groups;
 mod inputs;
 mod integration;
 pub mod job_helpers;
+pub mod job_metrics;
 pub mod jobs;
 pub mod oauth2;
 mod openai;
@@ -198,6 +199,7 @@ pub async fn run_server(
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
+                        .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers::workspaced_service())
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2::workspaced_service())

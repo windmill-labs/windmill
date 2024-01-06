@@ -182,6 +182,7 @@
 
 						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<div
 							tabindex={dragDisabled ? 0 : -1}
 							class="w-4 h-4"

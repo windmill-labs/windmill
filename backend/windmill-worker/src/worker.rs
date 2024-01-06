@@ -77,7 +77,10 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
     bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
-    common::{build_args_map, hash_args, read_result, save_in_cache, write_file},
+    common::{
+        build_args_map, get_cached_resource_value_if_valid, hash_args, read_result, save_in_cache,
+        write_file,
+    },
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
     graphql_executor::do_graphql,
@@ -2085,7 +2088,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
-            save_in_cache(db, &job, cached_path.to_string(), &result).await;
+            save_in_cache(db, client, &job, cached_path.to_string(), &result).await;
         }
 
         let timer = worker_save_completed_job_duration
@@ -2333,12 +2336,6 @@ async fn do_nativets(
     Ok((result.0, [logs, result.1].join("\n\n")))
 }
 
-#[derive(Deserialize)]
-struct CachedResource {
-    expire: i64,
-    value: Box<RawValue>,
-}
-
 #[derive(Deserialize, Serialize, Default)]
 pub struct PreviousResult<'a> {
     #[serde(borrow)]
@@ -2400,7 +2397,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         } else {
             "none".to_string()
         };
-        let args_hash = hash_args(&job.args);
+        let args_hash = hash_args(
+            db,
+            &client.get_authed().await,
+            &job.workspace_id,
+            &job.id,
+            &job.args,
+        )
+        .await;
         if job.is_flow_step {
             let flow_path = sqlx::query_scalar!(
                 "SELECT script_path FROM queue WHERE id = $1",
@@ -2425,33 +2429,32 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     if let Some(cached_res_path) = cached_res_path.clone() {
         let authed_client = client.get_authed().await;
-        let resource = authed_client
-            .get_resource_value::<CachedResource>(&cached_res_path)
-            .await;
 
-        if let Ok(resource) = resource {
-            let expire = resource.expire;
-            if expire > chrono::Utc::now().timestamp() {
-                let result = resource.value;
-                let logs =
-                    "Job skipped because args & path found in cache and not expired".to_string();
+        let cached_resource_value_maybe = get_cached_resource_value_if_valid(
+            db,
+            &authed_client,
+            &job.id,
+            &job.workspace_id,
+            &cached_res_path,
+        )
+        .await;
+        if let Some(cached_resource_value) = cached_resource_value_maybe {
+            let logs = "Job skipped because args & path found in cache and not expired".to_string();
+            job_completed_tx
+                .send(JobCompleted {
+                    job: job,
+                    result: cached_resource_value,
+                    logs,
+                    mem_peak: 0,
+                    canceled_by: None,
+                    success: true,
+                    cached_res_path: None,
+                    token: authed_client.token,
+                })
+                .await
+                .expect("send job completed");
 
-                job_completed_tx
-                    .send(JobCompleted {
-                        job: job,
-                        result,
-                        logs,
-                        mem_peak: 0,
-                        canceled_by: None,
-                        success: true,
-                        cached_res_path: None,
-                        token: authed_client.token,
-                    })
-                    .await
-                    .expect("send job completed");
-
-                return Ok(());
-            }
+            return Ok(());
         }
     };
     match job.job_kind {

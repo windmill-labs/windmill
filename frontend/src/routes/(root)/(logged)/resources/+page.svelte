@@ -130,7 +130,6 @@
 						: true
 			  })
 			: preFilteredItemsOwners?.filter((x) => {
-					console.log(x.resource_type)
 					return (
 						x.resource_type === typeFilter &&
 						(tab === 'workspace'
@@ -192,7 +191,7 @@
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
 		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
-		loadResources()
+		reload()
 	}
 
 	async function addResourceType(): Promise<void> {
@@ -312,7 +311,52 @@
 		inferrer?.closeDrawer?.()
 	}
 	let deploymentDrawer: DeployWorkspaceDrawer
+
+	async function reload() {
+		loading = {
+			resources: true,
+			types: true
+		}
+		if (tab == 'cache') {
+			await loadCache()
+		} else if (tab == 'states') {
+			await loadState()
+		} else {
+			await loadResources()
+		}
+		await loadResourceTypes()
+		loading = {
+			resources: false,
+			types: false
+		}
+	}
 </script>
+
+<ConfirmationModal
+	open={Boolean(deleteConfirmedCallback)}
+	title="Remove resource"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this resource?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a resource to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
@@ -541,24 +585,7 @@
 			<Button
 				variant="border"
 				color="light"
-				on:click={async () => {
-					loading = {
-						resources: true,
-						types: true
-					}
-					if (tab == 'cache') {
-						await loadCache()
-					} else if (tab == 'states') {
-						await loadState()
-					} else {
-						await loadResources()
-					}
-					await loadResourceTypes()
-					loading = {
-						resources: false,
-						types: false
-					}
-				}}
+				on:click={reload}
 				startIcon={{
 					icon: RotateCw,
 					classes: loading.resources || loading.types ? 'animate-spin' : ''
@@ -888,29 +915,3 @@
 		loadResources()
 	}}
 />
-
-<ConfirmationModal
-	open={Boolean(deleteConfirmedCallback)}
-	title="Remove resource"
-	confirmationText="Remove"
-	on:canceled={() => {
-		deleteConfirmedCallback = undefined
-	}}
-	on:confirmed={() => {
-		if (deleteConfirmedCallback) {
-			deleteConfirmedCallback()
-		}
-		deleteConfirmedCallback = undefined
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this resource?</span>
-		<Alert type="info" title="Bypass confirmation">
-			<div>
-				You can press
-				<Badge color="dark-gray">SHIFT</Badge>
-				while removing a resource to bypass confirmation.
-			</div>
-		</Alert>
-	</div>
-</ConfirmationModal>
