@@ -431,7 +431,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                                                     load_require_preexisting_user(&db).await;
-                                                }
+                                                },
                                                 EXPOSE_METRICS_SETTING | EXPOSE_DEBUG_METRICS_SETTING => {
                                                     if n.payload() != EXPOSE_DEBUG_METRICS_SETTING || worker_mode {
                                                         tracing::info!("Metrics setting changed, restarting");

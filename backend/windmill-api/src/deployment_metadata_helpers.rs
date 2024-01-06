@@ -103,6 +103,10 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
             "commit_msg".to_string(),
             json!(deployment_message.clone().unwrap_or(default_commit_msg)),
         );
+        args.insert(
+            "use_individual_branch".to_string(),
+            json!(workspace_git_repo.use_individual_branch.unwrap_or(false)),
+        );
 
         let (job_uuid, new_tx) = windmill_queue::push(
             &db,

@@ -349,7 +349,6 @@ jobs:
           path: |
             integration_tests/logs
 
-
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test]
@@ -365,10 +364,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag main and latest
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
   tag_latest_ee:
     runs-on: ubicloud
@@ -384,8 +381,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag main and latest for ee
-        run: |          
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
-          docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+        run: |
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main

@@ -56,7 +56,11 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let s3ResourceInitialPath: string | undefined = undefined
-	let gitSyncResourcePath: string | undefined = undefined
+	let gitSyncSettings: {
+		script_path: string
+		git_repo_resource_path: string
+		use_individual_branch: boolean
+	}
 	let gitSyncTestJob:
 		| {
 				jobId: string
@@ -190,28 +194,36 @@
 		}
 	}
 
-	async function editWindmillGitSyncSettings(newGitRepoResourcePath: string): Promise<void> {
-		gitSyncResourcePath = newGitRepoResourcePath
-		if (newGitRepoResourcePath) {
-			let resourcePathWithPrefix = `$res:${newGitRepoResourcePath}`
+	async function editWindmillGitSyncSettings(
+		gitRepoResourcePath: string,
+		useIndividualBranch: boolean
+	): Promise<void> {
+		if (!emptyString(gitRepoResourcePath)) {
+			gitSyncSettings = {
+				script_path: 'hub/7923/sync-script-to-git-repo-windmill',
+				git_repo_resource_path: `$res:${gitRepoResourcePath.replace('$res:', '')}`,
+				use_individual_branch: useIndividualBranch
+			}
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					git_sync_settings: {
-						script_path: 'hub/7848/sync-script-to-git-repo-windmill',
-						git_repo_resource_path: resourcePathWithPrefix
-					}
+					git_sync_settings: gitSyncSettings
 				}
 			})
-			sendUserToast(`Workspace Git sync settings updated`)
+			sendUserToast('Workspace Git sync settings updated')
 		} else {
+			gitSyncSettings = {
+				script_path: '',
+				git_repo_resource_path: '',
+				use_individual_branch: false
+			}
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: undefined
 				}
 			})
-			sendUserToast(`Workspace Git sync settings reset`)
+			sendUserToast('Workspace Git sync settings reset')
 		}
 	}
 
@@ -249,7 +261,19 @@
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
 				: undefined
-		gitSyncResourcePath = settings.git_sync?.git_repo_resource_path?.replace('$res:', '')
+		if (settings.git_sync !== undefined && settings.git_sync !== null) {
+			gitSyncSettings = {
+				git_repo_resource_path: settings.git_sync.git_repo_resource_path.replace('$res:', ''),
+				script_path: settings.git_sync.script_path,
+				use_individual_branch: settings.git_sync.use_individual_branch ?? false
+			}
+		} else {
+			gitSyncSettings = {
+				git_repo_resource_path: '',
+				script_path: '',
+				use_individual_branch: false
+			}
+		}
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
@@ -298,15 +322,15 @@
 		)
 	}
 
-	async function runGitSyncTestJob(gitRepoResourcePath: string | undefined) {
-		if (gitRepoResourcePath === undefined) {
+	async function runGitSyncTestJob() {
+		if (emptyString(gitSyncSettings.script_path)) {
 			return
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
 			path: 'hub/7846/git-repo-test-read-write-windmill',
 			requestBody: {
-				repo_url_resource_path: gitRepoResourcePath
+				repo_url_resource_path: gitSyncSettings.git_repo_resource_path.replace('$res:', '')
 			}
 		})
 		gitSyncTestJob = {
@@ -746,16 +770,16 @@
 				{#key s3ResourceInitialPath}
 					<ResourcePicker
 						resourceType="git_repository"
-						initialValue={gitSyncResourcePath}
+						initialValue={gitSyncSettings.git_repo_resource_path}
 						on:change={(ev) => {
-							editWindmillGitSyncSettings(ev.detail)
+							editWindmillGitSyncSettings(ev.detail, gitSyncSettings.use_individual_branch)
 						}}
 					/>
 					<Button
-						disabled={gitSyncResourcePath === undefined}
+						disabled={emptyString(gitSyncSettings.script_path)}
 						btnClasses="w-32 text-center"
 						color="dark"
-						on:click={() => runGitSyncTestJob(gitSyncResourcePath)}
+						on:click={() => runGitSyncTestJob()}
 						size="xs">Test connection</Button
 					>
 				{/key}
@@ -774,6 +798,21 @@
 						{gitSyncTestJob?.jobId}
 					</a>WARNING: Only read permissions are verified.
 				{/if}
+			</div>
+
+			<div class="flex mt-5 mb-1 gap-1">
+				<Toggle
+					disabled={emptyString(gitSyncSettings.git_repo_resource_path)}
+					bind:checked={gitSyncSettings.use_individual_branch}
+					on:change={(ev) => {
+						editWindmillGitSyncSettings(gitSyncSettings.git_repo_resource_path, ev.detail)
+					}}
+					options={{
+						right: 'Create one branch per deployed script/flow/app',
+						rightTooltip:
+							"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+					}}
+				/>
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
