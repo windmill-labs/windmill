@@ -195,7 +195,9 @@
 			return
 		}
 		syncIteration++
-		await loadTestJob(id)
+		if (await loadTestJob(id)) {
+			return
+		}
 		let nextIteration = 50
 		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
 			nextIteration = 500

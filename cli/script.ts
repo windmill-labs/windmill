@@ -14,6 +14,7 @@ import {
   writeAllSync,
   yamlParse,
 } from "./deps.ts";
+import { deepEqual } from "./utils.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -66,7 +67,7 @@ export async function handleFile(
   path: string,
   workspace: string,
   alreadySynced: string[],
-  message?: string,
+  message?: string
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -125,8 +126,9 @@ export async function handleFile(
             typed.is_template === remote.is_template &&
             typed.kind == remote.kind &&
             !remote.archived &&
-            (remote?.lock ?? "") == (typed.lock?.join("\n") ?? "") &&
-            JSON.stringify(typed.schema) == JSON.stringify(remote.schema) &&
+            (remote?.lock ?? "").trim() ==
+              (typed.lock?.join("\n") ?? "").trim() &&
+            deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
               remote.ws_error_handler_muted &&
@@ -140,6 +142,7 @@ export async function handleFile(
           return true;
         }
       }
+
       log.info(
         colors.yellow.bold(`Creating script with a parent ${remotePath}`)
       );

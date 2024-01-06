@@ -34,6 +34,7 @@
 	export let errorHandledByComponent: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
 	export let isMenuItem: boolean = false
+	export let noInitialize = false
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -156,6 +157,7 @@
 
 <!-- gotoNewTab={resolvedConfig.onSuccess.selected == 'goto'} -->
 <RunnableWrapper
+	{noInitialize}
 	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
