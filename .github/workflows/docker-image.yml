@@ -349,7 +349,6 @@ jobs:
           path: |
             integration_tests/logs
 
-
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test]
@@ -363,14 +362,25 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pull dev
-        run: 
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          docker push -a ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      - name: Tag main and latest
+        run: |
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+  tag_latest_ee:
+    runs-on: ubicloud
+    needs: [run_integration_test]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Login to registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag main and latest for ee
+        run: |
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main

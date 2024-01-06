@@ -241,6 +241,7 @@
 			return buttons
 		}
 
+
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,

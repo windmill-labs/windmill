@@ -23,6 +23,7 @@ pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
+pub mod job_metrics;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;

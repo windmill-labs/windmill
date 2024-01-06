@@ -91,7 +91,7 @@
 		</div>
 	</div>
 	<div class="p-6">
-		<h2 class="mb-4">Customize Inputs</h2>
+		<h2 class="mb-4">Customize Flow Inputs</h2>
 		<SchemaForm bind:schema={$flowStore.schema} editableSchema={true} />
 	</div>
 </FlowCard>
