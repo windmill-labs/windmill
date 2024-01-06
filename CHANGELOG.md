@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.235.0](https://github.com/windmill-labs/windmill/compare/v1.234.1...v1.235.0) (2024-01-06)
+
+
+### Features
+
+* **frontend:** DB Explorer ([#2892](https://github.com/windmill-labs/windmill/issues/2892)) ([fffc533](https://github.com/windmill-labs/windmill/commit/fffc5338ce76fda9a68b19f03cefe199cc09a905))
+
 ## [1.234.1](https://github.com/windmill-labs/windmill/compare/v1.234.0...v1.234.1) (2024-01-05)
 
 
