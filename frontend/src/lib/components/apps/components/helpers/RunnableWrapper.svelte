@@ -77,6 +77,7 @@
 	export let refreshOnStart: boolean = false
 	export let errorHandledByComponent: boolean = false
 	export let hasChildrens: boolean = false
+	export let allowConcurentRequests = false
 
 	export function setArgs(value: any) {
 		runnableComponent?.setArgs(value)
@@ -215,6 +216,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
+		{allowConcurentRequests}
 		{refreshOnStart}
 		{extraKey}
 		{hasChildrens}
@@ -236,7 +238,10 @@
 		wrapperStyle={runnableStyle}
 		{render}
 		on:started
-		on:done={() => (initializing = false)}
+		on:done
+		on:doneError
+		on:cancel
+		on:setResult={() => (initializing = false)}
 		on:success={() => handleSideEffect(true)}
 		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}

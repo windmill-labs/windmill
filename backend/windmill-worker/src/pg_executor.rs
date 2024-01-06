@@ -322,7 +322,13 @@ fn convert_val(value: &Value, arg_t: &String) -> windmill_common::error::Result<
         Value::Number(n) if n.is_i64() && (arg_t == "smallint" || arg_t == "smallserial") => {
             Ok(PgType::I16(n.as_i64().unwrap() as i16))
         }
-        Value::Number(n) if n.is_i64() && (arg_t == "int" || arg_t == "serial") => {
+        Value::Number(n)
+            if n.is_i64()
+                && (arg_t == "int"
+                    || arg_t == "integer"
+                    || arg_t == "int4"
+                    || arg_t == "serial") =>
+        {
             Ok(PgType::I32(n.as_i64().unwrap() as i32))
         }
         Value::Number(n) if n.is_i64() && (arg_t == "numeric" || arg_t == "decimal") => Ok(

@@ -7,9 +7,7 @@ import { tryEvery } from '$lib/utils'
 export function makeQuery(
 	table: string,
 	tableMetadata: TableMetadata,
-	pageSize: number | undefined,
-	whereClause: string | undefined,
-	page: number
+	whereClause: string | undefined
 ) {
 	if (!table) throw new Error('Table name is required')
 
@@ -19,44 +17,104 @@ export function makeQuery(
 
 	let selectClause = filteredColumns.join(', ')
 
-	let query = `SELECT ${selectClause} FROM ${table}`
+	let orderBy = `
+	${tableMetadata
+		.map(
+			(column) =>
+				`
+(CASE WHEN $4 = '${column.field}' AND $5 IS false THEN ${column.field}::text END),
+(CASE WHEN $4 = '${column.field}' AND $5 IS true THEN ${column.field}::text END) DESC`
+		)
+		.join(',\n')}`
+
+	let query = `
+-- $1 limit
+-- $2 offset
+-- $3 quicksearch
+-- $4 orderBy
+-- $5 is_desc
+
+SELECT ${selectClause} FROM ${table} WHERE `
 	if (whereClause) {
-		query += ` WHERE ${whereClause}`
+		query += ` ${whereClause} AND `
 	}
-	if (pageSize) {
-		query += ` LIMIT ${pageSize} OFFSET ${pageSize * page}`
-	}
+	query += ` ($3 = '' OR ${table}::text ILIKE '%' || $3 || '%')`
+
+	query += ` ORDER BY ${orderBy}`
+	query += ` LIMIT $1::INT OFFSET $2::INT`
 
 	return query
 }
 
-export function makeInsertQuery(table: string, values: Record<string, any>) {
-	if (!table) throw new Error('Table name is required')
-	if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
-		throw new Error('Values must be a non-empty object')
+export function createPostgresInsert(
+	table: string,
+	columns: ColumnDef[],
+	resource: string
+): AppInput {
+	return {
+		runnable: {
+			name: 'AppDbExplorer',
+			type: 'runnableByName',
+			inlineScript: {
+				content: makeInsertQuery(table, columns),
+				language: Preview.language.POSTGRESQL,
+				schema: {
+					$schema: 'https://json-schema.org/draft/2020-12/schema',
+					properties: {},
+					required: ['database'],
+					type: 'object'
+				}
+			}
+		},
+		fields: {
+			database: {
+				type: 'static',
+				value: resource,
+				fieldType: 'object',
+				format: 'resource-postgresql'
+			}
+		},
+		type: 'runnable',
+		fieldType: 'object'
 	}
+}
 
-	// Extracting column names and their corresponding values
-	const columns = Object.keys(values)
-		.map((key) => `\"${key}\"`)
-		.join(', ')
-	const valuesList = Object.values(values)
-		.map((value) => `'${value}'`)
-		.join(', ')
+export function makeInsertQuery(table: string, columns: ColumnDef[]) {
+	if (!table) throw new Error('Table name is required')
 
+	const columnsInsert = columns.filter((x) => !x.hideInsert)
+	const columnsDefault = columns.filter(
+		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null)
+	)
+
+	const allInsertColumns = columnsInsert.concat(columnsDefault)
 	// Constructing the query
-	const query = `INSERT INTO ${table} (${columns}) VALUES (${valuesList})`
+	const query = `
+${columnsInsert.map((column, i) => `-- $${i + 1} ${column.field}`).join('\n')}
+
+INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
+VALUES (${columnsInsert.map((c, i) => `$${i + 1}::${c.datatype}`).join(', ')}${
+		columnsDefault.length > 0 ? ',' : ''
+	} ${columnsDefault
+		.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}::${c.datatype}`))
+		.join(', ')})`
 
 	return query
+}
+
+export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
+	let r = tableMetadata?.filter((x) => x.isprimarykey)?.map((x) => x.field) ?? []
+	if (r?.length === 0) {
+		r = tableMetadata?.map((x) => x.field) ?? []
+	}
+	return r ?? []
 }
 
 export function createPostgresInput(
 	resource: string,
 	table: string | undefined,
 	columns: TableMetadata,
-	pageSize: number | undefined,
-	whereClause: string | undefined,
-	page: number
+	whereClause: string | undefined
 ): AppInput | undefined {
 	if (!resource || !table || !columns) {
 		// Return undefined if resource or table is not defined
@@ -67,24 +125,10 @@ export function createPostgresInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeQuery(table, columns, pageSize, whereClause, page),
-			language: Preview.language.POSTGRESQL,
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {
-					database: {
-						description: 'Database name',
-						type: 'object',
-						format: 'resource-postgresql'
-					}
-				},
-				required: ['database'],
-				type: 'object'
-			}
+			content: makeQuery(table, columns, whereClause),
+			language: Preview.language.POSTGRESQL
 		}
 	}
-
-	console.log(getRunnable.inlineScript?.content)
 
 	const getQuery: AppInput = {
 		runnable: getRunnable,
@@ -107,9 +151,7 @@ export function createUpdatePostgresInput(
 	resource: string,
 	table: string,
 	column: ColumnMetadata,
-	columns: ColumnMetadata[],
-	value: string,
-	data: Record<string, any>
+	columns: ColumnMetadata[]
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined
@@ -118,25 +160,13 @@ export function createUpdatePostgresInput(
 	const query = updateWithAllValues()
 
 	function updateWithAllValues() {
-		let query = `UPDATE ${table} SET ${column.field} = '${value}'::${column.datatype}`
-
-		query += ' WHERE '
-
-		// Remove AG Grid's internal columns
-		Object.entries(data)
-			.filter((c) => !c[0].startsWith('__'))
-			.forEach(([key, value], i) => {
-				if (i != 0) {
-					query += ' AND '
-				}
-
-				if (value === null) {
-					query += `${key} IS NULL`
-				} else {
-					query += `${key} = '${value}'::${columns.find((c) => c.field === key)?.datatype}`
-				}
-			})
-		query += ';'
+		let query = `
+-- $1 valueToUpdate
+${columns.map((c, i) => `-- $${i + 2} ${c.field}`).join('\n')}
+		
+UPDATE ${table} SET ${column.field} = $1::text::${column.datatype} WHERE 
+${columns.map((c, i) => `${c.field} = $${i + 2}::text::${c.datatype} `).join(' AND ')}		
+RETURNING 1`
 
 		return query
 	}
@@ -149,13 +179,61 @@ export function createUpdatePostgresInput(
 			language: Preview.language.POSTGRESQL,
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {
-					database: {
-						description: 'Database name',
-						type: 'object',
-						format: 'resource-postgresql'
-					}
-				},
+				properties: {},
+				required: ['database'],
+				type: 'object'
+			}
+		}
+	}
+
+	const updateQuery: AppInput = {
+		runnable: updateRunnable,
+		fields: {
+			database: {
+				type: 'static',
+				value: resource,
+				fieldType: 'object',
+				format: 'resource-postgresql'
+			}
+		},
+		type: 'runnable',
+		fieldType: 'object'
+	}
+
+	return updateQuery
+}
+
+export function createDeletePostgresInput(
+	resource: string,
+	table: string,
+	columns: ColumnMetadata[]
+): AppInput | undefined {
+	if (!resource || !table) {
+		return undefined
+	}
+
+	const query = updateWithAllValues()
+
+	function updateWithAllValues() {
+		let query = `
+${columns.map((c, i) => `-- $${i + 1} ${c.field}`).join('\n')}
+
+DELETE FROM ${table} WHERE ${columns
+			.map((c, i) => `${c.field} = $${i + 1}::text::${c.datatype}`)
+			.join(' AND ')} RETURNING 1;`
+
+		return query
+	}
+
+	const updateRunnable: RunnableByName = {
+		name: 'AppDbExplorer',
+		type: 'runnableByName',
+		inlineScript: {
+			content: query,
+			language: Preview.language.POSTGRESQL,
+			schema: {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				properties: {},
 				required: ['database'],
 				type: 'object'
 			}
@@ -184,7 +262,9 @@ export function getCountPostgresql(resource: string, table: string): AppInput | 
 		return undefined
 	}
 
-	const query = `SELECT COUNT(*) FROM ${table}`
+	const query = `
+-- $1 quicksearch
+SELECT COUNT(*) FROM ${table} WHERE ($1 = '' OR ${table}::text ILIKE '%' || $1 || '%')`
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
@@ -237,8 +317,34 @@ export type ColumnMetadata = {
 	isprimarykey: boolean
 	isidentity: ColumnIdentity
 	isnullable: 'YES' | 'NO'
+	isenum: boolean
 }
 export type TableMetadata = ColumnMetadata[]
+
+export type ColumnDef = {
+	minWidth: number
+	hide: boolean
+	flex: number
+	sort: 'asc' | 'desc'
+	sortIndex: number
+	aggFunc: string
+	pivot: boolean
+	pivotIndex: number
+	pinned: 'left' | 'right' | boolean
+	rowGroup: boolean
+	rowGroupIndex: number
+	valueFormatter: string
+	valueParser: string
+	field: string
+	headerName: string
+	// DBExplorer
+	ignored: boolean
+	hideInsert: boolean
+	editable: boolean
+	overrideDefaultValue: boolean
+	defaultUserValue: any
+	defaultValueNull: boolean
+} & ColumnMetadata
 
 export async function loadTableMetaData(
 	resource: string,
@@ -268,7 +374,10 @@ export async function loadTableMetaData(
 	CASE a.attnotnull
 			WHEN false THEN 'YES'
 			ELSE 'NO'
-	END as IsNullable
+	END as IsNullable,
+	(SELECT true
+	 FROM pg_catalog.pg_enum e
+	 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
 FROM pg_catalog.pg_attribute a
 WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
 	AND a.attnum > 0 AND NOT a.attisdropped
@@ -315,32 +424,6 @@ ORDER BY a.attnum;
 
 	console.error('Failed to load table metadata after maximum retries.')
 	return undefined
-}
-
-export async function insertRow(
-	resource: string,
-	workspace: string | undefined,
-	table: string | undefined,
-	values: Record<string, any>
-): Promise<boolean> {
-	if (!resource || !table || !workspace) {
-		return false
-	}
-
-	const code = makeInsertQuery(table, values)
-
-	await JobService.runScriptPreview({
-		workspace: workspace,
-		requestBody: {
-			language: Preview.language.POSTGRESQL,
-			content: code,
-			args: {
-				database: resource
-			}
-		}
-	})
-
-	return false
 }
 
 export function resourceTypeToLang(rt: string) {
@@ -626,4 +709,75 @@ export function formatSchema(dbSchema: DBSchema) {
 
 export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
 	return printSchema(buildClientSchema(dbSchema.schema))
+}
+
+/**
+ * Base class for embedding a svelte component within an AGGrid call.
+ * See: https://stackoverflow.com/a/72608215
+ */
+import type { ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
+
+/**
+ * Class for defining a cell renderer.
+ * If you don't need to define a separate class you could use cellRendererFactory
+ * to create a component with the column definitions.
+ */
+export abstract class AbstractCellRenderer implements ICellRendererComp {
+	eGui: any
+	protected value: any
+	protected params: any
+	constructor(parentElement = 'span') {
+		// create empty span (or other element) to place svelte component in
+		this.eGui = document.createElement(parentElement)
+	}
+
+	init(params: ICellRendererParams & { onClick?: (data: any) => void }) {
+		this.value = params.value
+		this.createComponent(params)
+		this.eGui.addEventListener('click', () => params.onClick?.(params.data))
+		this.params = params
+	}
+
+	getGui() {
+		return this.eGui
+	}
+
+	refresh(params: ICellRendererParams) {
+		this.value = params.value
+		this.eGui.innerHTML = ''
+
+		return true
+	}
+
+	/**
+	 * Define and create the svelte component to use in the cell
+	 * @example
+	 * // This is all you need to do within this method: create the component with new, specify the target
+	 * // is the class, and pass in props via the params.
+	 * new CampusIcon({
+	 *    target: this.eGui,
+	 *    props: {
+	 *        color: params.data?.color,
+	 *        name: params.data?.name
+	 * }
+	 * @param params params for rendering the call, including the value for the cell
+	 */
+	abstract createComponent(params: ICellRendererParams): void
+}
+
+/**
+ * Creates a cell renderer using the given callback for how to initialise a svelte component.
+ * See AbstractCellRenderer.createComponent
+ * @param svelteComponent function for how to create the svelte component
+ * @returns
+ */
+export function cellRendererFactory(
+	svelteComponent: (cell: AbstractCellRenderer, params: ICellRendererParams) => void
+) {
+	class Renderer extends AbstractCellRenderer {
+		createComponent(params: ICellRendererParams<any, any>): void {
+			svelteComponent(this, params)
+		}
+	}
+	return Renderer
 }

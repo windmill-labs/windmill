@@ -16,6 +16,9 @@
 	import type { RunnableComponent } from '../..'
 	import type { Output } from '$lib/components/apps/rx'
 	import type { InitConfig } from '$lib/components/apps/editor/appUtils'
+	import { Button } from '$lib/components/common'
+	import { cellRendererFactory } from '../dbtable/utils'
+	import { Trash2 } from 'lucide-svelte'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -28,6 +31,7 @@
 	export let datasource: IDatasource
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
+	export let allowDelete: boolean
 
 	const { app, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -98,9 +102,6 @@
 
 	function onCellValueChanged(event) {
 		let dataCell = event.newValue
-		try {
-			dataCell = JSON.parse(dataCell)
-		} catch (e) {}
 		outputs?.newChange?.set({
 			row: event.node.rowIndex,
 			column: event.colDef.field,
@@ -125,6 +126,41 @@
 
 	$: eGui && mountGrid()
 
+	function transformColumnDefs(columnDefs: any[]) {
+		let r = columnDefs?.filter((x) => x && !x.ignored) ?? []
+		if (allowDelete) {
+			r.push({
+				field: 'delete',
+				headerName: 'Delete',
+				cellRenderer: cellRendererFactory((c, p) => {
+					new Button({
+						target: c.eGui,
+						props: {
+							btnClasses: 'mt-1',
+							color: 'red',
+							variant: 'border',
+							iconOnly: true,
+							endIcon: { icon: Trash2 },
+							nonCaptureEvent: true
+						}
+					})
+				}),
+				cellRendererParams: {
+					onClick: (e) => {
+						dispatch('delete', e)
+					}
+				},
+				lockPosition: 'right',
+				editable: false,
+				flex: 0,
+				width: 100
+			})
+		}
+		return r
+	}
+
+	let firstRow = 0
+	let lastRow = 0
 	function mountGrid() {
 		if (eGui) {
 			createGrid(
@@ -132,20 +168,25 @@
 				{
 					rowModelType: 'infinite',
 					datasource,
-					columnDefs: resolvedConfig?.columnDefs.filter((x) => x && !x.ignored),
+					columnDefs: transformColumnDefs(resolvedConfig?.columnDefs),
 					pagination: false,
 					defaultColDef: {
 						flex: resolvedConfig.flex ? 1 : 0,
 						editable: resolvedConfig?.allEditable,
 						onCellValueChanged
 					},
+					suppressColumnMoveAnimation: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 						? resolvedConfig.rowMultiselectWithClick
-						: undefined,
+						: false,
 					initialState: state,
 					suppressRowDeselection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
+					onViewportChanged: (e) => {
+						firstRow = e.firstRow
+						lastRow = e.lastRow
+					},
 					onStateUpdated: (e) => {
 						state = e?.api?.getState()
 						resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
@@ -165,7 +206,9 @@
 						onSelectionChanged(e.api)
 						resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
 					},
-					getRowId: (data) => data.data['__index']
+					getRowId: (data) => {
+						return (data as any).data['__index']
+					}
 				},
 				{}
 			)
@@ -173,6 +216,7 @@
 	}
 
 	$: resolvedConfig && updateOptions()
+
 	$: datasource && api?.updateGridOptions({ datasource })
 
 	let extraConfig = resolvedConfig.extraConfig
@@ -181,6 +225,10 @@
 		if (extraConfig) {
 			api?.updateGridOptions(extraConfig)
 		}
+	}
+
+	export function clearRows() {
+		api?.purgeInfiniteCache()
 	}
 
 	function onSelectionChanged(api: GridApi<any>) {
@@ -199,7 +247,7 @@
 
 	function updateOptions() {
 		api?.updateGridOptions({
-			columnDefs: resolvedConfig?.columnDefs ?? [],
+			columnDefs: transformColumnDefs(resolvedConfig?.columnDefs),
 			defaultColDef: {
 				flex: resolvedConfig.flex ? 1 : 0,
 				editable: resolvedConfig?.allEditable,
@@ -253,6 +301,9 @@
 			<div bind:this={eGui} style:height="100%" />
 		</div>
 	</div>
+	<div class="flex gap-1 absolute bottom-1 right-2 text-sm text-secondary"
+		>{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows</div
+	>
 {:else if resolvedConfig.columnDefs != undefined}
 	<Alert title="Parsing issues" type="error" size="xs">
 		The columnDefs should be an array of objects, received:

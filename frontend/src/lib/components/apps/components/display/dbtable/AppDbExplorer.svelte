@@ -9,13 +9,12 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
-		ColumnIdentity,
 		createPostgresInput,
 		getDbSchemas,
-		insertRow,
 		loadTableMetaData,
 		type ColumnMetadata,
-		type TableMetadata
+		type TableMetadata,
+		getPrimaryKeys
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
@@ -32,6 +31,8 @@
 	import type { IDatasource } from 'ag-grid-community'
 	import { RunnableWrapper } from '../../helpers'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
+	import InsertRowRunnable from './InsertRowRunnable.svelte'
+	import DeleteRow from './DeleteRow.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -49,6 +50,24 @@
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	let input: AppInput | undefined = undefined
+	let quicksearch = ''
+	let aggrid: AppAggridExplorerTable
+
+	$: computeInput(
+		resolvedConfig.columnDefs,
+		resolvedConfig.whereClause,
+		resolvedConfig.type.configuration.postgresql.resource
+	)
+
+	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
+		aggrid?.clearRows()
+		input = createPostgresInput(
+			resource,
+			resolvedConfig.type.configuration.postgresql.table,
+			columnDefs,
+			whereClause
+		)
+	}
 
 	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
 
@@ -57,10 +76,13 @@
 		resolvedConfig.type.configuration?.postgresql?.table &&
 		listColumnsIfAvailable()
 
+	$: if (quicksearch) {
+		aggrid?.clearRows()
+	}
+
 	initializing = false
 
 	let updateCell: UpdateCell
-	let explorerCount: DbExplorerCount
 
 	let renderCount = 0
 	let insertDrawer: Drawer | undefined = undefined
@@ -77,12 +99,11 @@
 			oldValue: string | undefined
 		}>
 	) {
-		const { row, columnDef, value, data, oldValue } = e.detail
+		const { columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
 			resolvedConfig.type.configuration.postgresql.resource,
 			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
-			row,
 			columnDef,
 			resolvedConfig.columnDefs,
 			value,
@@ -168,30 +189,49 @@
 
 	let datasource: IDatasource = {
 		rowCount: 0,
-		getRows: function (params) {
-			console.log('asking for ' + params.startRow + ' to ' + params.endRow)
-			runnableComponent?.executeComponent(
+		getRows: async function (params) {
+			refreshCount++
+			let uuid = await runnableComponent?.runComponent(
+				undefined,
+				undefined,
+				undefined,
 				{
-					...params,
-					...extraQueryParams,
-					...resolvedConfig.type.configuration.postgresql
+					offset: params.startRow,
+					limit: params.endRow - params.startRow,
+					quicksearch,
+					orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+					is_desc: params.sortModel?.[0]?.sort === 'desc'
 				},
 				{
-					id: `${id}_count`,
-					result: outputs.result,
-					loading: outputs.loading
+					done: (x) => {
+						if (x && Array.isArray(x)) {
+							params.successCallback(
+								x.map((x) => {
+									let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
+									let o = {}
+									primaryKeys.forEach((pk) => {
+										o[pk] = x[pk]
+									})
+									x['__index'] = JSON.stringify(o)
+									return x
+								}),
+								datasource.rowCount
+							)
+						} else {
+							params.failCallback()
+						}
+					},
+					cancel: () => {
+						console.log('cancel datasource request')
+						params.failCallback()
+					},
+					error: () => {
+						console.log('error datasource request')
+						params.failCallback()
+					}
 				}
 			)
-			params.successCallback([], 0)
-		}
-	}
-
-	$: resolvedConfig.type.configuration.postgresql.table && computeCount()
-
-	async function computeCount() {
-		let table = resolvedConfig.type.configuration.postgresql.table
-		if (table) {
-			await explorerCount?.getCount(resolvedConfig.type.configuration.postgresql.resource, table)
+			console.log('asking for ' + params.startRow + ' to ' + params.endRow, uuid)
 		}
 	}
 
@@ -212,7 +252,6 @@
 		if (!gridItem) return
 
 		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
-
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
 		if (!Array.isArray(old)) {
 			console.log('old is not an array RESET')
@@ -238,7 +277,8 @@
 			}
 		})
 
-		console.log(ncols, tableMetadata)
+		state = undefined
+
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
 		gridItem.data = gridItem.data
@@ -247,74 +287,13 @@
 		$selectedComponent = []
 		await tick()
 		$selectedComponent = oldS
-		renderCount++
-	}
 
-	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
-		if (defaultValue && defaultValue.includes('::')) {
-			const val = defaultValue.split('::')[0]
-			if (val.startsWith("'") && val.endsWith("'")) {
-				return val.slice(1, -1)
-			}
-			return val
-		}
-		return defaultValue
+		//@ts-ignore
+		resolvedConfig.columnDefs = ncols
+		renderCount += 1
 	}
 
 	let isInsertable: boolean = false
-
-	async function insert() {
-		try {
-			const defaultValue = resolvedConfig.columnDefs.reduce((acc, column) => {
-				const hasValue =
-					args[column.field] !== undefined &&
-					args[column.field] !== null &&
-					args[column.field] !== ''
-				const hasDefaultValue = column.defaultValue || extractDefaultValue(column?.defaultvalue)
-
-				if (
-					column.insert &&
-					!column?.isnullable &&
-					!hasValue &&
-					!hasDefaultValue &&
-					column?.isidentity !== ColumnIdentity.Always
-				) {
-					throw new Error(
-						`Column ${column.field} requires a default value as it is non-nullable and no value is provided.`
-					)
-				}
-
-				// Set the default value for columns with insert true, if no value is provided
-				if (column.insert && !hasValue) {
-					acc[column.field] = column.defaultValue || extractDefaultValue(column?.defaultvalue)
-				}
-
-				return acc
-			}, {})
-
-			const allArgs = { ...args, ...defaultValue }
-
-			Object.keys(allArgs).forEach((key) => {
-				if (allArgs[key] === null || allArgs[key] === undefined) {
-					delete allArgs[key]
-				}
-			})
-
-			await insertRow(
-				resolvedConfig.type.configuration.postgresql.resource,
-				$workspaceStore,
-				resolvedConfig.type.configuration.postgresql.table,
-				allArgs
-			)
-
-			insertDrawer?.closeDrawer()
-			renderCount++
-		} catch (e) {
-			sendUserToast(e.message, true)
-		}
-
-		args = {}
-	}
 
 	$: $worldStore && connectToComponents()
 
@@ -335,8 +314,46 @@
 		}
 	}
 
+	async function insert() {
+		try {
+			await insertRowRunnable?.insertRow(
+				resolvedConfig.type.configuration.postgresql.resource,
+				$workspaceStore,
+				resolvedConfig.type.configuration.postgresql.table,
+				resolvedConfig.columnDefs,
+				args
+			)
+
+			insertDrawer?.closeDrawer()
+			renderCount++
+		} catch (e) {
+			sendUserToast(e.message, true)
+		}
+
+		args = {}
+	}
+
 	let runnableComponent: RunnableComponent
 	let state: any = undefined
+	let insertRowRunnable: InsertRowRunnable
+	let deleteRow: DeleteRow
+
+	function onDelete(e) {
+		const data = { ...e.detail }
+		delete data['__index']
+		let primaryColumns = getPrimaryKeys(resolvedConfig.columnDefs)
+		let getPrimaryKeysresolvedConfig = resolvedConfig.columnDefs?.filter((x) =>
+			primaryColumns.includes(x.field)
+		)
+		deleteRow?.triggerDelete(
+			resolvedConfig.type.configuration.postgresql.resource,
+			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
+			getPrimaryKeysresolvedConfig,
+			data
+		)
+	}
+
+	let refreshCount = 0
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -349,27 +366,59 @@
 	/>
 {/each}
 
+<InsertRowRunnable
+	on:insert={() => {
+		aggrid?.clearRows()
+		refreshCount++
+	}}
+	{id}
+	bind:this={insertRowRunnable}
+/>
+{#if resolvedConfig.allowDelete}
+	<DeleteRow
+		on:deleted={() => {
+			aggrid?.clearRows()
+			refreshCount++
+		}}
+		{id}
+		bind:this={deleteRow}
+	/>
+{/if}
 <UpdateCell {id} bind:this={updateCell} />
-<DbExplorerCount {id} bind:this={explorerCount} />
+<DbExplorerCount
+	renderCount={refreshCount}
+	{id}
+	{quicksearch}
+	table={resolvedConfig?.type?.configuration?.postgresql?.table ?? ''}
+	resource={resolvedConfig?.type?.configuration?.postgresql?.resource ?? ''}
+/>
 
-{datasource.rowCount}
 <RunnableWrapper
+	allowConcurentRequests
 	noInitialize
 	bind:runnableComponent
-	recomputeIds={[id]}
 	componentInput={input}
 	autoRefresh={false}
 	{render}
-	id={`${id}_count`}
+	{id}
 	{outputs}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
-		<div class="flex flex-start justify-end p-2" bind:clientHeight={buttonContainerHeight}>
+		<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
+			<input
+				on:pointerdown|stopPropagation
+				on:keydown|stopPropagation
+				class="w-full max-w-[300px]"
+				type="text"
+				bind:value={quicksearch}
+				placeholder="Quicksearch"
+			/>
 			<Button
 				startIcon={{ icon: Plus }}
 				color="dark"
 				size="xs2"
 				on:click={() => {
+					args = {}
 					insertDrawer?.openDrawer()
 				}}
 			>
@@ -379,16 +428,20 @@
 		{#if resolvedConfig.type.configuration?.postgresql?.resource && resolvedConfig.type.configuration?.postgresql?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			{#key resolvedConfig}
+			{#key renderCount}
+				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
+					bind:this={aggrid}
 					bind:state
 					{id}
 					{datasource}
 					{resolvedConfig}
 					{customCss}
 					{outputs}
+					allowDelete={resolvedConfig.allowDelete ?? false}
 					containerHeight={componentContainerHeight - buttonContainerHeight}
 					on:update={onUpdate}
+					on:delete={onDelete}
 				/>
 			{/key}
 		{/if}

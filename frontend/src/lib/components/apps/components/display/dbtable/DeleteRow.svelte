@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext } from '../../../types'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdatePostgresInput, type ColumnMetadata, getPrimaryKeys } from './utils'
+	import { type ColumnMetadata, createDeletePostgresInput } from './utils'
 	import { sendUserToast } from '$lib/toast'
 
 	export let id: string
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_update`, {
+	let outputs = initOutput($worldStore, `${id}_delete`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined
@@ -23,21 +23,17 @@
 
 	let input: AppInput | undefined = undefined
 
-	export async function triggerUpdate(
+	const dispatch = createEventDispatcher()
+
+	export async function triggerDelete(
 		resource: string,
 		table: string,
-		column: ColumnMetadata,
-		allColumns: ColumnMetadata[],
-		valueToUpdate: string,
-		data: Record<string, any>,
-		oldValue: string | undefined = undefined
+		columns: ColumnMetadata[],
+		data: Record<string, any>
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
-		let primaryColumns = getPrimaryKeys(allColumns)
-		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
-
-		input = createUpdatePostgresInput(resource, table, column, columns)
+		input = createDeletePostgresInput(resource, table, columns)
 
 		await tick()
 
@@ -46,21 +42,21 @@
 			columns.forEach((x) => {
 				ndata[x.field] = data[x.field]
 			})
-			ndata[column.field] = oldValue
 			await runnableComponent?.runComponent(
 				undefined,
 				undefined,
 				undefined,
-				{ valueToUpdate, ...ndata },
+				{ ...ndata },
 				{
 					done: (x) => {
-						sendUserToast('Value updated', false)
+						sendUserToast('Row deleted', false)
+						dispatch('deleted')
 					},
 					cancel: () => {
-						sendUserToast('Error updating value', true)
+						sendUserToast('Error deleting row', true)
 					},
 					error: () => {
-						sendUserToast('Error updating value', true)
+						sendUserToast('Error updating row', true)
 					}
 				}
 			)
@@ -75,6 +71,6 @@
 	componentInput={input}
 	autoRefresh={false}
 	render={false}
-	id={`${id}_update`}
+	id={`${id}_delete`}
 	{outputs}
 />

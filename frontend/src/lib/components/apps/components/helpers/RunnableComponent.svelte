@@ -51,6 +51,7 @@
 	export let errorHandledByComponent: boolean = false
 	export let hideRefreshButton: boolean = false
 	export let hasChildrens: boolean
+	export let allowConcurentRequests = false
 
 	const {
 		worldStore,
@@ -97,6 +98,7 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
+			console.debug('debounce execute')
 			executeComponent(true)
 		}, 200)
 	}
@@ -132,7 +134,7 @@
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
 		if (refreshEnabled && $initialized.initialized) {
-			// console.debug(`Refreshing ${id} because ${_src} (enabled)`)
+			console.debug(`Refreshing ${id} because ${_src} (enabled)`)
 			setDebouncedExecute()
 		}
 	}
@@ -216,10 +218,13 @@
 			return njobs
 		})
 	}
+
 	async function executeComponent(
 		noToast = false,
 		inlineScriptOverride?: InlineScript,
-		setRunnableJobEditorPanel?: boolean
+		setRunnableJobEditorPanel?: boolean,
+		dynamicArgsOverride?: Record<string, any>,
+		callbacks?: Callbacks
 	): Promise<string | undefined> {
 		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
@@ -290,7 +295,7 @@
 
 		try {
 			jobId = await resultJobLoader?.abstractRun(async () => {
-				const nonStaticRunnableInputs = {}
+				const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
 				const staticRunnableInputs = {}
 				for (const k of Object.keys(fields ?? {})) {
 					let field = fields[k]
@@ -339,7 +344,7 @@
 					addJob(uuid)
 				}
 				return uuid
-			})
+			}, callbacks)
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
@@ -350,21 +355,40 @@
 			}
 			return jobId
 		} catch (e) {
-			updateResult({ error: e.body ?? e.message })
+			let error = e.body ?? e.message
+			updateResult({ error })
+			$errorByComponent[id] = { error }
+
 			loading = false
 		}
 	}
+	type Callbacks = { done: (x: any[]) => void; cancel: () => void; error: () => void }
 
-	export async function runComponent() {
+	export async function runComponent(
+		noToast = false,
+		inlineScriptOverride?: InlineScript,
+		setRunnableJobEditorPanel?: boolean,
+		dynamicArgsOverride?: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string | undefined> {
 		try {
-			if (cancellableRun) {
+			if (cancellableRun && !dynamicArgsOverride) {
+				console.log('runComponent cancellable Run')
 				await cancellableRun()
 			} else {
 				console.log('Run component')
-				return await executeComponent()
+				return await executeComponent(
+					noToast,
+					inlineScriptOverride,
+					setRunnableJobEditorPanel,
+					dynamicArgsOverride,
+					callbacks
+				)
 			}
 		} catch (e) {
-			updateResult({ error: e.body ?? e.message })
+			let error = e.body ?? e.message
+			updateResult({ error })
+			$errorByComponent[id] = { error }
 		}
 	}
 
@@ -455,7 +479,7 @@
 		jobId: string | undefined,
 		setRunnableJobEditorPanel?: boolean
 	) {
-		dispatch('done')
+		dispatch('resultSet')
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -506,6 +530,7 @@
 
 	onMount(() => {
 		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
+			console.log('cancellableRun', inlineScript)
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<any>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
@@ -582,6 +607,7 @@
 {/if}
 
 <ResultJobLoader
+	{allowConcurentRequests}
 	{isEditor}
 	on:started={(e) => {
 		console.log('started', e.detail)
@@ -598,6 +624,7 @@
 	}}
 	on:cancel={(e) => {
 		let jobId = e.detail
+		console.debug('cancel', jobId)
 		let job = $jobsById[jobId]
 		if (job && job.created_at && !job.duration_ms) {
 			$jobsById[jobId] = {
@@ -618,6 +645,7 @@
 	on:doneError={(e) => {
 		setResult({ error: e.detail.error }, e.detail.id)
 		loading = false
+		dispatch('doneError', { id: e.detail.id, result: e.detail.result })
 	}}
 	bind:this={resultJobLoader}
 />
@@ -656,19 +684,21 @@
 					<span slot="text">
 						<div class="bg-surface">
 							<Alert type="error" title="Error during execution">
-								<div class="flex flex-col gap-2">
+								<div class="flex flex-col gap-2 overflow-auto">
 									An error occured, please contact the app author.
 
-									{#if lastJobId && $errorByComponent[id].error}
+									{#if $errorByComponent?.[id]?.error}
 										<div class="font-bold">{$errorByComponent[id].error}</div>
 									{/if}
-									<a
-										href={`/run/${lastJobId}?workspace=${workspace}`}
-										class="font-semibold text-red-800 underline"
-										target="_blank"
-									>
-										Job id: {lastJobId}
-									</a>
+									{#if lastJobId}
+										<a
+											href={`/run/${lastJobId}?workspace=${workspace}`}
+											class="font-semibold text-red-800 underline"
+											target="_blank"
+										>
+											Job id: {lastJobId}
+										</a>
+									{/if}
 								</div>
 							</Alert>
 						</div>

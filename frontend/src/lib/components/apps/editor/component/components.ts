@@ -3012,8 +3012,14 @@ This is a paragraph.
 					fieldType: 'boolean',
 					value: false,
 					hide: true,
-
 					tooltip: 'Configure all columns as Editable by users'
+				},
+				allowDelete: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					hide: true,
+					tooltip: 'Allow deleting rows'
 				},
 				multipleSelectable: {
 					type: 'static',

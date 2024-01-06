@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import { ColumnIdentity, type ColumnMetadata } from './utils'
 
 	export let args: Record<string, any> = {}
@@ -8,8 +8,10 @@
 		{
 			field: string
 			ignored: boolean
-			insert: boolean
-			defaultValue: any
+			hideInsert: boolean
+			overrideDefaultValue: boolean
+			defaultUserValue: any
+			defaultValueNull: boolean
 		} & ColumnMetadata
 	> = []
 
@@ -25,7 +27,7 @@
 
 	$: fields = columnDefs
 		?.filter((t) => {
-			const shouldFilter = t.isidentity !== ColumnIdentity.Always && t?.insert === true
+			const shouldFilter = t.isidentity !== ColumnIdentity.Always && t?.hideInsert === true
 
 			return !shouldFilter
 		})
@@ -33,7 +35,7 @@
 			const type = column.datatype
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
-			const defaultValue = column.defaultvalue
+			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
 
 			const baseType = type.split('(')[0]
 			const validTextTypes = ['character varying', 'text']
@@ -61,43 +63,6 @@
 			}
 		}) as FieldMetadata[] | undefined
 
-	function extractDefaultValue(defaultValue: string | undefined): string | undefined {
-		if (defaultValue && defaultValue.includes('::')) {
-			const val = defaultValue.split('::')[0]
-			if (val.startsWith("'") && val.endsWith("'")) {
-				return val.slice(1, -1)
-			}
-			return val
-		}
-		return defaultValue
-	}
-
-	function parsePsqlDate(date: string | undefined): string | undefined {
-		if (date && date.includes('::')) {
-			const val = date.split('::')[0]
-			if (val.startsWith("'") && val.endsWith("'")) {
-				return val.slice(1, -1)
-			}
-			return val
-		}
-
-		if (date && date.includes('now()')) {
-			// format is 2023-06-19 15:07:51.168209 UTC
-			const now = new Date()
-			const year = now.getFullYear()
-			const month = now.getMonth() + 1
-			const day = now.getDate()
-			const hours = now.getHours()
-			const minutes = now.getMinutes()
-			const seconds = now.getSeconds()
-			const milliseconds = now.getMilliseconds()
-
-			return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds} UTC`
-		}
-
-		return undefined
-	}
-
 	function builtSchema(fields: FieldMetadata[]): Schema {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
@@ -107,29 +72,25 @@
 				type: field.fieldType
 			}
 
-			if (field.nullable && field.isPrimaryKey) {
-				schemaProperty.description = `If left empty, the value will be auto-generated`
-			}
-
 			switch (field.fieldType) {
 				case 'number':
 					schemaProperty.type = 'number'
-					const extractedDefaultValue = extractDefaultValue(field.defaultValue)
+					const extractedDefaultValue = field.defaultValue
 					schemaProperty.default = extractedDefaultValue ? Number(extractedDefaultValue) : undefined
 					break
 				case 'checkbox':
 					schemaProperty.type = 'boolean'
-					schemaProperty.default = field.defaultValue === 'true'
+					schemaProperty.default = field.defaultValue?.toLocaleLowerCase() === 'true'
 					break
 				case 'date':
 					schemaProperty.type = 'string'
-					schemaProperty.format = 'date'
-					schemaProperty.default = parsePsqlDate(field.defaultValue)
+					schemaProperty.format = 'date-time'
+					schemaProperty.default = field.defaultValue
 					break
 				case 'text':
 				default:
 					schemaProperty.type = 'string'
-					schemaProperty.default = extractDefaultValue(field.defaultValue)
+					schemaProperty.default = field.defaultValue
 					break
 			}
 
@@ -166,4 +127,4 @@
 	}
 </script>
 
-<SchemaForm {schema} bind:args />
+<LightweightSchemaForm {schema} bind:args />
