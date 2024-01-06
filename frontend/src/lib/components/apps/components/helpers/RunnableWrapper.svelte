@@ -10,6 +10,7 @@
 	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
+	export let noInitialize = false
 
 	type SideEffectAction =
 		| {
@@ -76,6 +77,7 @@
 	export let refreshOnStart: boolean = false
 	export let errorHandledByComponent: boolean = false
 	export let hasChildrens: boolean = false
+	export let allowConcurentRequests = false
 
 	export function setArgs(value: any) {
 		runnableComponent?.setArgs(value)
@@ -208,10 +210,13 @@
 </script>
 
 {#if componentInput === undefined}
-	<InitializeComponent {id} />
+	{#if !noInitialize}
+		<InitializeComponent {id} />
+	{/if}
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
+		{allowConcurentRequests}
 		{refreshOnStart}
 		{extraKey}
 		{hasChildrens}
@@ -233,7 +238,10 @@
 		wrapperStyle={runnableStyle}
 		{render}
 		on:started
-		on:done={() => (initializing = false)}
+		on:done
+		on:doneError
+		on:cancel
+		on:setResult={() => (initializing = false)}
 		on:success={() => handleSideEffect(true)}
 		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
@@ -242,7 +250,7 @@
 		<slot />
 	</RunnableComponent>
 {:else}
-	<NonRunnableComponent {hasChildrens} {render} bind:result {id} {componentInput}>
+	<NonRunnableComponent {noInitialize} {hasChildrens} {render} bind:result {id} {componentInput}>
 		<slot />
 	</NonRunnableComponent>
 {/if}
