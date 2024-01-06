@@ -9,7 +9,7 @@
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
-	export let color: ButtonType.Color = 'blue'
+	export let color: ButtonType.Color | string = 'blue';
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
 	export let wrapperClasses: string = ''
