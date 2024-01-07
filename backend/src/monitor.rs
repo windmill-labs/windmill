@@ -35,8 +35,8 @@ use windmill_common::{
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SendResult, JOB_DEFAULT_TIMEOUT,
+    KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "enterprise")]
@@ -757,6 +757,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
+        let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
         let token = create_token_for_owner(
             &db,
@@ -795,6 +796,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             "",
             rsmq.clone(),
             worker_name,
+            send_result_never_used,
         )
         .await;
     }
