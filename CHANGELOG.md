@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.235.1](https://github.com/windmill-labs/windmill/compare/v1.235.0...v1.235.1) (2024-01-07)
+
+
+### Bug Fixes
+
+* fix resultjobloader ([2e02300](https://github.com/windmill-labs/windmill/commit/2e023003da8bea9efa86c0fbc52bf9723c73907d))
+
 ## [1.235.0](https://github.com/windmill-labs/windmill/compare/v1.234.1...v1.235.0) (2024-01-06)
 
 

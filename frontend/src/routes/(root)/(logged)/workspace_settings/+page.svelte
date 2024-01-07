@@ -200,7 +200,7 @@
 	): Promise<void> {
 		if (!emptyString(gitRepoResourcePath)) {
 			gitSyncSettings = {
-				script_path: 'hub/7923/sync-script-to-git-repo-windmill',
+				script_path: 'hub/7924/sync-script-to-git-repo-windmill',
 				git_repo_resource_path: `$res:${gitRepoResourcePath.replace('$res:', '')}`,
 				use_individual_branch: useIndividualBranch
 			}
@@ -328,7 +328,7 @@
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
-			path: 'hub/7846/git-repo-test-read-write-windmill',
+			path: 'hub/7925/git-repo-test-read-write-windmill',
 			requestBody: {
 				repo_url_resource_path: gitSyncSettings.git_repo_resource_path.replace('$res:', '')
 			}
