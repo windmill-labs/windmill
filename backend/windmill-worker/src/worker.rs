@@ -3105,10 +3105,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
             .execute(db)
             .await?;
 
-            let mut deployment_message = job.raw_code.as_ref().map(|x| x.clone());
-            if deployment_message.as_ref().is_some_and(|x| x.is_empty()) {
-                deployment_message = None;
-            }
+            let deployment_message = job.raw_code.as_ref().map(|x| x.clone());
 
             if let Err(e) = handle_deployment_metadata(
                 &job.email,

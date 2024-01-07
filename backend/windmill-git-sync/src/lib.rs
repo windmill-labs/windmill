@@ -85,25 +85,40 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                 .strip_prefix("$res:")),
         );
 
-        let default_commit_msg: String;
-        match obj.clone() {
+        let message = match obj.clone() {
             DeployedObject::Script { path, .. } => {
                 args.insert("path".to_string(), json!(path.to_string()));
-                default_commit_msg = format!("Script '{}' deployed", path);
+                if deployment_message.as_ref().is_none()
+                    || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                {
+                    format!("Script '{}' deployed", path)
+                } else {
+                    deployment_message.clone().unwrap()
+                }
             }
             DeployedObject::Flow { path } => {
                 args.insert("path".to_string(), json!(path.to_string()));
-                default_commit_msg = format!("Flow '{}' deployed", path);
+                if deployment_message.as_ref().is_none()
+                    || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                {
+                    format!("Flow '{}' deployed", path)
+                } else {
+                    deployment_message.clone().unwrap()
+                }
             }
             DeployedObject::App { path, .. } => {
                 args.insert("path".to_string(), json!(path.to_string()));
-                default_commit_msg = format!("App '{}' deployed", path);
+                if deployment_message.as_ref().is_none()
+                    || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                {
+                    format!("App '{}' deployed", path)
+                } else {
+                    deployment_message.clone().unwrap()
+                }
             }
-        }
-        args.insert(
-            "commit_msg".to_string(),
-            json!(deployment_message.clone().unwrap_or(default_commit_msg)),
-        );
+        };
+
+        args.insert("commit_msg".to_string(), json!(message));
         args.insert(
             "use_individual_branch".to_string(),
             json!(workspace_git_repo.use_individual_branch.unwrap_or(false)),

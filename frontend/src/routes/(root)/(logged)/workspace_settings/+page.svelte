@@ -768,22 +768,24 @@
 				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
 			<div class="flex mt-5 mb-1 gap-1">
-				{#key s3ResourceInitialPath}
-					<ResourcePicker
-						resourceType="git_repository"
-						initialValue={gitSyncSettings.git_repo_resource_path}
-						on:change={(ev) => {
-							editWindmillGitSyncSettings(ev.detail, gitSyncSettings.use_individual_branch)
-						}}
-					/>
-					<Button
-						disabled={emptyString(gitSyncSettings.script_path)}
-						btnClasses="w-32 text-center"
-						color="dark"
-						on:click={() => runGitSyncTestJob()}
-						size="xs">Test connection</Button
-					>
-				{/key}
+				{#if gitSyncSettings}
+					{#key gitSyncSettings}
+						<ResourcePicker
+							resourceType="git_repository"
+							initialValue={gitSyncSettings?.git_repo_resource_path}
+							on:change={(ev) => {
+								editWindmillGitSyncSettings(ev.detail, gitSyncSettings?.use_individual_branch)
+							}}
+						/>
+						<Button
+							disabled={emptyString(gitSyncSettings?.script_path)}
+							btnClasses="w-32 text-center"
+							color="dark"
+							on:click={() => runGitSyncTestJob()}
+							size="xs">Test connection</Button
+						>
+					{/key}
+				{/if}
 			</div>
 			<div class="flex mb-5 text-normal text-2xs gap-1">
 				{#if gitSyncTestJob !== undefined}
@@ -802,18 +804,20 @@
 			</div>
 
 			<div class="flex mt-5 mb-1 gap-1">
-				<Toggle
-					disabled={emptyString(gitSyncSettings.git_repo_resource_path)}
-					bind:checked={gitSyncSettings.use_individual_branch}
-					on:change={(ev) => {
-						editWindmillGitSyncSettings(gitSyncSettings.git_repo_resource_path, ev.detail)
-					}}
-					options={{
-						right: 'Create one branch per deployed script/flow/app',
-						rightTooltip:
-							"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
-					}}
-				/>
+				{#if gitSyncSettings}
+					<Toggle
+						disabled={emptyString(gitSyncSettings?.git_repo_resource_path)}
+						bind:checked={gitSyncSettings.use_individual_branch}
+						on:change={(ev) => {
+							editWindmillGitSyncSettings(gitSyncSettings.git_repo_resource_path, ev.detail)
+						}}
+						options={{
+							right: 'Create one branch per deployed script/flow/app',
+							rightTooltip:
+								"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+						}}
+					/>
+				{/if}
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
