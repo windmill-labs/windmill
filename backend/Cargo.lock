@@ -9471,6 +9471,7 @@ dependencies = [
  "windmill-api",
  "windmill-api-client",
  "windmill-common",
+ "windmill-git-sync",
  "windmill-queue",
  "windmill-worker",
 ]
@@ -9541,6 +9542,7 @@ dependencies = [
  "uuid 1.6.1",
  "windmill-audit",
  "windmill-common",
+ "windmill-git-sync",
  "windmill-parser",
  "windmill-parser-py-imports",
  "windmill-queue",
@@ -9608,6 +9610,19 @@ dependencies = [
  "tracing-loki",
  "tracing-subscriber",
  "uuid 1.6.1",
+]
+
+[[package]]
+name = "windmill-git-sync"
+version = "1.235.0"
+dependencies = [
+ "rsmq_async",
+ "serde",
+ "serde_json",
+ "sqlx 0.7.3",
+ "tracing",
+ "windmill-common",
+ "windmill-queue",
 ]
 
 [[package]]
@@ -9810,6 +9825,7 @@ dependencies = [
  "uuid 1.6.1",
  "windmill-audit",
  "windmill-common",
+ "windmill-git-sync",
  "windmill-parser",
  "windmill-parser-bash",
  "windmill-parser-go",

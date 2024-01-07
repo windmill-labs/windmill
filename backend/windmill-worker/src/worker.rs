@@ -25,6 +25,7 @@ use std::{
     },
     time::Duration,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_py_imports::parse_relative_imports;
 
 use uuid::Uuid;
@@ -34,7 +35,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_deployed_hash_for_path,
-    jobs::{JobKind, QueuedJob},
+    jobs::{JobKind, JobPayload, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{rd_string, StripPath},
@@ -2516,6 +2517,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         worker_dir,
                         base_internal_url,
                         &client.get_token().await,
+                        rsmq.clone(),
                     )
                     .await
                 }
@@ -2530,6 +2532,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
+                    rsmq.clone(),
                 )
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -2544,6 +2547,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
+                    rsmq.clone(),
                 )
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -3045,7 +3049,7 @@ mount {{
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_dependency_job(
+async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
     logs: &mut String,
     mem_peak: &mut i32,
@@ -3056,7 +3060,17 @@ async fn handle_dependency_job(
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
+    rsmq: Option<R>,
 ) -> error::Result<Box<RawValue>> {
+    let raw_code = sqlx::query_scalar!(
+        "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
+        &job.script_hash.unwrap_or(ScriptHash(0)).0,
+        &job.workspace_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or_else(|| "No script found at this hash".to_string());
+    let script_path = job.script_path();
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -3064,10 +3078,7 @@ async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        job.raw_code
-            .as_ref()
-            .map(|a| a.as_str())
-            .unwrap_or_else(|| "no raw code"),
+        &raw_code,
         logs,
         mem_peak,
         canceled_by,
@@ -3078,19 +3089,87 @@ async fn handle_dependency_job(
         worker_dir,
         base_internal_url,
         token,
-        job.script_path(),
+        script_path,
     )
     .await;
     match content {
         Ok(content) => {
+            let hash = job.script_hash.unwrap_or(ScriptHash(0));
+            let w_id = &job.workspace_id;
             sqlx::query!(
                 "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
                 &content,
-                &job.script_hash.unwrap_or(ScriptHash(0)).0,
-                &job.workspace_id
+                &hash.0,
+                w_id
             )
             .execute(db)
             .await?;
+
+            let mut deployment_message = job.raw_code.as_ref().map(|x| x.clone());
+            if deployment_message.as_ref().is_some_and(|x| x.is_empty()) {
+                deployment_message = None;
+            }
+
+            if let Err(e) = handle_deployment_metadata(
+                &job.email,
+                &job.created_by,
+                &job.permissioned_as,
+                &db,
+                &w_id,
+                DeployedObject::Script { hash, path: script_path.to_string() },
+                deployment_message.clone(),
+                rsmq.clone(),
+            )
+            .await
+            {
+                tracing::error!(%e, "error handling deployment metadata");
+            }
+
+            if &job.language == &Some(ScriptLang::Python3) {
+                if let Ok(relative_imports) = parse_relative_imports(&raw_code, script_path) {
+                    logs.push_str("\n--- RELATIVE IMPORTS ---\n\n");
+                    logs.push_str(&relative_imports.join("\n"));
+                    if !relative_imports.is_empty() {
+                        let mut tx = db.begin().await?;
+                        sqlx::query!(
+                            "DELETE FROM dependency_map
+                             WHERE importer_path = $1 AND importer_kind = 'script'
+                             AND workspace_id = $2",
+                            script_path,
+                            w_id
+                        )
+                        .execute(&mut *tx)
+                        .await?;
+                        for import in relative_imports {
+                            sqlx::query!(
+                                "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
+                                 VALUES ($1, $2, 'script', $3)",
+                                w_id,
+                                script_path,
+                                import
+                            )
+                            .execute(&mut *tx)
+                            .await?;
+                            logs.push_str(&format!("{}\n", import));
+                        }
+                        tx.commit().await?;
+                    }
+                    if let Err(e) = trigger_python_dependents_to_recompute_dependencies(
+                        w_id,
+                        script_path,
+                        deployment_message,
+                        &job.email,
+                        &job.created_by,
+                        &job.permissioned_as,
+                        db,
+                        rsmq,
+                    )
+                    .await
+                    {
+                        tracing::error!(%e, "error triggering python dependents to recompute dependencies");
+                    }
+                }
+            }
             Ok(to_raw_value_owned(
                 json!({ "success": "Successful lock file generation", "lock": content }),
             ))
@@ -3109,7 +3188,80 @@ async fn handle_dependency_job(
     }
 }
 
-async fn handle_flow_dependency_job(
+async fn trigger_python_dependents_to_recompute_dependencies<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
+    w_id: &str,
+    script_path: &str,
+    deployment_message: Option<String>,
+    email: &str,
+    created_by: &str,
+    permissioned_as: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    rsmq: Option<R>,
+) -> error::Result<()> {
+    let script_importers = sqlx::query_scalar!(
+        "SELECT importer_path FROM dependency_map
+         WHERE imported_path = $1 AND importer_kind = 'script'
+         AND workspace_id = $2",
+        script_path,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    for s in script_importers.iter() {
+        let tx: PushIsolationLevel<'_, R> =
+            PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
+        let r = get_latest_deployed_hash_for_path(db, w_id, s.as_str()).await;
+        if let Ok(r) = r {
+            let (job_uuid, new_tx) = windmill_queue::push(
+                db,
+                tx,
+                &w_id,
+                JobPayload::Dependencies {
+                    path: s.clone(),
+                    hash: r.0,
+                    language: r.5,
+                    dedicated_worker: r.6,
+                    deployment_message: deployment_message.clone(),
+                },
+                PushArgs::empty(),
+                &created_by,
+                email,
+                permissioned_as.to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                true,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            tracing::info!(
+                "pushed dependency job due to common python path: {job_uuid} for path {path} with hash {hash}",
+                path = s,
+                hash = r.0
+            );
+            new_tx.commit().await?;
+        } else {
+            tracing::error!(
+                "error getting latest deployed hash for path {path}: {err}",
+                path = s,
+                err = r.unwrap_err()
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
     logs: &mut String,
     mem_peak: &mut i32,
@@ -3120,6 +3272,7 @@ async fn handle_flow_dependency_job(
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -3171,6 +3324,22 @@ async fn handle_flow_dependency_job(
     )
     .execute(db)
     .await?;
+
+    if let Err(e) = handle_deployment_metadata(
+        &job.email,
+        &job.created_by,
+        &job.permissioned_as,
+        &db,
+        &job.workspace_id,
+        DeployedObject::Flow { path: job_path },
+        job.raw_code.as_ref().map(|x| x.clone()),
+        rsmq.clone(),
+    )
+    .await
+    {
+        tracing::error!(%e, "error handling deployment metadata");
+    }
+
     Ok(())
 }
 
@@ -3296,22 +3465,11 @@ async fn lock_modules(
             new_flow_modules.push(e);
             continue;
         };
-        // sync with windmill-api/scripts
-        let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(
-                &content,
-                &job.workspace_id,
-                &path.clone().unwrap_or_else(|| job_path.to_string()),
-                &db,
-            )
-            .await?
-            .join("\n"),
-            _ => content.clone(),
-        };
+
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
-            &dependencies,
+            &content,
             logs,
             mem_peak,
             canceled_by,
@@ -3322,7 +3480,7 @@ async fn lock_modules(
             worker_dir,
             base_internal_url,
             token,
-            job.script_path(),
+            &path.clone().unwrap_or_else(|| job_path.to_string()),
         )
         .await;
         match new_lock {
@@ -3397,24 +3555,11 @@ async fn lock_modules_app(
                                 .as_str()
                                 .unwrap_or_default()
                                 .to_string();
-                            let dependencies = match language {
-                                ScriptLang::Python3 => {
-                                    windmill_parser_py_imports::parse_python_imports(
-                                        &content,
-                                        &job.workspace_id,
-                                        job_path,
-                                        &db,
-                                    )
-                                    .await?
-                                    .join("\n")
-                                }
-                                _ => content.clone(),
-                            };
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
                                 &job.id,
                                 &language,
-                                &dependencies,
+                                &content,
                                 logs,
                                 mem_peak,
                                 canceled_by,
@@ -3499,7 +3644,7 @@ async fn lock_modules_app(
     }
 }
 
-async fn handle_app_dependency_job(
+async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
     logs: &mut String,
     mem_peak: &mut i32,
@@ -3510,6 +3655,7 @@ async fn handle_app_dependency_job(
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -3559,6 +3705,42 @@ async fn handle_app_dependency_job(
         sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
             .execute(db)
             .await?;
+
+        if let Err(e) = handle_deployment_metadata(
+            &job.email,
+            &job.created_by,
+            &job.permissioned_as,
+            &db,
+            &job.workspace_id,
+            DeployedObject::App { path: job_path, version: id },
+            job.raw_code.as_ref().map(|x| x.clone()),
+            rsmq.clone(),
+        )
+        .await
+        {
+            tracing::error!(%e, "error handling deployment metadata");
+        }
+
+        // tx = PushIsolationLevel::Transaction(new_tx);
+        // tx = handle_deployment_metadata(
+        //     tx,
+        //     &authed,
+        //     &db,
+        //     &w_id,
+        //     DeployedObject::App { path: app.path.clone(), version: v_id },
+        //     app.deployment_message,
+        // )
+        // .await?;
+
+        // match tx {
+        //     PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        //     _ => {
+        //         return Err(Error::InternalErr(
+        //             "Expected a transaction here".to_string(),
+        //         ));
+        //     }
+        // }
+
         Ok(())
     } else {
         Ok(())
@@ -3583,10 +3765,18 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
+            let reqs = windmill_parser_py_imports::parse_python_imports(
+                job_raw_code,
+                &w_id,
+                script_path,
+                &db,
+            )
+            .await?
+            .join("\n");
             create_dependencies_dir(job_dir).await;
             let req: std::result::Result<String, Error> = pip_compile(
                 job_id,
-                job_raw_code,
+                &reqs,
                 logs,
                 mem_peak,
                 canceled_by,
@@ -3618,14 +3808,6 @@ async fn capture_dependency_job(
                         e,
                         logs
                     );
-                }
-            }
-            tracing::error!("{}", job_raw_code);
-            if let Ok(relative_imports) = parse_relative_imports(job_raw_code, script_path) {
-                if !relative_imports.is_empty() {
-                    tracing::error!("{:?}", relative_imports);
-                } else {
-                    tracing::error!("No relative imports found");
                 }
             }
             req

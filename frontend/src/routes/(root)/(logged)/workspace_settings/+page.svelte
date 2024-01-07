@@ -389,8 +389,11 @@
 				<Tab size="xs" value="users">
 					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
+				<Tab size="xs" value="git_sync">
+					<div class="flex gap-2 items-center my-1">Git Sync</div>
+				</Tab>
 				<Tab size="xs" value="deploy_to">
-					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
+					<div class="flex gap-2 items-center my-1">Deployment UI</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab size="xs" value="slack">
@@ -415,9 +418,6 @@
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
-				</Tab>
-				<Tab size="xs" value="git_sync">
-					<div class="flex gap-2 items-center my-1"> Git sync </div>
 				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
@@ -705,7 +705,7 @@
 				/>
 			</div>
 		{:else if tab == 'windmill_lfs'}
-			<PageHeader title="Windmill Large File Storage" primary={false} />
+			<PageHeader title="S3 Storage" primary={false} />
 			{#if !$enterpriseLicense}
 				<Alert type="info" title="S3 storage it limited to 20 files in Windmill CE">
 					Windmill S3 bucket browser will not work for buckets containing more than 20 files.
@@ -755,6 +755,7 @@
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
+				<div class="mb-1" />
 			{/if}
 			<Alert
 				type="info"
@@ -841,12 +842,12 @@
 
 					<pre class="overflow-auto max-h-screen"
 						><code
-							>> wmill workspace add WORKSPACE_NAME WORKSPACE_ID WINDMILL_URL
-> echo 'u/' > .wmillignore
-> wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
-> git add -A
-> git commit -m 'Initial commit'
-> git push</code
+							>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
+echo 'u/' > .wmillignore
+wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
+git add -A
+git commit -m 'Initial commit'
+git push</code
 						></pre
 					>
 				</div>
