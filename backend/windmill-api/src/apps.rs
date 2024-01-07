@@ -9,7 +9,6 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
-    deployment_metadata_helpers,
     users::{require_owner_of_path, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -588,12 +587,16 @@ async fn create_app(
     )
     .await?;
 
-    let mut tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
         &w_id,
-        JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
+        JobPayload::AppDependencies {
+            path: app.path.clone(),
+            version: v_id,
+            deployment_message: app.deployment_message,
+        },
         PushArgs::empty(),
         &authed.username,
         &authed.email,
@@ -615,25 +618,7 @@ async fn create_app(
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
-    tx = PushIsolationLevel::Transaction(new_tx);
-    tx = deployment_metadata_helpers::handle_deployment_metadata(
-        tx,
-        &authed,
-        &db,
-        &w_id,
-        deployment_metadata_helpers::DeployedObject::App { path: app.path.clone(), version: v_id },
-        app.deployment_message,
-    )
-    .await?;
-
-    match tx {
-        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
-        _ => {
-            return Err(Error::InternalErr(
-                "Expected a transaction here".to_string(),
-            ));
-        }
-    }
+    new_tx.commit().await?;
 
     webhook.send_message(
         w_id.clone(),
@@ -849,14 +834,18 @@ async fn update_app(
     )
     .await?;
 
-    let mut tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
+    let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
         PushIsolationLevel::Transaction(tx);
     if let Some(v_id) = v_id {
         let (dependency_job_uuid, new_tx) = push(
             &db,
             tx,
             &w_id,
-            JobPayload::AppDependencies { path: npath.clone(), version: v_id },
+            JobPayload::AppDependencies {
+                path: npath.clone(),
+                version: v_id,
+                deployment_message: ns.deployment_message,
+            },
             PushArgs::empty(),
             &authed.username,
             &authed.email,
@@ -877,26 +866,7 @@ async fn update_app(
         )
         .await?;
         tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
-
-        tx = PushIsolationLevel::Transaction(new_tx);
-        tx = deployment_metadata_helpers::handle_deployment_metadata(
-            tx,
-            &authed,
-            &db,
-            &w_id,
-            deployment_metadata_helpers::DeployedObject::App { path: npath.clone(), version: v_id },
-            ns.deployment_message,
-        )
-        .await?;
-    }
-
-    match tx {
-        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
-        _ => {
-            return Err(Error::InternalErr(
-                "Expected a transaction here".to_string(),
-            ));
-        }
+        new_tx.commit().await?;
     }
 
     webhook.send_message(

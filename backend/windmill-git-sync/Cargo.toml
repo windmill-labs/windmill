@@ -1,0 +1,22 @@
+[package]
+name = "windmill-git-sync"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_git_sync"
+path = "./src/lib.rs"
+
+[features]
+enterprise = ["windmill-queue/enterprise"]
+default = []
+
+[dependencies]
+serde.workspace = true
+sqlx.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+windmill-common = { workspace = true, features = ["axum"] }
+windmill-queue.workspace = true
+rsmq_async.workspace = true

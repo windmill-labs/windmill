@@ -373,7 +373,6 @@
 	): Promise<string | undefined> {
 		try {
 			if (cancellableRun && !dynamicArgsOverride) {
-				console.log('runComponent cancellable Run')
 				await cancellableRun()
 			} else {
 				console.log('Run component')
@@ -530,7 +529,6 @@
 
 	onMount(() => {
 		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
-			console.log('cancellableRun', inlineScript)
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<any>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject

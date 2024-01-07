@@ -389,8 +389,11 @@
 				<Tab size="xs" value="users">
 					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
+				<Tab size="xs" value="git_sync">
+					<div class="flex gap-2 items-center my-1">Git Sync</div>
+				</Tab>
 				<Tab size="xs" value="deploy_to">
-					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
+					<div class="flex gap-2 items-center my-1">Deployment UI</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab size="xs" value="slack">
@@ -415,9 +418,6 @@
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
-				</Tab>
-				<Tab size="xs" value="git_sync">
-					<div class="flex gap-2 items-center my-1"> Git sync </div>
 				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
@@ -705,7 +705,7 @@
 				/>
 			</div>
 		{:else if tab == 'windmill_lfs'}
-			<PageHeader title="Windmill Large File Storage" primary={false} />
+			<PageHeader title="S3 Storage" primary={false} />
 			{#if !$enterpriseLicense}
 				<Alert type="info" title="S3 storage it limited to 20 files in Windmill CE">
 					Windmill S3 bucket browser will not work for buckets containing more than 20 files.
@@ -755,6 +755,7 @@
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
+				<div class="mb-1" />
 			{/if}
 			<Alert
 				type="info"
@@ -767,22 +768,24 @@
 				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
 			<div class="flex mt-5 mb-1 gap-1">
-				{#key s3ResourceInitialPath}
-					<ResourcePicker
-						resourceType="git_repository"
-						initialValue={gitSyncSettings.git_repo_resource_path}
-						on:change={(ev) => {
-							editWindmillGitSyncSettings(ev.detail, gitSyncSettings.use_individual_branch)
-						}}
-					/>
-					<Button
-						disabled={emptyString(gitSyncSettings.script_path)}
-						btnClasses="w-32 text-center"
-						color="dark"
-						on:click={() => runGitSyncTestJob()}
-						size="xs">Test connection</Button
-					>
-				{/key}
+				{#if gitSyncSettings}
+					{#key gitSyncSettings}
+						<ResourcePicker
+							resourceType="git_repository"
+							initialValue={gitSyncSettings?.git_repo_resource_path}
+							on:change={(ev) => {
+								editWindmillGitSyncSettings(ev.detail, gitSyncSettings?.use_individual_branch)
+							}}
+						/>
+						<Button
+							disabled={emptyString(gitSyncSettings?.script_path)}
+							btnClasses="w-32 text-center"
+							color="dark"
+							on:click={() => runGitSyncTestJob()}
+							size="xs">Test connection</Button
+						>
+					{/key}
+				{/if}
 			</div>
 			<div class="flex mb-5 text-normal text-2xs gap-1">
 				{#if gitSyncTestJob !== undefined}
@@ -801,18 +804,20 @@
 			</div>
 
 			<div class="flex mt-5 mb-1 gap-1">
-				<Toggle
-					disabled={emptyString(gitSyncSettings.git_repo_resource_path)}
-					bind:checked={gitSyncSettings.use_individual_branch}
-					on:change={(ev) => {
-						editWindmillGitSyncSettings(gitSyncSettings.git_repo_resource_path, ev.detail)
-					}}
-					options={{
-						right: 'Create one branch per deployed script/flow/app',
-						rightTooltip:
-							"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
-					}}
-				/>
+				{#if gitSyncSettings}
+					<Toggle
+						disabled={emptyString(gitSyncSettings?.git_repo_resource_path)}
+						bind:checked={gitSyncSettings.use_individual_branch}
+						on:change={(ev) => {
+							editWindmillGitSyncSettings(gitSyncSettings.git_repo_resource_path, ev.detail)
+						}}
+						options={{
+							right: 'Create one branch per deployed script/flow/app',
+							rightTooltip:
+								"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+						}}
+					/>
+				{/if}
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
@@ -841,12 +846,12 @@
 
 					<pre class="overflow-auto max-h-screen"
 						><code
-							>> wmill workspace add WORKSPACE_NAME WORKSPACE_ID WINDMILL_URL
-> echo 'u/' > .wmillignore
-> wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
-> git add -A
-> git commit -m 'Initial commit'
-> git push</code
+							>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
+echo 'u/' > .wmillignore
+wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
+git add -A
+git commit -m 'Initial commit'
+git push</code
 						></pre
 					>
 				</div>

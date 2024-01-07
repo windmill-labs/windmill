@@ -512,9 +512,7 @@
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
 					<Tab value="stats">Metrics</Tab>
-					{#if job?.job_kind == 'dependencies'}
-						<Tab value="code">Code</Tab>
-					{:else if job?.job_kind == 'preview'}
+					{#if job?.job_kind == 'preview'}
 						<Tab value="code">Code</Tab>
 					{/if}
 				</Tabs>
