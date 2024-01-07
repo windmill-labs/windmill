@@ -475,6 +475,7 @@ async fn handle_receive_completed_job<
     worker_name: &str,
     worker_save_completed_job_duration: Option<Arc<prometheus::Histogram>>,
     worker_flow_transition_duration: Option<Arc<prometheus::Histogram>>,
+    job_completed_tx: Sender<SendResult>,
 ) {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
@@ -497,6 +498,7 @@ async fn handle_receive_completed_job<
         worker_name,
         worker_save_completed_job_duration,
         worker_flow_transition_duration,
+        job_completed_tx.clone(),
     )
     .await
     {
@@ -512,6 +514,7 @@ async fn handle_receive_completed_job<
             &worker_dir,
             rsmq.clone(),
             worker_name,
+            job_completed_tx,
         )
         .await;
     }
@@ -519,7 +522,7 @@ async fn handle_receive_completed_job<
 
 #[derive(Clone)]
 pub struct JobCompletedSender(
-    Sender<JobCompleted>,
+    Sender<SendResult>,
     Option<Arc<GenericGauge<AtomicI64>>>,
     Option<Arc<prometheus::Histogram>>,
 );
@@ -528,12 +531,12 @@ impl JobCompletedSender {
     pub async fn send(
         &self,
         jc: JobCompleted,
-    ) -> Result<(), tokio::sync::mpsc::error::SendError<JobCompleted>> {
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
         if let Some(wj) = self.1.as_ref() {
             wj.inc()
         }
         let timer = self.2.as_ref().map(|x| x.start_timer());
-        let r = self.0.send(jc).await;
+        let r = self.0.send(SendResult::JobCompleted(jc)).await;
         timer.map(|x| x.stop_and_record());
         r
     }
@@ -879,7 +882,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
-    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(3);
+    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<SendResult>(3);
 
     let job_completed_tx = JobCompletedSender(
         job_completed_tx,
@@ -967,119 +970,167 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
+    let job_completed_sender = job_completed_tx.0.clone();
     let send_result = tokio::spawn(async move {
-        while let Some(jc) = job_completed_rx.recv().await {
-            if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
-                wj.dec();
-            }
-            let base_internal_url2 = base_internal_url2.clone();
-            let worker_dir2 = worker_dir2.clone();
-            let db2 = db2.clone();
-            let same_worker_tx2 = same_worker_tx2.clone();
-            let rsmq2 = rsmq2.clone();
-            let worker_name = worker_name2.clone();
-            if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
-                thread_count.fetch_add(1, Ordering::SeqCst);
-                let thread_count = thread_count.clone();
-
-                loop {
-                    if thread_count.load(Ordering::Relaxed) < 4 {
-                        break;
+        while let Some(sr) = job_completed_rx.recv().await {
+            match sr {
+                SendResult::JobCompleted(jc) => {
+                    if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
+                        wj.dec();
                     }
-                    tokio::time::sleep(Duration::from_millis(3)).await;
-                }
+                    let base_internal_url2 = base_internal_url2.clone();
+                    let worker_dir2 = worker_dir2.clone();
+                    let db2 = db2.clone();
+                    let same_worker_tx2 = same_worker_tx2.clone();
+                    let rsmq2 = rsmq2.clone();
+                    let worker_name = worker_name2.clone();
+                    if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
+                        thread_count.fetch_add(1, Ordering::SeqCst);
+                        let thread_count = thread_count.clone();
 
-                #[cfg(feature = "benchmark")]
-                let send_duration = send_duration2.clone();
-                #[cfg(feature = "benchmark")]
-                let process_duration = process_duration.clone();
-                #[cfg(feature = "benchmark")]
-                let completed_jobs = completed_jobs.clone();
-                #[cfg(feature = "benchmark")]
-                let main_duration = main_duration2.clone();
-
-                let worker_save_completed_job_duration2 =
-                    worker_save_completed_job_duration.clone();
-                let worker_flow_transition_duration2 = worker_flow_transition_duration.clone();
-                let killpill_tx = killpill_tx2.clone();
-                tokio::spawn(async move {
-                    #[cfg(feature = "benchmark")]
-                    let process_start = Instant::now();
-
-                    let is_dependency_job = matches!(
-                        jc.job.job_kind,
-                        JobKind::Dependencies | JobKind::FlowDependencies
-                    );
-                    handle_receive_completed_job(
-                        jc,
-                        base_internal_url2,
-                        db2.clone(),
-                        worker_dir2,
-                        same_worker_tx2,
-                        rsmq2,
-                        &worker_name,
-                        worker_save_completed_job_duration2.clone(),
-                        worker_flow_transition_duration2.clone(),
-                    )
-                    .await;
-                    #[cfg(feature = "benchmark")]
-                    {
-                        let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
-                        if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
-                            let duration_s = start.elapsed().as_secs_f64();
-                            let jobs_per_sec = n as f64 / duration_s;
-                            tracing::info!(
-                                "completed {} jobs in {}s, {} jobs/s",
-                                n + 1,
-                                duration_s,
-                                jobs_per_sec
-                            );
-
-                            tracing::info!(
-                                "main loop without send {}s",
-                                main_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                            );
-
-                            tracing::info!(
-                                "send job completed / send dedicated job duration {}s",
-                                send_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                            );
-
-                            tracing::info!(
-                                "job completed process duration {}s",
-                                process_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                            );
+                        loop {
+                            if thread_count.load(Ordering::Relaxed) < 4 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(3)).await;
                         }
 
-                        process_duration.fetch_add(
-                            process_start.elapsed().as_millis() as usize,
-                            Ordering::SeqCst,
-                        );
-                    }
+                        #[cfg(feature = "benchmark")]
+                        let send_duration = send_duration2.clone();
+                        #[cfg(feature = "benchmark")]
+                        let process_duration = process_duration.clone();
+                        #[cfg(feature = "benchmark")]
+                        let completed_jobs = completed_jobs.clone();
+                        #[cfg(feature = "benchmark")]
+                        let main_duration = main_duration2.clone();
 
-                    thread_count.fetch_sub(1, Ordering::SeqCst);
-                    if is_dependency_job && is_dedicated_worker {
-                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                        sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
+                        let worker_save_completed_job_duration2 =
+                            worker_save_completed_job_duration.clone();
+                        let worker_flow_transition_duration2 =
+                            worker_flow_transition_duration.clone();
+                        let killpill_tx = killpill_tx2.clone();
+                        let job_completed_sender = job_completed_sender.clone();
+                        tokio::spawn(async move {
+                            #[cfg(feature = "benchmark")]
+                            let process_start = Instant::now();
+
+                            let is_dependency_job = matches!(
+                                jc.job.job_kind,
+                                JobKind::Dependencies | JobKind::FlowDependencies
+                            );
+                            handle_receive_completed_job(
+                                jc,
+                                base_internal_url2,
+                                db2.clone(),
+                                worker_dir2,
+                                same_worker_tx2,
+                                rsmq2,
+                                &worker_name,
+                                worker_save_completed_job_duration2.clone(),
+                                worker_flow_transition_duration2.clone(),
+                                job_completed_sender.clone(),
+                            )
+                            .await;
+                            #[cfg(feature = "benchmark")]
+                            {
+                                let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
+                                if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
+                                    let duration_s = start.elapsed().as_secs_f64();
+                                    let jobs_per_sec = n as f64 / duration_s;
+                                    tracing::info!(
+                                        "completed {} jobs in {}s, {} jobs/s",
+                                        n + 1,
+                                        duration_s,
+                                        jobs_per_sec
+                                    );
+
+                                    tracing::info!(
+                                        "main loop without send {}s",
+                                        main_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                                    );
+
+                                    tracing::info!(
+                                        "send job completed / send dedicated job duration {}s",
+                                        send_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                                    );
+
+                                    tracing::info!(
+                                        "job completed process duration {}s",
+                                        process_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                                    );
+                                }
+
+                                process_duration.fetch_add(
+                                    process_start.elapsed().as_millis() as usize,
+                                    Ordering::SeqCst,
+                                );
+                            }
+
+                            thread_count.fetch_sub(1, Ordering::SeqCst);
+                            if is_dependency_job && is_dedicated_worker {
+                                tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                                sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
                             .execute(&db2)
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send(()).unwrap_or_default();
+                                killpill_tx.send(()).unwrap_or_default();
+                            }
+                        });
+                    } else {
+                        handle_receive_completed_job(
+                            jc,
+                            base_internal_url2,
+                            db2,
+                            worker_dir2,
+                            same_worker_tx2,
+                            rsmq2,
+                            &worker_name,
+                            worker_save_completed_job_duration2.clone(),
+                            worker_flow_transition_duration2.clone(),
+                            job_completed_sender.clone(),
+                        )
+                        .await;
                     }
-                });
-            } else {
-                handle_receive_completed_job(
-                    jc,
-                    base_internal_url2,
-                    db2,
-                    worker_dir2,
-                    same_worker_tx2,
-                    rsmq2,
-                    &worker_name,
-                    worker_save_completed_job_duration2.clone(),
-                    worker_flow_transition_duration2.clone(),
-                )
-                .await;
+                }
+                SendResult::UpdateFlow {
+                    flow,
+                    w_id,
+                    success,
+                    result,
+                    worker_dir,
+                    stop_early_override,
+                    token,
+                } => {
+                    // let r;
+                    if let Err(e) = update_flow_status_after_job_completion(
+                        &db2,
+                        &AuthedClient {
+                            base_internal_url: base_internal_url2.to_string(),
+                            workspace: w_id.clone(),
+                            token: token.clone(),
+                            force_client: None,
+                        },
+                        flow,
+                        &Uuid::nil(),
+                        &w_id,
+                        success,
+                        &result,
+                        true,
+                        same_worker_tx2.clone(),
+                        &worker_dir,
+                        stop_early_override,
+                        rsmq2.clone(),
+                        &worker_name2,
+                        job_completed_sender.clone(),
+                    )
+                    .await
+                    {
+                        tracing::error!("Error updating flow status after job completion: {e}");
+                    }
+                }
+                SendResult::Kill => {
+                    break;
+                }
             }
         }
 
@@ -1336,6 +1387,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         }
                     }
                     println!("received killpill for worker {}", i_worker);
+                    job_completed_tx.0.send(SendResult::Kill).await.unwrap();
                     break
                 },
                 _ = copy_to_bucket_rx.recv() => {
@@ -1603,6 +1655,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             &worker_dir,
                             rsmq.clone(),
                             &worker_name,
+                            (&job_completed_tx.0).clone(),
                         )
                         .await;
                     };
@@ -2086,6 +2139,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     worker_name: &str,
     worker_save_completed_job_duration: Option<Arc<prometheus::Histogram>>,
     worker_flow_transition_duration: Option<Arc<prometheus::Histogram>>,
+    job_completed_tx: Sender<SendResult>,
 ) -> windmill_common::error::Result<()> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
@@ -2129,6 +2183,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     None,
                     rsmq.clone(),
                     worker_name,
+                    job_completed_tx,
                 )
                 .await?;
                 timer.map(|x| x.stop_and_record());
@@ -2164,6 +2219,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     None,
                     rsmq,
                     worker_name,
+                    job_completed_tx,
                 )
                 .await?;
             }
@@ -2219,6 +2275,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     worker_dir: &str,
     rsmq: Option<R>,
     worker_name: &str,
+    job_completed_tx: Sender<SendResult>,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
@@ -2266,6 +2323,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             None,
             rsmq.clone(),
             worker_name,
+            job_completed_tx.clone(),
         )
         .await;
 
@@ -2307,6 +2365,34 @@ fn extract_error_value(log_lines: &str, i: i32) -> Box<RawValue> {
         &json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"}),
     );
 }
+
+pub enum SendResult {
+    JobCompleted(JobCompleted),
+    UpdateFlow {
+        flow: Uuid,
+        w_id: String,
+        success: bool,
+        result: Box<RawValue>,
+        worker_dir: String,
+        stop_early_override: Option<bool>,
+        token: String,
+    },
+    Kill,
+}
+
+// db: &DB,
+// client: &AuthedClient,
+// flow: uuid::Uuid,
+// job_id_for_status: &Uuid,
+// w_id: &str,
+// success: bool,
+// result: &'a RawValue,
+// unrecoverable: bool,
+// same_worker_tx: Sender<Uuid>,
+// worker_dir: &str,
+// stop_early_override: Option<bool>,
+// rsmq: Option<R>,
+// worker_name: &str,
 
 #[derive(Debug, Clone)]
 pub struct JobCompleted {
@@ -2470,7 +2556,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 same_worker_tx,
                 worker_dir,
                 rsmq,
-                worker_name,
+                job_completed_tx.0.clone(),
             )
             .await?;
             timer.map(|x| x.stop_and_record());
