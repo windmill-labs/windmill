@@ -20,7 +20,7 @@ def main():
 ";
         let r = parse_python_imports(code, "test-workspace", "f/foo/bar", &db).await?;
         // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["matplotlib", "requests", "wmill", "zanzibar"]);
+        assert_eq!(r, vec!["matplotlib", "wmill", "zanzibar"]);
         Ok(())
     }
 
@@ -73,7 +73,6 @@ def main():
                 "numpy",
                 "pandas",
                 "pandas2",
-                "requests"
             ]
         );
 
