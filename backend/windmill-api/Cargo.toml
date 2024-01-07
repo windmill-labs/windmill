@@ -9,7 +9,7 @@ name = "windmill_api"
 path = "src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise", "async-stripe", "windmill-audit/enterprise"]
+enterprise = ["windmill-queue/enterprise",  "async-stripe", "windmill-audit/enterprise", "windmill-git-sync/enterprise"]
 enterprise_saml = ["samael"]
 benchmark = []
 
@@ -27,6 +27,7 @@ windmill-common = { workspace = true, features = [
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-py-imports.workspace = true
+windmill-git-sync.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 argon2.workspace = true

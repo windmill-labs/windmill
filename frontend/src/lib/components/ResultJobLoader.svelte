@@ -177,7 +177,7 @@
 					if (currentId === id || allowConcurentRequests) {
 						job = { ...maybe_job, id }
 						await tick()
-						if ('error' in (job.result ?? {})) {
+						if ('error' in (job?.result ?? {})) {
 							callbacks?.error()
 							dispatch('doneError', {
 								id,

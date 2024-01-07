@@ -44,6 +44,7 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::workspaces::WorkspaceGitRepo;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -1045,13 +1046,6 @@ struct EditGitSyncConfig {
     git_sync_settings: Option<WorkspaceGitRepo>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WorkspaceGitRepo {
-    pub script_path: String,
-    pub git_repo_resource_path: String,
-    pub use_individual_branch: Option<bool>,
-}
-
 async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1505,6 +1499,9 @@ async fn delete_workspace(
     let mut tx = db.begin().await?;
     require_super_admin(&db, &email).await?;
 
+    sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM queue WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
