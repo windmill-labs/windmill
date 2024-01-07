@@ -648,7 +648,6 @@ async fn create_script(
         handle_deployment_metadata(
             &authed.email,
             &authed.username,
-            &permissioned_as,
             &db,
             &w_id,
             DeployedObject::Script { hash: hash, path: script_path },

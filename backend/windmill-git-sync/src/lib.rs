@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use sqlx::{Pool, Postgres};
+use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 use windmill_common::workspaces::WorkspaceGitRepo;
 
 use serde_json::json;
@@ -39,7 +40,6 @@ impl DeployedObject {
 pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     email: &str,
     created_by: &str,
-    permissioned_as: &str,
     db: &DB,
     w_id: &str,
     obj: DeployedObject,
@@ -134,7 +134,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
             args,
             created_by,
             &email,
-            permissioned_as.to_string(),
+            SUPERADMIN_SYNC_EMAIL.to_string(),
             None,
             None,
             None,

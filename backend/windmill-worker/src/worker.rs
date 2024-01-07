@@ -37,7 +37,7 @@ use windmill_common::{
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, JobPayload, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
         to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG, WORKER_GROUP,
@@ -151,7 +151,8 @@ pub async fn create_token_for_owner(
             .await?
             .unwrap_or(false)
             || email == SUPERADMIN_SECRET_EMAIL
-            || email == SUPERADMIN_NOTIFICATION_EMAIL;
+            || email == SUPERADMIN_NOTIFICATION_EMAIL
+            || owner == SUPERADMIN_SYNC_EMAIL;
 
     sqlx::query_scalar!(
         "INSERT INTO token
@@ -3110,7 +3111,6 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
             if let Err(e) = handle_deployment_metadata(
                 &job.email,
                 &job.created_by,
-                &job.permissioned_as,
                 &db,
                 &w_id,
                 DeployedObject::Script { hash, path: script_path.to_string() },
@@ -3325,7 +3325,6 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
     if let Err(e) = handle_deployment_metadata(
         &job.email,
         &job.created_by,
-        &job.permissioned_as,
         &db,
         &job.workspace_id,
         DeployedObject::Flow { path: job_path },
@@ -3706,7 +3705,6 @@ async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         if let Err(e) = handle_deployment_metadata(
             &job.email,
             &job.created_by,
-            &job.permissioned_as,
             &db,
             &job.workspace_id,
             DeployedObject::App { path: job_path, version: id },
