@@ -604,8 +604,6 @@ async fn create_script(
         );
     }
 
-    let tx = PushIsolationLevel::Transaction(tx);
-
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
@@ -613,6 +611,7 @@ async fn create_script(
         } else {
             ns.tag
         };
+        let tx = PushIsolationLevel::Transaction(tx);
         let (_, new_tx) = windmill_queue::push(
             &db,
             tx,
@@ -655,6 +654,7 @@ async fn create_script(
             rsmq,
         )
         .await?;
+        tx.commit().await?;
     }
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
