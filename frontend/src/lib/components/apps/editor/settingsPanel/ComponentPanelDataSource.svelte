@@ -85,7 +85,48 @@
 			} else if (selected === 'json') {
 				convertChartJSToJson()
 			}
+		} else if (component.type === 'agchartcomponent') {
+			if (selected === 'ui-editor') {
+				convertToUIEditorCallback = () => {
+					component.componentInput = undefined
+					setUpUIEditor()
+				}
+
+				setTimeout(() => {
+					const activeElement = document.activeElement as HTMLElement
+					activeElement?.blur()
+					document.body.focus()
+				})
+			} else if (selected === 'json') {
+				convertAgChartToJson()
+			}
 		}
+	}
+
+	function convertAgChartToJson() {
+		if (component.type !== 'agchartcomponent') {
+			return
+		}
+
+		const connections: InputConnectionEval[] = []
+		const xDataResolved = resolveConfiguration(component.xData, connections)
+
+		if (component.datasets === undefined || component.datasets.type !== 'static') return
+
+		const datasets = component.datasets?.value
+
+		const datasetsAsString = datasetToAgChartJson(datasets, xDataResolved, connections)
+
+		component.componentInput = {
+			type: 'evalv2',
+			fieldType: 'object',
+			noStatic: true,
+			expr: datasetsAsString,
+			connections: connections.filter(Boolean)
+		}
+
+		component.datasets = undefined
+		component.xData = undefined
 	}
 
 	function setUpUIEditor() {
@@ -114,7 +155,8 @@
 						subFieldType: 'number',
 						value: [25, 25, 50]
 					},
-					name: 'Dataset 1'
+					name: 'Dataset 1',
+					type: 'bar'
 				}
 			]
 		}
@@ -252,6 +294,55 @@
 \t\t\t"color": "${dataset.color}"
 \t\t}
 \t}`
+	}
+
+	function datasetToAgChartJson(
+		datasets: Dataset[],
+		xDataExpr: string | undefined,
+		connections: InputConnectionEval[]
+	): string {
+		let data = [] as any[]
+
+		const xArray = JSON.parse(xDataExpr || '[]')
+
+		for (let i = 0; i < xArray.length; i++) {
+			const o = {
+				x: xArray[i]
+			}
+
+			for (let j = 0; j < datasets.length; j++) {
+				const r = resolveConfiguration(datasets[j].value, connections)
+				if (!r) {
+					continue
+				}
+				const val = JSON.parse(r)[i]
+
+				o[`y-${j}`] = val
+			}
+
+			data.push(o)
+		}
+
+		const series =
+			(datasets?.map((d, index) => ({
+				type: d.type,
+				xKey: 'x',
+				yKey: `y-${index}`,
+				yName: d.name
+			})) as any[]) ?? []
+
+		return (
+			'(' +
+			JSON.stringify(
+				{
+					data,
+					series
+				},
+				null,
+				'\t'
+			) +
+			')'
+		)
 	}
 </script>
 

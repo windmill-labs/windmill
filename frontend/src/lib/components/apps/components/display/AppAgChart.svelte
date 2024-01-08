@@ -92,6 +92,23 @@
 	}
 
 	$: resolvedXData && resolvedDatasets && resolvedDatasetsValues && chartInstance && updateChart()
+	$: result && updateChartByResult()
+
+	function updateChartByResult() {
+		if (!result || !chartInstance) {
+			return
+		}
+
+		debugger
+
+		const options = {
+			container: document.getElementById('myChart') as HTMLElement,
+			data: result?.['data'],
+			series: result?.['series']
+		}
+
+		AgCharts.update(chartInstance, options)
+	}
 
 	onMount(() => {
 		try {
