@@ -220,6 +220,8 @@
 					<CreateActionsScript />
 					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+				{:else}
+					<div id="operator-menu" />
 				{/if}
 			</div>
 		</PageHeader>
