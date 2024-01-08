@@ -67,6 +67,7 @@
 	import AppMenu from '../../components/display/AppMenu.svelte'
 	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
 	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
+	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -588,6 +589,13 @@
 			/>
 		{:else if component.type === 'fileinputcomponent'}
 			<AppFileInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 's3fileinputcomponent'}
+			<AppS3FileInput
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
