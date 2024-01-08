@@ -40,7 +40,8 @@
 	<slot />
 	<input
 		type="text"
-		placeholder="Search workspace scripts"
+		placeholder="Search workspace flows"
+		on:keydown|stopPropagation
 		bind:value={filter}
 		class="text-2xl grow mb-4"
 	/>
