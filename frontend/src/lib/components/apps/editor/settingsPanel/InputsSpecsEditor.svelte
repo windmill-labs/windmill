@@ -51,6 +51,7 @@
 					fileUpload={meta?.['fileUpload']}
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
+					loading={meta?.['loading']}
 					{displayType}
 				/>
 				{#if deletable}

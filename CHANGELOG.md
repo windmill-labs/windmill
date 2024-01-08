@@ -1,6 +1,86 @@
 # Changelog
 
 
+## [1.236.2](https://github.com/windmill-labs/windmill/compare/v1.236.1...v1.236.2) (2024-01-08)
+
+
+### Bug Fixes
+
+* handle better non object result for app result loader ([269afe4](https://github.com/windmill-labs/windmill/commit/269afe41f7e02da8d3a364e649e5fef00847d24a))
+
+## [1.236.1](https://github.com/windmill-labs/windmill/compare/v1.236.0...v1.236.1) (2024-01-08)
+
+
+### Bug Fixes
+
+* fix app initialization ([6b075e9](https://github.com/windmill-labs/windmill/commit/6b075e92ef4e312e6a4ce582dc7c4d88456b2f5d))
+
+## [1.236.0](https://github.com/windmill-labs/windmill/compare/v1.235.1...v1.236.0) (2024-01-08)
+
+
+### Features
+
+* improve git sync and recompute dependents when common python script is redeployed ([#2967](https://github.com/windmill-labs/windmill/issues/2967)) ([9449381](https://github.com/windmill-labs/windmill/commit/94493812ac0030cc6bba468d8ee24a14661716a8))
+
+
+### Bug Fixes
+
+* reduce stack size needed for workflow transitions ([4384617](https://github.com/windmill-labs/windmill/commit/4384617f1ec4c27de88ef6c895d6ef060a79f6bd))
+
+## [1.235.1](https://github.com/windmill-labs/windmill/compare/v1.235.0...v1.235.1) (2024-01-07)
+
+
+### Bug Fixes
+
+* fix resultjobloader ([2e02300](https://github.com/windmill-labs/windmill/commit/2e023003da8bea9efa86c0fbc52bf9723c73907d))
+
+## [1.235.0](https://github.com/windmill-labs/windmill/compare/v1.234.1...v1.235.0) (2024-01-06)
+
+
+### Features
+
+* **frontend:** DB Explorer ([#2892](https://github.com/windmill-labs/windmill/issues/2892)) ([fffc533](https://github.com/windmill-labs/windmill/commit/fffc5338ce76fda9a68b19f03cefe199cc09a905))
+
+## [1.234.1](https://github.com/windmill-labs/windmill/compare/v1.234.0...v1.234.1) (2024-01-05)
+
+
+### Bug Fixes
+
+* fix double view runs button ([9efcb53](https://github.com/windmill-labs/windmill/commit/9efcb53bcd903bf756c4beb92a5c7634e8e016ad))
+* fix typo "Wourker" -&gt; "Worker" ([4385edc](https://github.com/windmill-labs/windmill/commit/4385edc6ffdb1b2e4544347928b4cf08faf1eaa1))
+
+## [1.234.0](https://github.com/windmill-labs/windmill/compare/v1.233.0...v1.234.0) (2024-01-05)
+
+
+### Features
+
+* Detailed job memory footprint on job run page ([#2956](https://github.com/windmill-labs/windmill/issues/2956)) ([0710ce6](https://github.com/windmill-labs/windmill/commit/0710ce6ef25d8f2344ac1350e96aa906f16d1be1))
+* git sync can now push commits to individual branches ([#2959](https://github.com/windmill-labs/windmill/issues/2959)) ([fb5cd6a](https://github.com/windmill-labs/windmill/commit/fb5cd6a4298c88e26481b76258bf5b09a11cf4b0))
+
+
+### Bug Fixes
+
+* Deleting workspace delete all workspace related values in DB ([#2961](https://github.com/windmill-labs/windmill/issues/2961)) ([c05d119](https://github.com/windmill-labs/windmill/commit/c05d119ae5dfb6f1bae88fc9d53b48a707cd2f15))
+
+## [1.233.0](https://github.com/windmill-labs/windmill/compare/v1.232.0...v1.233.0) (2024-01-03)
+
+
+### Features
+
+* **frontend:** add the view runs buttons for operators ([#2932](https://github.com/windmill-labs/windmill/issues/2932)) ([821d2d7](https://github.com/windmill-labs/windmill/commit/821d2d7ea15e828dbb3683c85025dbc09c7e8dc7))
+* Job caching now works with S3 files ([#2934](https://github.com/windmill-labs/windmill/issues/2934)) ([b44618f](https://github.com/windmill-labs/windmill/commit/b44618f35b6fe4558a5cd9fddec1e82216a2cf5e))
+* PIP_LOCAL_DEPENDENCIES now accepts regex and is configurable from the UI ([#2940](https://github.com/windmill-labs/windmill/issues/2940)) ([e0140f1](https://github.com/windmill-labs/windmill/commit/e0140f175d371e239f315613a537820b9a6ad25f))
+
+
+### Bug Fixes
+
+* allow extraConfig for agGrid to set onGridReady ([74fc2d3](https://github.com/windmill-labs/windmill/commit/74fc2d3f4397d976fec326893f8196008cb8b332))
+* decision tree fix wording ([#2941](https://github.com/windmill-labs/windmill/issues/2941)) ([0299c65](https://github.com/windmill-labs/windmill/commit/0299c656c368876581dc228c76513f1171ffd682))
+* decision tree nits ([#2936](https://github.com/windmill-labs/windmill/issues/2936)) ([787017f](https://github.com/windmill-labs/windmill/commit/787017f53c8227e1246b09e412e92316977937ae))
+* **frontend:** handle case where large json has a file and a filename ([#2951](https://github.com/windmill-labs/windmill/issues/2951)) ([2494171](https://github.com/windmill-labs/windmill/commit/2494171b9cb3d1857235b6558d276451d5550560))
+* persist state for agGrid ([c085f5f](https://github.com/windmill-labs/windmill/commit/c085f5fa7ec598d0abf6aad98de0e5c7b1c92985))
+* Tag all docker images with latest and main tags ([#2953](https://github.com/windmill-labs/windmill/issues/2953)) ([9655718](https://github.com/windmill-labs/windmill/commit/965571853ca253b130bcc4473190b6c9c98f44e1))
+
 ## [1.232.0](https://github.com/windmill-labs/windmill/compare/v1.231.0...v1.232.0) (2023-12-27)
 
 

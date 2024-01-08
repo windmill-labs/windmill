@@ -7,7 +7,6 @@
  */
 
 use crate::db::ApiAuthed;
-use crate::deployment_metadata_helpers;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -355,7 +354,7 @@ async fn create_flow(
     )
     .await?;
 
-    let mut tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut new_tx) = push(
         &db,
         tx,
@@ -363,6 +362,7 @@ async fn create_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
+            deployment_message: nf.deployment_message,
         },
         PushArgs::empty(),
         &authed.username,
@@ -393,26 +393,7 @@ async fn create_flow(
     .execute(&mut new_tx)
     .await?;
 
-    tx = PushIsolationLevel::Transaction(new_tx);
-    tx = deployment_metadata_helpers::handle_deployment_metadata(
-        tx,
-        &authed,
-        &db,
-        &w_id,
-        deployment_metadata_helpers::DeployedObject::Flow { path: nf.path.clone() },
-        nf.deployment_message,
-    )
-    .await?;
-
-    match tx {
-        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
-        _ => {
-            return Err(Error::InternalErr(
-                "Expected a transaction here".to_string(),
-            ));
-        }
-    }
-
+    new_tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
@@ -585,7 +566,7 @@ async fn update_flow(
         },
     );
 
-    let mut tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (dependency_job_uuid, mut new_tx) = push(
         &db,
@@ -594,6 +575,7 @@ async fn update_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
+            deployment_message: nf.deployment_message,
         },
         PushArgs::empty(),
         &authed.username,
@@ -631,25 +613,7 @@ async fn update_flow(
         .await?;
     }
 
-    tx = PushIsolationLevel::Transaction(new_tx);
-    tx = deployment_metadata_helpers::handle_deployment_metadata(
-        tx,
-        &authed,
-        &db,
-        &w_id,
-        deployment_metadata_helpers::DeployedObject::Flow { path: nf.path.clone() },
-        nf.deployment_message,
-    )
-    .await?;
-
-    match tx {
-        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
-        _ => {
-            return Err(Error::InternalErr(
-                "Expected a transaction here".to_string(),
-            ));
-        }
-    }
+    new_tx.commit().await?;
 
     Ok(nf.path.to_string())
 }

@@ -10,13 +10,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 
-	const flipDurationMs = 200
-
 	export let componentInput: StaticInput<any[]>
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const flipDurationMs = 200
 
 	function addElementByType() {
 		if (!Array.isArray(componentInput.value)) {
@@ -82,10 +81,13 @@
 		componentInput = componentInput
 
 		if (componentInput.value) {
-			items.push({
-				value: componentInput.value[componentInput.value.length - 1],
-				id: generateRandomString()
-			})
+			let value = componentInput.value[componentInput.value.length - 1]
+			if (value) {
+				items.push({
+					value,
+					id: generateRandomString()
+				})
+			}
 		}
 	}
 
@@ -140,16 +142,16 @@
 		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
 
-	let items = (Array.isArray(componentInput.value) ? componentInput.value : []).map(
-		(item, index) => {
+	let items = (Array.isArray(componentInput.value) ? componentInput.value : [])
+		.filter((x) => x != undefined)
+		.map((item, index) => {
 			return { value: item, id: generateRandomString() }
-		}
-	)
+		})
 
 	$: items != undefined && handleItemsChange()
 
 	function handleItemsChange() {
-		componentInput.value = items.map((item) => item.value)
+		componentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
 	}
 
 	let raw: boolean = false
@@ -205,41 +207,84 @@
 							>
 								<GripVertical size={16} />
 							</div>
-							<button
-								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-								aria-label="Remove item"
-								on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
-							>
-								<X size={14} />
-							</button>
+							{#if subFieldType !== 'db-explorer'}
+								<button
+									class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+									aria-label="Remove item"
+									on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
+								>
+									<X size={14} />
+								</button>
+							{/if}
 						</div>
 					</div>
 				</div>
 			{/each}
 		</section>
 	{/if}
-	<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>
-		Add
-	</Button>
-	{#if subFieldType === 'table-column' || subFieldType == 'ag-grid'}
-		<QuickAddColumn
+	{#if subFieldType !== 'db-explorer'}
+		<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>
+			Add
+		</Button>
+		{#if subFieldType === 'table-column' || subFieldType == 'ag-grid'}
+			<QuickAddColumn
+				columns={componentInput.value?.map((item) => item.field)}
+				on:add={({ detail }) => {
+					if (!componentInput.value) componentInput.value = []
+					if (subFieldType === 'table-column') {
+						componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
+					} else if (subFieldType === 'ag-grid') {
+						componentInput.value.push({ field: detail, headerName: detail, flex: 1 })
+					}
+					componentInput = componentInput
+
+					if (componentInput.value) {
+						let value = componentInput.value[componentInput.value.length - 1]
+						if (value) {
+							items.push({
+								value,
+								id: generateRandomString()
+							})
+						}
+					}
+				}}
+			/>
+		{/if}
+	{/if}
+	<!-- {#if subFieldType === 'db-explorer'}
+		<SynchronizeColumns
 			columns={componentInput.value?.map((item) => item.field)}
 			on:add={({ detail }) => {
-				if (!componentInput.value) componentInput.value = []
-				if (subFieldType === 'table-column') {
-					componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
-				} else if (subFieldType === 'ag-grid') {
-					componentInput.value.push({ field: detail, headerName: detail, flex: 1 })
+				if (!Array.isArray(detail)) {
+					return
 				}
-				componentInput = componentInput
 
-				if (componentInput.value) {
-					items.push({
-						value: componentInput.value[componentInput.value.length - 1],
-						id: generateRandomString()
-					})
+				if (detail.length === 0) {
+					return
 				}
+
+				componentInput.value = []
+				items = []
+
+				detail.forEach((col) => {
+					if (!componentInput.value) componentInput.value = []
+					if (subFieldType === 'table-column') {
+						componentInput.value.push({ field: col, headerName: col, type: 'text' })
+					} else if (subFieldType === 'ag-grid') {
+						componentInput.value.push({ field: col, headerName: col, flex: 1 })
+					} else if (subFieldType === 'db-explorer') {
+						componentInput.value.push({ field: col, headerName: col, flex: 1 })
+					}
+					componentInput = componentInput
+
+					if (componentInput.value) {
+						items.push({
+							value: componentInput.value[componentInput.value.length - 1],
+							id: generateRandomString()
+						})
+					}
+				})
 			}}
 		/>
-	{/if}
+	{/if} -->
 </div>

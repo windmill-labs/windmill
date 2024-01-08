@@ -63,7 +63,7 @@ lazy_static! {
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
     if level > 0 {
-        let mut imports = vec!["requests".to_string()];
+        let mut imports = vec![];
         let splitted_path = path.split("/");
         let base = splitted_path
             .clone()
@@ -78,16 +78,64 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<Strin
     } else if let Some(module) = module {
         let imprt = module.split('.').next().unwrap_or("").replace("_", "-");
         if imprt == "u" || imprt == "f" {
-            vec![
-                "requests".to_string(),
-                format!("relative:{}", module.replace(".", "/")),
-            ]
+            vec![format!("relative:{}", module.replace(".", "/"))]
         } else {
             vec![imprt]
         }
     } else {
         vec![]
     }
+}
+
+pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
+    let nimports = parse_code_for_imports(code, path)?;
+    return Ok(nimports
+        .into_iter()
+        .filter_map(|x| {
+            if x.starts_with("relative:") {
+                Some(x.replace("relative:", ""))
+            } else {
+                None
+            }
+        })
+        .collect());
+}
+
+fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
+    let code = code.split(DEF_MAIN).next().unwrap_or("");
+    let ast = Suite::parse(code, "main.py").map_err(|e| {
+        error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
+    })?;
+    let nimports: Vec<String> = ast
+        .into_iter()
+        .filter_map(|x| match x {
+            Stmt::Import(StmtImport { names, .. }) => Some(
+                names
+                    .into_iter()
+                    .map(|x| {
+                        let name = x.name.to_string();
+                        process_import(Some(name), path, 0)
+                    })
+                    .flatten()
+                    .collect::<Vec<String>>(),
+            ),
+            Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
+                Some(process_import(
+                    module.map(|x| x.to_string()),
+                    path,
+                    i.to_usize(),
+                ))
+            }
+            Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
+                Some(process_import(module.map(|x| x.to_string()), path, 0))
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter(|x| !STDIMPORTS.contains(&x.as_str()))
+        .unique()
+        .collect();
+    return Ok(nimports);
 }
 
 #[async_recursion]
@@ -127,41 +175,7 @@ pub async fn parse_python_imports(
             imports.extend(lines);
         }
 
-        let code = code.split(DEF_MAIN).next().unwrap_or("");
-        let ast = Suite::parse(code, "main.py").map_err(|e| {
-            error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
-        })?;
-        let nimports: Vec<String> = ast
-            .into_iter()
-            .filter_map(|x| match x {
-                Stmt::Import(StmtImport { names, .. }) => Some(
-                    names
-                        .into_iter()
-                        .map(|x| {
-                            let name = x.name.to_string();
-                            process_import(Some(name), path, 0)
-                        })
-                        .flatten()
-                        .collect::<Vec<String>>(),
-                ),
-                Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. })
-                    if i.to_u32() > 0 =>
-                {
-                    Some(process_import(
-                        module.map(|x| x.to_string()),
-                        path,
-                        i.to_usize(),
-                    ))
-                }
-                Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
-                    Some(process_import(module.map(|x| x.to_string()), path, 0))
-                }
-                _ => None,
-            })
-            .flatten()
-            .filter(|x| !STDIMPORTS.contains(&x.as_str()))
-            .unique()
-            .collect();
+        let nimports = parse_code_for_imports(code, path)?;
         for n in nimports.iter() {
             let nested = if n.starts_with("relative:") {
                 let rpath = n.replace("relative:", "");

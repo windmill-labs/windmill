@@ -28,22 +28,23 @@ class WindmillFinder(MetaPathFinder):
             return ModuleSpec(name, WindmillLoader(name))
         elif l > 2:
             script_path = "/".join(splitted)
-            import requests
+            import urllib.parse
+            import urllib.request
 
+            headers = {"Authorization": f"Bearer {os.environ.get('WM_TOKEN')}"}
             url = f"{os.environ.get('BASE_INTERNAL_URL')}/api/w/{os.environ.get('WM_WORKSPACE')}/scripts/raw/p/{script_path}.py"
 
-            r = requests.get(
-                url, headers={"Authorization": f"Bearer {os.environ.get('WM_TOKEN')}"}
-            )
-
-            if r.status_code == 200:
-                folder = os.getcwd() + "/tmp/" + "/".join(splitted[:-1])
-                fullpath = folder + "/" + splitted[-1] + ".py"
-                os.makedirs(folder, exist_ok=True)
-                with open(fullpath, "w+") as f:
-                    f.write(r.text)
-                return ModuleSpec(name, SourceFileLoader(name, fullpath))
-            else:
+            req = urllib.request.Request(url, None, headers)
+            try:
+                with urllib.request.urlopen(req) as response:
+                        r = response.read().decode("utf-8")
+                        folder = os.getcwd() + "/tmp/" + "/".join(splitted[:-1])
+                        fullpath = folder + "/" + splitted[-1] + ".py"
+                        os.makedirs(folder, exist_ok=True)
+                        with open(fullpath, "w+") as f:
+                            f.write(r)
+                        return ModuleSpec(name, SourceFileLoader(name, fullpath))
+            except:
                 # raise ImportError(f"Script {script_path} not found")
                 return ModuleSpec(name, WindmillLoader(name))
 

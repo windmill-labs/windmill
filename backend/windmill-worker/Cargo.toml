@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util"]
 benchmark = ["windmill-queue/benchmark"]
 flamegraph = []
 
@@ -31,6 +31,7 @@ windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
+windmill-git-sync.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true

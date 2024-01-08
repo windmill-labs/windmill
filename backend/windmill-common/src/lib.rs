@@ -23,6 +23,7 @@ pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
+pub mod job_metrics;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
@@ -35,6 +36,7 @@ pub mod users;
 pub mod utils;
 pub mod variables;
 pub mod worker;
+pub mod workspaces;
 
 #[cfg(feature = "tracing_init")]
 pub mod tracing_init;

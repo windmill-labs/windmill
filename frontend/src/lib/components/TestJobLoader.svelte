@@ -10,6 +10,7 @@
 	export let job: Job | undefined = undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
+	export let jobUpdateLastFetch: Date | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -150,7 +151,6 @@
 						running: job.running,
 						logOffset: job.logs?.length ? job.logs?.length + 1 : 0
 					})
-
 					if (previewJobUpdates.new_logs) {
 						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 					}
@@ -163,6 +163,7 @@
 				} else {
 					job = await JobService.getJob({ workspace: workspace!, id })
 				}
+				jobUpdateLastFetch = new Date()
 
 				if (job?.type === 'CompletedJob') {
 					//only CompletedJob has success property
@@ -194,7 +195,9 @@
 			return
 		}
 		syncIteration++
-		await loadTestJob(id)
+		if (await loadTestJob(id)) {
+			return
+		}
 		let nextIteration = 50
 		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
 			nextIteration = 500

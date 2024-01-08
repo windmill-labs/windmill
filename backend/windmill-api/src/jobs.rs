@@ -2826,14 +2826,14 @@ pub struct JobUpdate {
 
 async fn get_job_update(
     Extension(db): Extension<DB>,
-    Path((w_id, id)): Path<(String, Uuid)>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let record = sqlx::query!(
         "SELECT running, substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
         log_offset,
         &w_id,
-        &id
+        &job_id
     )
     .fetch_optional(&db)
     .await?;
@@ -2855,11 +2855,11 @@ async fn get_job_update(
              $3",
             log_offset,
             &w_id,
-            &id
+            &job_id
         )
         .fetch_optional(&db)
         .await?;
-        let logs = not_found_if_none(logs, "Job Update", id.to_string())?;
+        let logs = not_found_if_none(logs, "Job Update", job_id.to_string())?;
         Ok(Json(JobUpdate {
             running: Some(false),
             completed: Some(true),

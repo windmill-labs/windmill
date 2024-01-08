@@ -321,7 +321,6 @@ class Windmill:
     def get_duckdb_connection_settings(
         self,
         s3_resource_path: str = "",
-        none_if_undefined: bool = False,
     ) -> DuckDbConnectionSettings | None:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
@@ -334,15 +333,12 @@ class Windmill:
             ).json()
             return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
-            if none_if_undefined:
-                return None
             raise Exception("Could not generate DuckDB S3 connection settings from the provided resource") from e
 
     def get_polars_connection_settings(
         self,
         s3_resource_path: str = "",
-        none_if_undefined: bool = False,
-    ) -> PolarsConnectionSettings | None:
+    ) -> PolarsConnectionSettings:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from Polars
@@ -354,15 +350,12 @@ class Windmill:
             ).json()
             return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
-            if none_if_undefined:
-                return None
             raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
 
     def get_boto3_connection_settings(
         self,
         s3_resource_path: str = "",
-        none_if_undefined: bool = False,
-    ) -> Boto3ConnectionSettings | None:
+    ) -> Boto3ConnectionSettings:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection using boto3
@@ -385,8 +378,6 @@ class Windmill:
             )
             return boto3_settings
         except JSONDecodeError as e:
-            if none_if_undefined:
-                return None
             raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
 
     def whoami(self) -> dict:
@@ -592,38 +583,30 @@ def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
 
 
 @init_global_client
-def duckdb_connection_settings(
-    s3_resource_path: str = "", none_if_undefined: bool = False
-) -> DuckDbConnectionSettings | None:
+def duckdb_connection_settings(s3_resource_path: str = "") -> DuckDbConnectionSettings:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from DuckDB
     """
-    return _client.get_duckdb_connection_settings(
-        s3_resource_path=s3_resource_path, none_if_undefined=none_if_undefined
-    )
+    return _client.get_duckdb_connection_settings(s3_resource_path)
 
 
 @init_global_client
-def polars_connection_settings(
-    s3_resource_path: str = "", none_if_undefined: bool = False
-) -> PolarsConnectionSettings | None:
+def polars_connection_settings(s3_resource_path: str = "") -> PolarsConnectionSettings:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection from Polars
     """
-    return _client.get_polars_connection_settings(s3_resource_path, none_if_undefined)
+    return _client.get_polars_connection_settings(s3_resource_path)
 
 
 @init_global_client
-def boto3_connection_settings(
-    s3_resource_path: str = "", none_if_undefined: bool = False
-) -> Boto3ConnectionSettings | None:
+def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSettings:
     """
     Convenient helpers that takes an S3 resource as input and returns the settings necessary to
     initiate an S3 connection using boto3
     """
-    return _client.get_boto3_connection_settings(s3_resource_path, none_if_undefined)
+    return _client.get_boto3_connection_settings(s3_resource_path)
 
 
 @init_global_client

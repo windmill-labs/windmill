@@ -83,9 +83,7 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
 					<Tab size="xs" value="logs">Logs</Tab>
-					{#if job?.job_kind == 'dependencies'}
-						<Tab size="xs" value="code">Code</Tab>
-					{:else if job?.job_kind == 'preview'}
+					{#if job?.job_kind == 'preview'}
 						<Tab size="xs" value="code">Code</Tab>
 					{/if}
 				</Tabs>

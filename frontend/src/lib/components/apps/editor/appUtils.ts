@@ -597,6 +597,35 @@ export function initOutput<I extends Record<string, any>>(
 	) as Outputtable<I>
 }
 
+export type InitConfig<
+	T extends Record<
+		string,
+		| StaticAppInput
+		| EvalAppInput
+		| {
+				type: 'oneOf'
+				selected: string
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+		  }
+	>
+> = {
+	[Property in keyof T]: T[Property] extends StaticAppInput
+		? T[Property]['value'] | undefined
+		: T[Property] extends { type: 'oneOf' }
+		? {
+				type: 'oneOf'
+				selected: keyof T[Property]['configuration']
+				configuration: {
+					[Choice in keyof T[Property]['configuration']]: {
+						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+							? T[Property]['configuration'][Choice][IT]['value'] | undefined
+							: undefined
+					}
+				}
+		  }
+		: undefined
+}
+
 export function initConfig<
 	T extends Record<
 		string,
@@ -620,23 +649,7 @@ export function initConfig<
 		  }
 		| any
 	>
-): {
-	[Property in keyof T]: T[Property] extends StaticAppInput
-		? T[Property]['value'] | undefined
-		: T[Property] extends { type: 'oneOf' }
-		? {
-				type: 'oneOf'
-				selected: keyof T[Property]['configuration']
-				configuration: {
-					[Choice in keyof T[Property]['configuration']]: {
-						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
-							? T[Property]['configuration'][Choice][IT]['value'] | undefined
-							: undefined
-					}
-				}
-		  }
-		: undefined
-} {
+): InitConfig<T> {
 	return JSON.parse(
 		JSON.stringify(
 			Object.fromEntries(

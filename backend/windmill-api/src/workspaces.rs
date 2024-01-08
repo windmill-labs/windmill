@@ -44,6 +44,7 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::workspaces::WorkspaceGitRepo;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -1045,12 +1046,6 @@ struct EditGitSyncConfig {
     git_sync_settings: Option<WorkspaceGitRepo>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WorkspaceGitRepo {
-    pub script_path: String,
-    pub git_repo_resource_path: String,
-}
-
 async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1504,6 +1499,9 @@ async fn delete_workspace(
     let mut tx = db.begin().await?;
     require_super_admin(&db, &email).await?;
 
+    sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM queue WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1522,6 +1520,12 @@ async fn delete_workspace(
     sqlx::query!("DELETE FROM app WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query!("DELETE FROM raw_app WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM input WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM variable WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1536,6 +1540,17 @@ async fn delete_workspace(
     sqlx::query!("DELETE FROM completed_job WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!("DELETE FROM job_stats WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1564,6 +1579,10 @@ async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query!("DELETE FROM account WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!("DELETE FROM workspace_key WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -1574,6 +1593,10 @@ async fn delete_workspace(
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query!("DELETE FROM token WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)

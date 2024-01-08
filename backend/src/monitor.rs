@@ -35,8 +35,8 @@ use windmill_common::{
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SendResult, JOB_DEFAULT_TIMEOUT,
+    KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "enterprise")]
@@ -167,6 +167,7 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
     };
     Ok(())
 }
+
 pub async fn load_keep_job_dir(db: &DB) {
     let value = sqlx::query_scalar!(
         "SELECT value FROM global_settings WHERE name = $1",
@@ -250,25 +251,52 @@ pub async fn delete_expired_items(db: &DB) -> () {
 
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
-        let deleted_jobs = sqlx::query_scalar!(
-                "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id",
-                job_retention_secs
-            )
-            .fetch_all(db)
-            .await;
+        match db.begin().await {
+            Ok(mut tx) => {
+                let r = sqlx::query!(
+                    "DELETE FROM job_stats WHERE job_id IN (SELECT id FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now())",
+                    job_retention_secs
+                )
+                .fetch_all(&mut *tx)
+                .await;
+                match r {
+                    Ok(_) => {
+                        let deleted_jobs = sqlx::query_scalar!(
+                            "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id",
+                            job_retention_secs
+                        )
+                        .fetch_all(&mut *tx)
+                        .await;
 
-        match deleted_jobs {
-            Ok(deleted_jobs) => {
-                if deleted_jobs.len() > 0 {
-                    tracing::info!(
-                        "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
-                        deleted_jobs.len(),
-                        job_retention_secs,
-                        deleted_jobs,
-                    )
+                        match deleted_jobs {
+                            Ok(deleted_jobs) => {
+                                if deleted_jobs.len() > 0 {
+                                    tracing::info!(
+                                        "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
+                                        deleted_jobs.len(),
+                                        job_retention_secs,
+                                        deleted_jobs,
+                                    )
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Error deleting expired jobs: {:?}", e)
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!("Error deleting expired job stats: {:?}", err)
+                    }
+                }
+
+                match tx.commit().await {
+                    Ok(_) => (),
+                    Err(err) => tracing::error!("Error deleting expired jobs: {:?}", err),
                 }
             }
-            Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
+            Err(err) => {
+                tracing::error!("Error deleting expired jobs: {:?}", err)
+            }
         }
     }
 }
@@ -729,6 +757,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
+        let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
         let token = create_token_for_owner(
             &db,
@@ -767,6 +796,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             "",
             rsmq.clone(),
             worker_name,
+            send_result_never_used,
         )
         .await;
     }

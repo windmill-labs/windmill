@@ -1805,7 +1805,7 @@ def main():
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_empty_loop(db: Pool<Postgres>) {
+async fn test_empty_loop_1(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();

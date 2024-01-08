@@ -338,14 +338,25 @@
 					</button>
 				{/each}
 			</div>
-		{:else if largeObject}<div class="text-sm text-tertiary"
-				><a
-					download="{filename ?? 'result'}.json"
-					href={workspaceId && jobId
-						? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-						: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}>Download</a
-				>
-			</div>
+		{:else if largeObject}
+			{#if 'filename' in result && 'file' in result}
+				<div
+					><a
+						download={result.filename ?? result.file?.filename ?? 'windmill.file'}
+						href="data:application/octet-stream;base64,{contentOrRootString(result.file)}"
+						>Download</a
+					>
+				</div>
+			{:else}
+				<div class="text-sm text-tertiary"
+					><a
+						download="{filename ?? 'result'}.json"
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}>Download</a
+					>
+				</div>
+			{/if}
 			<div class="mb-21">JSON is too large to be displayed in full</div>
 			{#if result && result != 'WINDMILL_TOO_BIG'}
 				<ObjectViewer json={result} />
