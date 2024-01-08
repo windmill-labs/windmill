@@ -102,7 +102,6 @@
 	}
 
 	function createAgChartComponentDataset(): RichConfiguration {
-		// TODO
 		return {
 			type: 'static',
 			fieldType: 'array',
