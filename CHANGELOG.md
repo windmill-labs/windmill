@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.236.2](https://github.com/windmill-labs/windmill/compare/v1.236.1...v1.236.2) (2024-01-08)
+
+
+### Bug Fixes
+
+* handle better non object result for app result loader ([269afe4](https://github.com/windmill-labs/windmill/commit/269afe41f7e02da8d3a364e649e5fef00847d24a))
+
 ## [1.236.1](https://github.com/windmill-labs/windmill/compare/v1.236.0...v1.236.1) (2024-01-08)
 
 
