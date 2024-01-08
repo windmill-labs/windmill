@@ -49,6 +49,8 @@
 				<select bind:value={value.type}>
 					<option value="bar">Bar</option>
 					<option value="line">Line</option>
+					<option value="area">Area</option>
+					<option value="scatter">Scatter</option>
 				</select>
 			</Label>
 

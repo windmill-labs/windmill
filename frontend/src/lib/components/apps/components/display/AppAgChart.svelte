@@ -61,15 +61,20 @@
 		let data = [] as any[]
 
 		for (let i = 0; i < resolvedXData.length; i++) {
-			for (let j = 0; j < resolvedDatasets.length; j++) {
-				data.push({
-					[`x-${j}`]: resolvedXData[i],
-					y: resolvedDatasetsValues[j][i]
-				})
+			const o = {
+				x: resolvedXData[i]
 			}
-		}
 
-		data = data.filter((d) => d.y !== undefined)
+			for (let j = 0; j < resolvedDatasets.length; j++) {
+				if (!resolvedDatasetsValues[j]) {
+					continue
+				}
+
+				o[`y-${j}`] = resolvedDatasetsValues[j][i]
+			}
+
+			data.push(o)
+		}
 
 		const options = {
 			container: document.getElementById('myChart') as HTMLElement,
@@ -77,8 +82,9 @@
 			series:
 				(resolvedDatasets?.map((d, index) => ({
 					type: d.type,
-					xKey: `x-${index}`,
-					yKey: 'y'
+					xKey: 'x',
+					yKey: `y-${index}`,
+					yName: d.name
 				})) as any[]) ?? []
 		}
 
