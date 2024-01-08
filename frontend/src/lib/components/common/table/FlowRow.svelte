@@ -25,7 +25,8 @@
 		Calendar,
 		Share,
 		Archive,
-		Clipboard
+		Clipboard,
+		Eye
 	} from 'lucide-svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -159,6 +160,11 @@
 						displayName: 'View runs',
 						icon: List,
 						href: `/runs/${path}`
+					},
+					{
+						displayName: 'Audit logs',
+						icon: Eye,
+						href: `/audit_logs?resource=${path}`
 					},
 					{
 						displayName: 'Move/Rename',

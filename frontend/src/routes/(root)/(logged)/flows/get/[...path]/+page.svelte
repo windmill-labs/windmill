@@ -26,7 +26,8 @@
 		GitFork,
 		History,
 		Columns,
-		Pen
+		Pen,
+		Eye
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -149,6 +150,16 @@
 		if (!flow || $userStore?.operator || !can_write) {
 			return buttons
 		}
+
+		buttons.push({
+			label: `Audit logs`,
+			buttonProps: {
+				href: `/audit_logs?resource=${flow.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: Eye
+			}
+		})
 
 		if (!$userStore?.operator) {
 			buttons.push({

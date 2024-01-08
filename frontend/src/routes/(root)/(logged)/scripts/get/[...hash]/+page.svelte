@@ -41,6 +41,7 @@
 		Activity,
 		Archive,
 		ArchiveRestore,
+		Eye,
 		FolderOpen,
 		GitFork,
 		Globe2,
@@ -241,6 +242,15 @@
 			return buttons
 		}
 
+		buttons.push({
+			label: `Audit logs`,
+			buttonProps: {
+				href: `/audit_logs?resource=${script.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: Eye
+			}
+		})
 
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
