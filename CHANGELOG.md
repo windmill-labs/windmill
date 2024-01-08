@@ -1,6 +1,32 @@
 # Changelog
 
 
+## [1.236.2](https://github.com/windmill-labs/windmill/compare/v1.236.1...v1.236.2) (2024-01-08)
+
+
+### Bug Fixes
+
+* handle better non object result for app result loader ([269afe4](https://github.com/windmill-labs/windmill/commit/269afe41f7e02da8d3a364e649e5fef00847d24a))
+
+## [1.236.1](https://github.com/windmill-labs/windmill/compare/v1.236.0...v1.236.1) (2024-01-08)
+
+
+### Bug Fixes
+
+* fix app initialization ([6b075e9](https://github.com/windmill-labs/windmill/commit/6b075e92ef4e312e6a4ce582dc7c4d88456b2f5d))
+
+## [1.236.0](https://github.com/windmill-labs/windmill/compare/v1.235.1...v1.236.0) (2024-01-08)
+
+
+### Features
+
+* improve git sync and recompute dependents when common python script is redeployed ([#2967](https://github.com/windmill-labs/windmill/issues/2967)) ([9449381](https://github.com/windmill-labs/windmill/commit/94493812ac0030cc6bba468d8ee24a14661716a8))
+
+
+### Bug Fixes
+
+* reduce stack size needed for workflow transitions ([4384617](https://github.com/windmill-labs/windmill/commit/4384617f1ec4c27de88ef6c895d6ef060a79f6bd))
+
 ## [1.235.1](https://github.com/windmill-labs/windmill/compare/v1.235.0...v1.235.1) (2024-01-07)
 
 

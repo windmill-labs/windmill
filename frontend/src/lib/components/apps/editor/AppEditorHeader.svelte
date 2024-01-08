@@ -710,6 +710,7 @@
 					type="text"
 					placeholder="App summary"
 					class="text-sm w-full font-semibold"
+					on:keydown|stopPropagation
 					bind:value={$summary}
 					on:keyup={() => {
 						if (appPath == '' && $summary?.length > 0 && !dirtyPath) {
@@ -766,6 +767,7 @@
 				placeholder="App summary"
 				class="text-sm w-full"
 				bind:value={$summary}
+				on:keydown|stopPropagation
 				on:keyup={() => {
 					if (appPath == '' && $summary?.length > 0 && !dirtyPath) {
 						path?.setName(
@@ -1180,6 +1182,7 @@
 			placeholder="App summary"
 			class="text-sm w-full font-semibold"
 			bind:value={$summary}
+			on:keydown|stopPropagation
 		/>
 	</div>
 	<div class="flex gap-4 items-center justify-center">
