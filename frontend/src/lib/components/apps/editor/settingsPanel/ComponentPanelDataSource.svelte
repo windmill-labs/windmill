@@ -172,7 +172,8 @@
 	}
 
 	function convertToJson() {
-		if (component.type !== 'plotlycomponentv2') {
+		debugger
+		if (component.type !== 'plotlycomponentv2' && component.type !== 'agchartcomponent') {
 			return
 		}
 
