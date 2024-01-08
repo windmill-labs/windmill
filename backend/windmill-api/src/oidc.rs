@@ -15,43 +15,66 @@ use openidconnect::{
     AuthUrl, EmptyAdditionalProviderMetadata, IssuerUrl, JsonWebKeySetUrl, ResponseTypes,
 };
 
+use openidconnect::{
+    core::{CoreJsonWebKeySet, CoreRsaPrivateSigningKey},
+    JsonWebKeyId,
+};
+
+use axum::routing::get;
 use axum::{Json, Router};
 
 #[cfg(feature = "enterprise")]
 pub fn global_service() -> Router {
-    use axum::routing::get;
-
-    Router::new().route(
-        "/.well-known/openid-configuration",
-        get(get_provider_metadata),
-    )
+    Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            get(openid_configuration),
+        )
+        .route("/jwks", get(jwks))
+}
+#[cfg(not(feature = "enterprise"))]
+pub fn global_service() -> Router {
+    Router::new()
 }
 
 #[cfg(feature = "enterprise")]
-pub fn get_provider_metadata() -> windmill_common::error::JsonResult<CoreProviderMetadata> {
+pub async fn jwks() -> windmill_common::error::JsonResult<CoreJsonWebKeySet> {
+    use openidconnect::PrivateSigningKey;
+
+    let jwks = CoreJsonWebKeySet::new(vec![
+        // RSA keys may also be constructed directly using CoreJsonWebKey::new_rsa(). Providers
+        // aiming to support other key types may provide their own implementation of the
+        // JsonWebKey trait or submit a PR to add the desired support to this crate.
+        CoreRsaPrivateSigningKey::from_pem("foo", Some(JsonWebKeyId::new("key1".to_string())))
+            .expect("Invalid RSA private key")
+            .as_verification_key(),
+    ]);
+
+    Ok(Json(jwks))
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn openid_configuration() -> windmill_common::error::JsonResult<CoreProviderMetadata> {
+    use windmill_common::BASE_URL;
+
+    let base_url = BASE_URL.read().await.clone();
+    return get_provider_metadata(base_url)
+        .map(Json)
+        .map_err(|e| e.into());
+}
+
+#[cfg(feature = "enterprise")]
+pub fn get_provider_metadata(base_url: String) -> anyhow::Result<CoreProviderMetadata> {
     let provider_metadata = CoreProviderMetadata::new(
-        // Parameters required by the OpenID Connect Discovery spec.
-        IssuerUrl::new("https://accounts.example.com".to_string())?,
-        AuthUrl::new("https://accounts.example.com/authorize".to_string())?,
-        // Use the JsonWebKeySet struct to serve the JWK Set at this URL.
-        JsonWebKeySetUrl::new("https://accounts.example.com/jwk".to_string())?,
-        // Supported response types (flows).
+        IssuerUrl::new(format!("{base_url}/oidc/"))?,
+        AuthUrl::new(format!("{base_url}/oidc/"))?,
+        JsonWebKeySetUrl::new(format!("{base_url}/oidc/jwks"))?,
         vec![
             // Optional: support the implicit flow.
             ResponseTypes::new(vec![CoreResponseType::Token, CoreResponseType::IdToken]), // Other flows including hybrid flows may also be specified here.
         ],
-        // For user privacy, the Pairwise subject identifier type is preferred. This prevents
-        // distinct relying parties (clients) from knowing whether their users represent the same
-        // real identities. This identifier type is only useful for relying parties that don't
-        // receive the 'email', 'profile' or other personally-identifying scopes.
-        // The Public subject identifier type is also supported.
         vec![CoreSubjectIdentifierType::Public],
-        // Support the RS256 signature algorithm.
         vec![CoreJwsSigningAlgorithm::RsaSsaPssSha256],
-        // OpenID Connect Providers may supply custom metadata by providing a struct that
-        // implements the AdditionalProviderMetadata trait. This requires manually using the
-        // generic ProviderMetadata struct rather than the CoreProviderMetadata type alias,
-        // however.
         EmptyAdditionalProviderMetadata {},
     )
     // Recommended: specify the supported ID token claims.
@@ -70,5 +93,5 @@ pub fn get_provider_metadata() -> windmill_common::error::JsonResult<CoreProvide
         CoreClaimName::new("picture".to_string()),
         CoreClaimName::new("locale".to_string()),
     ]));
-    return Ok(Json(provider_metadata));
+    return Ok(provider_metadata);
 }

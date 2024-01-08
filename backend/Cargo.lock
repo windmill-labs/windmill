@@ -7814,9 +7814,9 @@ dependencies = [
 
 [[package]]
 name = "strsim"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
+checksum = "ccbca6f34534eb78dbee83f6b2c9442fea7113f43d9e80ea320f0972ae5dc08d"
 
 [[package]]
 name = "strum"
@@ -9288,9 +9288,9 @@ checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
 
 [[package]]
 name = "value-bag"
-version = "1.5.0"
+version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd65ff0de3304a013e6dfeb7324e1cd389a8a000e582e3c9c9fae82ced778e26"
+checksum = "62ce5bb364b23e66b528d03168df78b38c0f7b6fe17386928f29d5ab2e7cb2f7"
 
 [[package]]
 name = "vcpkg"
@@ -9620,7 +9620,7 @@ dependencies = [
  "hf-hub",
  "hmac",
  "hyper",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -9711,7 +9711,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "prometheus",
  "rand 0.8.5",
@@ -9768,7 +9768,7 @@ version = "1.236.2"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -9790,7 +9790,7 @@ name = "windmill-parser-py"
 version = "1.236.2"
 dependencies = [
  "anyhow",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -9802,7 +9802,7 @@ version = "1.236.2"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "phf 0.11.2",
  "regex",
@@ -9866,14 +9866,14 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "axum",
- "bigdecimal 0.4.2",
+ "bigdecimal 0.3.1",
  "chrono",
  "chrono-tz",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "prometheus",
  "reqwest",
@@ -9915,7 +9915,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "jsonwebtoken",
  "lazy_static",
  "mysql_async",

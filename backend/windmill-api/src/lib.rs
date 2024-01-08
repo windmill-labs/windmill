@@ -236,6 +236,7 @@ pub async fn run_server(
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
+                .nest("/oidc", oidc::global_service())
                 .nest(
                     "/saml",
                     saml::global_service().layer(Extension(Arc::new(sp_extension.0))),
