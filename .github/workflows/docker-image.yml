@@ -200,25 +200,25 @@ jobs:
 
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
 
       - run: |
           # Checks the image is in docker prior to running actions-docker-extract. It fails if not
           # Also useful to visually check that the arch is the right opencontainers
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
 
       - uses: shrink/actions-docker-extract@v3
         id: extract
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
           path: "/usr/src/app/windmill"
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
           path: "/usr/src/app/windmill"
 
       - name: Rename binary with corresponding architecture
@@ -244,25 +244,25 @@ jobs:
 
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
 
       - run: |
           # Checks the image is in docker prior to running actions-docker-extract. It fails if not
           # Also useful to visually check that the arch is the right opencontainers
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
 
       - uses: shrink/actions-docker-extract@v3
         id: extract
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
           path: "/usr/src/app/windmill"
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
           path: "/usr/src/app/windmill"
 
       - name: Rename binary with corresponding architecture
@@ -307,7 +307,7 @@ jobs:
           git_hash=$(git rev-parse --short "$GITHUB_SHA")
           docker buildx imagetools create \
             --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
           echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
 
       - uses: shrink/actions-docker-extract@v3
