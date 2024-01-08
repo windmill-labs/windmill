@@ -109,7 +109,10 @@ export type ChartJsComponentV2 = BaseComponent<'chartjscomponentv2'> & {
 	datasets: RichConfiguration | undefined
 }
 
-export type AgChartComponent = BaseComponent<'agchartcomponent'>
+export type AgChartComponent = BaseComponent<'agchartcomponent'> & {
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
@@ -1239,21 +1242,7 @@ export const components = {
 		},
 		initialData: {
 			configuration: {},
-			componentInput: {
-				type: 'static',
-				fieldType: 'object',
-				value: {
-					data: [
-						{ country: 'USA', gold: 10, silver: 20 },
-						{ country: 'UK', gold: 5, silver: 10 },
-						{ country: 'France', gold: 15, silver: 5 }
-					],
-					series: [
-						{ xKey: 'country', yKey: 'gold', label: 'Gold Medals' },
-						{ xKey: 'country', yKey: 'silver', label: 'Silver Medals' }
-					]
-				}
-			}
+			componentInput: undefined
 		}
 	},
 	htmlcomponent: {

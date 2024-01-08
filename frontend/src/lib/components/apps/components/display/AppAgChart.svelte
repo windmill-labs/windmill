@@ -1,7 +1,12 @@
 <script lang="ts">
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { initCss } from '../../utils'
 	import { getContext, onMount } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -9,7 +14,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import { AgCharts, type AgChartOptions, type AgBarSeriesOptions } from 'ag-charts-community'
+	import { AgCharts, type AgChartOptions, type AgChartInstance } from 'ag-charts-community'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -17,27 +22,20 @@
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'agchartcomponent'> | undefined = undefined
 	export let render: boolean
-
-	interface IData {
-		// Chart Data Interface
-		month:
-			| 'Jan'
-			| 'Feb'
-			| 'Mar'
-			| 'Apr'
-			| 'May'
-			| 'Jun'
-			| 'Jul'
-			| 'Aug'
-			| 'Sep'
-			| 'Oct'
-			| 'Nov'
-			| 'Dec'
-		avgTemp: number
-		iceCreamSales: number
-	}
+	export let datasets: RichConfiguration | undefined
+	export let xData: RichConfiguration | undefined
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	type Dataset = {
+		value: RichConfiguration
+		name: string
+		type: 'bar' | 'line'
+	}
+
+	let resolvedDatasets: Dataset[]
+	let resolvedDatasetsValues: Array<number[]> = []
+	let resolvedXData: number[] = []
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -53,29 +51,81 @@
 
 	let css = initCss($app.css?.agchartcomponent, customCss)
 
+	let chartInstance: AgChartInstance | undefined = undefined
+
+	function updateChart() {
+		if (!chartInstance) {
+			return
+		}
+
+		let data = [] as any[]
+
+		for (let i = 0; i < resolvedXData.length; i++) {
+			for (let j = 0; j < resolvedDatasets.length; j++) {
+				data.push({
+					[`x-${j}`]: resolvedXData[i],
+					y: resolvedDatasetsValues[j][i]
+				})
+			}
+		}
+
+		data = data.filter((d) => d.y !== undefined)
+
+		const options = {
+			container: document.getElementById('myChart') as HTMLElement,
+			data: data,
+			series:
+				(resolvedDatasets?.map((d, index) => ({
+					type: d.type,
+					xKey: `x-${index}`,
+					yKey: 'y'
+				})) as any[]) ?? []
+		}
+
+		AgCharts.update(chartInstance, options)
+	}
+
+	$: resolvedXData && resolvedDatasets && resolvedDatasetsValues && chartInstance && updateChart()
+
 	onMount(() => {
 		try {
 			// Chart Options
 			const options: AgChartOptions = {
-				container: document.getElementById('myChart') as HTMLElement, // Container: HTML Element to hold the chart
-				// Data: Data to be displayed in the chart
-				data: [
-					{ month: 'Jan', avgTemp: 2.3, iceCreamSales: 162000 },
-					{ month: 'Mar', avgTemp: 6.3, iceCreamSales: 302000 },
-					{ month: 'May', avgTemp: 16.2, iceCreamSales: 800000 },
-					{ month: 'Jul', avgTemp: 22.8, iceCreamSales: 1254000 },
-					{ month: 'Sep', avgTemp: 14.5, iceCreamSales: 950000 },
-					{ month: 'Nov', avgTemp: 8.9, iceCreamSales: 200000 }
-				] as IData[],
-				// Series: Defines which chart type and data to use
-				series: [{ type: 'bar', xKey: 'month', yKey: 'iceCreamSales' } as AgBarSeriesOptions]
+				container: document.getElementById('myChart') as HTMLElement,
+				data: [],
+				series: []
 			}
-			AgCharts.create(options)
+
+			chartInstance = AgCharts.create(options)
 		} catch (error) {
 			console.error(error)
 		}
 	})
 </script>
+
+{#if datasets}
+	<ResolveConfig
+		{id}
+		key={'datasets'}
+		bind:resolvedConfig={resolvedDatasets}
+		configuration={datasets}
+	/>
+{/if}
+
+{#if xData}
+	<ResolveConfig {id} key={'xData'} bind:resolvedConfig={resolvedXData} configuration={xData} />
+{/if}
+
+{#if resolvedDatasets}
+	{#each resolvedDatasets as resolvedDataset, index (resolvedDataset.name + index)}
+		<ResolveConfig
+			{id}
+			key={'datasets' + index}
+			bind:resolvedConfig={resolvedDatasetsValues[index]}
+			configuration={resolvedDataset.value}
+		/>
+	{/each}
+{/if}
 
 {#each Object.keys(components['agchartcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -96,9 +146,11 @@
 	/>
 {/each}
 
-<div
-	class={twMerge('w-full h-full', css?.container?.class, 'wm-agchart')}
-	style={css?.container?.style ?? ''}
->
-	<div id="myChart" />
-</div>
+<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-agchart')}
+		style={css?.container?.style ?? ''}
+	>
+		<div id="myChart" class="h-full w-full" />
+	</div>
+</RunnableWrapper>

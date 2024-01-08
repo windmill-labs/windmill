@@ -75,6 +75,22 @@
 					},
 					name: 'New dataset'
 				})
+			} else if (subFieldType === 'ag-chart') {
+				value.push({
+					value: {
+						type: 'static',
+						fieldType: 'array',
+						subFieldType: 'number',
+						value: [2, 4, 5, 6]
+					},
+					name: 'New dataset',
+					aggregation_method: 'sum',
+					type: 'bar',
+					toolip: '',
+					color: `#${Math.floor(Math.random() * 0xffffff)
+						.toString(16)
+						.padEnd(6, '0')}`
+				})
 			}
 		} else {
 			value.push('')

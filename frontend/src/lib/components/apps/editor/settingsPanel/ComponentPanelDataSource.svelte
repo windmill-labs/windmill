@@ -5,6 +5,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import PlotlyRichEditor from './PlotlyRichEditor.svelte'
 	import ChartJSRichEditor from './ChartJSRichEditor.svelte'
+	import AGChartRichEditor from './AGChartRichEditor.svelte'
 	import { onMount } from 'svelte'
 	import type { RichConfiguration } from '../../types'
 	import type { InputConnectionEval } from '../../inputType'
@@ -18,7 +19,9 @@
 
 	onMount(() => {
 		if (
-			(component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2') &&
+			(component.type === 'plotlycomponentv2' ||
+				component.type === 'chartjscomponentv2' ||
+				component.type === 'agchartcomponent') &&
 			component.componentInput === undefined &&
 			component.datasets === undefined
 		) {
@@ -92,6 +95,29 @@
 		} else if (component.type === 'chartjscomponentv2') {
 			component.datasets = createChartjsComponentDataset()
 			component.xData = createXData()
+		} else if (component.type === 'agchartcomponent') {
+			component.datasets = createAgChartComponentDataset()
+			component.xData = createXData()
+		}
+	}
+
+	function createAgChartComponentDataset(): RichConfiguration {
+		// TODO
+		return {
+			type: 'static',
+			fieldType: 'array',
+			subFieldType: 'ag-chart',
+			value: [
+				{
+					value: {
+						type: 'static',
+						fieldType: 'array',
+						subFieldType: 'number',
+						value: [25, 25, 50]
+					},
+					name: 'Dataset 1'
+				}
+			]
 		}
 	}
 
@@ -229,7 +255,7 @@
 	}
 </script>
 
-{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2'}
+{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2' || component.type === 'agchartcomponent'}
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
@@ -254,6 +280,12 @@
 		{#key renderCount}
 			{#if component.type === 'plotlycomponentv2'}
 				<PlotlyRichEditor
+					id={component.id}
+					bind:datasets={component.datasets}
+					bind:xData={component.xData}
+				/>
+			{:else if component.type === 'agchartcomponent'}
+				<AGChartRichEditor
 					id={component.id}
 					bind:datasets={component.datasets}
 					bind:xData={component.xData}

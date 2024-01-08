@@ -303,6 +303,8 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
 				{render}
 			/>
 		{:else if component.type === 'tablecomponent'}
