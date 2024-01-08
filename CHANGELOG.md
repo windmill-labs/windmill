@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.236.1](https://github.com/windmill-labs/windmill/compare/v1.236.0...v1.236.1) (2024-01-08)
+
+
+### Bug Fixes
+
+* fix app initialization ([6b075e9](https://github.com/windmill-labs/windmill/commit/6b075e92ef4e312e6a4ce582dc7c4d88456b2f5d))
+
 ## [1.236.0](https://github.com/windmill-labs/windmill/compare/v1.235.1...v1.236.0) (2024-01-08)
 
 
