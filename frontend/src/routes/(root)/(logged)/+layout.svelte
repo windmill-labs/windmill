@@ -213,7 +213,7 @@
 		isCollapsed = false
 	}
 
-	$: menuSlide && !isOnHome && (menuSlide = false)
+	$: menuSlide && !isOnHome && $userStore?.operator && (menuSlide = false)
 </script>
 
 <svelte:window bind:innerWidth />
@@ -491,7 +491,11 @@
 						<button
 							type="button"
 							on:click={() => {
-								menuOpen = true
+								if ($userStore?.operator) {
+									menuSlide = true
+								} else {
+									menuOpen = true
+								}
 							}}
 							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
 						>
