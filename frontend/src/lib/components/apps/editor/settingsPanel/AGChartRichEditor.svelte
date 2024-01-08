@@ -8,7 +8,10 @@
 	export let id: string
 </script>
 
-<PanelSection title={`AG Chart configuration`} tooltip="TODO">
+<PanelSection
+	title={`AG Chart configuration`}
+	tooltip="The configuration is divided into two parts: X-axis data and an array of datasets. Each dataset hold the data for the Y-axis and the configuration for the plot (type, name, etc)."
+>
 	<div class="w-full flex flex-col gap-4">
 		{#if xData}
 			<InputsSpecEditor
