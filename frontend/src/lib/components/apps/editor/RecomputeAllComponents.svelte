@@ -63,6 +63,7 @@
 		}
 		loading = true
 
+		console.log('refresh all')
 		const promises = Object.keys($runnableComponents)
 			.flatMap((id) => {
 				if (
@@ -72,6 +73,7 @@
 					return
 				}
 
+				console.log('refresh start', id)
 				return $runnableComponents?.[id]?.cb?.map((f) =>
 					f().then(() => console.log('refreshed', id))
 				)
@@ -106,7 +108,8 @@
 	]
 </script>
 
-<!-- {$initialized.initializedComponents?.join(', ')} -->
+<!-- {$initialized.initializedComponents?.join(', ')}
+{allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length} -->
 <!-- {allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length}
 {$initialized.initializedComponents}
 {allItems($app.grid, $app.subgrids)

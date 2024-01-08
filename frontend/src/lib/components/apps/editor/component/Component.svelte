@@ -67,6 +67,7 @@
 	import AppMenu from '../../components/display/AppMenu.svelte'
 	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
 	import AppAgChart from '../../components/display/AppAgChart.svelte'
+	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -315,6 +316,14 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				actionButtons={component.actionButtons}
+				{render}
+			/>
+		{:else if component.type === 'dbexplorercomponent'}
+			<AppDbExplorer
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}

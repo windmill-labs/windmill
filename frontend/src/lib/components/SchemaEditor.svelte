@@ -273,7 +273,7 @@
 				}}
 				id="flow-editor-add-property"
 			>
-				Add Property
+				Add Argument
 			</Button>
 		</div>
 

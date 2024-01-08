@@ -15,9 +15,8 @@ use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{AuthedClient, PreviousResult, KEEP_JOB_DIR};
+use crate::{AuthedClient, PreviousResult, SendResult, KEEP_JOB_DIR};
 use anyhow::Context;
-use async_recursion::async_recursion;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
@@ -70,8 +69,10 @@ pub async fn update_flow_status_after_job_completion<
     stop_early_override: Option<bool>,
     rsmq: Option<R>,
     worker_name: &str,
+    job_completed_tx: Sender<SendResult>,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
+    // todo!();
     let mut rec = update_flow_status_after_job_completion_internal(
         db,
         client,
@@ -87,6 +88,7 @@ pub async fn update_flow_status_after_job_completion<
         false,
         rsmq.clone(),
         worker_name,
+        job_completed_tx.clone(),
     )
     .await?;
     while let Some(nrec) = rec {
@@ -105,6 +107,7 @@ pub async fn update_flow_status_after_job_completion<
             nrec.skip_error_handler,
             rsmq.clone(),
             worker_name,
+            job_completed_tx.clone(),
         )
         .await
         {
@@ -125,6 +128,7 @@ pub async fn update_flow_status_after_job_completion<
                     nrec.skip_error_handler,
                     rsmq.clone(),
                     worker_name,
+                    job_completed_tx.clone(),
                 )
                 .await?
             }
@@ -167,6 +171,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     skip_error_handler: bool,
     rsmq: Option<R>,
     worker_name: &str,
+    job_completed_tx: Sender<SendResult>,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (
         should_continue_flow,
@@ -575,6 +580,8 @@ pub async fn update_flow_status_after_job_completion_internal<
         }
 
         tx.commit().await?;
+        tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow status updated");
+
         (
             should_continue_flow,
             flow_job,
@@ -686,6 +693,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         }
         true
     } else {
+        tracing::debug!(id = %flow_job.id,  "start handle flow");
         match handle_flow(
             &flow_job,
             db,
@@ -694,7 +702,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             same_worker_tx.clone(),
             worker_dir,
             rsmq.clone(),
-            worker_name,
+            job_completed_tx,
         )
         .await
         {
@@ -1037,7 +1045,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     rsmq: Option<R>,
-    worker_name: &str,
+    job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
     let flow = flow_job
         .parse_raw_flow()
@@ -1056,7 +1064,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         same_worker_tx,
         worker_dir,
         rsmq,
-        worker_name,
+        job_completed_tx,
     )
     .await?;
     Ok(())
@@ -1089,7 +1097,7 @@ pub struct RawArgs {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
-#[async_recursion]
+// #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: &QueuedJob,
@@ -1101,7 +1109,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     rsmq: Option<R>,
-    worker_name: &str,
+    job_completed_tx: Sender<SendResult>,
 ) -> error::Result<()> {
     let job_root = flow_job
         .root_job
@@ -1122,29 +1130,51 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     // if this is an empty module of if the module has already been completed, successfully, update the parent flow
     if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
-        let r;
-        return update_flow_status_after_job_completion(
-            db,
-            client,
-            flow_job.id,
-            &Uuid::nil(),
-            flow_job.workspace_id.as_str(),
-            true,
-            if flow.modules.is_empty() {
-                r = to_raw_value(&flow_job_args);
-                &r
-            } else {
-                // it has to be an empty for loop event
-                serde_json::from_str("[]").unwrap()
-            },
-            true,
-            same_worker_tx,
-            worker_dir,
-            None,
-            rsmq,
-            worker_name,
-        )
-        .await;
+        job_completed_tx
+            .send(SendResult::UpdateFlow {
+                flow: flow_job.id,
+                success: true,
+                result: if flow.modules.is_empty() {
+                    to_raw_value(&flow_job_args)
+                } else {
+                    // it has to be an empty for loop event
+                    serde_json::from_str("[]").unwrap()
+                },
+                stop_early_override: None,
+                w_id: flow_job.workspace_id.clone(),
+                worker_dir: worker_dir.to_string(),
+                token: client.token.clone(),
+            })
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "error sending update flow message to job completed channel: {e}"
+                ))
+            })?;
+        // let r;
+        // return update_flow_status_after_job_completion(
+        //     db,
+        //     client,
+        //     flow_job.id,
+        //     &Uuid::nil(),
+        //     flow_job.workspace_id.as_str(),
+        //     true,
+        //     if flow.modules.is_empty() {
+        //         r = to_raw_value(&flow_job_args);
+        //         &r
+        //     } else {
+        //         // it has to be an empty for loop event
+        //         serde_json::from_str("[]").unwrap()
+        //     },
+        //     true,
+        //     same_worker_tx,
+        //     worker_dir,
+        //     None,
+        //     rsmq,
+        //     worker_name,
+        // )
+        // .await;
+        return Ok(());
     }
 
     let arc_flow_job_args = Arc::new(flow_job_args.clone());
@@ -1166,25 +1196,45 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     flow_job.id
                 ).fetch_one(db).await?.unwrap_or(0);
                 if count > 0 {
-                    return update_flow_status_after_job_completion(
-                        db,
-                        client,
-                        flow_job.id,
-                        &Uuid::nil(),
-                        flow_job.workspace_id.as_str(),
-                        true,
-                        serde_json::from_str(
-                            "\"not allowed to overlap, scheduling next iteration\"",
-                        )
-                        .unwrap(),
-                        true,
-                        same_worker_tx,
-                        worker_dir,
-                        Some(true),
-                        rsmq,
-                        worker_name,
-                    )
-                    .await;
+                    job_completed_tx
+                        .send(SendResult::UpdateFlow {
+                            flow: flow_job.id,
+                            success: true,
+                            result: serde_json::from_str(
+                                "\"not allowed to overlap, scheduling next iteration\"",
+                            )
+                            .unwrap(),
+                            stop_early_override: Some(true),
+                            w_id: flow_job.workspace_id.clone(),
+                            worker_dir: worker_dir.to_string(),
+                            token: client.token.clone(),
+                        })
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error sending update flow message to job completed channel: {e}"
+                            ))
+                        })?;
+                    // return update_flow_status_after_job_completion(
+                    //     db,
+                    //     client,
+                    //     flow_job.id,
+                    //     &Uuid::nil(),
+                    //     flow_job.workspace_id.as_str(),
+                    //     true,
+                    //     serde_json::from_str(
+                    //         "\"not allowed to overlap, scheduling next iteration\"",
+                    //     )
+                    //     .unwrap(),
+                    //     true,
+                    //     same_worker_tx,
+                    //     worker_dir,
+                    //     Some(true),
+                    //     rsmq,
+                    //     worker_name,
+                    // )
+                    // .await;
+                    return Ok(());
                 }
             }
         }
@@ -1199,22 +1249,40 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             )
             .await?;
             if skip {
-                return update_flow_status_after_job_completion(
-                    db,
-                    client,
-                    flow_job.id,
-                    &Uuid::nil(),
-                    flow_job.workspace_id.as_str(),
-                    true,
-                    serde_json::from_str("\"stopped early\"").unwrap(),
-                    true,
-                    same_worker_tx,
-                    worker_dir,
-                    Some(true),
-                    rsmq,
-                    worker_name,
-                )
-                .await;
+                job_completed_tx
+                    .send(SendResult::UpdateFlow {
+                        flow: flow_job.id,
+                        success: true,
+                        result: serde_json::from_str("\"stopped early\"").unwrap(),
+                        stop_early_override: Some(true),
+                        w_id: flow_job.workspace_id.clone(),
+                        worker_dir: worker_dir.to_string(),
+                        token: client.token.clone(),
+                    })
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!(
+                            "error sending update flow message to job completed channel: {e}"
+                        ))
+                    })?;
+
+                // return update_flow_status_after_job_completion(
+                //     db,
+                //     client,
+                //     flow_job.id,
+                //     &Uuid::nil(),
+                //     flow_job.workspace_id.as_str(),
+                //     true,
+                //     serde_json::from_str("\"stopped early\"").unwrap(),
+                //     true,
+                //     same_worker_tx,
+                //     worker_dir,
+                //     Some(true),
+                //     rsmq,
+                //     worker_name,
+                // )
+                // .await;
+                return Ok(());
             }
         }
     }
@@ -1436,22 +1504,39 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .await?;
                 if flow_job.is_flow_step {
                     if let Some(parent_job) = flow_job.parent_job {
-                        update_flow_status_after_job_completion(
-                            db,
-                            client,
-                            parent_job,
-                            &flow_job.id,
-                            &flow_job.workspace_id,
-                            true,
-                            &to_raw_value(&result),
-                            false,
-                            same_worker_tx.clone(),
-                            &worker_dir,
-                            None,
-                            rsmq,
-                            worker_name,
-                        )
-                        .await?;
+                        job_completed_tx
+                            .send(SendResult::UpdateFlow {
+                                flow: parent_job,
+                                success: true,
+                                result: to_raw_value(&result),
+                                stop_early_override: Some(true),
+                                w_id: flow_job.workspace_id.clone(),
+                                worker_dir: worker_dir.to_string(),
+                                token: client.token.clone(),
+                            })
+                            .await
+                            .map_err(|e| {
+                                Error::InternalErr(format!(
+                                "error sending update flow message to job completed channel: {e}"
+                            ))
+                            })?;
+                        // update_flow_status_after_job_completion(
+                        //     db,
+                        //     client,
+                        //     parent_job,
+                        //     &flow_job.id,
+                        //     &flow_job.workspace_id,
+                        //     true,
+                        //     &to_raw_value(&result),
+                        //     false,
+                        //     same_worker_tx.clone(),
+                        //     &worker_dir,
+                        //     None,
+                        //     rsmq,
+                        //     worker_name,
+                        // )
+                        // .await?;
+                        return Ok(());
                     }
                 }
                 return Ok(());
@@ -1689,6 +1774,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             _ => Ok(flow_job_args),
         }
     };
+    tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow job args computed");
 
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
@@ -1888,6 +1974,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             new_job_priority_override,
         )
         .await?;
+
+        tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
         if let FlowModuleValue::ForloopFlow { parallelism: Some(p), .. } = &module.value {
             if i as u16 >= *p {
@@ -2211,6 +2299,8 @@ async fn compute_next_flow_transform(
         ))
     };
     let delete_after_use = module.delete_after_use.unwrap_or(false);
+
+    tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
     match &module.value {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {

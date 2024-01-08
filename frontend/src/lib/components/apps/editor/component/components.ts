@@ -43,7 +43,8 @@ import {
 	Heading1,
 	FileBarChart,
 	Menu,
-	Network
+	Network,
+	Database
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -175,6 +176,10 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 
+export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
+	columns: RichConfiguration
+}
+
 export type DecisionTreeNode = {
 	id: string
 	label: string
@@ -190,6 +195,7 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 }
 
 export type TypedComponent =
+	| DBExplorerComponent
 	| DisplayComponent
 	| LogComponent
 	| JobIdLogComponent
@@ -575,7 +581,7 @@ const aggridcomponentconst = {
 				type: 'static',
 				fieldType: 'boolean',
 				value: false,
-
+				hide: true,
 				tooltip: 'Configure all columns as Editable by users'
 			},
 			multipleSelectable: {
@@ -595,7 +601,7 @@ const aggridcomponentconst = {
 			pagination: {
 				type: 'static',
 				fieldType: 'boolean',
-				value: false
+				value: false as boolean | undefined
 			},
 			selectFirstRowByDefault: {
 				type: 'static',
@@ -2966,6 +2972,102 @@ This is a paragraph.
 					next: []
 				}
 			] as DecisionTreeNode[]
+		}
+	},
+	dbexplorercomponent: {
+		name: 'Database Studio',
+		icon: Database,
+		documentationLink: `${documentationBaseUrl}/dbexplorer`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'oneOf',
+					selected: 'postgresql',
+					labels: {
+						postgresql: 'PostgreSQL',
+						msql: 'MySQL'
+					},
+					configuration: {
+						postgresql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						}
+					}
+				} as const,
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'db-explorer',
+					value: []
+				} as StaticAppInput,
+				whereClause: {
+					type: 'static',
+					fieldType: 'text',
+					value: ''
+				},
+				flex: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip: 'default col flex is 1 (see ag-grid docs)'
+				},
+				allEditable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					hide: true,
+					tooltip: 'Configure all columns as Editable by users'
+				},
+				allowDelete: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					hide: true,
+					tooltip: 'Allow deleting rows'
+				},
+				multipleSelectable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Make multiple rows selectable at once'
+				},
+				rowMultiselectWithClick: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip: 'If multiple selectable, allow multiselect with click'
+				},
+				selectFirstRowByDefault: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true as boolean,
+					tooltip: 'Select the first row by default on start'
+				},
+				extraConfig: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'any configuration that can be passed to ag-grid top level'
+				}
+			},
+			componentInput: undefined
 		}
 	}
 } as const

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.234.1"
+version = "1.236.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -11,6 +11,7 @@ members = [
     "./windmill-worker",
     "./windmill-common",
     "./windmill-audit",
+    "./windmill-git-sync",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -21,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.234.1"
+version = "1.236.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -34,7 +35,7 @@ opt-level = 0
 incremental = true
 
 [features]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
@@ -46,6 +47,7 @@ anyhow.workspace = true
 tokio.workspace = true
 dotenv.workspace = true
 windmill-common = { workspace = true, features = ["tracing_init"] }
+windmill-git-sync.workspace = true
 windmill-api.workspace = true
 windmill-worker.workspace = true
 futures.workspace = true
@@ -66,7 +68,7 @@ uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true} 
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false} 
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -83,6 +85,7 @@ windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common" }
 windmill-audit = { path = "./windmill-audit" }
+windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -153,7 +156,7 @@ swc_ecma_visit = "0.93.7"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { version = "^0", features = [
+sqlx = { version = "0.7.3", features = [
     "macros",
     "migrate",
     "uuid",

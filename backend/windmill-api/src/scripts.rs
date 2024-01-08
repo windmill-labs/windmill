@@ -8,7 +8,6 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    deployment_metadata_helpers,
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -47,6 +46,7 @@ use windmill_common::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{
     self, schedule::push_scheduled_job, PushArgs, PushIsolationLevel, QueueTransaction,
 };
@@ -325,7 +325,7 @@ async fn create_script(
     let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
 
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -604,37 +604,29 @@ async fn create_script(
         );
     }
 
-    let mut tx = PushIsolationLevel::Transaction(tx);
-
+    let permissioned_as = username_to_permissioned_as(&authed.username);
     if needs_lock_gen {
-        let dependencies = match ns.language {
-            ScriptLang::Python3 => {
-                windmill_parser_py_imports::parse_python_imports(&ns.content, &w_id, &ns.path, &db)
-                    .await?
-                    .join("\n")
-            }
-            _ => ns.content,
-        };
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
             Some(format!("{}:{}", &w_id, &ns.path,))
         } else {
             ns.tag
         };
+        let tx = PushIsolationLevel::Transaction(tx);
         let (_, new_tx) = windmill_queue::push(
             &db,
             tx,
             &w_id,
             JobPayload::Dependencies {
                 hash,
-                dependencies,
                 language: ns.language,
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
+                deployment_message: ns.deployment_message,
             },
             PushArgs::empty(),
             &authed.username,
             &authed.email,
-            username_to_permissioned_as(&authed.username),
+            permissioned_as,
             None,
             None,
             None,
@@ -650,26 +642,19 @@ async fn create_script(
             None,
         )
         .await?;
-        tx = PushIsolationLevel::Transaction(new_tx);
-    }
-
-    tx = deployment_metadata_helpers::handle_deployment_metadata(
-        tx,
-        &authed,
-        &db,
-        &w_id,
-        deployment_metadata_helpers::DeployedObject::Script { hash: hash, path: script_path },
-        ns.deployment_message,
-    )
-    .await?;
-
-    match tx {
-        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
-        _ => {
-            return Err(Error::InternalErr(
-                "Expected a transaction here".to_string(),
-            ));
-        }
+        new_tx.commit().await?;
+    } else {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Script { hash: hash, path: script_path },
+            ns.deployment_message,
+            rsmq,
+        )
+        .await?;
+        tx.commit().await?;
     }
 
     Ok((StatusCode::CREATED, format!("{}", hash)))

@@ -25,6 +25,8 @@ use std::{
     },
     time::Duration,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_parser_py_imports::parse_relative_imports;
 
 use uuid::Uuid;
 #[cfg(feature = "enterprise")]
@@ -33,9 +35,9 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_deployed_hash_for_path,
-    jobs::{JobKind, QueuedJob},
+    jobs::{JobKind, JobPayload, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
         to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG, WORKER_GROUP,
@@ -149,7 +151,8 @@ pub async fn create_token_for_owner(
             .await?
             .unwrap_or(false)
             || email == SUPERADMIN_SECRET_EMAIL
-            || email == SUPERADMIN_NOTIFICATION_EMAIL;
+            || email == SUPERADMIN_NOTIFICATION_EMAIL
+            || owner == SUPERADMIN_SYNC_EMAIL;
 
     sqlx::query_scalar!(
         "INSERT INTO token
@@ -472,6 +475,7 @@ async fn handle_receive_completed_job<
     worker_name: &str,
     worker_save_completed_job_duration: Option<Arc<prometheus::Histogram>>,
     worker_flow_transition_duration: Option<Arc<prometheus::Histogram>>,
+    job_completed_tx: Sender<SendResult>,
 ) {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
@@ -494,6 +498,7 @@ async fn handle_receive_completed_job<
         worker_name,
         worker_save_completed_job_duration,
         worker_flow_transition_duration,
+        job_completed_tx.clone(),
     )
     .await
     {
@@ -509,6 +514,7 @@ async fn handle_receive_completed_job<
             &worker_dir,
             rsmq.clone(),
             worker_name,
+            job_completed_tx,
         )
         .await;
     }
@@ -516,7 +522,7 @@ async fn handle_receive_completed_job<
 
 #[derive(Clone)]
 pub struct JobCompletedSender(
-    Sender<JobCompleted>,
+    Sender<SendResult>,
     Option<Arc<GenericGauge<AtomicI64>>>,
     Option<Arc<prometheus::Histogram>>,
 );
@@ -525,12 +531,12 @@ impl JobCompletedSender {
     pub async fn send(
         &self,
         jc: JobCompleted,
-    ) -> Result<(), tokio::sync::mpsc::error::SendError<JobCompleted>> {
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
         if let Some(wj) = self.1.as_ref() {
             wj.inc()
         }
         let timer = self.2.as_ref().map(|x| x.start_timer());
-        let r = self.0.send(jc).await;
+        let r = self.0.send(SendResult::JobCompleted(jc)).await;
         timer.map(|x| x.stop_and_record());
         r
     }
@@ -876,7 +882,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
-    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(3);
+    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<SendResult>(3);
 
     let job_completed_tx = JobCompletedSender(
         job_completed_tx,
@@ -964,119 +970,167 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
+    let job_completed_sender = job_completed_tx.0.clone();
     let send_result = tokio::spawn(async move {
-        while let Some(jc) = job_completed_rx.recv().await {
-            if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
-                wj.dec();
-            }
-            let base_internal_url2 = base_internal_url2.clone();
-            let worker_dir2 = worker_dir2.clone();
-            let db2 = db2.clone();
-            let same_worker_tx2 = same_worker_tx2.clone();
-            let rsmq2 = rsmq2.clone();
-            let worker_name = worker_name2.clone();
-            if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
-                thread_count.fetch_add(1, Ordering::SeqCst);
-                let thread_count = thread_count.clone();
-
-                loop {
-                    if thread_count.load(Ordering::Relaxed) < 4 {
-                        break;
+        while let Some(sr) = job_completed_rx.recv().await {
+            match sr {
+                SendResult::JobCompleted(jc) => {
+                    if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
+                        wj.dec();
                     }
-                    tokio::time::sleep(Duration::from_millis(3)).await;
-                }
+                    let base_internal_url2 = base_internal_url2.clone();
+                    let worker_dir2 = worker_dir2.clone();
+                    let db2 = db2.clone();
+                    let same_worker_tx2 = same_worker_tx2.clone();
+                    let rsmq2 = rsmq2.clone();
+                    let worker_name = worker_name2.clone();
+                    if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
+                        thread_count.fetch_add(1, Ordering::SeqCst);
+                        let thread_count = thread_count.clone();
 
-                #[cfg(feature = "benchmark")]
-                let send_duration = send_duration2.clone();
-                #[cfg(feature = "benchmark")]
-                let process_duration = process_duration.clone();
-                #[cfg(feature = "benchmark")]
-                let completed_jobs = completed_jobs.clone();
-                #[cfg(feature = "benchmark")]
-                let main_duration = main_duration2.clone();
-
-                let worker_save_completed_job_duration2 =
-                    worker_save_completed_job_duration.clone();
-                let worker_flow_transition_duration2 = worker_flow_transition_duration.clone();
-                let killpill_tx = killpill_tx2.clone();
-                tokio::spawn(async move {
-                    #[cfg(feature = "benchmark")]
-                    let process_start = Instant::now();
-
-                    let is_dependency_job = matches!(
-                        jc.job.job_kind,
-                        JobKind::Dependencies | JobKind::FlowDependencies
-                    );
-                    handle_receive_completed_job(
-                        jc,
-                        base_internal_url2,
-                        db2.clone(),
-                        worker_dir2,
-                        same_worker_tx2,
-                        rsmq2,
-                        &worker_name,
-                        worker_save_completed_job_duration2.clone(),
-                        worker_flow_transition_duration2.clone(),
-                    )
-                    .await;
-                    #[cfg(feature = "benchmark")]
-                    {
-                        let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
-                        if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
-                            let duration_s = start.elapsed().as_secs_f64();
-                            let jobs_per_sec = n as f64 / duration_s;
-                            tracing::info!(
-                                "completed {} jobs in {}s, {} jobs/s",
-                                n + 1,
-                                duration_s,
-                                jobs_per_sec
-                            );
-
-                            tracing::info!(
-                                "main loop without send {}s",
-                                main_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                            );
-
-                            tracing::info!(
-                                "send job completed / send dedicated job duration {}s",
-                                send_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                            );
-
-                            tracing::info!(
-                                "job completed process duration {}s",
-                                process_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                            );
+                        loop {
+                            if thread_count.load(Ordering::Relaxed) < 4 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(3)).await;
                         }
 
-                        process_duration.fetch_add(
-                            process_start.elapsed().as_millis() as usize,
-                            Ordering::SeqCst,
-                        );
-                    }
+                        #[cfg(feature = "benchmark")]
+                        let send_duration = send_duration2.clone();
+                        #[cfg(feature = "benchmark")]
+                        let process_duration = process_duration.clone();
+                        #[cfg(feature = "benchmark")]
+                        let completed_jobs = completed_jobs.clone();
+                        #[cfg(feature = "benchmark")]
+                        let main_duration = main_duration2.clone();
 
-                    thread_count.fetch_sub(1, Ordering::SeqCst);
-                    if is_dependency_job && is_dedicated_worker {
-                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                        sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
+                        let worker_save_completed_job_duration2 =
+                            worker_save_completed_job_duration.clone();
+                        let worker_flow_transition_duration2 =
+                            worker_flow_transition_duration.clone();
+                        let killpill_tx = killpill_tx2.clone();
+                        let job_completed_sender = job_completed_sender.clone();
+                        tokio::spawn(async move {
+                            #[cfg(feature = "benchmark")]
+                            let process_start = Instant::now();
+
+                            let is_dependency_job = matches!(
+                                jc.job.job_kind,
+                                JobKind::Dependencies | JobKind::FlowDependencies
+                            );
+                            handle_receive_completed_job(
+                                jc,
+                                base_internal_url2,
+                                db2.clone(),
+                                worker_dir2,
+                                same_worker_tx2,
+                                rsmq2,
+                                &worker_name,
+                                worker_save_completed_job_duration2.clone(),
+                                worker_flow_transition_duration2.clone(),
+                                job_completed_sender.clone(),
+                            )
+                            .await;
+                            #[cfg(feature = "benchmark")]
+                            {
+                                let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
+                                if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
+                                    let duration_s = start.elapsed().as_secs_f64();
+                                    let jobs_per_sec = n as f64 / duration_s;
+                                    tracing::info!(
+                                        "completed {} jobs in {}s, {} jobs/s",
+                                        n + 1,
+                                        duration_s,
+                                        jobs_per_sec
+                                    );
+
+                                    tracing::info!(
+                                        "main loop without send {}s",
+                                        main_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                                    );
+
+                                    tracing::info!(
+                                        "send job completed / send dedicated job duration {}s",
+                                        send_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                                    );
+
+                                    tracing::info!(
+                                        "job completed process duration {}s",
+                                        process_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                                    );
+                                }
+
+                                process_duration.fetch_add(
+                                    process_start.elapsed().as_millis() as usize,
+                                    Ordering::SeqCst,
+                                );
+                            }
+
+                            thread_count.fetch_sub(1, Ordering::SeqCst);
+                            if is_dependency_job && is_dedicated_worker {
+                                tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                                sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
                             .execute(&db2)
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send(()).unwrap_or_default();
+                                killpill_tx.send(()).unwrap_or_default();
+                            }
+                        });
+                    } else {
+                        handle_receive_completed_job(
+                            jc,
+                            base_internal_url2,
+                            db2,
+                            worker_dir2,
+                            same_worker_tx2,
+                            rsmq2,
+                            &worker_name,
+                            worker_save_completed_job_duration2.clone(),
+                            worker_flow_transition_duration2.clone(),
+                            job_completed_sender.clone(),
+                        )
+                        .await;
                     }
-                });
-            } else {
-                handle_receive_completed_job(
-                    jc,
-                    base_internal_url2,
-                    db2,
-                    worker_dir2,
-                    same_worker_tx2,
-                    rsmq2,
-                    &worker_name,
-                    worker_save_completed_job_duration2.clone(),
-                    worker_flow_transition_duration2.clone(),
-                )
-                .await;
+                }
+                SendResult::UpdateFlow {
+                    flow,
+                    w_id,
+                    success,
+                    result,
+                    worker_dir,
+                    stop_early_override,
+                    token,
+                } => {
+                    // let r;
+                    if let Err(e) = update_flow_status_after_job_completion(
+                        &db2,
+                        &AuthedClient {
+                            base_internal_url: base_internal_url2.to_string(),
+                            workspace: w_id.clone(),
+                            token: token.clone(),
+                            force_client: None,
+                        },
+                        flow,
+                        &Uuid::nil(),
+                        &w_id,
+                        success,
+                        &result,
+                        true,
+                        same_worker_tx2.clone(),
+                        &worker_dir,
+                        stop_early_override,
+                        rsmq2.clone(),
+                        &worker_name2,
+                        job_completed_sender.clone(),
+                    )
+                    .await
+                    {
+                        tracing::error!("Error updating flow status after job completion: {e}");
+                    }
+                }
+                SendResult::Kill => {
+                    break;
+                }
             }
         }
 
@@ -1333,6 +1387,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         }
                     }
                     println!("received killpill for worker {}", i_worker);
+                    job_completed_tx.0.send(SendResult::Kill).await.unwrap();
                     break
                 },
                 _ = copy_to_bucket_rx.recv() => {
@@ -1600,6 +1655,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             &worker_dir,
                             rsmq.clone(),
                             &worker_name,
+                            (&job_completed_tx.0).clone(),
                         )
                         .await;
                     };
@@ -2083,6 +2139,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     worker_name: &str,
     worker_save_completed_job_duration: Option<Arc<prometheus::Histogram>>,
     worker_flow_transition_duration: Option<Arc<prometheus::Histogram>>,
+    job_completed_tx: Sender<SendResult>,
 ) -> windmill_common::error::Result<()> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
@@ -2126,6 +2183,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     None,
                     rsmq.clone(),
                     worker_name,
+                    job_completed_tx,
                 )
                 .await?;
                 timer.map(|x| x.stop_and_record());
@@ -2161,6 +2219,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     None,
                     rsmq,
                     worker_name,
+                    job_completed_tx,
                 )
                 .await?;
             }
@@ -2216,6 +2275,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     worker_dir: &str,
     rsmq: Option<R>,
     worker_name: &str,
+    job_completed_tx: Sender<SendResult>,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
@@ -2263,6 +2323,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             None,
             rsmq.clone(),
             worker_name,
+            job_completed_tx.clone(),
         )
         .await;
 
@@ -2304,6 +2365,34 @@ fn extract_error_value(log_lines: &str, i: i32) -> Box<RawValue> {
         &json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"}),
     );
 }
+
+pub enum SendResult {
+    JobCompleted(JobCompleted),
+    UpdateFlow {
+        flow: Uuid,
+        w_id: String,
+        success: bool,
+        result: Box<RawValue>,
+        worker_dir: String,
+        stop_early_override: Option<bool>,
+        token: String,
+    },
+    Kill,
+}
+
+// db: &DB,
+// client: &AuthedClient,
+// flow: uuid::Uuid,
+// job_id_for_status: &Uuid,
+// w_id: &str,
+// success: bool,
+// result: &'a RawValue,
+// unrecoverable: bool,
+// same_worker_tx: Sender<Uuid>,
+// worker_dir: &str,
+// stop_early_override: Option<bool>,
+// rsmq: Option<R>,
+// worker_name: &str,
 
 #[derive(Debug, Clone)]
 pub struct JobCompleted {
@@ -2467,7 +2556,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 same_worker_tx,
                 worker_dir,
                 rsmq,
-                worker_name,
+                job_completed_tx.0.clone(),
             )
             .await?;
             timer.map(|x| x.stop_and_record());
@@ -2515,6 +2604,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         worker_dir,
                         base_internal_url,
                         &client.get_token().await,
+                        rsmq.clone(),
                     )
                     .await
                 }
@@ -2529,6 +2619,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
+                    rsmq.clone(),
                 )
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -2543,6 +2634,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
+                    rsmq.clone(),
                 )
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -3044,7 +3136,7 @@ mount {{
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_dependency_job(
+async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
     logs: &mut String,
     mem_peak: &mut i32,
@@ -3055,7 +3147,17 @@ async fn handle_dependency_job(
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
+    rsmq: Option<R>,
 ) -> error::Result<Box<RawValue>> {
+    let raw_code = sqlx::query_scalar!(
+        "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
+        &job.script_hash.unwrap_or(ScriptHash(0)).0,
+        &job.workspace_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or_else(|| "No script found at this hash".to_string());
+    let script_path = job.script_path();
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -3063,10 +3165,7 @@ async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        job.raw_code
-            .as_ref()
-            .map(|a| a.as_str())
-            .unwrap_or_else(|| "no raw code"),
+        &raw_code,
         logs,
         mem_peak,
         canceled_by,
@@ -3077,19 +3176,83 @@ async fn handle_dependency_job(
         worker_dir,
         base_internal_url,
         token,
-        job.script_path(),
+        script_path,
     )
     .await;
     match content {
         Ok(content) => {
+            let hash = job.script_hash.unwrap_or(ScriptHash(0));
+            let w_id = &job.workspace_id;
             sqlx::query!(
                 "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
                 &content,
-                &job.script_hash.unwrap_or(ScriptHash(0)).0,
-                &job.workspace_id
+                &hash.0,
+                w_id
             )
             .execute(db)
             .await?;
+
+            let deployment_message = job.raw_code.as_ref().map(|x| x.clone());
+
+            if let Err(e) = handle_deployment_metadata(
+                &job.email,
+                &job.created_by,
+                &db,
+                &w_id,
+                DeployedObject::Script { hash, path: script_path.to_string() },
+                deployment_message.clone(),
+                rsmq.clone(),
+            )
+            .await
+            {
+                tracing::error!(%e, "error handling deployment metadata");
+            }
+
+            if &job.language == &Some(ScriptLang::Python3) {
+                if let Ok(relative_imports) = parse_relative_imports(&raw_code, script_path) {
+                    logs.push_str("\n--- RELATIVE IMPORTS ---\n\n");
+                    logs.push_str(&relative_imports.join("\n"));
+                    if !relative_imports.is_empty() {
+                        let mut tx = db.begin().await?;
+                        sqlx::query!(
+                            "DELETE FROM dependency_map
+                             WHERE importer_path = $1 AND importer_kind = 'script'
+                             AND workspace_id = $2",
+                            script_path,
+                            w_id
+                        )
+                        .execute(&mut *tx)
+                        .await?;
+                        for import in relative_imports {
+                            sqlx::query!(
+                                "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
+                                 VALUES ($1, $2, 'script', $3)",
+                                w_id,
+                                script_path,
+                                import
+                            )
+                            .execute(&mut *tx)
+                            .await?;
+                            logs.push_str(&format!("{}\n", import));
+                        }
+                        tx.commit().await?;
+                    }
+                    if let Err(e) = trigger_python_dependents_to_recompute_dependencies(
+                        w_id,
+                        script_path,
+                        deployment_message,
+                        &job.email,
+                        &job.created_by,
+                        &job.permissioned_as,
+                        db,
+                        rsmq,
+                    )
+                    .await
+                    {
+                        tracing::error!(%e, "error triggering python dependents to recompute dependencies");
+                    }
+                }
+            }
             Ok(to_raw_value_owned(
                 json!({ "success": "Successful lock file generation", "lock": content }),
             ))
@@ -3108,7 +3271,80 @@ async fn handle_dependency_job(
     }
 }
 
-async fn handle_flow_dependency_job(
+async fn trigger_python_dependents_to_recompute_dependencies<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
+    w_id: &str,
+    script_path: &str,
+    deployment_message: Option<String>,
+    email: &str,
+    created_by: &str,
+    permissioned_as: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    rsmq: Option<R>,
+) -> error::Result<()> {
+    let script_importers = sqlx::query_scalar!(
+        "SELECT importer_path FROM dependency_map
+         WHERE imported_path = $1 AND importer_kind = 'script'
+         AND workspace_id = $2",
+        script_path,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    for s in script_importers.iter() {
+        let tx: PushIsolationLevel<'_, R> =
+            PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
+        let r = get_latest_deployed_hash_for_path(db, w_id, s.as_str()).await;
+        if let Ok(r) = r {
+            let (job_uuid, new_tx) = windmill_queue::push(
+                db,
+                tx,
+                &w_id,
+                JobPayload::Dependencies {
+                    path: s.clone(),
+                    hash: r.0,
+                    language: r.5,
+                    dedicated_worker: r.6,
+                    deployment_message: deployment_message.clone(),
+                },
+                PushArgs::empty(),
+                &created_by,
+                email,
+                permissioned_as.to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                true,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            tracing::info!(
+                "pushed dependency job due to common python path: {job_uuid} for path {path} with hash {hash}",
+                path = s,
+                hash = r.0
+            );
+            new_tx.commit().await?;
+        } else {
+            tracing::error!(
+                "error getting latest deployed hash for path {path}: {err}",
+                path = s,
+                err = r.unwrap_err()
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
     logs: &mut String,
     mem_peak: &mut i32,
@@ -3119,6 +3355,7 @@ async fn handle_flow_dependency_job(
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -3170,6 +3407,21 @@ async fn handle_flow_dependency_job(
     )
     .execute(db)
     .await?;
+
+    if let Err(e) = handle_deployment_metadata(
+        &job.email,
+        &job.created_by,
+        &db,
+        &job.workspace_id,
+        DeployedObject::Flow { path: job_path },
+        job.raw_code.as_ref().map(|x| x.clone()),
+        rsmq.clone(),
+    )
+    .await
+    {
+        tracing::error!(%e, "error handling deployment metadata");
+    }
+
     Ok(())
 }
 
@@ -3295,22 +3547,11 @@ async fn lock_modules(
             new_flow_modules.push(e);
             continue;
         };
-        // sync with windmill-api/scripts
-        let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(
-                &content,
-                &job.workspace_id,
-                &path.clone().unwrap_or_else(|| job_path.to_string()),
-                &db,
-            )
-            .await?
-            .join("\n"),
-            _ => content.clone(),
-        };
+
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
-            &dependencies,
+            &content,
             logs,
             mem_peak,
             canceled_by,
@@ -3321,7 +3562,7 @@ async fn lock_modules(
             worker_dir,
             base_internal_url,
             token,
-            job.script_path(),
+            &path.clone().unwrap_or_else(|| job_path.to_string()),
         )
         .await;
         match new_lock {
@@ -3396,24 +3637,11 @@ async fn lock_modules_app(
                                 .as_str()
                                 .unwrap_or_default()
                                 .to_string();
-                            let dependencies = match language {
-                                ScriptLang::Python3 => {
-                                    windmill_parser_py_imports::parse_python_imports(
-                                        &content,
-                                        &job.workspace_id,
-                                        job_path,
-                                        &db,
-                                    )
-                                    .await?
-                                    .join("\n")
-                                }
-                                _ => content.clone(),
-                            };
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
                                 &job.id,
                                 &language,
-                                &dependencies,
+                                &content,
                                 logs,
                                 mem_peak,
                                 canceled_by,
@@ -3498,7 +3726,7 @@ async fn lock_modules_app(
     }
 }
 
-async fn handle_app_dependency_job(
+async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
     logs: &mut String,
     mem_peak: &mut i32,
@@ -3509,6 +3737,7 @@ async fn handle_app_dependency_job(
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -3558,6 +3787,41 @@ async fn handle_app_dependency_job(
         sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
             .execute(db)
             .await?;
+
+        if let Err(e) = handle_deployment_metadata(
+            &job.email,
+            &job.created_by,
+            &db,
+            &job.workspace_id,
+            DeployedObject::App { path: job_path, version: id },
+            job.raw_code.as_ref().map(|x| x.clone()),
+            rsmq.clone(),
+        )
+        .await
+        {
+            tracing::error!(%e, "error handling deployment metadata");
+        }
+
+        // tx = PushIsolationLevel::Transaction(new_tx);
+        // tx = handle_deployment_metadata(
+        //     tx,
+        //     &authed,
+        //     &db,
+        //     &w_id,
+        //     DeployedObject::App { path: app.path.clone(), version: v_id },
+        //     app.deployment_message,
+        // )
+        // .await?;
+
+        // match tx {
+        //     PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        //     _ => {
+        //         return Err(Error::InternalErr(
+        //             "Expected a transaction here".to_string(),
+        //         ));
+        //     }
+        // }
+
         Ok(())
     } else {
         Ok(())
@@ -3582,10 +3846,18 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
+            let reqs = windmill_parser_py_imports::parse_python_imports(
+                job_raw_code,
+                &w_id,
+                script_path,
+                &db,
+            )
+            .await?
+            .join("\n");
             create_dependencies_dir(job_dir).await;
             let req: std::result::Result<String, Error> = pip_compile(
                 job_id,
-                job_raw_code,
+                &reqs,
                 logs,
                 mem_peak,
                 canceled_by,

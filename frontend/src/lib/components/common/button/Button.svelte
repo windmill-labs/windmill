@@ -9,7 +9,7 @@
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
-	export let color: ButtonType.Color = 'blue'
+	export let color: ButtonType.Color | string = 'blue';
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
 	export let wrapperClasses: string = ''
@@ -115,18 +115,26 @@
 		}
 	}
 
-	$: buttonClass = twMerge(
-		'w-full',
-		colorVariants?.[color]?.[variant],
-		variant === 'border' ? 'border' : '',
-		ButtonType.FontSizeClasses[size],
-		ButtonType.SpacingClasses[spacingSize][variant],
-		'focus:ring-2 font-semibold',
-		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
-		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
-		btnClasses,
-		'transition-all'
-	)
+	function getColorClass(color, variant) {
+        if (color in colorVariants) {
+            return colorVariants[color][variant];
+        } else {
+            return color;
+        }
+    }
+
+    $: buttonClass = twMerge(
+        'w-full',
+        getColorClass(color, variant),
+        variant === 'border' ? 'border' : '',
+        ButtonType.FontSizeClasses[size],
+        ButtonType.SpacingClasses[spacingSize][variant],
+        'focus:ring-2 font-semibold',
+        dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
+        'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
+        btnClasses,
+        'transition-all'
+    );
 
 	const iconMap = {
 		xs: 14,

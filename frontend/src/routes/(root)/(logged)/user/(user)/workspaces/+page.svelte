@@ -136,12 +136,13 @@
 				workspace.
 			</p>
 		{/if}
-		{#each nonAdminWorkspaces as workspace}
+		{#each nonAdminWorkspaces as workspace (workspace.id)}
 			<label class="block pb-2">
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
 				shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
 					on:click={async () => {
+						workspaceStore.set(undefined)
 						workspaceStore.set(workspace.id)
 						loading = true
 						await goto(rd ?? '/')

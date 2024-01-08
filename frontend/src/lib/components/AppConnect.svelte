@@ -460,7 +460,7 @@
 				{/if}
 			</div>
 
-			<h2 class="mt-8 mb-4" />
+			<div class="mt-8 mb-4" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
 					{#each filteredConnectsManual as [key, _]}

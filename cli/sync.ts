@@ -478,7 +478,7 @@ async function pull(
     !opts.json
   );
   const local = opts.raw
-    ? undefined
+    ? await FSFSElement(Deno.cwd())
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"));
   const changes = await compareDynFSElement(
     remote,
@@ -685,19 +685,18 @@ async function push(
       "Computing the files to update on the remote to match local (taking .wmillignore into account)"
     )
   );
-  const remote = opts.raw
-    ? undefined
-    : ZipFSElement(
-        (await downloadZip(
-          workspace,
-          opts.plainSecrets,
-          opts.skipVariables,
-          opts.skipResources,
-          opts.skipSecrets,
-          opts.includeSchedules
-        ))!,
-        !opts.json
-      );
+  const remote = ZipFSElement(
+    (await downloadZip(
+      workspace,
+      opts.plainSecrets,
+      opts.skipVariables,
+      opts.skipResources,
+      opts.skipSecrets,
+      opts.includeSchedules
+    ))!,
+    !opts.json
+  );
+
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(
     local,
@@ -850,7 +849,7 @@ async function push(
           case "flow":
             await FlowService.deleteFlowByPath({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".flow.json"),
+              path: removeSuffix(change.path, ".flow/flow.json"),
             });
             break;
           case "app":

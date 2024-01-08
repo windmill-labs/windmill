@@ -18,13 +18,13 @@
 	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
 	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
 	import AgChartWizard from '$lib/components/wizards/AgChartWizard.svelte'
+	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let placeholder: string | undefined = undefined
-
 	export let format: string | undefined = undefined
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
@@ -42,7 +42,7 @@
 	{:else if fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} size="xs" />
 	{:else if fieldType === 'select' && selectOptions}
-		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
+		<select on:keydown|stopPropagation bind:value={componentInput.value}>
 			{#each selectOptions ?? [] as option}
 				{#if typeof option == 'string'}
 					<option value={option}>
@@ -59,6 +59,22 @@
 		<IconSelectInput bind:componentInput />
 	{:else if fieldType === 'tab-select'}
 		<TabSelectInput bind:componentInput />
+	{:else if fieldType === 'resource'}
+		<ResourcePicker
+			initialValue={componentInput.value?.split('$res:')?.[1] || ''}
+			on:change={(e) => {
+				let path = e.detail
+				if (componentInput) {
+					if (path) {
+						componentInput.value = `$res:${path}`
+					} else {
+						componentInput.value = undefined
+					}
+				}
+			}}
+			showSchemaExplorer
+			resourceType="postgresql"
+		/>
 	{:else if fieldType === 'labeledresource'}
 		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}
 			<div class="flex flex-col gap-1 w-full">
@@ -140,6 +156,28 @@
 							</Button>
 						</svelte:fragment>
 					</AgGridWizard>
+				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'db-explorer' && componentInput.value != undefined}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.field}
+					placeholder="Field"
+					disabled
+				/>
+				<div class="absolute top-1 right-1">
+					<DBExplorerWizard bind:value={componentInput.value}>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</DBExplorerWizard>
 				</div>
 			</div>
 		</div>
