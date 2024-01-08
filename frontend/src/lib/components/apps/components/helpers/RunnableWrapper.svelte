@@ -241,7 +241,7 @@
 		on:done
 		on:doneError
 		on:cancel
-		on:setResult={() => (initializing = false)}
+		on:resultSet={() => (initializing = false)}
 		on:success={() => handleSideEffect(true)}
 		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
