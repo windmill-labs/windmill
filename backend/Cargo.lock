@@ -9533,6 +9533,7 @@ version = "1.237.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
+ "lazy_static",
  "regex",
  "serde-wasm-bindgen",
  "serde_json",

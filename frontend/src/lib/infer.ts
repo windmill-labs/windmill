@@ -1,7 +1,7 @@
 import { ScriptService, type MainArgSignature, FlowService, Script } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty, SupportedLanguage } from './common.js'
-import { emptySchema, sortObject } from './utils.js'
+import { emptySchema, sendUserToast, sortObject } from './utils.js'
 import { tick } from 'svelte'
 import init, {
 	parse_deno,
@@ -207,15 +207,12 @@ function argSigToJsonSchemaType(
 		delete oldS.items
 	}
 
-	let sameItems = oldS.items?.type == 'string' && newS.items?.type == 'string'
-	let savedItems: any = undefined
-	if (sameItems) {
-		savedItems = JSON.parse(JSON.stringify(oldS.items))
-	}
 	Object.assign(oldS, newS)
-	if (sameItems) {
-		oldS.items = savedItems
-	}
+
+	// if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
+	// 	sendUserToast(JSON.stringify(savedItems))
+	// 	oldS.items = savedItems
+	// }
 
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
