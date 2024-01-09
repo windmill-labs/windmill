@@ -40,15 +40,13 @@
 
 	// Receives Base64 encoded strings from the input component
 	async function handleChange(files: { name: string; data: string }[] | undefined) {
-		if (resolvedConfig.includeMimeType === false) {
-			files = files?.map((file) => {
-				const [_, data] = file.data.split('base64,')
-				return { name: file.name, data }
-			})
-		}
-
 		for (const file of files ?? []) {
-			input = createS3FileUpload(resolvedConfig.resource, file.name, file.data)
+			input = createS3FileUpload(
+				resolvedConfig.resource,
+				file.name,
+				file.data,
+				resolvedConfig.accessLevel
+			)
 
 			await tick()
 
@@ -123,6 +121,7 @@
 				multiple={resolvedConfig.allowMultiple}
 				convertTo="base64"
 				returnFileNames
+				includeMimeType
 				on:change={({ detail }) => {
 					handleChange(detail)
 					done = true

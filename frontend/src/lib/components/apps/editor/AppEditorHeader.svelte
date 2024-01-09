@@ -245,7 +245,7 @@
 
 						if (s3Res) {
 							r.push({
-								input: createS3FileUpload(s3Res, '', ''),
+								input: createS3FileUpload(s3Res, '', '', 'private'),
 								id: x.id
 							})
 						}

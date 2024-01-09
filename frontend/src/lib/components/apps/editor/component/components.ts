@@ -2991,16 +2991,17 @@ This is a paragraph.
 					value: 'Drag and drop files or click to select them',
 					fieldType: 'text'
 				},
-				includeMimeType: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					tooltip: 'If enabled, the mime type of the file will be included.'
-				},
+
 				submittedFileText: {
 					type: 'static',
 					value: 'File Submitted!',
 					fieldType: 'text'
+				},
+				accessLevel: {
+					type: 'static',
+					value: 'private',
+					fieldType: 'select',
+					selectOptions: ['public-read', 'private', 'public-read-write']
 				}
 			},
 			componentInput: undefined
