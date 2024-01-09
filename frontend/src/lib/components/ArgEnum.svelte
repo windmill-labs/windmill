@@ -9,6 +9,7 @@
 	export let autofocus: boolean
 	export let defaultValue: string | undefined
 	export let valid: boolean
+	export let create: boolean
 
 	const dispatch = createEventDispatcher()
 
@@ -38,7 +39,7 @@
 	onFocus={() => {
 		dispatch('focus')
 	}}
-	create
+	{create}
 	{onCreate}
 	{disabled}
 	{autofocus}
