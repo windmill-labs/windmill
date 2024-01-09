@@ -151,16 +151,6 @@
 			return buttons
 		}
 
-		buttons.push({
-			label: `Audit logs`,
-			buttonProps: {
-				href: `/audit_logs?resource=${flow.path}`,
-				size: 'xs',
-				color: 'light',
-				startIcon: Eye
-			}
-		})
-
 		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build App',
@@ -210,6 +200,14 @@
 			label: 'Move/Rename',
 			onclick: () => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
 			Icon: FolderOpen
+		})
+
+		menuItems.push({
+			label: 'Audit logs',
+			Icon: Eye,
+			onclick: () => {
+				goto(`/audit_logs?resource=${flow?.path}`)
+			}
 		})
 
 		menuItems.push({

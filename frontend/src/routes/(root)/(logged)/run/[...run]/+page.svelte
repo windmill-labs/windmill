@@ -19,8 +19,7 @@
 		TimerOff,
 		Trash,
 		XCircle,
-		Code2,
-		Eye
+		Code2
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -249,17 +248,6 @@
 						>
 							View runs
 						</Button>
-						{#if !$userStore?.operator}
-							<Button
-								href={`/audit_logs?resource=${job?.script_path}`}
-								variant="border"
-								color="blue"
-								size="sm"
-								startIcon={{ icon: Eye }}
-							>
-								View audit logs
-							</Button>
-						{/if}
 					{/if}
 				{/if}
 			</div>
