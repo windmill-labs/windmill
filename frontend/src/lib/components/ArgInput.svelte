@@ -27,7 +27,6 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import Label from './Label.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -74,6 +73,8 @@
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
+	let ignoreValueUndefined = false
+
 	let error: string = ''
 
 	let s3FilePicker: S3FilePicker
@@ -88,7 +89,7 @@
 	let rawValue: string | undefined = undefined
 
 	function computeDefaultValue(nvalue?: any, inputCat?: string, defaultValue?: any) {
-		if (value == undefined || value == null) {
+		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
@@ -232,10 +233,7 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
-				<Label label="Display using multiselect">
-					<Toggle disabled={itemsType?.enum == undefined} bind:checked={extra.multiselect} />
-				</Label>
-			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
+			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
 					<div class="w-min">
 						<Button
@@ -255,15 +253,18 @@
 
 					{#if seeEditable}
 						<div class="mt-2">
-							{#if type == 'string' && format != 'date-time'}
+							{#if type == 'string'}
 								<StringTypeNarrowing
 									bind:customErrorMessage
 									bind:format
 									bind:pattern
 									bind:enum_
 									bind:contentEncoding
+									bind:minRows={extra['minRows']}
+									bind:disableCreate={extra['disableCreate']}
+									bind:disableVariablePicker={extra['disableVariablePicker']}
 								/>
-							{:else if type == 'number'}
+							{:else if type == 'number' || type == 'integer'}
 								<NumberTypeNarrowing
 									bind:min={extra['min']}
 									bind:max={extra['max']}
@@ -285,12 +286,12 @@
 				{description}
 			</div>
 		{/if}
-
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				{#if extra['min'] != undefined && extra['max'] != undefined}
 					<div class="flex w-full gap-1">
 						<span>{extra['min']}</span>
+
 						<div class="grow">
 							<Range bind:value min={extra['min']} max={extra['max']} />
 						</div>
@@ -318,6 +319,9 @@
 							on:focus
 							{disabled}
 							type="number"
+							on:keydown={() => {
+								ignoreValueUndefined = true
+							}}
 							class={valid
 								? ''
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
@@ -344,18 +348,20 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					{#if Array.isArray(itemsType?.multiselect)}
+					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
 							/>
 						</div>
-					{:else if extra.multiselect}
+					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}
@@ -382,6 +388,7 @@
 													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
+														create={extra['disableCreate'] != true}
 														on:focus={() => {
 															dispatch('focus')
 														}}
@@ -491,7 +498,15 @@
 				{/if}
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">
-					<ArgEnum {defaultValue} {valid} {disabled} bind:value {enum_} {autofocus} />
+					<ArgEnum
+						create={extra['disableCreate'] != true}
+						{defaultValue}
+						{valid}
+						{disabled}
+						bind:value
+						{enum_}
+						{autofocus}
+					/>
 				</div>
 			{:else if inputCat == 'date'}
 				<DateTimeInput {autofocus} bind:value />
@@ -546,27 +561,29 @@
 						{#if password}
 							<Password {disabled} bind:password={value} />
 						{:else}
-							<textarea
-								{autofocus}
-								rows="1"
-								bind:this={el}
-								on:focus={(e) => {
-									dispatch('focus')
-								}}
-								use:autosize
-								on:keydown={onKeyDown}
-								type="text"
-								{disabled}
-								class={twMerge(
-									'w-full',
-									valid
-										? ''
-										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
-								)}
-								placeholder={defaultValue ?? ''}
-								bind:value
-							/>
-							{#if !disabled && itemPicker}
+							{#key extra?.['minRows']}
+								<textarea
+									{autofocus}
+									rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
+									bind:this={el}
+									on:focus={(e) => {
+										dispatch('focus')
+									}}
+									use:autosize
+									on:keydown={onKeyDown}
+									type="text"
+									{disabled}
+									class={twMerge(
+										'w-full',
+										valid
+											? ''
+											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+									)}
+									placeholder={defaultValue ?? ''}
+									bind:value
+								/>
+							{/key}
+							{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<button
 									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"

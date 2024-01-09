@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { Plus, X } from 'lucide-svelte'
 	import { Button } from './common'
+	import { fade } from 'svelte/transition'
 
 	export let itemsType:
 		| {
@@ -48,29 +50,38 @@
 		Enums
 		<div class="flex flex-col gap-1">
 			{#each itemsType?.enum || [] as e}
-				<div class="flex flex-row max-w-md">
+				<div class="flex flex-row max-w-md gap-1 items-center">
 					<input id="input" type="text" bind:value={e} />
-					<Button
-						size="sm"
-						btnClasses="ml-6"
-						on:click={() => {
-							if (itemsType?.enum) {
-								itemsType.enum = (itemsType.enum || []).filter((el) => el !== e)
-							}
-						}}>-</Button
-					>
+					<div>
+						<button
+							transition:fade|local={{ duration: 100 }}
+							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+							on:click={() => {
+								if (itemsType?.enum) {
+									itemsType.enum = (itemsType.enum || []).filter((el) => el !== e)
+								}
+							}}
+						>
+							<X size={14} />
+						</button>
+					</div>
 				</div>
 			{/each}
 		</div>
-		<div class="flex flex-row my-1">
+		<div class="flex flex-row mb-1 mt-2">
 			<Button
+				variant="border"
 				size="sm"
 				on:click={() => {
 					if (itemsType?.enum) {
-						itemsType.enum = itemsType.enum ? itemsType.enum.concat('') : ['']
+						let enum_ = itemsType.enum
+						let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
+						itemsType.enum = itemsType.enum ? itemsType.enum.concat(choice) : [choice]
 					}
-				}}>+</Button
+				}}
 			>
+				<Plus size={14} />
+			</Button>
 			<Button
 				variant="border"
 				size="sm"

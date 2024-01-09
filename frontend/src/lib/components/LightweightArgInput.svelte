@@ -228,7 +228,7 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					{#if Array.isArray(itemsType?.multiselect)}
+					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
 								bind:selected={value}
@@ -236,7 +236,7 @@
 								selectedOptionsDraggable={true}
 							/>
 						</div>
-					{:else if extra.multiselect}
+					{:else if Array.isArray(itemsType?.enum) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
 								bind:selected={value}

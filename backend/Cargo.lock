@@ -1804,11 +1804,10 @@ dependencies = [
 
 [[package]]
 name = "crossbeam"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6eb9105919ca8e40d437fc9cbb8f1975d916f1bd28afe795a48aae32a2cc8920"
+checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
 dependencies = [
- "cfg-if",
  "crossbeam-channel",
  "crossbeam-deque",
  "crossbeam-epoch",
@@ -1818,54 +1817,46 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.10"
+version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a9b73a36529d9c47029b9fb3a6f0ea3cc916a261195352ba19e770fc1748b2"
+checksum = "176dc175b78f56c0f321911d9c8eb2b77a78a4860b9c19db83835fea1a46649b"
 dependencies = [
- "cfg-if",
  "crossbeam-utils",
 ]
 
 [[package]]
 name = "crossbeam-deque"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fca89a0e215bab21874660c67903c5f143333cab1da83d041c7ded6053774751"
+checksum = "613f8cc01fe9cf1a3eb3d7f488fd2fa8388403e97039e2f73692932e291a770d"
 dependencies = [
- "cfg-if",
  "crossbeam-epoch",
  "crossbeam-utils",
 ]
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.17"
+version = "0.9.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e3681d554572a651dda4186cd47240627c3d0114d45a95f6ad27f2f22e7548d"
+checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
 dependencies = [
- "autocfg",
- "cfg-if",
  "crossbeam-utils",
 ]
 
 [[package]]
 name = "crossbeam-queue"
-version = "0.3.10"
+version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc6598521bb5a83d491e8c1fe51db7296019d2ca3cb93cc6c2a20369a4d78a2"
+checksum = "df0346b5d5e76ac2fe4e327c5fd1118d6be7c51dfb18f9b7922923f287471e35"
 dependencies = [
- "cfg-if",
  "crossbeam-utils",
 ]
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.18"
+version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a430a770ebd84726f584a90ee7f020d28db52c6d02138900f22341f866d39c"
-dependencies = [
- "cfg-if",
-]
+checksum = "248e3bacc7dc6baa3b21e405ee045c3047101a49145e7e9eca583ab4c2ca5345"
 
 [[package]]
 name = "crossterm"
@@ -4061,9 +4052,9 @@ dependencies = [
 
 [[package]]
 name = "libz-ng-sys"
-version = "1.1.12"
+version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dd9f43e75536a46ee0f92b758f6b63846e594e86638c61a9251338a65baea63"
+checksum = "601c27491de2c76b43c9f52d639b2240bfb9b02112009d3b754bfa90d891492d"
 dependencies = [
  "cmake",
  "libc",
@@ -4071,9 +4062,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.12"
+version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d97137b25e321a73eef1418d1d5d2eda4d77e12813f8e6dead84bc52c5870a7b"
+checksum = "5f526fdd09d99e19742883e43de41e1aa9e36db0c7ab7f935165d611c5cccc66"
 dependencies = [
  "cc",
  "libc",
@@ -4213,7 +4204,7 @@ dependencies = [
  "base64 0.21.5",
  "gethostname",
  "mail-builder",
- "rustls 0.22.1",
+ "rustls 0.22.2",
  "rustls-pki-types",
  "smtp-proto",
  "tokio",
@@ -6638,9 +6629,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.22.1"
+version = "0.22.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe6b63262c9fcac8659abfaa96cac103d28166d3ff3eaf8f412e19f3ae9e5a48"
+checksum = "e87c9956bd9807afa1f77e0f7594af32566e830e088a5576d27c5b6f30f49d41"
 dependencies = [
  "log",
  "ring 0.17.7",
@@ -8610,7 +8601,7 @@ version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "775e0c0f0adb3a2f22a00c4745d728b479985fc15ee7ca6a2608388c5569860f"
 dependencies = [
- "rustls 0.22.1",
+ "rustls 0.22.2",
  "rustls-pki-types",
  "tokio",
 ]
@@ -9559,7 +9550,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9595,7 +9586,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9668,7 +9659,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "base64 0.21.5",
  "chrono",
@@ -9686,7 +9677,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9699,7 +9690,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9732,7 +9723,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "rsmq_async",
  "serde",
@@ -9745,7 +9736,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9753,7 +9744,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9764,7 +9755,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9776,7 +9767,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9787,7 +9778,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "itertools 0.9.0",
@@ -9798,7 +9789,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9815,7 +9806,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9826,10 +9817,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
+ "lazy_static",
  "regex",
  "serde-wasm-bindgen",
  "serde_json",
@@ -9843,7 +9835,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.11",
@@ -9861,7 +9853,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9893,7 +9885,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.236.2"
+version = "1.237.0"
 dependencies = [
  "anyhow",
  "async-recursion",

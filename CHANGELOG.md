@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.237.0](https://github.com/windmill-labs/windmill/compare/v1.236.2...v1.237.0) (2024-01-08)
+
+
+### Features
+
+* make okta SSO configurable using custom domain ([4f01ee8](https://github.com/windmill-labs/windmill/commit/4f01ee89de743eab6ae323dea1ec4190ee23e0bf))
+
+
+### Bug Fixes
+
+* delete is captured in more fields in app ([d340fbc](https://github.com/windmill-labs/windmill/commit/d340fbc02fd9500249c1d23799c1bdbfe9602cb8))
+
 ## [1.236.2](https://github.com/windmill-labs/windmill/compare/v1.236.1...v1.236.2) (2024-01-08)
 
 
