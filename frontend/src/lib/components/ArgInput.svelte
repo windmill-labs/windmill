@@ -74,6 +74,8 @@
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
+	let ignoreValueUndefined = false
+
 	let error: string = ''
 
 	let s3FilePicker: S3FilePicker
@@ -88,7 +90,7 @@
 	let rawValue: string | undefined = undefined
 
 	function computeDefaultValue(nvalue?: any, inputCat?: string, defaultValue?: any) {
-		if (value == undefined || value == null) {
+		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
@@ -235,7 +237,7 @@
 				<Label label="Display using multiselect">
 					<Toggle disabled={itemsType?.enum == undefined} bind:checked={extra.multiselect} />
 				</Label>
-			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
+			{:else if (type == 'string' && format != 'date-time') || ['number', 'integer', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
 					<div class="w-min">
 						<Button
@@ -263,7 +265,7 @@
 									bind:enum_
 									bind:contentEncoding
 								/>
-							{:else if type == 'number'}
+							{:else if type == 'number' || type == 'integer'}
 								<NumberTypeNarrowing
 									bind:min={extra['min']}
 									bind:max={extra['max']}
@@ -285,12 +287,12 @@
 				{description}
 			</div>
 		{/if}
-
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				{#if extra['min'] != undefined && extra['max'] != undefined}
 					<div class="flex w-full gap-1">
 						<span>{extra['min']}</span>
+
 						<div class="grow">
 							<Range bind:value min={extra['min']} max={extra['max']} />
 						</div>
@@ -318,6 +320,9 @@
 							on:focus
 							{disabled}
 							type="number"
+							on:keydown={() => {
+								ignoreValueUndefined = true
+							}}
 							class={valid
 								? ''
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
