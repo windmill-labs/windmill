@@ -244,11 +244,12 @@
 						bind:pattern={property.pattern}
 						bind:enum_={property.enum_}
 						bind:contentEncoding={property.contentEncoding}
+						noExtra
 					/>
 				{:else if property.selectedType == 'array'}
 					<ArrayTypeNarrowing bind:itemsType={property.items} />
 					<div class="mt-4" />
-					<Label label="Display using multiselect">
+					<Label label="Display using multiselect (require enum)">
 						<Toggle
 							disabled={property?.items?.enum == undefined}
 							bind:checked={property.multiselect}

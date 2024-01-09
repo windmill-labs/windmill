@@ -772,7 +772,7 @@
 					{#key gitSyncSettings}
 						<ResourcePicker
 							resourceType="git_repository"
-							initialValue={gitSyncSettings?.git_repo_resource_path}
+							initialValue={gitSyncSettings?.git_repo_resource_path?.split('$res:')?.[1] || ''}
 							on:change={(ev) => {
 								editWindmillGitSyncSettings(ev.detail, gitSyncSettings?.use_individual_branch)
 							}}

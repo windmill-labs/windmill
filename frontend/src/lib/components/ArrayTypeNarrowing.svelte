@@ -67,7 +67,9 @@
 				size="sm"
 				on:click={() => {
 					if (itemsType?.enum) {
-						itemsType.enum = itemsType.enum ? itemsType.enum.concat('') : ['']
+						let enum_ = itemsType.enum
+						let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
+						itemsType.enum = itemsType.enum ? itemsType.enum.concat(choice) : [choice]
 					}
 				}}>+</Button
 			>
