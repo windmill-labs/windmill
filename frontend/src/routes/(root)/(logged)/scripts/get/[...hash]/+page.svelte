@@ -41,6 +41,7 @@
 		Activity,
 		Archive,
 		ArchiveRestore,
+		Eye,
 		FolderOpen,
 		GitFork,
 		Globe2,
@@ -241,7 +242,6 @@
 			return buttons
 		}
 
-
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
@@ -317,6 +317,14 @@
 			Icon: FolderOpen,
 			onclick: () => {
 				moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')
+			}
+		})
+
+		menuItems.push({
+			label: 'Audit logs',
+			Icon: Eye,
+			onclick: () => {
+				goto(`/audit_logs?resource=${script?.path}`)
 			}
 		})
 
