@@ -234,10 +234,14 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
-				<Label label="Display using multiselect">
-					<Toggle disabled={itemsType?.enum == undefined} bind:checked={extra.multiselect} />
+				<Label label="Display using multiselect (require enum)">
+					<Toggle
+						size="xs"
+						disabled={itemsType?.enum == undefined}
+						bind:checked={extra.multiselect}
+					/>
 				</Label>
-			{:else if (type == 'string' && format != 'date-time') || ['number', 'integer', 'object'].includes(type ?? '')}
+			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
 					<div class="w-min">
 						<Button
@@ -257,13 +261,16 @@
 
 					{#if seeEditable}
 						<div class="mt-2">
-							{#if type == 'string' && format != 'date-time'}
+							{#if type == 'string'}
 								<StringTypeNarrowing
 									bind:customErrorMessage
 									bind:format
 									bind:pattern
 									bind:enum_
 									bind:contentEncoding
+									bind:minRows={extra['minRows']}
+									bind:disableCreate={extra['disableCreate']}
+									bind:disableVariablePicker={extra['disableVariablePicker']}
 								/>
 							{:else if type == 'number' || type == 'integer'}
 								<NumberTypeNarrowing
@@ -352,15 +359,17 @@
 					{#if Array.isArray(itemsType?.multiselect)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
 							/>
 						</div>
-					{:else if extra.multiselect}
+					{:else if extra.multiselect && itemsType?.enum != undefined}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}
@@ -387,6 +396,7 @@
 													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
+														create={extra['disableCreate'] != true}
 														on:focus={() => {
 															dispatch('focus')
 														}}
@@ -496,7 +506,15 @@
 				{/if}
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">
-					<ArgEnum {defaultValue} {valid} {disabled} bind:value {enum_} {autofocus} />
+					<ArgEnum
+						create={extra['disableCreate'] != true}
+						{defaultValue}
+						{valid}
+						{disabled}
+						bind:value
+						{enum_}
+						{autofocus}
+					/>
 				</div>
 			{:else if inputCat == 'date'}
 				<DateTimeInput {autofocus} bind:value />
@@ -551,27 +569,29 @@
 						{#if password}
 							<Password {disabled} bind:password={value} />
 						{:else}
-							<textarea
-								{autofocus}
-								rows="1"
-								bind:this={el}
-								on:focus={(e) => {
-									dispatch('focus')
-								}}
-								use:autosize
-								on:keydown={onKeyDown}
-								type="text"
-								{disabled}
-								class={twMerge(
-									'w-full',
-									valid
-										? ''
-										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
-								)}
-								placeholder={defaultValue ?? ''}
-								bind:value
-							/>
-							{#if !disabled && itemPicker}
+							{#key extra?.['minRows']}
+								<textarea
+									{autofocus}
+									rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
+									bind:this={el}
+									on:focus={(e) => {
+										dispatch('focus')
+									}}
+									use:autosize
+									on:keydown={onKeyDown}
+									type="text"
+									{disabled}
+									class={twMerge(
+										'w-full',
+										valid
+											? ''
+											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+									)}
+									placeholder={defaultValue ?? ''}
+									bind:value
+								/>
+							{/key}
+							{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<button
 									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
