@@ -92,6 +92,7 @@
 		createUpdatePostgresInput,
 		getPrimaryKeys
 	} from '../components/display/dbtable/utils'
+	import { createS3FileUpload } from '../components/inputs/s3Utils'
 
 	async function hash(message) {
 		try {
@@ -239,16 +240,26 @@
 					}
 
 					if (c.type === 's3fileinputcomponent') {
-						// SHOULD COMPUTE POLICY
+						let config = c.configuration as any
+						let s3Res = config?.resource.value
+
+						if (s3Res) {
+							r.push({
+								input: createS3FileUpload(s3Res, '', ''),
+								id: x.id
+							})
+						}
 					}
 
-					return r
+					const processed = r
 						.filter((x) => x.input)
 						.map(async (o) => {
 							if (o.input?.type == 'runnable') {
 								return await processRunnable(o.id, o.input.runnable, o.input.fields)
 							}
 						})
+
+					return processed
 				})
 				.concat(
 					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
@@ -256,6 +267,7 @@
 					})
 				)
 		)) as ([string, Record<string, any>] | undefined)[]
+
 		policy.triggerables = Object.fromEntries(
 			allTriggers.filter(Boolean) as [string, Record<string, any>][]
 		)

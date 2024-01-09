@@ -11,9 +11,9 @@
 	import { components } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { RunnableComponent, RunnableWrapper } from '../helpers'
-	import type { AppInput, RunnableByName } from '../../inputType'
-	import { Preview } from '$lib/gen'
+	import type { AppInput } from '../../inputType'
 	import { sendUserToast } from '$lib/toast'
+	import { createS3FileUpload } from './s3Utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -47,79 +47,8 @@
 			})
 		}
 
-		const code = `
-		import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
-import { ClientOptions } from "https://deno.land/x/s3_lite_client@0.2.0/client.ts";
-
-type S3 = ClientOptions;
-type Base64 = string;
-
-export async function main(resource: S3, file: Base64, filename: string) {
-  const s3Client = new S3Client(resource);
-
-  const res = await s3Client.putObject(filename, file);
-}
-`
-
-		const fileUploadRunnable: RunnableByName = {
-			name: 'AppDbExplorer',
-			type: 'runnableByName',
-			inlineScript: {
-				content: code,
-				language: Preview.language.DENO,
-				schema: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {
-						resource: {
-							default: null,
-							description: '',
-							format: 'resource-s3',
-							type: 'object'
-						},
-						file: {
-							contentEncoding: 'base64',
-							default: null,
-							description: '',
-							type: 'string',
-							format: ''
-						},
-						filename: {
-							default: null,
-							description: '',
-							type: 'string',
-							format: ''
-						}
-					},
-					required: ['resource', 'file', 'filename'],
-					type: 'object'
-				}
-			}
-		}
-
 		for (const file of files ?? []) {
-			input = {
-				runnable: fileUploadRunnable,
-				fields: {
-					resource: {
-						type: 'static',
-						value: resolvedConfig.resource,
-						fieldType: 'object',
-						format: 'resource-s3'
-					},
-					filename: {
-						type: 'static',
-						value: file.name,
-						fieldType: 'text'
-					},
-					file: {
-						type: 'static',
-						value: file.data,
-						fieldType: 'text'
-					}
-				},
-				type: 'runnable',
-				fieldType: 'object'
-			}
+			input = createS3FileUpload(resolvedConfig.resource, file.name, file.data)
 
 			await tick()
 
@@ -128,11 +57,7 @@ export async function main(resource: S3, file: Base64, filename: string) {
 					undefined,
 					undefined,
 					undefined,
-					{
-						resource: resolvedConfig.resource,
-						filename: file.name,
-						file: file.data
-					},
+					{},
 					{
 						done: (x) => {
 							sendUserToast(`File ${file.name} uploaded!`, false)
@@ -218,6 +143,6 @@ export async function main(resource: S3, file: Base64, filename: string) {
 	componentInput={input}
 	autoRefresh={false}
 	render={false}
-	id={`${id}_update`}
+	id={`${id}`}
 	{outputs}
 />
