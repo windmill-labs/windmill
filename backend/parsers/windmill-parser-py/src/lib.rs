@@ -93,22 +93,7 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
                         .as_arg()
                         .annotation
                         .as_ref()
-                        .map_or(Typ::Unknown, |e| match e.as_ref() {
-                            Expr::Name(ExprName { id, .. }) => match id.as_ref() {
-                                "str" => Typ::Str(None),
-                                "float" => Typ::Float,
-                                "int" => Typ::Int,
-                                "bool" => Typ::Bool,
-                                "dict" => Typ::Object(vec![]),
-                                "list" => Typ::List(Box::new(Typ::Str(None))),
-                                "bytes" => Typ::Bytes,
-                                "datetime" => Typ::Datetime,
-                                "datetime.datetime" => Typ::Datetime,
-                                "Sql" | "sql" => Typ::Sql,
-                                _ => Typ::Resource(id.to_string()),
-                            },
-                            _ => Typ::Unknown,
-                        });
+                        .map_or(Typ::Unknown, |e| parse_expr(e));
 
                     if typ == Typ::Unknown
                         && default.is_some()
@@ -131,6 +116,58 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
         Err(anyhow::anyhow!(
             "main function was not findable".to_string(),
         ))
+    }
+}
+
+fn parse_expr(e: &Box<Expr>) -> Typ {
+    match e.as_ref() {
+        Expr::Name(ExprName { id, .. }) => parse_typ(id.as_ref()),
+        Expr::Subscript(x) => match x.value.as_ref() {
+            Expr::Name(ExprName { id, .. }) => match id.as_str() {
+                "Literal" => {
+                    let values = match x.slice.as_ref() {
+                        Expr::Tuple(elts) => {
+                            let v: Vec<String> = elts
+                                .elts
+                                .iter()
+                                .map(|x| match x {
+                                    Expr::Constant(c) => c.value.as_str().map(|x| x.to_string()),
+                                    _ => None,
+                                })
+                                .filter_map(|x| x)
+                                .collect();
+                            if v.is_empty() {
+                                None
+                            } else {
+                                Some(v)
+                            }
+                        }
+                        _ => None,
+                    };
+                    Typ::Str(values)
+                }
+                "List" => Typ::List(Box::new(parse_expr(&x.slice))),
+                _ => Typ::Unknown,
+            },
+            _ => Typ::Unknown,
+        },
+        _ => Typ::Unknown,
+    }
+}
+
+fn parse_typ(id: &str) -> Typ {
+    match id {
+        "str" => Typ::Str(None),
+        "float" => Typ::Float,
+        "int" => Typ::Int,
+        "bool" => Typ::Bool,
+        "dict" => Typ::Object(vec![]),
+        "list" => Typ::List(Box::new(Typ::Str(None))),
+        "bytes" => Typ::Bytes,
+        "datetime" => Typ::Datetime,
+        "datetime.datetime" => Typ::Datetime,
+        "Sql" | "sql" => Typ::Sql,
+        _ => Typ::Resource(id.to_string()),
     }
 }
 
@@ -359,6 +396,46 @@ def main(test1: str,
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true
+                    }
+                ]
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_4() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): return
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: None,
+                        name: "test1".to_string(),
+                        typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "test2".to_string(),
+                        typ: Typ::List(Box::new(Typ::Str(Some(vec![
+                            "foo".to_string(),
+                            "bar".to_string()
+                        ])))),
+                        default: None,
+                        has_default: false
                     }
                 ]
             }

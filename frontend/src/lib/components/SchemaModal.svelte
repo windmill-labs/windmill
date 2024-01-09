@@ -65,7 +65,6 @@
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
-	import Label from './Label.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let error = ''
@@ -248,13 +247,6 @@
 					/>
 				{:else if property.selectedType == 'array'}
 					<ArrayTypeNarrowing bind:itemsType={property.items} />
-					<div class="mt-4" />
-					<Label label="Display using multiselect (require enum)">
-						<Toggle
-							disabled={property?.items?.enum == undefined}
-							bind:checked={property.multiselect}
-						/>
-					</Label>
 				{:else if property.selectedType == 'number' || property.selectedType == 'integer'}
 					<NumberTypeNarrowing
 						bind:min={property.min}
