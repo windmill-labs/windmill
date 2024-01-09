@@ -58,7 +58,7 @@
 		<IconSelectInput bind:componentInput />
 	{:else if fieldType === 'tab-select'}
 		<TabSelectInput bind:componentInput />
-	{:else if fieldType === 'resource'}
+	{:else if fieldType === 'resource' && subFieldType !== 's3'}
 		<ResourcePicker
 			initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 			on:change={(e) => {
@@ -73,6 +73,21 @@
 			}}
 			showSchemaExplorer
 			resourceType="postgresql"
+		/>
+	{:else if fieldType === 'resource' && subFieldType === 's3'}
+		<ResourcePicker
+			initialValue={componentInput.value?.split('$res:')?.[1] || ''}
+			on:change={(e) => {
+				let path = e.detail
+				if (componentInput) {
+					if (path) {
+						componentInput.value = `$res:${path}`
+					} else {
+						componentInput.value = undefined
+					}
+				}
+			}}
+			resourceType="s3"
 		/>
 	{:else if fieldType === 'labeledresource'}
 		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}

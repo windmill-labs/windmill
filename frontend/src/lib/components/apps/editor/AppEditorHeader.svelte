@@ -237,6 +237,11 @@
 						}
 						r.push(...nr)
 					}
+
+					if (c.type === 's3fileinputcomponent') {
+						// SHOULD COMPUTE POLICY
+					}
+
 					return r
 						.filter((x) => x.input)
 						.map(async (o) => {

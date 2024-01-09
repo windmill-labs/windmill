@@ -30,6 +30,7 @@ export type InputType =
 	| 'resource'
 	| 'db-explorer'
 	| 'db-table'
+	| 's3'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -202,6 +203,7 @@ export type AppInput =
 	| AppInputSpec<'array', object[], 'chartjs'>
 	| AppInputSpec<'array', DecisionTreeNode, 'DecisionTreeNode'>
 	| AppInputSpec<'resource', string>
+	| AppInputSpec<'resource', string, 's3'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

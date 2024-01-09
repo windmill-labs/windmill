@@ -2972,7 +2972,8 @@ This is a paragraph.
 				resource: {
 					type: 'static',
 					fieldType: 'resource',
-					value: ''
+					value: '',
+					subFieldType: 's3'
 				} as StaticAppInput,
 				acceptedFileTypes: {
 					type: 'static',
