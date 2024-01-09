@@ -10,6 +10,11 @@
 	export let format: string | undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined
 	export let customErrorMessage: string | undefined
+	export let minRows: number | undefined = undefined
+	export let disableCreate: boolean | undefined = false
+	export let disableVariablePicker: boolean | undefined = false
+
+	export let noExtra = false
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
@@ -31,7 +36,7 @@
 	]
 
 	$: format =
-		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined
+		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : format
 	$: pattern = patternStr == '' ? undefined : patternStr
 	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
 
@@ -42,7 +47,8 @@
 	}
 
 	function add() {
-		enum_ = enum_ ? enum_.concat('') : ['']
+		let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
+		enum_ = enum_ ? enum_.concat(choice) : [choice]
 	}
 
 	function remove(item: string) {
@@ -62,7 +68,7 @@
 		if (pattern != undefined) {
 			return 'pattern'
 		}
-		if (format != undefined) {
+		if (format != undefined && format != '') {
 			if (format.startsWith('resource')) {
 				return 'resource'
 			}
@@ -85,6 +91,15 @@
 	on:change={(e) => {
 		if (e.detail != 'enum') {
 			enum_ = undefined
+		}
+		if (e.detail == 'none') {
+			pattern = undefined
+			format = undefined
+			contentEncoding = undefined
+			customErrorMessage = undefined
+			minRows = undefined
+			disableCreate = undefined
+			disableVariablePicker = undefined
 		}
 	}}
 />
@@ -154,6 +169,20 @@
 			</Button>
 		</div>
 	</label>
+	{#if !noExtra}
+		<Toggle
+			size="sm"
+			options={{ right: 'Disallow creating custom values' }}
+			checked={disableCreate != undefined && disableCreate}
+			on:change={(e) => {
+				if (e.detail) {
+					disableCreate = true
+				} else {
+					disableCreate = undefined
+				}
+			}}
+		/>
+	{/if}
 {:else if kind == 'resource'}
 	<div class="mt-1" />
 	<ResourceTypePicker bind:value={resource} />
@@ -164,4 +193,26 @@
 			<option value={f}>{f}</option>
 		{/each}
 	</select>
+{:else if kind == 'none'}
+	{#if !noExtra}
+		<label
+			>min textarea rows:
+			<input type="number" bind:value={minRows} />
+		</label>
+	{/if}
+{/if}
+{#if (kind == 'none' || kind == 'pattern' || kind == 'format') && !noExtra}
+	<div class="mt-1" />
+	<Toggle
+		size="xs"
+		options={{ right: 'Disable variable picker' }}
+		checked={disableVariablePicker != undefined && disableVariablePicker}
+		on:change={(e) => {
+			if (e.detail) {
+				disableVariablePicker = true
+			} else {
+				disableVariablePicker = undefined
+			}
+		}}
+	/>
 {/if}
