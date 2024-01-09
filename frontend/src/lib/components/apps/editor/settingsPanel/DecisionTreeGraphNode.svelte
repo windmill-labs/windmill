@@ -8,11 +8,13 @@
 	import { Badge } from '$lib/components/common'
 	import { X } from 'lucide-svelte'
 	import { getStateColor } from '$lib/components/graph'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let node: DecisionTreeNode
 	export let selected = false
 	export let canDelete: boolean = true
 	export let canAddBranch: boolean = true
+	export let index: number
 
 	let open: boolean = false
 
@@ -46,8 +48,12 @@
 		<div class="ml-2 text-xs font-normal text-primary truncate">
 			{node.label === '' ? `Tab: ${node.id}` : node.label}
 		</div>
-		<Badge color="indigo">
-			{node.id}
+		<Badge color="indigo" small>
+			{index}
+			<Tooltip>
+				You can manually select a node using the <b>setTab</b> function with this index in a frontend
+				runnable.
+			</Tooltip>
 		</Badge>
 	</Button>
 
