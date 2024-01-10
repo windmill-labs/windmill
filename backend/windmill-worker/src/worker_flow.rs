@@ -638,7 +638,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             )
             .await?;
         } else {
-            if flow_job.cache_ttl.is_some() {
+            if flow_job.cache_ttl.is_some() && success {
                 let cached_res_path = {
                     let args_hash =
                         hash_args(db, client, w_id, job_id_for_status, &flow_job.args).await;

@@ -98,11 +98,11 @@
 		>
 	</div>
 {/if}
-<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
+<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-				<div>
+				<div class={editableSchema ? 'pb-6' : ''}>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
 							<ArgInput
