@@ -1,0 +1,3 @@
+.terraform/
+.env
+terraform.tfstate*
