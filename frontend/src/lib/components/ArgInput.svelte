@@ -27,7 +27,6 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import Label from './Label.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -234,13 +233,6 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
-				<Label label="Display using multiselect (require enum)">
-					<Toggle
-						size="xs"
-						disabled={itemsType?.enum == undefined}
-						bind:checked={extra.multiselect}
-					/>
-				</Label>
 			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
 					<div class="w-min">
@@ -356,7 +348,7 @@
 				{/if}
 			{:else if inputCat == 'list'}
 				<div class="w-full">
-					{#if Array.isArray(itemsType?.multiselect)}
+					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
@@ -366,7 +358,7 @@
 								selectedOptionsDraggable={true}
 							/>
 						</div>
-					{:else if extra.multiselect && itemsType?.enum != undefined}
+					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
