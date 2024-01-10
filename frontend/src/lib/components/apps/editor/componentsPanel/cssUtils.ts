@@ -549,7 +549,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['agchartcomponent'],
+		components: ['agchartscomponent'],
 		selectors: [{ selector: '.wm-agchart', comment: 'AG Chart', customCssKey: 'container' }],
 		variables: []
 	},

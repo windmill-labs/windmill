@@ -77,19 +77,66 @@
 			} else if (subFieldType === 'ag-chart') {
 				value.push({
 					value: {
-						type: 'static',
-						fieldType: 'array',
-						subFieldType: 'number',
-						value: [2, 4, 5, 6]
+						type: 'oneOf',
+						selected: 'bar',
+						labels: {
+							bar: 'Bar',
+							scatter: 'Scatter',
+							line: 'Line',
+							area: 'Area',
+							'range-bar': 'Range Bar'
+						},
+						configuration: {
+							bar: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							scatter: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							line: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							area: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							'range-bar': {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							}
+						}
 					},
-					name: 'New dataset',
-					aggregation_method: 'sum',
-					type: 'bar',
-					toolip: '',
-					color: `#${Math.floor(Math.random() * 0xffffff)
-						.toString(16)
-						.padEnd(6, '0')}`
+					name: 'New dataset'
 				})
+			} else if (subFieldType === 'number-tuple') {
+				value.push([0, 5])
 			}
 		} else {
 			value.push('')

@@ -1,26 +1,26 @@
 <script lang="ts">
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import type { AppInput } from '../../inputType'
+	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
+	import type { AppInput } from '../../../inputType'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
 		RichConfiguration,
 		RichConfigurations
-	} from '../../types'
-	import { initCss } from '../../utils'
+	} from '../../../types'
+	import { initCss } from '../../../utils'
 	import { getContext, onMount } from 'svelte'
-	import { initConfig, initOutput } from '../../editor/appUtils'
-	import { components } from '../../editor/component'
-	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { initConfig, initOutput } from '../../../editor/appUtils'
+	import { components } from '../../../editor/component'
+	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import { AgCharts, type AgChartOptions, type AgChartInstance } from 'ag-charts-community'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'agchartcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'agchartscomponent'> | undefined = undefined
 	export let render: boolean
 	export let datasets: RichConfiguration | undefined
 	export let xData: RichConfiguration | undefined
@@ -30,11 +30,10 @@
 	type Dataset = {
 		value: RichConfiguration
 		name: string
-		type: 'bar' | 'line'
+		type: 'bar' | 'line' | 'scatter' | 'area' | 'range-bar'
 	}
 
 	let resolvedDatasets: Dataset[]
-	let resolvedDatasetsValues: Array<number[]> = []
 	let resolvedXData: number[] = []
 
 	const outputs = initOutput($worldStore, id, {
@@ -45,12 +44,11 @@
 	let result: undefined = undefined
 
 	const resolvedConfig = initConfig(
-		components['agchartcomponent'].initialData.configuration,
+		components['agchartscomponent'].initialData.configuration,
 		configuration
 	)
 
-	let css = initCss($app.css?.agchartcomponent, customCss)
-
+	let css = initCss($app.css?.agchartscomponent, customCss)
 	let chartInstance: AgChartInstance | undefined = undefined
 
 	function updateChart() {
@@ -70,7 +68,12 @@
 					continue
 				}
 
-				o[`y-${j}`] = resolvedDatasetsValues[j][i]
+				if (resolvedDatasetsValues[j].type === 'range-bar') {
+					o[`y-${j}-low`] = resolvedDatasetsValues[j].value[i]?.[0]
+					o[`y-${j}-high`] = resolvedDatasetsValues[j].value[i]?.[1]
+				} else {
+					o[`y-${j}`] = resolvedDatasetsValues[j].value[i]
+				}
 			}
 
 			data.push(o)
@@ -80,16 +83,102 @@
 			container: document.getElementById('myChart') as HTMLElement,
 			data: data,
 			series:
-				(resolvedDatasets?.map((d, index) => ({
-					type: d.type,
-					xKey: 'x',
-					yKey: `y-${index}`,
-					yName: d.name
-				})) as any[]) ?? []
+				(resolvedDatasets?.map((d, index) => {
+					const type = resolvedDatasetsValues[index].type
+					if (type === 'range-bar') {
+						return {
+							type: type,
+							xKey: 'x',
+							yLowKey: `y-${index}-low`,
+							yHighKey: `y-${index}-high`,
+							yName: d.name
+						}
+					} else {
+						return {
+							type: type,
+							xKey: 'x',
+							yKey: `y-${index}`,
+							yName: d.name
+						}
+					}
+				}) as any[]) ?? []
 		}
 
 		AgCharts.update(chartInstance, options)
 	}
+
+	$: resolvedDatasetsValues = resolvedDatasets?.map((d) => {
+		const config = initConfig(
+			{
+				value: {
+					type: 'oneOf',
+					selected: 'bar',
+					labels: {
+						bar: 'Bar',
+						scatter: 'Scatter',
+						line: 'Line',
+						area: 'Area',
+						['range-bar']: 'Range Bar'
+					},
+					configuration: {
+						bar: {
+							value: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'number',
+								value: [25, 25, 50]
+							}
+						},
+						scatter: {
+							value: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'number',
+								value: [25, 25, 50]
+							}
+						},
+						line: {
+							value: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'number',
+								value: [25, 25, 50]
+							}
+						},
+						area: {
+							value: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'number',
+								value: [25, 25, 50]
+							}
+						},
+						['range-bar']: {
+							value: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'number-tuple',
+								value: [
+									[10, 15],
+									[20, 25],
+									[18, 27]
+								]
+							}
+						}
+					}
+				}
+			},
+			{
+				value: d.value
+			}
+		)
+
+		return {
+			type: d.value['selected'],
+			// @ts-ignore
+			value: config.value?.['configuration']?.[d.value['selected']].value
+		}
+	})
 
 	$: resolvedXData && resolvedDatasets && resolvedDatasetsValues && chartInstance && updateChart()
 	$: result && updateChartByResult()
@@ -98,8 +187,6 @@
 		if (!result || !chartInstance) {
 			return
 		}
-
-		debugger
 
 		const options = {
 			container: document.getElementById('myChart') as HTMLElement,
@@ -144,13 +231,14 @@
 		<ResolveConfig
 			{id}
 			key={'datasets' + index}
+			extraKey={resolvedDataset.name}
 			bind:resolvedConfig={resolvedDatasetsValues[index]}
 			configuration={resolvedDataset.value}
 		/>
 	{/each}
 {/if}
 
-{#each Object.keys(components['agchartcomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['agchartscomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}

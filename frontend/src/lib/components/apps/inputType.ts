@@ -31,6 +31,7 @@ export type InputType =
 	| 'resource'
 	| 'db-explorer'
 	| 'db-table'
+	| 'number-tuple'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -204,6 +205,7 @@ export type AppInput =
 	| AppInputSpec<'array', DecisionTreeNode, 'DecisionTreeNode'>
 	| AppInputSpec<'array', object[], 'ag-chart'>
 	| AppInputSpec<'resource', string>
+	| AppInputSpec<'array', object[], 'number-tuple'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

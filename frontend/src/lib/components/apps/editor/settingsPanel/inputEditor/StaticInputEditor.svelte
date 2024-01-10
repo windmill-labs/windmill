@@ -19,6 +19,7 @@
 	import ChartJSWizard from '$lib/components/wizards/ChartJSWizard.svelte'
 	import AgChartWizard from '$lib/components/wizards/AgChartWizard.svelte'
 	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
+	import Label from '$lib/components/Label.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -264,6 +265,27 @@
 						</svelte:fragment>
 					</AgChartWizard>
 				</div>
+			</div>
+		</div>
+	{:else if fieldType === 'number-tuple'}
+		<div class="flex flex-row rounded-md bg-surface items-center h-full">
+			<div class="relative w-full flex flex-row gap-2">
+				<Label label="Y Low">
+					<input
+						class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+						bind:value={componentInput.value[0]}
+						placeholder="Y Low"
+						type="number"
+					/>
+				</Label>
+				<Label label="Y High">
+					<input
+						class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+						bind:value={componentInput.value[1]}
+						placeholder="Y high"
+						type="number"
+					/>
+				</Label>
 			</div>
 		</div>
 	{:else}

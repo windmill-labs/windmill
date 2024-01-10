@@ -21,7 +21,8 @@
 		if (
 			(component.type === 'plotlycomponentv2' ||
 				component.type === 'chartjscomponentv2' ||
-				component.type === 'agchartcomponent') &&
+				component.type === 'agchartscomponent' ||
+				component.type === 'agchartscomponentee') &&
 			component.componentInput === undefined &&
 			component.datasets === undefined
 		) {
@@ -85,7 +86,7 @@
 			} else if (selected === 'json') {
 				convertChartJSToJson()
 			}
-		} else if (component.type === 'agchartcomponent') {
+		} else if (isAgChartsComponent()) {
 			if (selected === 'ui-editor') {
 				convertToUIEditorCallback = () => {
 					component.componentInput = undefined
@@ -104,7 +105,7 @@
 	}
 
 	function convertAgChartToJson() {
-		if (component.type !== 'agchartcomponent') {
+		if (component.type !== 'agchartscomponent' && component.type !== 'agchartscomponentee') {
 			return
 		}
 
@@ -136,25 +137,77 @@
 		} else if (component.type === 'chartjscomponentv2') {
 			component.datasets = createChartjsComponentDataset()
 			component.xData = createXData()
-		} else if (component.type === 'agchartcomponent') {
-			component.datasets = createAgChartComponentDataset()
+		} else if (component.type === 'agchartscomponent' || component.type === 'agchartscomponentee') {
+			component.datasets = createAgChartsComponentDataset()
 			component.xData = createXData()
 		}
 	}
 
-	function createAgChartComponentDataset(): RichConfiguration {
+	function createAgChartsComponentDataset(): RichConfiguration {
 		return {
 			type: 'static',
 			fieldType: 'array',
 			subFieldType: 'ag-chart',
+
 			value: [
 				{
 					value: {
-						type: 'static',
-						fieldType: 'array',
-						subFieldType: 'number',
-						value: [25, 25, 50]
-					},
+						type: 'oneOf',
+						selected: 'bar',
+						labels: {
+							bar: 'Bar',
+							scatter: 'Scatter',
+							line: 'Line',
+							area: 'Area',
+							['range-bar']: 'Range Bar'
+						},
+						configuration: {
+							bar: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							scatter: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							line: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							area: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							['range-bar']: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							}
+						}
+					} as const,
 					name: 'Dataset 1',
 					type: 'bar'
 				}
@@ -213,9 +266,16 @@
 		}
 	}
 
+	function isAgChartsComponent(): boolean {
+		return component.type === 'agchartscomponent' || component.type === 'agchartscomponentee'
+	}
+
 	function convertToJson() {
-		debugger
-		if (component.type !== 'plotlycomponentv2' && component.type !== 'agchartcomponent') {
+		if (
+			component.type !== 'plotlycomponentv2' &&
+			component.type !== 'agchartscomponent' &&
+			component.type !== 'agchartscomponentee'
+		) {
 			return
 		}
 
@@ -346,7 +406,7 @@
 	}
 </script>
 
-{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2' || component.type === 'agchartcomponent'}
+{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2' || component.type === 'agchartscomponent' || component.type === 'agchartscomponentee'}
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
@@ -375,7 +435,7 @@
 					bind:datasets={component.datasets}
 					bind:xData={component.xData}
 				/>
-			{:else if component.type === 'agchartcomponent'}
+			{:else if isAgChartsComponent()}
 				<AGChartRichEditor
 					id={component.id}
 					bind:datasets={component.datasets}

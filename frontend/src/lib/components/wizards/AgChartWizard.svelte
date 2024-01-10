@@ -4,20 +4,25 @@
 	import Label from '../Label.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import Button from '../common/button/Button.svelte'
-	import InputsSpecEditor from '../apps/editor/settingsPanel/InputsSpecEditor.svelte'
-	import type { AppViewerContext, RichConfiguration } from '../apps/types'
+	import OneOfInputSpecsEditor from '../apps/editor/settingsPanel/OneOfInputSpecsEditor.svelte'
+	import type { AppViewerContext, GridItem, RichConfiguration } from '../apps/types'
+	import { findGridItem } from '../apps/editor/appUtils'
 
-	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	type Dataset = {
 		value: RichConfiguration
 		name: string
-		aggregation_method: string
-		tooltip: string
-		color: string
-		type: 'bar' | 'scatter'
-		extraOptions?: { mode: 'markers' | 'lines' | 'lines+markers' } | undefined
+		type: 'bar' | 'scatter' | 'line' | 'area' | 'range-bar'
 	}
+
+	let component: GridItem | undefined = undefined
+
+	$: if (component === undefined && $selectedComponent && $app) {
+		component = findGridItem($app, $selectedComponent[0])
+	}
+
+	$: isEE = component?.data.type === 'agchartscomponentee'
 
 	export let value: Dataset | undefined = undefined
 
@@ -45,31 +50,16 @@
 				<input type="text" bind:value={value.name} />
 			</Label>
 
-			<Label label="Type">
-				<select bind:value={value.type}>
-					<option value="bar">Bar</option>
-					<option value="line">Line</option>
-					<option value="area">Area</option>
-					<option value="scatter">Scatter</option>
-				</select>
-			</Label>
-
-			<InputsSpecEditor
+			<OneOfInputSpecsEditor
 				key={'Data'}
-				bind:componentInput={value.value}
+				bind:oneOf={value.value}
 				id={$selectedComponent?.[0] ?? ''}
-				userInputEnabled={false}
 				shouldCapitalize={true}
 				resourceOnly={false}
-				fieldType={value.value?.['fieldType']}
-				subFieldType={value.value?.['subFieldType']}
-				format={value.value?.['format']}
-				selectOptions={value.value?.['selectOptions']}
+				inputSpecsConfiguration={value.value?.['configuration']}
+				labels={value.value?.['labels']}
 				tooltip={value.value?.['tooltip']}
-				fileUpload={value.value?.['fileUpload']}
-				placeholder={value.value?.['placeholder']}
-				customTitle={value.value?.['customTitle']}
-				displayType={false}
+				disabledOptions={isEE ? [] : ['range-bar']}
 			/>
 
 			<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
