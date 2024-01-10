@@ -1,7 +1,7 @@
 import { ScriptService, type MainArgSignature, FlowService, Script } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty, SupportedLanguage } from './common.js'
-import { emptySchema, sendUserToast, sortObject } from './utils.js'
+import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 import init, {
 	parse_deno,
