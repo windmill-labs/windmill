@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT author.count as author_count, operator.count as operator_count FROM (SELECT count(*)::INT FROM usr where usr.operator IS false) as author, (SELECT count(*)::INT FROM usr where usr.operator IS true) as operator",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "author_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "operator_count",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "e70835de2b70a01a2e85f44f3cb80f41288d8e68b762de80ae724ed69ef1908c"
+}
