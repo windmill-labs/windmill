@@ -37,7 +37,12 @@
 	let resolvedXData: number[] = []
 
 	const outputs = initOutput($worldStore, id, {
-		result: undefined,
+		result: undefined as
+			| {
+					data: any[]
+					series: any[]
+			  }
+			| undefined,
 		loading: false
 	})
 
@@ -103,6 +108,11 @@
 					}
 				}) as any[]) ?? []
 		}
+
+		outputs.result.set({
+			data: options.data,
+			series: options.series
+		})
 
 		AgCharts.update(chartInstance, options)
 	}
@@ -193,6 +203,11 @@
 			data: result?.['data'],
 			series: result?.['series']
 		}
+
+		outputs.result.set({
+			data: result?.['data'],
+			series: result?.['series']
+		})
 
 		AgCharts.update(chartInstance, options)
 	}

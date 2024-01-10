@@ -6,8 +6,8 @@
 	import PlotlyRichEditor from './PlotlyRichEditor.svelte'
 	import ChartJSRichEditor from './ChartJSRichEditor.svelte'
 	import AGChartRichEditor from './AGChartRichEditor.svelte'
-	import { onMount } from 'svelte'
-	import type { RichConfiguration } from '../../types'
+	import { getContext, onMount } from 'svelte'
+	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputConnectionEval } from '../../inputType'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
@@ -33,6 +33,7 @@
 		}
 	})
 
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	interface Dataset {
 		value: any // Define more specific type if possible
 		name: string
@@ -110,13 +111,10 @@
 		}
 
 		const connections: InputConnectionEval[] = []
-		const xDataResolved = resolveConfiguration(component.xData, connections)
 
 		if (component.datasets === undefined || component.datasets.type !== 'static') return
 
-		const datasets = component.datasets?.value
-
-		const datasetsAsString = datasetToAgChartJson(datasets, xDataResolved, connections)
+		const datasetsAsString = datasetToAgChartJson()
 
 		component.componentInput = {
 			type: 'evalv2',
@@ -356,47 +354,20 @@
 \t}`
 	}
 
-	function datasetToAgChartJson(
-		datasets: Dataset[],
-		xDataExpr: string | undefined,
-		connections: InputConnectionEval[]
-	): string {
-		let data = [] as any[]
+	function datasetToAgChartJson(): string {
+		const outputs = $worldStore.outputsById[component.id]
+		const result = outputs?.result.peak()
 
-		const xArray = JSON.parse(xDataExpr || '[]')
-
-		for (let i = 0; i < xArray.length; i++) {
-			const o = {
-				x: xArray[i]
-			}
-
-			for (let j = 0; j < datasets.length; j++) {
-				const r = resolveConfiguration(datasets[j].value, connections)
-				if (!r) {
-					continue
-				}
-				const val = JSON.parse(r)[i]
-
-				o[`y-${j}`] = val
-			}
-
-			data.push(o)
+		if (!result.data && !result.series) {
+			throw new Error('Invalid result')
 		}
-
-		const series =
-			(datasets?.map((d, index) => ({
-				type: d.type,
-				xKey: 'x',
-				yKey: `y-${index}`,
-				yName: d.name
-			})) as any[]) ?? []
 
 		return (
 			'(' +
 			JSON.stringify(
 				{
-					data,
-					series
+					data: result.data,
+					series: result.series
 				},
 				null,
 				'\t'
