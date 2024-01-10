@@ -6893,6 +6893,8 @@ paths:
                   type: boolean
                 cancel_upload:
                   type: boolean
+                s3_resource_path:
+                  type: string
               required:
                 - file_key
                 - part_content_base64
