@@ -22,6 +22,9 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_native_worker_td" 
       memory    = 3072
       essential = true
       environment = [{
+        name  = "JSON_FMT"
+        value = "true"
+      }, {
         name  = "DATABASE_URL"
         value = "postgres://${aws_db_instance.windmill_cluster_rds.username}:${aws_db_instance.windmill_cluster_rds.password}@${aws_db_instance.windmill_cluster_rds.endpoint}/${aws_db_instance.windmill_cluster_rds.db_name}"
         }, {
