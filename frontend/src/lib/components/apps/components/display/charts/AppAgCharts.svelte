@@ -85,7 +85,7 @@
 		}
 
 		const options = {
-			container: document.getElementById('myChart') as HTMLElement,
+			container: document.getElementById(`agchart-${id}`) as HTMLElement,
 			data: data,
 			series:
 				(resolvedDatasets?.map((d, index) => {
@@ -277,6 +277,6 @@
 		class={twMerge('w-full h-full', css?.container?.class, 'wm-agchart')}
 		style={css?.container?.style ?? ''}
 	>
-		<div id="myChart" class="h-full w-full" />
+		<div id={`agchart-${id}`} class="h-full w-full" />
 	</div>
 </RunnableWrapper>
