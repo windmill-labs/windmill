@@ -23,6 +23,7 @@
 		Calendar,
 		Code,
 		Copy,
+		Eye,
 		FileUp,
 		GitFork,
 		List,
@@ -204,6 +205,11 @@
 						displayName: 'View runs',
 						icon: List,
 						href: `/runs/${script.path}`
+					},
+					{
+						displayName: 'Audit logs',
+						icon: Eye,
+						href: `/audit_logs?resource=${script.path}`
 					},
 					{
 						displayName: 'Schedule',

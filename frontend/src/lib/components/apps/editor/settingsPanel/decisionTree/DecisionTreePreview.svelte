@@ -239,7 +239,7 @@
 	function buildGraphNodes() {
 		let branchCount = 1
 
-		nodes?.forEach((graphNode) => {
+		nodes?.forEach((graphNode, index) => {
 			const parentIds = getParents(nodes, graphNode.id)
 			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
 			const hasParentBranches = parentNext ? parentNext.length > 1 : false
@@ -282,7 +282,8 @@
 									node: graphNode,
 									canDelete:
 										graphNode.next.length === 1 && getParents(nodes, graphNode.id).length === 1,
-									canAddBranch: !cannotAddBranch
+									canAddBranch: !cannotAddBranch,
+									index
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 							}
@@ -338,7 +339,8 @@
 								props: {
 									node: graphNode,
 									canDelete: !cannotAddBranch,
-									canAddBranch: !cannotAddBranch
+									canAddBranch: !cannotAddBranch,
+									index
 								},
 								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
 							}
