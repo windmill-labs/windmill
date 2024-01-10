@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT importer_path FROM dependency_map\n         WHERE imported_path = $1 AND importer_kind = 'script'\n         AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "importer_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aa44311f9bae8253c6c483d122597ce7e470c6ba1905e7e877dca35d9d68968f"
+}
