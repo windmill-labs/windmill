@@ -67,7 +67,6 @@
 	import AppMenu from '../../components/display/AppMenu.svelte'
 	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
 	import AppAgCharts from '../../components/display/charts/AppAgCharts.svelte'
-	import AppAgChartsEe from '../../components/display/charts/AppAgChartsEe.svelte'
 	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
 
 	export let component: AppComponent
@@ -310,7 +309,7 @@
 				{render}
 			/>
 		{:else if component.type === 'agchartscomponentee'}
-			<AppAgChartsEe
+			<AppAgCharts
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -319,6 +318,7 @@
 				datasets={component.datasets}
 				xData={component.xData}
 				license={component.license}
+				ee={true}
 				{render}
 			/>
 		{:else if component.type === 'tablecomponent'}

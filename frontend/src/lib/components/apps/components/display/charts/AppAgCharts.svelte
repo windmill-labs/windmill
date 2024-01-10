@@ -8,13 +8,13 @@
 		RichConfigurations
 	} from '../../../types'
 	import { initCss } from '../../../utils'
-	import { getContext, onMount, tick } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { initConfig, initOutput } from '../../../editor/appUtils'
 	import { components } from '../../../editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
-	import { AgCharts, type AgChartOptions, type AgChartInstance } from 'ag-charts-community'
+	import type { AgChartOptions, AgChartInstance } from 'ag-charts-community'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,6 +24,8 @@
 	export let render: boolean
 	export let datasets: RichConfiguration | undefined
 	export let xData: RichConfiguration | undefined
+	export let license: string | undefined = undefined
+	export let ee: boolean = false
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -114,7 +116,7 @@
 			series: options.series
 		})
 
-		AgCharts.update(chartInstance, options)
+		AgChartsInstance?.update(chartInstance, options)
 	}
 
 	$: resolvedDatasetsValues = resolvedDatasets?.map((d) => {
@@ -209,13 +211,25 @@
 			series: result?.['series']
 		})
 
-		AgCharts.update(chartInstance, options)
+		AgChartsInstance?.update(chartInstance, options)
+	}
+
+	let AgChartsInstance: any | undefined = undefined
+
+	async function loadLibrary() {
+		if (ee) {
+			const enterprise = await import('ag-charts-enterprise')
+			AgChartsInstance = enterprise.AgCharts
+
+			AgChartsInstance.setLicenseKey(license)
+		} else {
+			const community = await import('ag-charts-community')
+			AgChartsInstance = community.AgCharts
+		}
 	}
 
 	onMount(() => {
-		// We need to wait for the DOM to be ready before we can create the chart, and properly load
-		// the ag-charts-enterprise library if needed.
-		tick().then(() => {
+		loadLibrary().then(() => {
 			try {
 				// Chart Options
 				const options: AgChartOptions = {
@@ -224,7 +238,7 @@
 					series: []
 				}
 
-				chartInstance = AgCharts.create(options)
+				chartInstance = AgChartsInstance?.create(options)
 			} catch (error) {
 				console.error(error)
 			}
