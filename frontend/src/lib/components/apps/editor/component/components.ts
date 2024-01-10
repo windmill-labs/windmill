@@ -644,7 +644,7 @@ const aggridcomponentconst = {
 } as const
 
 const agchartscomponentconst = {
-	name: 'Ag Charts',
+	name: 'AgCharts',
 	icon: BarChart4,
 	documentationLink: `${documentationBaseUrl}/agcharts`,
 	dims: '2:8-6:8' as AppComponentDimensions,
@@ -1261,7 +1261,7 @@ export const components = {
 	},
 
 	agchartscomponent: agchartscomponentconst,
-	agchartscomponentee: { ...agchartscomponentconst, name: 'Ag Charts EE' },
+	agchartscomponentee: { ...agchartscomponentconst, name: 'AgCharts EE' },
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,

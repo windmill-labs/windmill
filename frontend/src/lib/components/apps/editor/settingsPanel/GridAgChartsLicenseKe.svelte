@@ -19,8 +19,8 @@
 </script>
 
 <div class="p-2">
-	<span class="text-xs font-semibold">Ag Charts EE License Key</span>
-	<input type="text" bind:value={license} placeholder="Ag Charts Enterprise" />
+	<span class="text-xs font-semibold">AgCharts EE License Key</span>
+	<input type="text" bind:value={license} placeholder="AgCharts Enterprise" />
 
 	{#if valid}
 		<Badge color="green">Valid</Badge>
