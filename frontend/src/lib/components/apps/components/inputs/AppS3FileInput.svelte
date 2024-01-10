@@ -74,7 +74,6 @@
 	}
 
 	let css = initCss($app.css?.fileinputcomponent, customCss)
-
 	let done: boolean = false
 </script>
 
