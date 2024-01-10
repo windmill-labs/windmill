@@ -668,6 +668,12 @@ export const quickStyleProperties: Record<
 	piechartcomponent: {
 		container: containerDefaultProps
 	},
+	agchartscomponent: {
+		container: containerDefaultProps
+	},
+	agchartscomponentee: {
+		container: containerDefaultProps
+	},
 	chartjscomponent: {
 		container: containerDefaultProps
 	},

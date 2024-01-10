@@ -38,6 +38,7 @@
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
+	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -326,6 +327,8 @@
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponentee'}
 			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
+		{:else if componentSettings.item.data.type === 'agchartscomponentee'}
+			<GridAgChartsLicenseKe bind:license={componentSettings.item.data.license} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}

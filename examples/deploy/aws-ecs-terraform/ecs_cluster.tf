@@ -37,12 +37,10 @@ resource "aws_launch_template" "windmill_cluster_lt" {
 
 resource "aws_autoscaling_group" "windmill_cluster_asg" {
   name     = "windmill-cluster-asg"
-  max_size = 6
+  max_size = 10
   min_size = 1
 
   vpc_zone_identifier = [
-    aws_subnet.windmill_cluster_subnet_public1.id,
-    aws_subnet.windmill_cluster_subnet_public2.id,
     aws_subnet.windmill_cluster_subnet_private1.id,
     aws_subnet.windmill_cluster_subnet_private2.id
   ]

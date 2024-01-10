@@ -44,6 +44,11 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_lsp_td" {
       }
     }
   ])
+
+  volume {
+    name      = "lsp_cache"
+    host_path = "/root/.cache"
+  }
 }
 
 resource "aws_ecs_service" "windmill_cluster_windmill_lsp_service" {
@@ -54,8 +59,8 @@ resource "aws_ecs_service" "windmill_cluster_windmill_lsp_service" {
 
   network_configuration {
     subnets = [
-      aws_subnet.windmill_cluster_subnet_public1.id,
-      aws_subnet.windmill_cluster_subnet_public2.id,
+      aws_subnet.windmill_cluster_subnet_private1.id,
+      aws_subnet.windmill_cluster_subnet_private2.id,
     ]
     security_groups = [aws_security_group.windmill_cluster_sg.id]
   }

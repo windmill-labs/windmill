@@ -66,6 +66,7 @@
 	import AppStatCard from '../../components/display/AppStatCard.svelte'
 	import AppMenu from '../../components/display/AppMenu.svelte'
 	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
+	import AppAgCharts from '../../components/display/charts/AppAgCharts.svelte'
 	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
 	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
 
@@ -295,6 +296,30 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'agchartscomponent'}
+			<AppAgCharts
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				{render}
+			/>
+		{:else if component.type === 'agchartscomponentee'}
+			<AppAgCharts
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				license={component.license}
+				ee={true}
 				{render}
 			/>
 		{:else if component.type === 'tablecomponent'}

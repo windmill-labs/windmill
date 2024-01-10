@@ -5,8 +5,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import PlotlyRichEditor from './PlotlyRichEditor.svelte'
 	import ChartJSRichEditor from './ChartJSRichEditor.svelte'
-	import { onMount } from 'svelte'
-	import type { RichConfiguration } from '../../types'
+	import AGChartRichEditor from './AGChartRichEditor.svelte'
+	import { getContext, onMount } from 'svelte'
+	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputConnectionEval } from '../../inputType'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
@@ -18,7 +19,10 @@
 
 	onMount(() => {
 		if (
-			(component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2') &&
+			(component.type === 'plotlycomponentv2' ||
+				component.type === 'chartjscomponentv2' ||
+				component.type === 'agchartscomponent' ||
+				component.type === 'agchartscomponentee') &&
 			component.componentInput === undefined &&
 			component.datasets === undefined
 		) {
@@ -29,6 +33,7 @@
 		}
 	})
 
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	interface Dataset {
 		value: any // Define more specific type if possible
 		name: string
@@ -82,7 +87,45 @@
 			} else if (selected === 'json') {
 				convertChartJSToJson()
 			}
+		} else if (isAgChartsComponent()) {
+			if (selected === 'ui-editor') {
+				convertToUIEditorCallback = () => {
+					component.componentInput = undefined
+					setUpUIEditor()
+				}
+
+				setTimeout(() => {
+					const activeElement = document.activeElement as HTMLElement
+					activeElement?.blur()
+					document.body.focus()
+				})
+			} else if (selected === 'json') {
+				convertAgChartToJson()
+			}
 		}
+	}
+
+	function convertAgChartToJson() {
+		if (component.type !== 'agchartscomponent' && component.type !== 'agchartscomponentee') {
+			return
+		}
+
+		const connections: InputConnectionEval[] = []
+
+		if (component.datasets === undefined || component.datasets.type !== 'static') return
+
+		const datasetsAsString = datasetToAgChartJson()
+
+		component.componentInput = {
+			type: 'evalv2',
+			fieldType: 'object',
+			noStatic: true,
+			expr: datasetsAsString,
+			connections: connections.filter(Boolean)
+		}
+
+		component.datasets = undefined
+		component.xData = undefined
 	}
 
 	function setUpUIEditor() {
@@ -92,6 +135,81 @@
 		} else if (component.type === 'chartjscomponentv2') {
 			component.datasets = createChartjsComponentDataset()
 			component.xData = createXData()
+		} else if (component.type === 'agchartscomponent' || component.type === 'agchartscomponentee') {
+			component.datasets = createAgChartsComponentDataset()
+			component.xData = createXData()
+		}
+	}
+
+	function createAgChartsComponentDataset(): RichConfiguration {
+		return {
+			type: 'static',
+			fieldType: 'array',
+			subFieldType: 'ag-chart',
+
+			value: [
+				{
+					value: {
+						type: 'oneOf',
+						selected: 'bar',
+						labels: {
+							bar: 'Bar',
+							scatter: 'Scatter',
+							line: 'Line',
+							area: 'Area',
+							['range-bar']: 'Range Bar'
+						},
+						configuration: {
+							bar: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							scatter: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							line: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							area: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							['range-bar']: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							}
+						}
+					} as const,
+					name: 'Dataset 1',
+					type: 'bar'
+				}
+			]
 		}
 	}
 
@@ -146,8 +264,16 @@
 		}
 	}
 
+	function isAgChartsComponent(): boolean {
+		return component.type === 'agchartscomponent' || component.type === 'agchartscomponentee'
+	}
+
 	function convertToJson() {
-		if (component.type !== 'plotlycomponentv2') {
+		if (
+			component.type !== 'plotlycomponentv2' &&
+			component.type !== 'agchartscomponent' &&
+			component.type !== 'agchartscomponentee'
+		) {
 			return
 		}
 
@@ -227,9 +353,31 @@
 \t\t}
 \t}`
 	}
+
+	function datasetToAgChartJson(): string {
+		const outputs = $worldStore.outputsById[component.id]
+		const result = outputs?.result.peak()
+
+		if (!result.data && !result.series) {
+			throw new Error('Invalid result')
+		}
+
+		return (
+			'(' +
+			JSON.stringify(
+				{
+					data: result.data,
+					series: result.series
+				},
+				null,
+				'\t'
+			) +
+			')'
+		)
+	}
 </script>
 
-{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2'}
+{#if component.type === 'plotlycomponentv2' || component.type === 'chartjscomponentv2' || component.type === 'agchartscomponent' || component.type === 'agchartscomponentee'}
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
@@ -254,6 +402,12 @@
 		{#key renderCount}
 			{#if component.type === 'plotlycomponentv2'}
 				<PlotlyRichEditor
+					id={component.id}
+					bind:datasets={component.datasets}
+					bind:xData={component.xData}
+				/>
+			{:else if isAgChartsComponent()}
+				<AGChartRichEditor
 					id={component.id}
 					bind:datasets={component.datasets}
 					bind:xData={component.xData}
