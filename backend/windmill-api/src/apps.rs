@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     users::{require_owner_of_path, OptAuthed},
-    variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -39,6 +38,7 @@ use windmill_common::{
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
+    variables::build_crypt,
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel, QueueTransaction};
 
