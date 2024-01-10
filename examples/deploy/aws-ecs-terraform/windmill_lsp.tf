@@ -30,6 +30,10 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_lsp_td" {
           appProtocol   = "http"
         }
       ]
+      environment = [{
+        name  = "JSON_FMT"
+        value = "true"
+      }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
