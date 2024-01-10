@@ -119,6 +119,11 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_high_performance_w
       }
     }
   ])
+
+  volume {
+    name      = "worker_dependency_cache"
+    host_path = "/tmp/windmill/cache"
+  }
 }
 
 resource "aws_ecs_service" "windmill_cluster_windmill_high_performance_worker_service" {
