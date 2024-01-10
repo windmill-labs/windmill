@@ -26,7 +26,8 @@
 		GitFork,
 		History,
 		Columns,
-		Pen
+		Pen,
+		Eye
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -199,6 +200,14 @@
 			label: 'Move/Rename',
 			onclick: () => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
 			Icon: FolderOpen
+		})
+
+		menuItems.push({
+			label: 'Audit logs',
+			Icon: Eye,
+			onclick: () => {
+				goto(`/audit_logs?resource=${flow?.path}`)
+			}
 		})
 
 		menuItems.push({

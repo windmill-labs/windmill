@@ -258,6 +258,11 @@
 											href: '/runs/?schedule_path=' + path
 										},
 										{
+											displayName: 'Audit logs',
+											icon: Eye,
+											href: `/audit_logs?resource=${path}`
+										},
+										{
 											displayName: 'Run now',
 											icon: Play,
 											action: () => {

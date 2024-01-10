@@ -107,6 +107,7 @@
 
 		try {
 			await inferArgs(nlang ?? lang, code, nschema)
+
 			validCode = true
 			schema = nschema
 		} catch (e) {
