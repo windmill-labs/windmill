@@ -123,7 +123,7 @@ export async function handleFile(
           typed == undefined ||
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
-            typed.is_template === remote.is_template &&
+            (typed.is_template ?? false) === (remote.is_template ?? false) &&
             typed.kind == remote.kind &&
             !remote.archived &&
             (remote?.lock ?? "").trim() ==

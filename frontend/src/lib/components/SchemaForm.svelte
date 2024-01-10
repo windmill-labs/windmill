@@ -19,7 +19,6 @@
 	export let disabledArgs: string[] = []
 	export let disabled = false
 
-	export let editableSchema = false
 	export let isValid: boolean = true
 	export let autofocus = false
 
@@ -88,7 +87,25 @@
 		resourceTypes = await getResourceTypes()
 	}
 
+	reorder()
 	loadResourceTypes()
+
+	function reorder() {
+		if (schema.order && Array.isArray(schema.order)) {
+			const n = {}
+
+			;(schema.order as string[]).forEach((x) => {
+				n[x] = schema.properties[x]
+			})
+
+			Object.keys(schema.properties ?? {})
+				.filter((x) => !schema.order?.includes(x))
+				.forEach((x) => {
+					n[x] = schema.properties[x]
+				})
+			schema.properties = n
+		}
+	}
 </script>
 
 {#if showReset}
@@ -102,39 +119,9 @@
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-				<div class={editableSchema ? 'pb-6' : ''}>
+				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
-						{#if editableSchema}
-							<ArgInput
-								{disablePortal}
-								{resourceTypes}
-								{prettifyHeader}
-								autofocus={i == 0 && autofocus}
-								label={argName}
-								bind:description={schema.properties[argName].description}
-								bind:value={args[argName]}
-								type={schema.properties[argName].type}
-								required={schema.required?.includes(argName) ?? false}
-								bind:pattern={schema.properties[argName].pattern}
-								bind:valid={inputCheck[argName]}
-								defaultValue={schema.properties[argName].default}
-								bind:enum_={schema.properties[argName].enum}
-								bind:format={schema.properties[argName].format}
-								bind:contentEncoding={schema.properties[argName].contentEncoding}
-								bind:customErrorMessage={schema.properties[argName].customErrorMessage}
-								properties={schema.properties[argName].properties}
-								nestedRequired={schema.properties[argName].required}
-								bind:itemsType={schema.properties[argName].items}
-								disabled={disabledArgs.includes(argName) || disabled}
-								{editableSchema}
-								{compact}
-								{variableEditor}
-								{itemPicker}
-								bind:pickForField
-								bind:extra={schema.properties[argName]}
-								simpleTooltip={schemaFieldTooltip[argName]}
-							/>
-						{:else if computeShow(argName, schema?.properties[argName].showExpr, args)}
+						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 							<ArgInput
 								{disablePortal}
 								{resourceTypes}
