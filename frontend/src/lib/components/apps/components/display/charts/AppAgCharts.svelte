@@ -8,7 +8,7 @@
 		RichConfigurations
 	} from '../../../types'
 	import { initCss } from '../../../utils'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, tick } from 'svelte'
 	import { initConfig, initOutput } from '../../../editor/appUtils'
 	import { components } from '../../../editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
@@ -199,7 +199,7 @@
 		}
 
 		const options = {
-			container: document.getElementById('myChart') as HTMLElement,
+			container: document.getElementById(`agchart-${id}`) as HTMLElement,
 			data: result?.['data'],
 			series: result?.['series']
 		}
@@ -213,18 +213,22 @@
 	}
 
 	onMount(() => {
-		try {
-			// Chart Options
-			const options: AgChartOptions = {
-				container: document.getElementById('myChart') as HTMLElement,
-				data: [],
-				series: []
-			}
+		// We need to wait for the DOM to be ready before we can create the chart, and properly load
+		// the ag-charts-enterprise library if needed.
+		tick().then(() => {
+			try {
+				// Chart Options
+				const options: AgChartOptions = {
+					container: document.getElementById(`agchart-${id}`) as HTMLElement,
+					data: [],
+					series: []
+				}
 
-			chartInstance = AgCharts.create(options)
-		} catch (error) {
-			console.error(error)
-		}
+				chartInstance = AgCharts.create(options)
+			} catch (error) {
+				console.error(error)
+			}
+		})
 	})
 </script>
 

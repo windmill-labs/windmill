@@ -26,7 +26,8 @@
 			if (subFieldType === 'boolean') {
 				value.push(false)
 			} else if (subFieldType === 'number') {
-				value.push(0)
+				value.push(1)
+				value = value
 			} else if (subFieldType === 'object') {
 				value.push({})
 			} else if (subFieldType === 'labeledresource' || subFieldType === 'labeledselect') {

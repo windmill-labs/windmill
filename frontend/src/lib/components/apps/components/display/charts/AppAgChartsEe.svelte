@@ -25,8 +25,10 @@
 
 	async function load() {
 		await import('ag-charts-enterprise')
+
 		const { AgCharts } = await import('ag-charts-enterprise')
 		AgCharts.setLicenseKey(license)
+
 		loaded = true
 	}
 
@@ -38,7 +40,7 @@
 		{id}
 		{componentInput}
 		{configuration}
-		{initializing}
+		bind:initializing
 		{render}
 		{customCss}
 		{datasets}
