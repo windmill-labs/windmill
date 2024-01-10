@@ -1,17 +1,6 @@
 import { HelpersService, type UploadFilePart } from '$lib/gen'
 import { sendUserToast } from '$lib/utils'
 
-let fileToUpload: File | undefined
-let fileToUploadKey: string | undefined
-let fileUploadProgress: number = 0
-let fileUploadCancelled: boolean = false
-
-export let readOnlyMode: boolean
-export let initialFileKey: { s3: string } | undefined
-export let selectedFileKey: { s3: string } | undefined
-
-let allFilesByKey: Record<string, FileType> = {}
-
 type FileType = {
 	type: 'folder' | 'leaf'
 	full_key: string
@@ -22,6 +11,13 @@ type FileType = {
 }
 
 export async function uploadFileToS3(workspace: string) {
+	let fileToUpload: File | undefined
+	let fileToUploadKey: string | undefined
+	let fileUploadCancelled: boolean = false
+	let fileUploadProgress: number = 0
+
+	let allFilesByKey: Record<string, FileType> = {}
+
 	if (!fileToUpload || !fileToUploadKey) {
 		return
 	}
@@ -85,16 +81,6 @@ export async function uploadFileToS3(workspace: string) {
 
 		if (response.is_done) {
 			sendUserToast(fileUploadCancelled ? 'File upload cancelled!' : 'File upload finished!')
-			if (isFinal) {
-				resetUploadState()
-			}
 		}
-	}
-
-	function resetUploadState() {
-		fileToUpload = undefined
-		fileToUploadKey = undefined
-		fileUploadProgress = 0
-		fileUploadCancelled = false
 	}
 }
