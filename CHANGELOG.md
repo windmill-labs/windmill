@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.238.0](https://github.com/windmill-labs/windmill/compare/v1.237.0...v1.238.0) (2024-01-10)
+
+
+### Features
+
+* add ability to use secrets in pip requirements ([3517c7f](https://github.com/windmill-labs/windmill/commit/3517c7f28389a4ddf46a6bef4f2044aa94174050))
+* add support for multiselect in python ([c8a793d](https://github.com/windmill-labs/windmill/commit/c8a793d35ea843fb75428182edc06cfe7105af3b))
+* **frontend:** add shortcuts to audit logs ([#2975](https://github.com/windmill-labs/windmill/issues/2975)) ([4147d16](https://github.com/windmill-labs/windmill/commit/4147d1604a4c50ad0c667b413d64b44b357fb7e4))
+* **frontend:** Display the index by which a node can be selected with the setTab function + add tooltip ([#2974](https://github.com/windmill-labs/windmill/issues/2974)) ([cffae36](https://github.com/windmill-labs/windmill/commit/cffae3633107d9359e04354ba01876ccaf98193a))
+* S3 multipart upload accepts a custom S3 resource ([#2982](https://github.com/windmill-labs/windmill/issues/2982)) ([eea0d92](https://github.com/windmill-labs/windmill/commit/eea0d92dd11a3607fbb156e2bf3a3a001ab5e6a0))
+
+
+### Bug Fixes
+
+* main compile ([#2983](https://github.com/windmill-labs/windmill/issues/2983)) ([6d5c3f0](https://github.com/windmill-labs/windmill/commit/6d5c3f0f2252be15bf0169a42f5baa06d592911c))
+
 ## [1.237.0](https://github.com/windmill-labs/windmill/compare/v1.236.2...v1.237.0) (2024-01-08)
 
 
