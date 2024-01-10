@@ -1,8 +1,6 @@
 resource "aws_db_subnet_group" "windmill_cluster_rds_subnets" {
   name = "windmill-cluster-rds-subnets"
   subnet_ids = [
-    aws_subnet.windmill_cluster_subnet_public1.id,
-    aws_subnet.windmill_cluster_subnet_public2.id,
     aws_subnet.windmill_cluster_subnet_private1.id,
     aws_subnet.windmill_cluster_subnet_private2.id,
   ]
