@@ -549,6 +549,11 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
+		components: ['agchartscomponent'],
+		selectors: [{ selector: '.wm-agchart', comment: 'AgCharts', customCssKey: 'container' }],
+		variables: []
+	},
+	{
 		components: ['timeseriescomponent'],
 		selectors: [{ selector: '.wm-timeseries', comment: 'Time series', customCssKey: 'container' }],
 		variables: []
