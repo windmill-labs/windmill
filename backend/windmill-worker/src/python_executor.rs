@@ -530,7 +530,6 @@ async fn replace_pip_secret(
     worker_name: &str,
     job_id: &Uuid,
 ) -> error::Result<String> {
-    tracing::error!("FOO");
     if PIP_SECRET_VARIABLE.is_match(req) {
         let capture = PIP_SECRET_VARIABLE.captures(req);
         let variable = capture.unwrap().get(1).unwrap().as_str();
