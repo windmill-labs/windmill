@@ -6969,6 +6969,79 @@ paths:
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
 
+  /instance_groups/get/{name}:
+    get:
+      summary: Retrieve instance group
+      operationId: getInstanceGroupMetadata
+      tags:
+        - instanceGroupMetadata
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: instance group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceGroupMetadata"
+  /instance_groups/create:
+    get:
+      summary: Create instance group
+      operationId: createInstanceGroup
+      tags:
+        - instanceGroupMetadata
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema: {}
+  /instance_groups/update/{name}:
+    get:
+      summary: Update instance group metadata
+      operationId: updateInstanceGroupMetadata
+      tags:
+        - instanceGroupMetadata
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: Fields to update on the instance group. Leave empty to leave the field as it currently is
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                summary_update:
+                  type: string
+                external_id_update:
+                  type: string
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceGroupMetadata"
+  /instance_groups/delete/{name}:
+    get:
+      summary: Delete instance group
+      operationId: deleteInstanceGroup
+      tags:
+        - instanceGroupMetadata
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties: {}
+                  - $ref: "#/components/schemas/InstanceGroupMetadata"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -9176,3 +9249,15 @@ components:
       required:
         - timestamp
         - value
+
+    InstanceGroupMetadata:
+      type: object
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        external_id:
+          type: string
+      required:
+        - name

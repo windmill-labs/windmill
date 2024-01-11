@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.237.0
+  version: 1.240.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -231,34 +231,34 @@ paths:
         - name: before
           description: filter on created before (exclusive) timestamp
           in: query
-          schema: &ref_105
+          schema: &ref_107
             type: string
             format: date-time
         - name: after
           description: filter on created after (exclusive) timestamp
           in: query
-          schema: &ref_104
+          schema: &ref_106
             type: string
             format: date-time
         - name: username
           description: filter on exact username of user
           in: query
-          schema: &ref_106
+          schema: &ref_108
             type: string
         - name: operation
           description: filter on exact or prefix name of operation
           in: query
-          schema: &ref_107
+          schema: &ref_109
             type: string
         - name: resource
           description: filter on exact or prefix name of resource
           in: query
-          schema: &ref_108
+          schema: &ref_110
             type: string
         - name: action_kind
           description: filter on type of operation
           in: query
-          schema: &ref_109
+          schema: &ref_111
             type: string
             enum:
               - Create
@@ -290,12 +290,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_121
+              properties: &ref_123
                 email:
                   type: string
                 password:
                   type: string
-              required: &ref_122
+              required: &ref_124
                 - email
                 - password
       responses:
@@ -351,14 +351,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_123
+              properties: &ref_125
                 email:
                   type: string
                 username:
                   type: string
                 is_admin:
                   type: boolean
-              required: &ref_124
+              required: &ref_126
                 - email
                 - username
                 - is_admin
@@ -393,7 +393,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_125
+              properties: &ref_127
                 is_admin:
                   type: boolean
                 operator:
@@ -616,7 +616,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_153
+                properties: &ref_155
                   email:
                     type: string
                   workspaces:
@@ -634,7 +634,7 @@ paths:
                         - id
                         - name
                         - username
-                required: &ref_154
+                required: &ref_156
                   - email
                   - workspaces
   /workspaces/list_as_superadmin:
@@ -676,14 +676,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_155
+              properties: &ref_157
                 id:
                   type: string
                 name:
                   type: string
                 username:
                   type: string
-              required: &ref_156
+              required: &ref_158
                 - id
                 - name
                 - username
@@ -1124,7 +1124,7 @@ paths:
                       type: string
                   usage:
                     type: object
-                    properties: &ref_120
+                    properties: &ref_122
                       executions:
                         type: number
                 required: &ref_9
@@ -1974,7 +1974,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_128
+              properties: &ref_130
                 label:
                   type: string
                 expiration:
@@ -2004,7 +2004,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_129
+              properties: &ref_131
                 label:
                   type: string
                 expiration:
@@ -2012,7 +2012,7 @@ paths:
                   format: date-time
                 impersonate_email:
                   type: string
-              required: &ref_130
+              required: &ref_132
                 - impersonate_email
       responses:
         '201':
@@ -2060,7 +2060,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_126
+                  properties: &ref_128
                     label:
                       type: string
                     expiration:
@@ -2078,7 +2078,7 @@ paths:
                       type: array
                       items:
                         type: string
-                  required: &ref_127
+                  required: &ref_129
                     - token_prefix
                     - created_at
                     - last_used_at
@@ -2104,7 +2104,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_133
+              properties: &ref_135
                 path:
                   type: string
                 value:
@@ -2117,7 +2117,7 @@ paths:
                   type: integer
                 is_oauth:
                   type: boolean
-              required: &ref_134
+              required: &ref_136
                 - path
                 - value
                 - is_secret
@@ -2202,7 +2202,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_135
+              properties: &ref_137
                 path:
                   type: string
                 value:
@@ -2372,14 +2372,14 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_131
+                  properties: &ref_133
                     name:
                       type: string
                     value:
                       type: string
                     description:
                       type: string
-                  required: &ref_132
+                  required: &ref_134
                     - name
                     - value
                     - description
@@ -2490,7 +2490,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_169
+                properties: &ref_171
                   access_token:
                     type: string
                   expires_in:
@@ -2501,7 +2501,7 @@ paths:
                     type: array
                     items:
                       type: string
-                required: &ref_170
+                required: &ref_172
                   - access_token
   /w/{workspace}/oauth/create_account:
     post:
@@ -2682,7 +2682,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_138
+              properties: &ref_140
                 path:
                   type: string
                 value: {}
@@ -2690,7 +2690,7 @@ paths:
                   type: string
                 resource_type:
                   type: string
-              required: &ref_139
+              required: &ref_141
                 - path
                 - value
                 - resource_type
@@ -2745,7 +2745,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_140
+              properties: &ref_142
                 path:
                   type: string
                 description:
@@ -2811,7 +2811,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_141
+                properties: &ref_143
                   workspace_id:
                     type: string
                   path:
@@ -2827,7 +2827,7 @@ paths:
                     type: object
                     additionalProperties:
                       type: boolean
-                required: &ref_142
+                required: &ref_144
                   - path
                   - resource_type
                   - is_oauth
@@ -2939,7 +2939,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_143
+                  properties: &ref_145
                     workspace_id:
                       type: string
                     path:
@@ -2965,7 +2965,7 @@ paths:
                       type: boolean
                     account:
                       type: number
-                  required: &ref_144
+                  required: &ref_146
                     - path
                     - resource_type
                     - is_oauth
@@ -3110,7 +3110,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_145
+              properties: &ref_147
                 schema: {}
                 description:
                   type: string
@@ -3354,32 +3354,32 @@ paths:
                                 id:
                                   type: string
                                 value:
-                                  oneOf: &ref_204
+                                  oneOf: &ref_206
                                     - type: object
-                                      properties: &ref_188
+                                      properties: &ref_190
                                         input_transforms:
                                           type: object
                                           additionalProperties:
                                             oneOf: &ref_26
                                               - type: object
-                                                properties: &ref_184
+                                                properties: &ref_186
                                                   value: {}
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_185
+                                                required: &ref_187
                                                   - expr
                                                   - type
                                               - type: object
-                                                properties: &ref_186
+                                                properties: &ref_188
                                                   expr:
                                                     type: string
                                                   type:
                                                     type: string
                                                     enum:
                                                       - javascript
-                                                required: &ref_187
+                                                required: &ref_189
                                                   - expr
                                                   - type
                                             discriminator: &ref_27
@@ -3419,13 +3419,13 @@ paths:
                                           type: number
                                         concurrency_time_window_s:
                                           type: number
-                                      required: &ref_189
+                                      required: &ref_191
                                         - type
                                         - content
                                         - language
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_190
+                                      properties: &ref_192
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3439,12 +3439,12 @@ paths:
                                           type: string
                                           enum:
                                             - script
-                                      required: &ref_191
+                                      required: &ref_193
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_192
+                                      properties: &ref_194
                                         input_transforms:
                                           type: object
                                           additionalProperties:
@@ -3456,12 +3456,12 @@ paths:
                                           type: string
                                           enum:
                                             - flow
-                                      required: &ref_193
+                                      required: &ref_195
                                         - type
                                         - path
                                         - input_transforms
                                     - type: object
-                                      properties: &ref_194
+                                      properties: &ref_196
                                         modules:
                                           type: array
                                           items:
@@ -3483,13 +3483,13 @@ paths:
                                           type: boolean
                                         parallelism:
                                           type: integer
-                                      required: &ref_195
+                                      required: &ref_197
                                         - modules
                                         - iterator
                                         - skip_failures
                                         - type
                                     - type: object
-                                      properties: &ref_196
+                                      properties: &ref_198
                                         branches:
                                           type: array
                                           items:
@@ -3520,12 +3520,12 @@ paths:
                                           type: string
                                           enum:
                                             - branchone
-                                      required: &ref_197
+                                      required: &ref_199
                                         - branches
                                         - default
                                         - type
                                     - type: object
-                                      properties: &ref_198
+                                      properties: &ref_200
                                         branches:
                                           type: array
                                           items:
@@ -3550,28 +3550,28 @@ paths:
                                             - branchall
                                         parallel:
                                           type: boolean
-                                      required: &ref_199
-                                        - branches
-                                        - type
-                                    - type: object
-                                      properties: &ref_200
-                                        type:
-                                          type: string
-                                          enum:
-                                            - identity
-                                        flow:
-                                          type: boolean
                                       required: &ref_201
+                                        - branches
                                         - type
                                     - type: object
                                       properties: &ref_202
                                         type:
                                           type: string
                                           enum:
-                                            - graphql
+                                            - identity
+                                        flow:
+                                          type: boolean
                                       required: &ref_203
                                         - type
-                                  discriminator: &ref_205
+                                    - type: object
+                                      properties: &ref_204
+                                        type:
+                                          type: string
+                                          enum:
+                                            - graphql
+                                      required: &ref_205
+                                        - type
+                                  discriminator: &ref_207
                                     propertyName: type
                                     mapping:
                                       rawscript: '#/components/schemas/RawScript'
@@ -4566,7 +4566,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf: &ref_112
+                allOf: &ref_114
                   - type: object
                     properties: *ref_35
                     required: *ref_36
@@ -4604,12 +4604,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_113
+                  properties: &ref_115
                     script_hash:
                       type: string
                     deployment_msg:
                       type: string
-                  required: &ref_114
+                  required: &ref_116
                     - script_hash
   /w/{workspace}/scripts/history_update/h/{hash}/p/{path}:
     post:
@@ -4685,7 +4685,7 @@ paths:
         - name: token
           in: path
           required: true
-          schema: &ref_99
+          schema: &ref_101
             type: string
         - name: path
           in: path
@@ -5296,7 +5296,7 @@ paths:
                           properties: *ref_44
                           required: *ref_45
                         - type: object
-                          properties: &ref_157
+                          properties: &ref_159
                             workspace_id:
                               type: string
                             path:
@@ -5326,7 +5326,7 @@ paths:
                               type: boolean
                             timeout:
                               type: number
-                          required: &ref_158
+                          required: &ref_160
                             - path
                             - edited_by
                             - edited_at
@@ -5688,7 +5688,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_164
+                  properties: &ref_166
                     workspace_id:
                       type: string
                     path:
@@ -5706,7 +5706,7 @@ paths:
                     edited_at:
                       type: string
                       format: date-time
-                  required: &ref_165
+                  required: &ref_167
                     - workspace_id
                     - path
                     - summary
@@ -5749,7 +5749,7 @@ paths:
         - name: version
           in: path
           required: true
-          schema: &ref_98
+          schema: &ref_100
             type: number
         - name: path
           in: path
@@ -5842,7 +5842,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_162
+                  properties: &ref_164
                     id:
                       type: integer
                     workspace_id:
@@ -5868,7 +5868,7 @@ paths:
                         - viewer
                         - publisher
                         - anonymous
-                  required: &ref_163
+                  required: &ref_165
                     - id
                     - workspace_id
                     - path
@@ -6043,7 +6043,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf: &ref_166
+                allOf: &ref_168
                   - type: object
                     properties: *ref_49
                     required: *ref_50
@@ -6076,12 +6076,12 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_167
+                  properties: &ref_169
                     version:
                       type: integer
                     deployment_msg:
                       type: string
-                  required: &ref_168
+                  required: &ref_170
                     - version
   /w/{workspace}/apps/history_update/a/{id}/v/{version}:
     post:
@@ -6101,7 +6101,7 @@ paths:
         - name: version
           in: path
           required: true
-          schema: &ref_100
+          schema: &ref_102
             type: integer
       requestBody:
         description: App deployment message
@@ -6698,7 +6698,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_136
+              properties: &ref_138
                 content:
                   type: string
                 path:
@@ -6732,7 +6732,7 @@ paths:
                     - http
                 dedicated_worker:
                   type: boolean
-              required: &ref_137
+              required: &ref_139
                 - args
       responses:
         '201':
@@ -6782,7 +6782,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_159
+              properties: &ref_161
                 value:
                   type: object
                   properties: *ref_51
@@ -6796,7 +6796,7 @@ paths:
                   type: string
                 restarted_from:
                   type: object
-                  properties: &ref_161
+                  properties: &ref_163
                     flow_job_id:
                       type: string
                       format: uuid
@@ -6804,7 +6804,7 @@ paths:
                       type: string
                     branch_or_iteration_n:
                       type: integer
-              required: &ref_160
+              required: &ref_162
                 - value
                 - content
                 - args
@@ -6893,7 +6893,7 @@ paths:
         - name: suspended
           description: filter on suspended jobs
           in: query
-          schema: &ref_103
+          schema: &ref_105
             type: boolean
         - name: running
           description: filter on running jobs
@@ -7460,7 +7460,7 @@ paths:
             filter on created_at for non non started job and started_at
             otherwise before (inclusive) timestamp
           in: query
-          schema: &ref_102
+          schema: &ref_104
             type: string
             format: date-time
         - name: running
@@ -7476,7 +7476,7 @@ paths:
             filter on created_at for non non started job and started_at
             otherwise after (exclusive) timestamp
           in: query
-          schema: &ref_101
+          schema: &ref_103
             type: string
             format: date-time
         - name: job_kinds
@@ -7700,7 +7700,7 @@ paths:
           schema: *ref_74
         - name: get_started
           in: query
-          schema: &ref_111
+          schema: &ref_113
             type: boolean
       responses:
         '200':
@@ -8205,7 +8205,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_147
+              properties: &ref_149
                 path:
                   type: string
                 schedule:
@@ -8246,7 +8246,7 @@ paths:
                   type: boolean
                 summary:
                   type: string
-              required: &ref_148
+              required: &ref_150
                 - path
                 - schedule
                 - timezone
@@ -8282,7 +8282,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_149
+              properties: &ref_151
                 schedule:
                   type: string
                 timezone:
@@ -8315,7 +8315,7 @@ paths:
                   type: boolean
                 summary:
                   type: string
-              required: &ref_150
+              required: &ref_152
                 - schedule
                 - timezone
                 - script_path
@@ -8559,7 +8559,7 @@ paths:
               schema:
                 type: array
                 items:
-                  allOf: &ref_146
+                  allOf: &ref_148
                     - type: object
                       properties: *ref_79
                       required: *ref_80
@@ -9226,7 +9226,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_151
+                  properties: &ref_153
                     worker:
                       type: string
                     worker_instance:
@@ -9248,7 +9248,7 @@ paths:
                       type: string
                     wm_version:
                       type: string
-                  required: &ref_152
+                  required: &ref_154
                     - worker
                     - worker_instance
                     - ping_at
@@ -9630,7 +9630,7 @@ paths:
           in: query
           schema: &ref_91
             type: string
-            enum: &ref_119
+            enum: &ref_121
               - ScriptHash
               - ScriptPath
               - FlowPath
@@ -9713,12 +9713,12 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_115
+              properties: &ref_117
                 name:
                   type: string
                 args:
                   type: object
-              required: &ref_116
+              required: &ref_118
                 - name
                 - args
                 - created_by
@@ -9748,14 +9748,14 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_117
+              properties: &ref_119
                 id:
                   type: string
                 name:
                   type: string
                 is_public:
                   type: boolean
-              required: &ref_118
+              required: &ref_120
                 - id
                 - name
                 - is_public
@@ -9781,7 +9781,7 @@ paths:
         - name: input
           in: path
           required: true
-          schema: &ref_110
+          schema: &ref_112
             type: string
       responses:
         '200':
@@ -10097,10 +10097,10 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_171
+                      properties: &ref_173
                         s3:
                           type: string
-                      required: &ref_172
+                      required: &ref_174
                         - s3
                 required:
                   - windmill_large_files
@@ -10127,7 +10127,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_173
+                properties: &ref_175
                   mime_type:
                     type: string
                   size_in_bytes:
@@ -10187,7 +10187,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_174
+                properties: &ref_176
                   msg:
                     type: string
                   content:
@@ -10201,7 +10201,7 @@ paths:
                       - Unknown
                   download_url:
                     type: string
-                required: &ref_175
+                required: &ref_177
                   - content_type
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
@@ -10368,48 +10368,144 @@ paths:
                     type: array
                     items:
                       type: object
-                      properties: &ref_176
+                      properties: &ref_178
                         id:
                           type: string
                         name:
                           type: string
-                      required: &ref_177
-                        - id
-                  scalar_metrics:
-                    type: array
-                    items:
-                      type: object
-                      properties: &ref_178
-                        metric_id:
-                          type: string
-                        value:
-                          type: number
                       required: &ref_179
                         - id
-                        - value
-                  timeseries_metrics:
+                  scalar_metrics:
                     type: array
                     items:
                       type: object
                       properties: &ref_180
                         metric_id:
                           type: string
+                        value:
+                          type: number
+                      required: &ref_181
+                        - id
+                        - value
+                  timeseries_metrics:
+                    type: array
+                    items:
+                      type: object
+                      properties: &ref_182
+                        metric_id:
+                          type: string
                         values:
                           type: array
                           items:
                             type: object
-                            properties: &ref_182
+                            properties: &ref_184
                               timestamp:
                                 type: string
                                 format: date-time
                               value:
                                 type: number
-                            required: &ref_183
+                            required: &ref_185
                               - timestamp
                               - value
-                      required: &ref_181
+                      required: &ref_183
                         - id
                         - values
+  /instance_groups/get/{name}:
+    get:
+      summary: Retrieve instance group
+      operationId: getInstanceGroupMetadata
+      tags:
+        - instanceGroupMetadata
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      responses:
+        '200':
+          description: instance group
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: &ref_98
+                  name:
+                    type: string
+                  summary:
+                    type: string
+                  external_id:
+                    type: string
+                required: &ref_99
+                  - name
+  /instance_groups/create:
+    get:
+      summary: Create instance group
+      operationId: createInstanceGroup
+      tags:
+        - instanceGroupMetadata
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema: {}
+  /instance_groups/update/{name}:
+    get:
+      summary: Update instance group metadata
+      operationId: updateInstanceGroupMetadata
+      tags:
+        - instanceGroupMetadata
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: >-
+          Fields to update on the instance group. Leave empty to leave the field
+          as it currently is
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                summary_update:
+                  type: string
+                external_id_update:
+                  type: string
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: *ref_98
+                required: *ref_99
+  /instance_groups/delete/{name}:
+    get:
+      summary: Delete instance group
+      operationId: deleteInstanceGroup
+      tags:
+        - instanceGroupMetadata
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties: {}
+                  - type: object
+                    properties: *ref_98
+                    required: *ref_99
 components:
   securitySchemes:
     bearerAuth:
@@ -10434,12 +10530,12 @@ components:
       name: version
       in: path
       required: true
-      schema: *ref_98
+      schema: *ref_100
     Token:
       name: token
       in: path
       required: true
-      schema: *ref_99
+      schema: *ref_101
     AccountId:
       name: id
       in: path
@@ -10479,7 +10575,7 @@ components:
       name: version
       in: path
       required: true
-      schema: *ref_100
+      schema: *ref_102
     Name:
       name: name
       in: path
@@ -10587,14 +10683,14 @@ components:
         filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
       in: query
-      schema: *ref_101
+      schema: *ref_103
     CreatedOrStartedBefore:
       name: created_or_started_before
       description: >-
         filter on created_at for non non started job and started_at otherwise
         before (inclusive) timestamp
       in: query
-      schema: *ref_102
+      schema: *ref_104
     Success:
       name: success
       description: filter on successful jobs
@@ -10609,7 +10705,7 @@ components:
       name: suspended
       description: filter on suspended jobs
       in: query
-      schema: *ref_103
+      schema: *ref_105
     Running:
       name: running
       description: filter on running jobs
@@ -10634,32 +10730,32 @@ components:
       name: after
       description: filter on created after (exclusive) timestamp
       in: query
-      schema: *ref_104
+      schema: *ref_106
     Before:
       name: before
       description: filter on created before (exclusive) timestamp
       in: query
-      schema: *ref_105
+      schema: *ref_107
     Username:
       name: username
       description: filter on exact username of user
       in: query
-      schema: *ref_106
+      schema: *ref_108
     Operation:
       name: operation
       description: filter on exact or prefix name of operation
       in: query
-      schema: *ref_107
+      schema: *ref_109
     ResourceName:
       name: resource
       description: filter on exact or prefix name of resource
       in: query
-      schema: *ref_108
+      schema: *ref_110
     ActionKind:
       name: action_kind
       description: filter on type of operation
       in: query
-      schema: *ref_109
+      schema: *ref_111
     JobKinds:
       name: job_kinds
       description: >-
@@ -10679,11 +10775,11 @@ components:
       name: input
       in: path
       required: true
-      schema: *ref_110
+      schema: *ref_112
     GetStarted:
       name: get_started
       in: query
-      schema: *ref_111
+      schema: *ref_113
   schemas:
     Script:
       type: object
@@ -10694,11 +10790,11 @@ components:
       properties: *ref_35
       required: *ref_36
     NewScriptWithDraft:
-      allOf: *ref_112
+      allOf: *ref_114
     ScriptHistory:
       type: object
-      properties: *ref_113
-      required: *ref_114
+      properties: *ref_115
+      required: *ref_116
     ScriptArgs:
       type: object
       additionalProperties: *ref_14
@@ -10708,15 +10804,15 @@ components:
       required: *ref_89
     CreateInput:
       type: object
-      properties: *ref_115
-      required: *ref_116
-    UpdateInput:
-      type: object
       properties: *ref_117
       required: *ref_118
+    UpdateInput:
+      type: object
+      properties: *ref_119
+      required: *ref_120
     RunnableType:
       type: string
-      enum: *ref_119
+      enum: *ref_121
     QueuedJob:
       type: object
       properties: *ref_72
@@ -10734,44 +10830,44 @@ components:
       required: *ref_9
     Usage:
       type: object
-      properties: *ref_120
+      properties: *ref_122
     Login:
-      type: object
-      properties: *ref_121
-      required: *ref_122
-    NewUser:
       type: object
       properties: *ref_123
       required: *ref_124
-    EditWorkspaceUser:
+    NewUser:
       type: object
       properties: *ref_125
+      required: *ref_126
+    EditWorkspaceUser:
+      type: object
+      properties: *ref_127
     TruncatedToken:
       type: object
-      properties: *ref_126
-      required: *ref_127
+      properties: *ref_128
+      required: *ref_129
     NewToken:
       type: object
-      properties: *ref_128
+      properties: *ref_130
     NewTokenImpersonate:
       type: object
-      properties: *ref_129
-      required: *ref_130
+      properties: *ref_131
+      required: *ref_132
     ListableVariable:
       type: object
       properties: *ref_19
       required: *ref_20
     ContextualVariable:
       type: object
-      properties: *ref_131
-      required: *ref_132
-    CreateVariable:
-      type: object
       properties: *ref_133
       required: *ref_134
-    EditVariable:
+    CreateVariable:
       type: object
       properties: *ref_135
+      required: *ref_136
+    EditVariable:
+      type: object
+      properties: *ref_137
     AuditLog:
       type: object
       properties: *ref_1
@@ -10895,44 +10991,44 @@ components:
         - error
     Preview:
       type: object
-      properties: *ref_136
-      required: *ref_137
-    CreateResource:
-      type: object
       properties: *ref_138
       required: *ref_139
-    EditResource:
+    CreateResource:
       type: object
       properties: *ref_140
-    Resource:
+      required: *ref_141
+    EditResource:
       type: object
-      properties: *ref_141
-      required: *ref_142
-    ListableResource:
+      properties: *ref_142
+    Resource:
       type: object
       properties: *ref_143
       required: *ref_144
+    ListableResource:
+      type: object
+      properties: *ref_145
+      required: *ref_146
     ResourceType:
       type: object
       properties: *ref_23
       required: *ref_24
     EditResourceType:
       type: object
-      properties: *ref_145
+      properties: *ref_147
     Schedule:
       type: object
       properties: *ref_79
       required: *ref_80
     ScheduleWJobs:
-      allOf: *ref_146
+      allOf: *ref_148
     NewSchedule:
-      type: object
-      properties: *ref_147
-      required: *ref_148
-    EditSchedule:
       type: object
       properties: *ref_149
       required: *ref_150
+    EditSchedule:
+      type: object
+      properties: *ref_151
+      required: *ref_152
     Group:
       type: object
       properties: *ref_84
@@ -10947,16 +11043,16 @@ components:
       required: *ref_87
     WorkerPing:
       type: object
-      properties: *ref_151
-      required: *ref_152
-    UserWorkspaceList:
-      type: object
       properties: *ref_153
       required: *ref_154
-    CreateWorkspace:
+    UserWorkspaceList:
       type: object
       properties: *ref_155
       required: *ref_156
+    CreateWorkspace:
+      type: object
+      properties: *ref_157
+      required: *ref_158
     Workspace:
       type: object
       properties: *ref_5
@@ -10973,38 +11069,38 @@ components:
       allOf: *ref_46
     FlowMetadata:
       type: object
-      properties: *ref_157
-      required: *ref_158
+      properties: *ref_159
+      required: *ref_160
     OpenFlowWPath:
       allOf: *ref_47
     FlowPreview:
       type: object
-      properties: *ref_159
-      required: *ref_160
+      properties: *ref_161
+      required: *ref_162
     RestartedFrom:
       type: object
-      properties: *ref_161
+      properties: *ref_163
     Policy:
       type: object
       properties: *ref_48
     ListableApp:
       type: object
-      properties: *ref_162
-      required: *ref_163
-    ListableRawApp:
-      type: object
       properties: *ref_164
       required: *ref_165
+    ListableRawApp:
+      type: object
+      properties: *ref_166
+      required: *ref_167
     AppWithLastVersion:
       type: object
       properties: *ref_49
       required: *ref_50
     AppWithLastVersionWDraft:
-      allOf: *ref_166
+      allOf: *ref_168
     AppHistory:
       type: object
-      properties: *ref_167
-      required: *ref_168
+      properties: *ref_169
+      required: *ref_170
     SlackToken:
       type: object
       properties:
@@ -11026,8 +11122,8 @@ components:
         - bot
     TokenResponse:
       type: object
-      properties: *ref_169
-      required: *ref_170
+      properties: *ref_171
+      required: *ref_172
     HubScriptKind:
       name: kind
       schema: *ref_31
@@ -11040,15 +11136,15 @@ components:
       properties: *ref_15
     WindmillLargeFile:
       type: object
-      properties: *ref_171
-      required: *ref_172
+      properties: *ref_173
+      required: *ref_174
     WindmillFileMetadata:
       type: object
-      properties: *ref_173
+      properties: *ref_175
     WindmillFilePreview:
       type: object
-      properties: *ref_174
-      required: *ref_175
+      properties: *ref_176
+      required: *ref_177
     S3Resource:
       type: object
       properties: *ref_92
@@ -11063,70 +11159,74 @@ components:
       required: *ref_97
     MetricMetadata:
       type: object
-      properties: *ref_176
-      required: *ref_177
-    ScalarMetric:
-      type: object
       properties: *ref_178
       required: *ref_179
-    TimeseriesMetric:
+    ScalarMetric:
       type: object
       properties: *ref_180
       required: *ref_181
-    MetricDataPoint:
+    TimeseriesMetric:
       type: object
       properties: *ref_182
       required: *ref_183
-    StaticTransform:
+    MetricDataPoint:
       type: object
       properties: *ref_184
       required: *ref_185
-    JavascriptTransform:
+    InstanceGroupMetadata:
+      type: object
+      properties: *ref_98
+      required: *ref_99
+    StaticTransform:
       type: object
       properties: *ref_186
       required: *ref_187
+    JavascriptTransform:
+      type: object
+      properties: *ref_188
+      required: *ref_189
     InputTransform:
       oneOf: *ref_26
       discriminator: *ref_27
     RawScript:
       type: object
-      properties: *ref_188
-      required: *ref_189
-    PathScript:
-      type: object
       properties: *ref_190
       required: *ref_191
-    PathFlow:
+    PathScript:
       type: object
       properties: *ref_192
       required: *ref_193
+    PathFlow:
+      type: object
+      properties: *ref_194
+      required: *ref_195
     FlowModule:
       type: object
       properties: *ref_28
       required: *ref_29
     ForloopFlow:
       type: object
-      properties: *ref_194
-      required: *ref_195
-    BranchOne:
-      type: object
       properties: *ref_196
       required: *ref_197
-    BranchAll:
+    BranchOne:
       type: object
       properties: *ref_198
       required: *ref_199
-    Identity:
+    BranchAll:
       type: object
       properties: *ref_200
       required: *ref_201
-    Graphql:
+    Identity:
       type: object
       properties: *ref_202
       required: *ref_203
+    Graphql:
+      type: object
+      properties: *ref_204
+      required: *ref_205
     FlowModuleValue:
-      oneOf: *ref_204
-      discriminator: *ref_205
+      oneOf: *ref_206
+      discriminator: *ref_207
     Retry:
       type: object
       properties: *ref_78

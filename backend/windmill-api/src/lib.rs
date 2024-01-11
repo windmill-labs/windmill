@@ -58,6 +58,7 @@ mod folders;
 mod granular_acls;
 mod groups;
 mod inputs;
+mod instance_groups;
 mod integration;
 pub mod job_helpers;
 pub mod job_metrics;
@@ -266,6 +267,7 @@ pub async fn run_server(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
                 )
+                .nest("/instance_groups", instance_groups::global_service())
                 .nest(
                     "/oauth",
                     oauth2::global_service().layer(Extension(Arc::new(sp_extension.1))),
