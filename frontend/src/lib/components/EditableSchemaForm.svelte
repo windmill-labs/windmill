@@ -28,12 +28,7 @@
 
 	const moveAnimationDuration = 1000
 
-	let isAnimated = false
 	function changePosition(i: number, up: boolean): any {
-		isAnimated = true
-		setTimeout(() => {
-			isAnimated = false
-		}, moveAnimationDuration)
 		const entries = Object.entries(schema.properties)
 		var element = entries[i]
 		entries.splice(i, 1)
