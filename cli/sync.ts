@@ -432,7 +432,7 @@ export async function ignoreF() {
     return (p: string, isDirectory: boolean) => {
       return (
         !isWhitelisted(p) &&
-        (isNotWmillFile(p, isDirectory) || ignore.denies(p))
+        (isNotWmillFile(p, isDirectory) || (!isDirectory && ignore.denies(p)))
       );
     };
   } catch {
@@ -495,7 +495,6 @@ async function pull(
     prettyChanges(changes);
     if (
       !opts.yes &&
-      !opts.raw &&
       !(await Confirm.prompt({
         message: `Do you want to apply these ${changes.length} changes?`,
         default: true,
@@ -563,6 +562,7 @@ async function pull(
           log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.content);
+        log.info(`Writing ${getTypeStrFromPath(change.path)} ${change.path}`);
         if (!opts.raw) {
           await Deno.copyFile(target, stateTarget);
         }
