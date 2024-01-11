@@ -2493,7 +2493,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             &job.args,
         )
         .await;
-        if job.is_flow_step {
+        if job.is_flow_step && !matches!(job.job_kind, JobKind::Flow) {
             let flow_path = sqlx::query_scalar!(
                 "SELECT script_path FROM queue WHERE id = $1",
                 &job.parent_job.unwrap()
