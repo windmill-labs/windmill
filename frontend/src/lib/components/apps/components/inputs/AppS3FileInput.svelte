@@ -2,6 +2,8 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FileInput } from '../../../common'
+	import FileProgressBar from '../../../common/FileProgressBar.svelte'
+
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -15,6 +17,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService, type UploadFilePart } from '$lib/gen'
+	import { writable, type Writable } from 'svelte/store'
+	import { Ban, CheckCheck, FileWarning, Trash } from 'lucide-svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -31,6 +35,15 @@
 		configuration
 	)
 
+	type FileUploadData = {
+		name: string
+		size: number
+		progress: number
+		cancelled?: boolean
+		errorMessage?: string
+	}
+
+	let fileUploads: Writable<FileUploadData[]> = writable([])
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let outputs = initOutput($worldStore, id, {
@@ -39,21 +52,13 @@
 		jobId: undefined
 	})
 
-	// Receives Base64 encoded strings from the input component
 	async function handleChange(files: File[] | undefined) {
 		for (const file of files ?? []) {
 			uploadFileToS3(file, file.name)
 		}
-		//outputs?.result.set(files)
 	}
 
 	let css = initCss($app.css?.fileinputcomponent, customCss)
-	let done: boolean = false
-
-	let uploadModalOpen = false
-	let fileUploadProgress: number | undefined = undefined
-	let fileUploadCancelled: boolean = false
-	let fileUploadErrorMsg: string | undefined = undefined
 
 	let allFilesByKey: Record<
 		string,
@@ -68,15 +73,26 @@
 	> = {}
 
 	async function uploadFileToS3(fileToUpload: File, fileToUploadKey: string) {
-		fileUploadErrorMsg = undefined
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
 		}
+
+		const uploadData: FileUploadData = {
+			name: fileToUpload.name,
+			size: fileToUpload.size,
+			progress: 0,
+			cancelled: false
+		}
+
 		if (allFilesByKey[fileToUploadKey] !== undefined) {
-			fileUploadErrorMsg =
+			uploadData.errorMessage =
 				'A file with this name already exists in the S3 bucket. If you want to replace it, delete it first.'
+			$fileUploads = [...$fileUploads, uploadData]
+
 			return
 		}
+
+		$fileUploads = [...$fileUploads, uploadData]
 
 		let upload_id: string | undefined = undefined
 		let parts: UploadFilePart[] = []
@@ -88,58 +104,69 @@
 			return
 		}
 
-		fileUploadProgress = 0
+		let fileUploadProgress = 0
 		while (true) {
+			const currentFileUpload = $fileUploads.find(
+				(fileUpload) => fileUpload.name === uploadData.name
+			)!
+
+			if (currentFileUpload.cancelled) {
+				return
+			}
+
 			let { value: chunk_2, done: readerDone } = await reader.read()
 			if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
 				// AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
 				chunk = new Uint8Array([...chunk, ...chunk_2])
 				continue
 			}
+
 			fileUploadProgress += (chunk.length * 100) / fileToUpload.size
-			let response = await HelpersService.multipartFileUpload({
-				workspace: $workspaceStore!,
-				requestBody: {
-					file_key: fileToUploadKey,
-					part_content: Array.from(chunk),
-					upload_id: upload_id,
-					parts: parts,
-					is_final: readerDone,
-					cancel_upload: fileUploadCancelled
+			uploadData.progress = fileUploadProgress
+
+			$fileUploads = $fileUploads.map((fileUpload) => {
+				if (fileUpload.name === uploadData.name) {
+					return uploadData
 				}
+				return fileUpload
 			})
-			upload_id = response.upload_id
-			parts = response.parts
-			if (response.is_done) {
-				if (fileUploadCancelled) {
-					sendUserToast('File upload cancelled!')
-				} else {
-					sendUserToast('File upload finished!')
+
+			try {
+				let response = await HelpersService.multipartFileUpload({
+					workspace: $workspaceStore!,
+					requestBody: {
+						file_key: fileToUploadKey,
+						part_content: Array.from(chunk),
+						upload_id: upload_id,
+						parts: parts,
+						is_final: readerDone,
+						cancel_upload: currentFileUpload.cancelled ?? false,
+						s3_resource_path: resolvedConfig.resource
+					}
+				})
+				upload_id = response.upload_id
+				parts = response.parts
+				if (response.is_done) {
+					if (currentFileUpload.cancelled) {
+						sendUserToast('File upload cancelled!')
+					} else {
+						sendUserToast('File upload finished!')
+					}
+					break
 				}
-				break
-			}
-			if (chunk_2 === undefined) {
-				sendUserToast(
-					'File upload is not finished, yet there is no more data to stream. This is unexpected',
-					true
-				)
+				if (chunk_2 === undefined) {
+					sendUserToast(
+						'File upload is not finished, yet there is no more data to stream. This is unexpected',
+						true
+					)
+					return
+				}
+				chunk = chunk_2
+			} catch (e) {
+				sendUserToast(e, true)
 				return
 			}
-			chunk = chunk_2
 		}
-		uploadModalOpen = false
-
-		if (!fileUploadCancelled) {
-			/*
-			selectedFileKey = { s3: fileToUploadKey }
-			await loadFiles()
-			await loadFileMetadataPlusPreviewAsync(selectedFileKey['s3'])
-			*/
-		}
-
-		fileUploadProgress = undefined
-		fileUploadCancelled = false
-		fileUploadErrorMsg = undefined
 	}
 </script>
 
@@ -153,7 +180,7 @@
 	/>
 {/each}
 
-{#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['s3fileinputcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{extraKey}
@@ -164,23 +191,127 @@
 {/each}
 
 {#if render}
-	<div class="w-full h-full p-1">
-		<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-			<div class="h-full bg-blue-400" style="width: {fileUploadProgress ?? 0}%" />
-		</div>
+	<div class="w-full h-full p-2 flex">
+		{#if $fileUploads.length > 0}
+			<div class="border rounded-md flex flex-col gap-1 divide-y h-full w-full p-1">
+				<div class="flex h-full overflow-y-auto flex-col">
+					{#each $fileUploads as fileUpload}
+						<div class="w-full flex flex-col gap-1 p-2">
+							<div class="flex flex-row items-center justify-between">
+								<div class="flex flex-col gap-1">
+									<span class="text-xs font-bold">{fileUpload.name}</span>
+									<span class="text-xs"
+										>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
+									>
+								</div>
+								<div class="flex flex-row gap-1 items-center">
+									{#if fileUpload.errorMessage}
+										<FileWarning class="w-4 h-4 text-red-500" />
+									{:else if fileUpload.cancelled}
+										<FileWarning class="w-4 h-4 text-yellow-500" />
+									{:else if fileUpload.progress === 100}
+										<CheckCheck class="w-4 h-4 text-green-500" />
+									{/if}
 
-		{#if done}
-			<div class="flex items-center justify-center h-full flex-col gap-2">
-				{resolvedConfig.submittedFileText}
-				<Button
-					size="xs"
-					on:click={() => {
-						done = false
-						outputs?.result.set(undefined)
-					}}
-				>
-					Restart
-				</Button>
+									{#if fileUpload.progress < 100 && !fileUpload.cancelled}
+										<Button
+											size="xs2"
+											color="light"
+											variant="border"
+											on:click={() => {
+												fileUpload.cancelled = true
+												fileUpload.progress = 0
+											}}
+											startIcon={{
+												icon: Ban
+											}}
+										>
+											Cancel Upload
+										</Button>
+									{/if}
+
+									{#if fileUpload.progress === 100 || fileUpload.cancelled}
+										<Button
+											size="xs2"
+											color="red"
+											variant="border"
+											on:click={() => {
+												$fileUploads = $fileUploads.filter(
+													(fileUpload) => fileUpload.name !== fileUpload.name
+												)
+											}}
+											startIcon={{
+												icon: Trash
+											}}
+										>
+											Delete
+										</Button>
+									{/if}
+								</div>
+							</div>
+
+							<FileProgressBar
+								progress={fileUpload.progress}
+								color={fileUpload.errorMessage
+									? '#ef4444'
+									: fileUpload.cancelled
+									? '#eab308'
+									: fileUpload.progress === 100
+									? '#22c55e'
+									: '#3b82f6'}
+								ended={fileUpload.cancelled || fileUpload.errorMessage !== undefined}
+							>
+								{#if fileUpload.errorMessage}
+									<span class="text-xs text-red-600">{fileUpload.errorMessage}</span>
+								{:else if fileUpload.cancelled}
+									<span class="text-xs text-yellow-600">Upload cancelled</span>
+								{:else if fileUpload.progress === 100}
+									{resolvedConfig.displayDirectLink}
+									{#if resolvedConfig.displayDirectLink}
+										<a
+											href={`https://resolvedConfig.bucketName.s3.amazonaws.com/${fileUpload.name}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="text-xs text-green-600"
+										>
+											'https://resolvedConfig.bucketName.s3.amazonaws.com/{fileUpload.name}'
+										</a>
+									{:else}
+										<span class="text-xs text-green-600">Upload finished</span>
+									{/if}
+								{/if}
+							</FileProgressBar>
+						</div>
+					{/each}
+				</div>
+				<div class="flex flex-row gap-1 items-center justify-end p-1">
+					<Button
+						size="xs2"
+						color="light"
+						on:click={() => {
+							$fileUploads = $fileUploads.map((fileUpload) => {
+								if (fileUpload.progress === 100 || fileUpload.cancelled) {
+									return fileUpload
+								}
+
+								fileUpload.cancelled = true
+								fileUpload.progress = 0
+								return fileUpload
+							})
+						}}
+					>
+						Cancel All Uploads
+					</Button>
+					<Button
+						size="xs2"
+						color="light"
+						on:click={() => {
+							$fileUploads = []
+						}}
+					>
+						Upload more files
+					</Button>
+				</div>
 			</div>
 		{:else}
 			<FileInput
@@ -192,7 +323,6 @@
 				includeMimeType
 				on:change={({ detail }) => {
 					handleChange(detail)
-					done = true
 				}}
 				class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
 				style={css?.container?.style}

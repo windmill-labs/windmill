@@ -3032,6 +3032,11 @@ This is a paragraph.
 					value: 'private',
 					fieldType: 'select',
 					selectOptions: ['public-read', 'private', 'public-read-write']
+				},
+				displayDirectLink: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			},
 			componentInput: undefined
