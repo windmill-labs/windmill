@@ -401,11 +401,11 @@
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if $userStore?.is_admin}
+				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 					<Toggle
 						size="xs"
 						bind:checked={filterUserFolders}
-						options={{ right: `Only f/* and u/${$userStore.username}` }}
+						options={{ right: `Only u/${$userStore.username} and f/*` }}
 					/>
 				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
