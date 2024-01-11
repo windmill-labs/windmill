@@ -27,7 +27,7 @@ use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -47,9 +47,7 @@ use windmill_common::{
     },
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::{
-    self, schedule::push_scheduled_job, PushArgs, PushIsolationLevel, QueueTransaction,
-};
+use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -509,7 +507,8 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
-    if let Some(p_path) = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone()) {
+    let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
+    if let Some(ref p_path) = p_path_opt {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
             p_path,
@@ -611,6 +610,15 @@ async fn create_script(
         } else {
             ns.tag
         };
+
+        let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(dm) = ns.deployment_message {
+            args.insert("deployment_message".to_string(), json!(dm));
+        }
+        if let Some(ref p_path) = p_path_opt {
+            args.insert("parent_path".to_string(), json!(p_path));
+        }
+
         let tx = PushIsolationLevel::Transaction(tx);
         let (_, new_tx) = windmill_queue::push(
             &db,
@@ -621,9 +629,8 @@ async fn create_script(
                 language: ns.language,
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
-                deployment_message: ns.deployment_message,
             },
-            PushArgs::empty(),
+            args,
             &authed.username,
             &authed.email,
             permissioned_as,
@@ -649,7 +656,11 @@ async fn create_script(
             &authed.username,
             &db,
             &w_id,
-            DeployedObject::Script { hash: hash, path: script_path },
+            DeployedObject::Script {
+                hash: hash.clone(),
+                path: script_path.clone(),
+                parent_path: p_path_opt,
+            },
             ns.deployment_message,
             rsmq,
         )
@@ -1116,6 +1127,7 @@ async fn delete_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
     let path = path.to_path();
@@ -1168,6 +1180,34 @@ async fn delete_script_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Script {
+            hash: ScriptHash(0), // Temporary value as it will get removed right after
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+        },
+        Some(format!("Script '{}' deleted", path)),
+        rsmq,
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE path = $1 AND workspace_id = $2 AND script_hash IS NOT NULL",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+        ))
+    })?;
 
     webhook.send_message(
         w_id.clone(),
