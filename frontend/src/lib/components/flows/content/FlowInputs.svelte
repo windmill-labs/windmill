@@ -91,7 +91,7 @@
 		{#if kind == 'approval'}
 			<div class="mt-2" />
 			<Alert title="Approval Step" role="info">
-				An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of the secret urls. See dtails in 'Advanced' -> 'Suspend' settings of the step.<br/><br/>
+				An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of the secret urls. See details in 'Advanced' -> 'Suspend' settings of the step.<br/><br/>
 				For further details, visit <a
 					href="https://www.windmill.dev/docs/flows/flow_approval"
 					target="_blank"
