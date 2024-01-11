@@ -42,7 +42,7 @@
 	export let valid = true
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
-	export let editableSchema = false
+	export let editableSchema: { i: number; total: number } | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -192,6 +192,10 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
+
+	function changePosition(i: number, up: boolean) {
+		dispatch('changePosition', { i, up })
+	}
 </script>
 
 <S3FilePicker
@@ -218,6 +222,23 @@
 				{format}
 				{simpleTooltip}
 			/>
+			{#if editableSchema}
+				<span class="mx-8" />
+				{#if editableSchema.i > 0}
+					<button
+						on:click={() => changePosition(editableSchema?.i ?? 0, true)}
+						class="text-lg mr-2"
+					>
+						&uparrow;</button
+					>
+				{/if}
+				{#if editableSchema.i < editableSchema.total - 1}
+					<button
+						on:click={() => changePosition(editableSchema?.i ?? 0, false)}
+						class="text-lg mr-2">&downarrow;</button
+					>
+				{/if}
+			{/if}
 		{/if}
 		{#if editableSchema}
 			<label class="text-secondary">
@@ -234,7 +255,7 @@
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
 			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
+				<div class="p-2 my-2 mv-1 text-xs border-solid border rounded-lg">
 					<div class="w-min">
 						<Button
 							on:click={() => {
@@ -511,7 +532,7 @@
 			{:else if inputCat == 'date'}
 				<DateTimeInput {autofocus} bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
-				<div class="border my-1 mb-4 w-full border-gray-400">
+				<div class="border my-1 mb-4 w-full border-primary">
 					<SimpleEditor
 						on:focus={(e) => {
 							dispatch('focus')

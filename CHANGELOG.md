@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [1.240.0](https://github.com/windmill-labs/windmill/compare/v1.239.0...v1.240.0) (2024-01-11)
+
+
+### Features
+
+* **cli:** introduce --stateful for CLI, in preparation for --raw to become the default ([39ecf80](https://github.com/windmill-labs/windmill/commit/39ecf8017ee88c4311cb2dd580b20cd59066612e))
+
+## [1.239.0](https://github.com/windmill-labs/windmill/compare/v1.238.0...v1.239.0) (2024-01-11)
+
+
+### Features
+
+* add configurable ordering for script's generated UI ([717ccc9](https://github.com/windmill-labs/windmill/commit/717ccc94a06ee65a5676c7d9091faf892396657e))
+* **frontend:** AG chart ([#2972](https://github.com/windmill-labs/windmill/issues/2972)) ([e3c1661](https://github.com/windmill-labs/windmill/commit/e3c166154da4251e21a5f6a6fcf5b2e101b558e1))
+
+
+### Bug Fixes
+
+* **cli:** improve .wmillignore handling of folders ([6996c90](https://github.com/windmill-labs/windmill/commit/6996c9083d9ae93922caf68e5658f18b49678630))
+* handle Etc/Unknown timezone better ([8c97ef0](https://github.com/windmill-labs/windmill/commit/8c97ef0394925b49a04c253259783be301e8f4ee))
+* only cache flow if it's a success ([589e683](https://github.com/windmill-labs/windmill/commit/589e683c27f15fcb48993f2f6e91523abef1794a))
+* spelling error dtails -&gt; details ([#2986](https://github.com/windmill-labs/windmill/issues/2986)) ([308c4ce](https://github.com/windmill-labs/windmill/commit/308c4ceb475fef033ea87af5f772e1f35b4fb16d))
+
 ## [1.238.0](https://github.com/windmill-labs/windmill/compare/v1.237.0...v1.238.0) (2024-01-10)
 
 

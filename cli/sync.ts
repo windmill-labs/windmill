@@ -432,7 +432,7 @@ export async function ignoreF() {
     return (p: string, isDirectory: boolean) => {
       return (
         !isWhitelisted(p) &&
-        (isNotWmillFile(p, isDirectory) || ignore.denies(p))
+        (isNotWmillFile(p, isDirectory) || (!isDirectory && ignore.denies(p)))
       );
     };
   } catch {
@@ -495,7 +495,6 @@ async function pull(
     prettyChanges(changes);
     if (
       !opts.yes &&
-      !opts.raw &&
       !(await Confirm.prompt({
         message: `Do you want to apply these ${changes.length} changes?`,
         default: true,
@@ -563,6 +562,7 @@ async function pull(
           log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.content);
+        log.info(`Writing ${getTypeStrFromPath(change.path)} ${change.path}`);
         if (!opts.raw) {
           await Deno.copyFile(target, stateTarget);
         }
@@ -904,8 +904,15 @@ const command = new Command()
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
   )
+  .option(
+    "--raw",
+    "Push without using state, just overwrite. (Will be removed as a flag and made the default behavior in the future)"
+  )
   .option("--yes", "Pull without needing confirmation")
-  .option("--raw", "Pull without using state, just overwrite.")
+  .option(
+    "--stateful",
+    "Pull using state tracking (create .wmill folder and needed for --fail-conflicts). Default currently but will change in favor of --raw"
+  )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
@@ -922,9 +929,16 @@ const command = new Command()
     "--fail-conflicts",
     "Error on conflicts (both remote and local have changes on the same item)"
   )
-  .option("--skip-pull", "Push without pulling first (you have pulled prior)")
+  .option(
+    "--raw",
+    "Push without using state, just overwrite. (Will be removed as a flag and made the default behavior in the future)"
+  )
+  .option(
+    "--stateful",
+    "Pull using state tracking (use .wmill folder and needed for --fail-conflicts). Default currently but will change in favor of --raw"
+  )
+  .option("--skip-pull", "(stateful only) Push without pulling first")
   .option("--yes", "Push without needing confirmation")
-  .option("--raw", "Push without using state, just overwrite.")
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
