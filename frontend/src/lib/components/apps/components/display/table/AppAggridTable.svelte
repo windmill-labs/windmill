@@ -142,7 +142,10 @@
 				eGui,
 				{
 					rowData: value,
-					columnDefs: resolvedConfig?.columnDefs,
+					columnDefs:
+						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+							? resolvedConfig?.columnDefs
+							: [],
 					pagination: resolvedConfig?.pagination,
 					paginationAutoPageSize: resolvedConfig?.pagination,
 					defaultColDef: {
@@ -224,7 +227,10 @@
 	function updateOptions() {
 		api?.updateGridOptions({
 			rowData: value,
-			columnDefs: resolvedConfig?.columnDefs,
+			columnDefs:
+				Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+					? resolvedConfig?.columnDefs
+					: undefined,
 			pagination: resolvedConfig?.pagination,
 			paginationAutoPageSize: resolvedConfig?.pagination,
 			defaultColDef: {
