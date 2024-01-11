@@ -91,7 +91,7 @@
 	loadResourceTypes()
 
 	function reorder() {
-		if (schema.order && Array.isArray(schema.order)) {
+		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
 
 			;(schema.order as string[]).forEach((x) => {
