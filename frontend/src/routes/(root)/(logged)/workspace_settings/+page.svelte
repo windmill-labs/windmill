@@ -616,12 +616,19 @@
 				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set Webhook</Button>
 			</div>
 		{:else if tab == 'error_handler'}
+			{#if !$enterpriseLicense}
+				<div class="pt-4" />
+				<Alert type="info" title="Workspace error handler is an EE feature">
+					Workspace error handler is a Windmill EE feature. It enables using your current Slack
+					connection or a custom script to send notifications anytime any job would fail.
+				</Alert>
+			{/if}
+
 			<PageHeader title="Script to run as error handler" primary={false} />
 
 			<ErrorOrRecoveryHandler
 				isEditable={true}
 				errorOrRecovery="error"
-				handlersOnlyForEe={['slack']}
 				showScriptHelpText={true}
 				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
@@ -656,16 +663,18 @@
 
 			<div class="flex flex-col mt-5 gap-5 items-start">
 				<Toggle
-					disabled={errorHandlerSelected === 'slack' &&
-						!emptyString(errorHandlerScriptPath) &&
-						emptyString(errorHandlerExtraArgs['channel'])}
+					disabled={!$enterpriseLicense ||
+						(errorHandlerSelected === 'slack' &&
+							!emptyString(errorHandlerScriptPath) &&
+							emptyString(errorHandlerExtraArgs['channel']))}
 					bind:checked={errorHandlerMutedOnCancel}
 					options={{ right: 'Do not run error handler for canceled jobs' }}
 				/>
 				<Button
-					disabled={errorHandlerSelected === 'slack' &&
-						!emptyString(errorHandlerScriptPath) &&
-						emptyString(errorHandlerExtraArgs['channel'])}
+					disabled={!$enterpriseLicense ||
+						(errorHandlerSelected === 'slack' &&
+							!emptyString(errorHandlerScriptPath) &&
+							emptyString(errorHandlerExtraArgs['channel']))}
 					size="sm"
 					on:click={editErrorHandler}
 				>
