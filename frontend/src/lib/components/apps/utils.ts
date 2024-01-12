@@ -239,6 +239,12 @@ declare function invalidate(id: string, key: number, error: string): void;
  * @param id component's id
  */
 declare function validateAll(id: string, key: number): void;
+
+/** Clear the files of a file input component
+ * @param id component's id
+ */
+declare function clearFiles(id: string): void;
+
 `
 		: ''
 }

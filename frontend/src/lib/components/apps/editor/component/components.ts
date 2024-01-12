@@ -388,7 +388,8 @@ const labels = {
 	open: 'Open a modal or a drawer',
 	close: 'Close a modal or a drawer',
 	openModal: 'Open a modal (deprecated)',
-	closeModal: 'Close a modal (deprecated)'
+	closeModal: 'Close a modal (deprecated)',
+	clearFiles: 'Clear files from a S3 file input'
 }
 
 const onSuccessClick = {
@@ -460,6 +461,14 @@ const onSuccessClick = {
 		close: {
 			id: {
 				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
 				fieldType: 'text',
 				type: 'static',
 				value: ''

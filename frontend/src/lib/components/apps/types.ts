@@ -248,6 +248,7 @@ export type AppViewerContext = {
 				validate?: (key: string) => void
 				invalidate?: (key: string, error: string) => void
 				validateAll?: () => void
+				clearFiles?: () => void
 			}
 		>
 	>

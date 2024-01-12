@@ -40,10 +40,17 @@
 	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
-		result: [] as { name: string; data: string }[] | undefined,
+	$componentControl[id] = {
+		clearFiles: () => {
+			outputs.result.set([])
+			$fileUploads = []
+		}
+	}
+
+	const outputs = initOutput($worldStore, id, {
+		result: [] as { path: string }[] | undefined,
 		loading: false,
 		jobId: undefined
 	})
@@ -154,8 +161,17 @@
 					if (currentFileUpload.cancelled) {
 						sendUserToast('File upload cancelled!')
 					} else {
+						const curr = outputs.result.peak()
+
+						outputs.result.set(
+							curr.concat({
+								path: path ?? fileToUploadKey
+							})
+						)
+
 						sendUserToast('File upload finished!')
 					}
+
 					break
 				}
 				if (chunk_2 === undefined) {
@@ -187,6 +203,10 @@
 			workspace: $workspaceStore!,
 			fileKey: fileKey
 		})
+
+		const curr = outputs.result.peak()
+
+		outputs.result.set(curr.filter((file) => file.path !== fileKey))
 
 		sendUserToast('File deleted!')
 	}

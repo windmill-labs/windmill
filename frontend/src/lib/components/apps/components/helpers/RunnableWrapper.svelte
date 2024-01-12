@@ -25,6 +25,7 @@
 					| 'closeModal'
 					| 'open'
 					| 'close'
+					| 'clearFiles'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -47,6 +48,9 @@
 						id: string | undefined
 					}
 					close?: {
+						id: string | undefined
+					}
+					clearFiles?: {
 						id: string | undefined
 					}
 				}
@@ -201,6 +205,14 @@
 				if (!id) return
 
 				$componentControl[id].close?.()
+				break
+			}
+			case 'clearFiles': {
+				const id = sideEffect?.configuration?.clearFiles?.id
+
+				if (!id) return
+
+				$componentControl[id].clearFiles?.()
 				break
 			}
 			default:
