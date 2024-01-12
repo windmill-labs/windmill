@@ -110,6 +110,17 @@ export type ChartJsComponentV2 = BaseComponent<'chartjscomponentv2'> & {
 	datasets: RichConfiguration | undefined
 }
 
+export type AgChartsComponent = BaseComponent<'agchartscomponent'> & {
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
+
+export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
+	license: string
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
+
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
 export type TableComponent = BaseComponent<'tablecomponent'> & {
@@ -253,6 +264,8 @@ export type TypedComponent =
 	| StatisticCardComponent
 	| MenuComponent
 	| DecisionTreeComponent
+	| AgChartsComponent
+	| AgChartsComponentEe
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -627,6 +640,20 @@ const aggridcomponentconst = {
 				}
 			]
 		} as StaticAppInput
+	}
+} as const
+
+const agchartscomponentconst = {
+	name: 'AgCharts',
+	icon: BarChart4,
+	documentationLink: `${documentationBaseUrl}/agcharts`,
+	dims: '2:8-6:8' as AppComponentDimensions,
+	customCss: {
+		container: { class: '', style: '' }
+	},
+	initialData: {
+		configuration: {},
+		componentInput: undefined
 	}
 } as const
 
@@ -1232,6 +1259,9 @@ export const components = {
 			}
 		}
 	},
+
+	agchartscomponent: agchartscomponentconst,
+	agchartscomponentee: { ...agchartscomponentconst, name: 'AgCharts EE' },
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,

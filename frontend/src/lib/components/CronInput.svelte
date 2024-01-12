@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ScheduleService } from '$lib/gen'
-	import { emptyString, formatCron } from '$lib/utils'
+	import { emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import Badge from './Badge.svelte'
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
@@ -67,6 +67,7 @@
 			if (err.status == 400 && err.body.includes('cron')) {
 				validCRON = false
 			} else {
+				sendUserToast(err.body, true)
 				validCRON = false
 			}
 		}
@@ -134,18 +135,39 @@
 		}
 	}
 
-	$: dateFormatter = new Intl.DateTimeFormat('en-GB', {
-		weekday: 'short',
-		day: '2-digit',
-		month: 'short',
-		year: 'numeric',
-		hour: 'numeric',
-		minute: 'numeric',
-		second: 'numeric',
-		timeZone: timezone,
-		timeZoneName: 'short'
-	}).format
+	$: dateFormatter = formatDate(timezone)
 
+	function formatDate(timezone) {
+		try {
+			return new Intl.DateTimeFormat('en-GB', {
+				weekday: 'short',
+				day: '2-digit',
+				month: 'short',
+				year: 'numeric',
+				hour: 'numeric',
+				minute: 'numeric',
+				second: 'numeric',
+				timeZone: timezone,
+				timeZoneName: 'short'
+			}).format
+		} catch (ee) {
+			sendUserToast(
+				`Invalid timezone: ${timezone}. Update your browser's timezone preference`,
+				true
+			)
+			return new Intl.DateTimeFormat('en-GB', {
+				weekday: 'short',
+				day: '2-digit',
+				month: 'short',
+				year: 'numeric',
+				hour: 'numeric',
+				minute: 'numeric',
+				second: 'numeric',
+				timeZone: 'Europe/Paris',
+				timeZoneName: 'short'
+			}).format
+		}
+	}
 	let darkMode: boolean = false
 
 	function onThemeChange() {

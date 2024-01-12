@@ -18,7 +18,6 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{send_email_if_possible, WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
-    variables::build_crypt,
     webhook_util::{InstanceEvent, WebhookShared},
 };
 #[cfg(feature = "stripe")]
@@ -43,6 +42,7 @@ use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
+use windmill_common::variables::build_crypt;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::workspaces::WorkspaceGitRepo;
 use windmill_common::{

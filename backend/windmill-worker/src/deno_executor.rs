@@ -7,8 +7,8 @@ use windmill_queue::CanceledBy;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        start_child_process, write_file,
+        create_args_and_out_file, get_reserved_variables, handle_child, parse_npm_config,
+        read_result, set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
@@ -70,7 +70,8 @@ async fn get_common_deno_proc_envs(
     ]);
 
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+        let (url, _token_opt) = parse_npm_config(s);
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
     }
     if DENO_CERT.len() > 0 {
         deno_envs.insert(String::from("DENO_CERT"), DENO_CERT.clone());
@@ -108,7 +109,8 @@ pub async fn generate_deno_lock(
 
     let mut deno_envs = HashMap::new();
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+        let (url, _token_opt) = parse_npm_config(s);
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
     }
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd

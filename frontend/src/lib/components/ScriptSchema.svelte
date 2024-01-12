@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 
-	import SchemaForm from './SchemaForm.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
+	import EditableSchemaForm from './EditableSchemaForm.svelte'
 
 	export let schema: Schema | any
 
@@ -23,7 +23,7 @@
 		<svelte:fragment slot="content">
 			<TabContent value="ui">
 				<div class="mt-4" />
-				<SchemaForm bind:schema editableSchema={true} />
+				<EditableSchemaForm bind:schema />
 			</TabContent>
 			<TabContent value="jsonschema">
 				<Highlight language={json} code={JSON.stringify(schema, null, 4)} />

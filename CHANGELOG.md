@@ -1,6 +1,45 @@
 # Changelog
 
 
+## [1.240.0](https://github.com/windmill-labs/windmill/compare/v1.239.0...v1.240.0) (2024-01-11)
+
+
+### Features
+
+* **cli:** introduce --stateful for CLI, in preparation for --raw to become the default ([39ecf80](https://github.com/windmill-labs/windmill/commit/39ecf8017ee88c4311cb2dd580b20cd59066612e))
+
+## [1.239.0](https://github.com/windmill-labs/windmill/compare/v1.238.0...v1.239.0) (2024-01-11)
+
+
+### Features
+
+* add configurable ordering for script's generated UI ([717ccc9](https://github.com/windmill-labs/windmill/commit/717ccc94a06ee65a5676c7d9091faf892396657e))
+* **frontend:** AG chart ([#2972](https://github.com/windmill-labs/windmill/issues/2972)) ([e3c1661](https://github.com/windmill-labs/windmill/commit/e3c166154da4251e21a5f6a6fcf5b2e101b558e1))
+
+
+### Bug Fixes
+
+* **cli:** improve .wmillignore handling of folders ([6996c90](https://github.com/windmill-labs/windmill/commit/6996c9083d9ae93922caf68e5658f18b49678630))
+* handle Etc/Unknown timezone better ([8c97ef0](https://github.com/windmill-labs/windmill/commit/8c97ef0394925b49a04c253259783be301e8f4ee))
+* only cache flow if it's a success ([589e683](https://github.com/windmill-labs/windmill/commit/589e683c27f15fcb48993f2f6e91523abef1794a))
+* spelling error dtails -&gt; details ([#2986](https://github.com/windmill-labs/windmill/issues/2986)) ([308c4ce](https://github.com/windmill-labs/windmill/commit/308c4ceb475fef033ea87af5f772e1f35b4fb16d))
+
+## [1.238.0](https://github.com/windmill-labs/windmill/compare/v1.237.0...v1.238.0) (2024-01-10)
+
+
+### Features
+
+* add ability to use secrets in pip requirements ([3517c7f](https://github.com/windmill-labs/windmill/commit/3517c7f28389a4ddf46a6bef4f2044aa94174050))
+* add support for multiselect in python ([c8a793d](https://github.com/windmill-labs/windmill/commit/c8a793d35ea843fb75428182edc06cfe7105af3b))
+* **frontend:** add shortcuts to audit logs ([#2975](https://github.com/windmill-labs/windmill/issues/2975)) ([4147d16](https://github.com/windmill-labs/windmill/commit/4147d1604a4c50ad0c667b413d64b44b357fb7e4))
+* **frontend:** Display the index by which a node can be selected with the setTab function + add tooltip ([#2974](https://github.com/windmill-labs/windmill/issues/2974)) ([cffae36](https://github.com/windmill-labs/windmill/commit/cffae3633107d9359e04354ba01876ccaf98193a))
+* S3 multipart upload accepts a custom S3 resource ([#2982](https://github.com/windmill-labs/windmill/issues/2982)) ([eea0d92](https://github.com/windmill-labs/windmill/commit/eea0d92dd11a3607fbb156e2bf3a3a001ab5e6a0))
+
+
+### Bug Fixes
+
+* main compile ([#2983](https://github.com/windmill-labs/windmill/issues/2983)) ([6d5c3f0](https://github.com/windmill-labs/windmill/commit/6d5c3f0f2252be15bf0169a42f5baa06d592911c))
+
 ## [1.237.0](https://github.com/windmill-labs/windmill/compare/v1.236.2...v1.237.0) (2024-01-08)
 
 

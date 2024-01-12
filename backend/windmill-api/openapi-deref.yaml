@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.233.0
+  version: 1.237.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -10295,6 +10295,8 @@ paths:
                   type: boolean
                 cancel_upload:
                   type: boolean
+                s3_resource_path:
+                  type: string
               required:
                 - file_key
                 - part_content_base64

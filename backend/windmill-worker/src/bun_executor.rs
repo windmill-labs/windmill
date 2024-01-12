@@ -12,8 +12,8 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        start_child_process, write_file, write_file_binary,
+        create_args_and_out_file, get_reserved_variables, handle_child, parse_npm_config,
+        read_result, set_logs, start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
     NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
@@ -86,20 +86,7 @@ pub async fn gen_lockfile(
 
     // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        let (url, token_opt) = if s.contains(":_authToken=") {
-            let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
-            let url = split_url
-                .get(0)
-                .map(|u| u.to_string())
-                .unwrap_or("".to_string());
-            let token = split_url
-                .get(1)
-                .map(|t| t.to_string())
-                .unwrap_or("".to_string());
-            (url, Some(token))
-        } else {
-            (s.to_owned(), None)
-        };
+        let (url, token_opt) = parse_npm_config(s);
         let registry_toml_string = if let Some(token) = token_opt {
             format!("{{ url = \"{url}\", token = \"{token}\" }}")
         } else {

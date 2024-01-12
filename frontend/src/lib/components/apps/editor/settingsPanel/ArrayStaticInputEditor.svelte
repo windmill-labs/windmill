@@ -26,7 +26,8 @@
 			if (subFieldType === 'boolean') {
 				value.push(false)
 			} else if (subFieldType === 'number') {
-				value.push(0)
+				value.push(1)
+				value = value
 			} else if (subFieldType === 'object') {
 				value.push({})
 			} else if (subFieldType === 'labeledresource' || subFieldType === 'labeledselect') {
@@ -74,6 +75,69 @@
 					},
 					name: 'New dataset'
 				})
+			} else if (subFieldType === 'ag-chart') {
+				value.push({
+					value: {
+						type: 'oneOf',
+						selected: 'bar',
+						labels: {
+							bar: 'Bar',
+							scatter: 'Scatter',
+							line: 'Line',
+							area: 'Area',
+							'range-bar': 'Range Bar'
+						},
+						configuration: {
+							bar: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							scatter: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							line: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							area: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number',
+									value: [25, 25, 50]
+								}
+							},
+							'range-bar': {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							}
+						}
+					},
+					name: 'New dataset'
+				})
+			} else if (subFieldType === 'number-tuple') {
+				value.push([0, 5])
 			}
 		} else {
 			value.push('')

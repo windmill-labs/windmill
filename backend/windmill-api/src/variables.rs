@@ -25,7 +25,9 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
-    variables::{get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable},
+    variables::{
+        build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
+    },
 };
 
 use lazy_static::lazy_static;
@@ -192,57 +194,6 @@ async fn get_value(
     return get_value_internal(tx, &db, &w_id, &path, &authed.username)
         .await
         .map(Json);
-}
-
-pub async fn get_value_internal<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    db: &DB,
-    w_id: &str,
-    path: &str,
-    username: &str,
-) -> Result<String> {
-    let variable_o = sqlx::query!(
-        "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
-        LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let variable = if let Some(variable) = variable_o {
-        variable
-    } else {
-        explain_variable_perm_error(path, w_id, db).await?;
-        unreachable!()
-    };
-
-    let r = if variable.is_secret {
-        audit_log(
-            &mut *tx,
-            username,
-            "variables.decrypt_secret",
-            ActionKind::Execute,
-            &w_id,
-            Some(&variable.path),
-            None,
-        )
-        .await?;
-        let value = variable.value;
-        if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?
-        } else if !value.is_empty() {
-            let mc = build_crypt(&mut tx, &w_id).await?;
-            tx.commit().await?;
-
-            mc.decrypt_base64_to_string(value)
-                .map_err(|e| Error::InternalErr(e.to_string()))?
-        } else {
-            "".to_string()
-        }
-    } else {
-        variable.value
-    };
-
-    Ok(r)
 }
 
 async fn explain_variable_perm_error(
@@ -606,31 +557,55 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
-pub async fn build_crypt<'c>(
-    db: &mut Transaction<'c, Postgres>,
+pub async fn get_value_internal<'c>(
+    mut tx: Transaction<'c, Postgres>,
+    db: &DB,
     w_id: &str,
-) -> Result<MagicCrypt256> {
-    let key = get_workspace_key(w_id, db).await?;
-    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", key, salt)
-    } else {
-        key
-    };
-    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
-}
-
-pub async fn get_workspace_key<'c>(
-    w_id: &str,
-    db: &mut Transaction<'c, Postgres>,
+    path: &str,
+    username: &str,
 ) -> Result<String> {
-    let key = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-        w_id
+    let variable_o = sqlx::query!(
+        "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
+        LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
-    .fetch_one(&mut **db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("fetching workspace key: {e}")))?;
-    Ok(key)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let variable = if let Some(variable) = variable_o {
+        variable
+    } else {
+        explain_variable_perm_error(path, w_id, db).await?;
+        unreachable!()
+    };
+
+    let r = if variable.is_secret {
+        audit_log(
+            &mut *tx,
+            username,
+            "variables.decrypt_secret",
+            ActionKind::Execute,
+            &w_id,
+            Some(&variable.path),
+            None,
+        )
+        .await?;
+        let value = variable.value;
+        if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
+            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?
+        } else if !value.is_empty() {
+            let mc = build_crypt(&mut tx, &w_id).await?;
+            tx.commit().await?;
+
+            mc.decrypt_base64_to_string(value)
+                .map_err(|e| Error::InternalErr(e.to_string()))?
+        } else {
+            "".to_string()
+        }
+    } else {
+        variable.value
+    };
+
+    Ok(r)
 }
 
 pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {

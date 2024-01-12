@@ -38,16 +38,13 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
+use windmill_common::variables::build_crypt;
 
 use crate::db::ApiAuthed;
 use crate::saml::SamlSsoLogin;
 use crate::users::{login_externally, LoginUserInfo};
 use crate::webhook_util::{InstanceEvent, WebhookShared};
-use crate::{
-    db::DB,
-    variables::{build_crypt, encrypt},
-    workspaces::WorkspaceSettings,
-};
+use crate::{db::DB, variables::encrypt, workspaces::WorkspaceSettings};
 use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRET};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;

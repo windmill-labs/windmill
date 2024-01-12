@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::{
     db::{ApiAuthed, DB},
-    variables::build_crypt,
     HTTP_CLIENT,
 };
 
@@ -17,7 +16,10 @@ use magic_crypt::MagicCryptTrait;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::error::{to_anyhow, Error};
+use windmill_common::{
+    error::{to_anyhow, Error},
+    variables::build_crypt,
+};
 
 use serde::Deserialize;
 

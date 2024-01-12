@@ -755,6 +755,8 @@ struct UploadFileQuery {
 
     pub is_final: bool,      // whether it's the final chunk
     pub cancel_upload: bool, // whether the upload should be cancelled. upload_id should be set. subsequent calls with this upload_id will fail
+
+    pub s3_resource_path: Option<String>, // custom S3 resource to use for this upload. It None, the workspace S3 resource will be used
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -784,7 +786,21 @@ async fn multipart_upload_s3_file(
         query.is_final
     );
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+
+    let s3_resource_opt = match query.s3_resource_path.clone() {
+        Some(s3_resource_path) => {
+            get_s3_resource(
+                &authed,
+                &user_db,
+                &db,
+                &token,
+                &w_id,
+                s3_resource_path.as_str(),
+            )
+            .await?
+        }
+        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+    };
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),

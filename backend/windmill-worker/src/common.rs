@@ -197,6 +197,24 @@ pub async fn transform_json_as_values<'a>(
     Ok(r)
 }
 
+pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
+    let (url, token_opt) = if s.contains(":_authToken=") {
+        let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
+        let url = split_url
+            .get(0)
+            .map(|u| u.to_string())
+            .unwrap_or("".to_string());
+        let token = split_url
+            .get(1)
+            .map(|t| t.to_string())
+            .unwrap_or("".to_string());
+        (url, Some(token))
+    } else {
+        (s.to_owned(), None)
+    };
+    return (url, token_opt);
+}
+
 #[async_recursion]
 pub async fn transform_json_value(
     name: &str,
