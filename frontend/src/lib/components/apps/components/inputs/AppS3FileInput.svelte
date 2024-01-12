@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FileInput } from '../../../common'
 	import FileProgressBar from '../../../common/FileProgressBar.svelte'
@@ -18,6 +18,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, Trash } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -30,20 +31,19 @@
 		configuration
 	)
 
-	$: console.log(resolvedConfig.pathTemplate)
-
 	type FileUploadData = {
 		name: string
 		size: number
 		progress: number
 		cancelled?: boolean
 		errorMessage?: string
+		path?: string
 	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	initOutput($worldStore, id, {
 		result: [] as { name: string; data: string }[] | undefined,
 		loading: false,
 		jobId: undefined
@@ -74,17 +74,14 @@
 			return
 		}
 
-		await tick()
-
-		const path = resolvedConfig.pathTemplate
-
-		debugger
+		const path = (await inputValue?.computeExpr({ file: fileToUpload })) ?? fileToUploadKey
 
 		const uploadData: FileUploadData = {
 			name: fileToUpload.name,
 			size: fileToUpload.size,
 			progress: 0,
-			cancelled: false
+			cancelled: false,
+			path: path
 		}
 
 		if (allFilesByKey[fileToUploadKey] !== undefined) {
@@ -138,7 +135,7 @@
 				let response = await HelpersService.multipartFileUpload({
 					workspace: $workspaceStore!,
 					requestBody: {
-						file_key: fileToUploadKey,
+						file_key: path ?? fileToUploadKey,
 						part_content: Array.from(chunk),
 						upload_id: upload_id,
 						parts: parts,
@@ -167,10 +164,19 @@
 				chunk = chunk_2
 			} catch (e) {
 				sendUserToast(e, true)
+				$fileUploads = $fileUploads.map((fileUpload) => {
+					if (fileUpload.name === uploadData.name) {
+						fileUpload.errorMessage = e
+						return fileUpload
+					}
+					return fileUpload
+				})
 				return
 			}
 		}
 	}
+
+	let inputValue: InputValue | undefined = undefined
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -192,6 +198,14 @@
 		configuration={configuration[key]}
 	/>
 {/each}
+
+<InputValue
+	input={configuration.pathTemplate}
+	{id}
+	field="pathTemplate"
+	value=""
+	bind:this={inputValue}
+/>
 
 {#if render}
 	<div class="w-full h-full p-2 flex">
@@ -216,7 +230,7 @@
 										<CheckCheck class="w-4 h-4 text-green-500" />
 									{/if}
 
-									{#if fileUpload.progress < 100 && !fileUpload.cancelled}
+									{#if fileUpload.progress < 100 && !fileUpload.cancelled && !fileUpload.errorMessage}
 										<Button
 											size="xs2"
 											color="light"
@@ -247,14 +261,14 @@
 											Copy link
 										</Button>
 									{/if}
-									{#if fileUpload.progress === 100 || fileUpload.cancelled}
+									{#if fileUpload.progress === 100 || fileUpload.cancelled || fileUpload.errorMessage}
 										<Button
 											size="xs2"
 											color="red"
 											variant="border"
 											on:click={() => {
 												$fileUploads = $fileUploads.filter(
-													(fileUpload) => fileUpload.name !== fileUpload.name
+													(_fileUpload) => _fileUpload.name !== fileUpload.name
 												)
 											}}
 											startIcon={{
@@ -266,7 +280,6 @@
 									{/if}
 								</div>
 							</div>
-
 							<FileProgressBar
 								progress={fileUpload.progress}
 								color={fileUpload.errorMessage
@@ -284,6 +297,9 @@
 									<span class="text-xs text-yellow-600">Upload cancelled</span>
 								{/if}
 							</FileProgressBar>
+							<span class="text-xs text-gray-500">
+								Uploaded to path: {fileUpload.path}
+							</span>
 						</div>
 					{/each}
 				</div>

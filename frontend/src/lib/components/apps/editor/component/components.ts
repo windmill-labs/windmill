@@ -3048,12 +3048,7 @@ This is a paragraph.
 					type: 'evalv2',
 					expr: `\`\${file.name}\``,
 					fieldType: 'template',
-					connections: [
-						{
-							componentId: 'file',
-							id: 'name'
-						}
-					] as InputConnectionEval[]
+					connections: [] as InputConnectionEval[]
 				}
 			}
 		}

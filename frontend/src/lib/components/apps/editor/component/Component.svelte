@@ -622,7 +622,6 @@
 		{:else if component.type === 's3fileinputcomponent'}
 			<AppS3FileInput
 				configuration={component.configuration}
-				componentInput={component.componentInput}
 				id={component.id}
 				customCss={component.customCss}
 				{render}
