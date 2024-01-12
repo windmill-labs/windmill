@@ -717,10 +717,11 @@ async fn delete_app(
         DeployedObject::App {
             path: path.to_string(),
             parent_path: Some(path.to_string()),
-            version: 0,
+            version: 0, // dummy version as it will not get inserted in db
         },
         Some(format!("App '{}' deleted", path)),
         rsmq,
+        true,
     )
     .await?;
 

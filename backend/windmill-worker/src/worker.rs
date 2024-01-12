@@ -3207,6 +3207,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                 },
                 deployment_message.clone(),
                 rsmq.clone(),
+                false,
             )
             .await
             {
@@ -3433,6 +3434,7 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
         DeployedObject::Flow { path: job_path, parent_path },
         deployment_message,
         rsmq.clone(),
+        false,
     )
     .await
     {
@@ -3841,6 +3843,7 @@ async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             DeployedObject::App { path: job_path, version: id, parent_path },
             deployment_message,
             rsmq.clone(),
+            false,
         )
         .await
         {

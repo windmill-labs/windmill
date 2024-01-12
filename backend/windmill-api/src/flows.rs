@@ -720,8 +720,10 @@ struct Archived {
 
 async fn archive_flow_by_path(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
@@ -748,6 +750,27 @@ async fn archive_flow_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!(
+            "Flow '{}' {}",
+            path,
+            if archived.archived.unwrap_or(true) {
+                "archived"
+            } else {
+                "unarchived"
+            }
+        )),
+        rsmq,
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::ArchiveFlow { workspace: w_id, path: path.to_owned() },
@@ -803,6 +826,7 @@ async fn delete_flow_by_path(
         DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
         Some(format!("Flow '{}' deleted", path)),
         rsmq,
+        true,
     )
     .await?;
 

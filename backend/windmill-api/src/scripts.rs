@@ -663,6 +663,7 @@ async fn create_script(
             },
             ns.deployment_message,
             rsmq,
+            false,
         )
         .await?;
         tx.commit().await?;
@@ -1012,6 +1013,7 @@ async fn archive_script_by_path(
     Extension(webhook): Extension<WebhookShared>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
     let path = path.to_path();
@@ -1038,6 +1040,23 @@ async fn archive_script_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Script {
+            hash: ScriptHash(0), // dummy hash as it will not get inserted in db
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+        },
+        Some(format!("Script '{}' archived", path)),
+        rsmq,
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
@@ -1193,6 +1212,7 @@ async fn delete_script_by_path(
         },
         Some(format!("Script '{}' deleted", path)),
         rsmq,
+        true,
     )
     .await?;
 

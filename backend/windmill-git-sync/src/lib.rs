@@ -53,6 +53,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     obj: DeployedObject,
     deployment_message: Option<String>,
     rsmq: Option<R>,
+    skip_db_insert: bool,
 ) -> Result<()> {
     let exclude_path_prefix = "u/";
     let obj_path = if obj.get_path().starts_with(exclude_path_prefix) {
@@ -190,7 +191,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     } else {
         vec![]
     };
-    if deployment_message.is_some() || job_uuids.len() > 0 {
+    if !skip_db_insert && (deployment_message.is_some() || job_uuids.len() > 0) {
         // if the git sync job hasn't been triggered, and there is not custom deployment message, there's not point adding an entry to the table
         match obj.clone() {
              DeployedObject::Script { path, hash, .. } => {
