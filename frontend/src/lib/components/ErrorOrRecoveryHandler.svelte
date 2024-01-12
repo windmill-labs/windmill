@@ -23,7 +23,7 @@
 
 	export let errorOrRecovery: 'error' | 'recovery'
 	export let isEditable: boolean
-	export let slackToggleText: string = 'enable'
+	export let slackToggleText: string = 'Enable'
 	export let showScriptHelpText: boolean = false
 	export let handlerSelected: 'custom' | 'slack'
 
