@@ -1193,7 +1193,9 @@ paths:
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   git_sync:
-                    $ref: "#/components/schemas/WorkspaceGitSync"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkspaceGitSync"
                 required:
                   - code_completion_enabled
 
@@ -1532,7 +1534,9 @@ paths:
               type: object
               properties:
                 git_sync_settings:
-                  $ref: "#/components/schemas/WorkspaceGitSync"
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WorkspaceGitSync"
 
       responses:
         "200":
@@ -6846,7 +6850,7 @@ paths:
 
   /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the file keys available in the worspace files storage (S3)
+      summary: List the file keys available in the workspace files storage (S3)
       operationId: listStoredFiles
       tags:
         - helpers

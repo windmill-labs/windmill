@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.241.0
+  version: 1.242.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1525,17 +1525,19 @@ paths:
                       s3_resource_path:
                         type: string
                   git_sync:
-                    type: object
-                    properties: &ref_16
-                      script_path:
-                        type: string
-                      git_repo_resource_path:
-                        type: string
-                      use_individual_branch:
-                        type: boolean
-                    required: &ref_17
-                      - script_path
-                      - git_repo_resource_path
+                    type: array
+                    items:
+                      type: object
+                      properties: &ref_16
+                        script_path:
+                          type: string
+                        git_repo_resource_path:
+                          type: string
+                        use_individual_branch:
+                          type: boolean
+                      required: &ref_17
+                        - script_path
+                        - git_repo_resource_path
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1891,9 +1893,11 @@ paths:
               type: object
               properties:
                 git_sync_settings:
-                  type: object
-                  properties: *ref_16
-                  required: *ref_17
+                  type: array
+                  items:
+                    type: object
+                    properties: *ref_16
+                    required: *ref_17
       responses:
         '200':
           description: status
@@ -10202,7 +10206,7 @@ paths:
               schema: {}
   /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the file keys available in the worspace files storage (S3)
+      summary: List the file keys available in the workspace files storage (S3)
       operationId: listStoredFiles
       tags:
         - helpers
