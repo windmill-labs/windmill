@@ -2310,8 +2310,10 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
-            let payload = script_to_payload(script_hash, script_path, db, flow_job, module).await?;
+        FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
+            let payload =
+                script_to_payload(script_hash, script_path, db, flow_job, module, tag_override)
+                    .await?;
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
@@ -2809,8 +2811,8 @@ async fn payload_from_simple_module(
     let delete_after_use = module.delete_after_use.unwrap_or(false);
     Ok(match value {
         FlowModuleValue::Flow { path, .. } => flow_to_payload(path, &delete_after_use),
-        FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
-            script_to_payload(script_hash, script_path, db, flow_job, module).await?
+        FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
+            script_to_payload(script_hash, script_path, db, flow_job, module, tag_override).await?
         }
         FlowModuleValue::RawScript {
             path,
@@ -2875,7 +2877,9 @@ async fn script_to_payload(
     db: &sqlx::Pool<sqlx::Postgres>,
     flow_job: &QueuedJob,
     module: &FlowModule,
+    tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
+    tracing::warn!("Script tag override: {:?}", tag_override);
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         script_path_to_payload(script_path, &db, &flow_job.workspace_id).await?
     } else {
@@ -2903,7 +2907,7 @@ async fn script_to_payload(
                 dedicated_worker,
                 priority,
             },
-            tag,
+            tag_override.to_owned().or(tag),
             delete_after_use,
             script_timeout,
         )

@@ -8587,6 +8587,8 @@ components:
           type: string
         no_flow_overlap:
           type: boolean
+        tag:
+          type: string
       required:
         - path
         - edited_by
@@ -8660,6 +8662,8 @@ components:
           type: boolean
         summary:
           type: string
+        tag:
+          type: string
       required:
         - path
         - schedule
@@ -8699,6 +8703,8 @@ components:
         no_flow_overlap:
           type: boolean
         summary:
+          type: string
+        tag:
           type: string
       required:
         - schedule

@@ -1005,6 +1005,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 retry: schedule.retry,
                 summary: schedule.summary,
                 no_flow_overlap: schedule.no_flow_overlap,
+                tag: schedule.tag,
             },
         )
         .await;
@@ -2616,6 +2617,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             concurrency_time_window_s,
             cache_ttl,
             priority,
+            tag_override,
         } => {
             let mut input_transforms = HashMap::<String, InputTransform>::new();
             for (arg_name, arg_value) in args {
@@ -2628,6 +2630,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         input_transforms: input_transforms,
                         path: path.clone(),
                         hash: Some(hash),
+                        tag_override: tag_override,
                     },
                     stop_after_if: None,
                     summary: None,
