@@ -753,7 +753,10 @@
 						<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script'} />
 					</Section>
 				{:else if optionTabSelected === 'tag'}
-					<Section label="Custom script tag">
+					<Section
+						label="Custom script tag"
+						tooltip="When set, the script tag will be overridden by this tag"
+					>
 						<WorkerTagPicker bind:tag popupPlacement="top-end" />
 					</Section>
 				{/if}

@@ -985,7 +985,8 @@ mod tests {
                     }
                   },
                 "type": "script",
-                "path": "test"
+                "path": "test",
+                "tag_override": Option::<String>::None,
               },
             },
             {
@@ -1028,7 +1029,8 @@ mod tests {
             "value": {
               "input_transforms": {},
               "type": "script",
-              "path": "test"
+              "path": "test",
+              "tag_override": Option::<String>::None,
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
