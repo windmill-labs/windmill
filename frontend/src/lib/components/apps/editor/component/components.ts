@@ -3005,51 +3005,52 @@ This is a paragraph.
 		},
 		initialData: {
 			configuration: {
-				resource: {
-					type: 'static',
-					fieldType: 'resource',
-					value: '',
-					subFieldType: 's3'
-				} as StaticAppInput,
-				acceptedFileTypes: {
-					type: 'static',
-					value: ['image/*', 'application/pdf'] as string[],
-					fieldType: 'array'
-				},
-				allowMultiple: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					tooltip: 'If allowed, the user will be able to select more than one file'
-				},
-				text: {
-					type: 'static',
-					value: 'Drag and drop files or click to select them',
-					fieldType: 'text'
-				},
-
-				submittedFileText: {
-					type: 'static',
-					value: 'File Submitted!',
-					fieldType: 'text'
-				},
-				accessLevel: {
-					type: 'static',
-					value: 'private',
-					fieldType: 'select',
-					selectOptions: ['public-read', 'private', 'public-read-write']
-				},
-				displayDirectLink: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean'
-				},
-				pathTemplate: {
-					type: 'evalv2',
-					expr: `\`\${file.name}\``,
-					fieldType: 'template',
-					connections: [] as InputConnectionEval[]
-				}
+				type: {
+					type: 'oneOf',
+					selected: 's3',
+					labels: {
+						s3: 'S3'
+					},
+					configuration: {
+						s3: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								value: '',
+								subFieldType: 's3'
+							} as StaticAppInput,
+							acceptedFileTypes: {
+								type: 'static',
+								value: ['image/*', 'application/pdf'] as string[],
+								fieldType: 'array'
+							},
+							allowMultiple: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to select more than one file'
+							},
+							text: {
+								type: 'static',
+								value: 'Drag and drop files or click to select them',
+								fieldType: 'text'
+							},
+							/*
+							displayDirectLink: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							},
+							*/
+							pathTemplate: {
+								type: 'evalv2',
+								expr: `\`\${file.name}\``,
+								fieldType: 'template',
+								connections: [] as InputConnectionEval[]
+							}
+						}
+					}
+				} as const
 			}
 		}
 	},

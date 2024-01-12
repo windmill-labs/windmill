@@ -7,7 +7,6 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
-
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { components } from '../../editor/component'
@@ -16,8 +15,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService, type UploadFilePart } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
-	import { Ban, CheckCheck, FileWarning, Files, Trash } from 'lucide-svelte'
-	import { copyToClipboard } from '$lib/utils'
+	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
@@ -38,6 +36,7 @@
 		cancelled?: boolean
 		errorMessage?: string
 		path?: string
+		file?: File
 	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
@@ -54,6 +53,8 @@
 			uploadFileToS3(file, file.name)
 		}
 	}
+
+	$: resolvedConfigS3 = resolvedConfig.type.configuration.s3
 
 	let css = initCss($app.css?.fileinputcomponent, customCss)
 
@@ -79,9 +80,10 @@
 		const uploadData: FileUploadData = {
 			name: fileToUpload.name,
 			size: fileToUpload.size,
-			progress: 0,
+			progress: 1, // We set it to 1 so that the progress bar is visible
 			cancelled: false,
-			path: path
+			path: path,
+			file: fileToUpload
 		}
 
 		if (allFilesByKey[fileToUploadKey] !== undefined) {
@@ -141,7 +143,7 @@
 						parts: parts,
 						is_final: readerDone,
 						cancel_upload: currentFileUpload.cancelled ?? false,
-						s3_resource_path: resolvedConfig.resource
+						s3_resource_path: resolvedConfigS3 ? resolvedConfigS3.resource.split(':')[1] : undefined
 					}
 				})
 				upload_id = response.upload_id
@@ -177,6 +179,37 @@
 	}
 
 	let inputValue: InputValue | undefined = undefined
+
+	async function deleteFile(fileKey: string) {
+		await HelpersService.deleteS3File({
+			workspace: $workspaceStore!,
+			fileKey: fileKey
+		})
+
+		sendUserToast('File deleted!')
+	}
+	/*
+
+		{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}
+										<Button
+											color="light"
+											on:click={() => {
+												if (!fileUpload.path) {
+													return
+												}
+
+												loadFileMetadata(fileUpload.path)
+												copyToClipboard(
+													`https://resolvedConfig.bucketName.s3.amazonaws.com/${fileUpload.name}`
+												)
+											}}
+											size="xs2"
+											variant="border"
+										>
+											Copy Direct Link
+										</Button>
+									{/if}
+									*/
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -199,13 +232,15 @@
 	/>
 {/each}
 
-<InputValue
-	input={configuration.pathTemplate}
-	{id}
-	field="pathTemplate"
-	value=""
-	bind:this={inputValue}
-/>
+{#if configuration.type?.['configuration']?.s3.pathTemplate}
+	<InputValue
+		input={configuration.type?.['configuration']?.s3.pathTemplate}
+		{id}
+		field="pathTemplate"
+		value=""
+		bind:this={inputValue}
+	/>
+{/if}
 
 {#if render}
 	<div class="w-full h-full p-2 flex">
@@ -230,6 +265,52 @@
 										<CheckCheck class="w-4 h-4 text-green-500" />
 									{/if}
 
+									{#if fileUpload.cancelled || fileUpload.errorMessage !== undefined}
+										<Button
+											size="xs2"
+											color="light"
+											variant="border"
+											on:click={() => {
+												const file = fileUpload.file
+
+												if (!file) {
+													return
+												}
+
+												$fileUploads = $fileUploads.filter(
+													(_fileUpload) => _fileUpload.name !== fileUpload.name
+												)
+
+												uploadFileToS3(file, file.name)
+											}}
+											startIcon={{
+												icon: RefreshCcw
+											}}
+										>
+											Retry Upload
+										</Button>
+										<Button
+											size="xs2"
+											color="light"
+											variant="border"
+											on:click={() => {
+												const file = fileUpload.file
+
+												if (!file) {
+													return
+												}
+
+												$fileUploads = $fileUploads.filter(
+													(_fileUpload) => _fileUpload.name !== fileUpload.name
+												)
+											}}
+											startIcon={{
+												icon: RefreshCcw
+											}}
+										>
+											Remove from list
+										</Button>
+									{/if}
 									{#if fileUpload.progress < 100 && !fileUpload.cancelled && !fileUpload.errorMessage}
 										<Button
 											size="xs2"
@@ -247,21 +328,7 @@
 										</Button>
 									{/if}
 
-									{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}
-										<Button
-											color="light"
-											on:click={() => {
-												copyToClipboard(
-													`https://resolvedConfig.bucketName.s3.amazonaws.com/${fileUpload.name}`
-												)
-											}}
-											size="xs2"
-											variant="border"
-										>
-											Copy link
-										</Button>
-									{/if}
-									{#if fileUpload.progress === 100 || fileUpload.cancelled || fileUpload.errorMessage}
+									{#if fileUpload.progress === 100 && !fileUpload.cancelled}
 										<Button
 											size="xs2"
 											color="red"
@@ -270,6 +337,10 @@
 												$fileUploads = $fileUploads.filter(
 													(_fileUpload) => _fileUpload.name !== fileUpload.name
 												)
+
+												if (fileUpload.path) {
+													deleteFile(fileUpload.path)
+												}
 											}}
 											startIcon={{
 												icon: Trash
@@ -297,9 +368,11 @@
 									<span class="text-xs text-yellow-600">Upload cancelled</span>
 								{/if}
 							</FileProgressBar>
-							<span class="text-xs text-gray-500">
-								Uploaded to path: {fileUpload.path}
-							</span>
+							{#if !(fileUpload.cancelled || fileUpload.errorMessage !== undefined)}
+								<span class="text-xs text-gray-500">
+									{fileUpload.progress === 100 ? 'Upload finished' : `Uploading`} to path: {fileUpload.path}
+								</span>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -335,6 +408,9 @@
 						startIcon={{
 							icon: Files
 						}}
+						disabled={$fileUploads.some(
+							(fileUpload) => fileUpload.progress !== 100 && !fileUpload.cancelled
+						)}
 					>
 						Upload more files
 					</Button>
@@ -342,10 +418,10 @@
 			</div>
 		{:else}
 			<FileInput
-				accept={resolvedConfig.acceptedFileTypes?.length
-					? resolvedConfig.acceptedFileTypes?.join(', ')
+				accept={resolvedConfigS3.acceptedFileTypes?.length
+					? resolvedConfigS3.acceptedFileTypes?.join(', ')
 					: undefined}
-				multiple={resolvedConfig.allowMultiple}
+				multiple={resolvedConfigS3.allowMultiple}
 				returnFileNames
 				includeMimeType
 				on:change={({ detail }) => {
@@ -354,7 +430,7 @@
 				class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
 				style={css?.container?.style}
 			>
-				{resolvedConfig.text}
+				{resolvedConfigS3.text}
 			</FileInput>
 		{/if}
 	</div>
