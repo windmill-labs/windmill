@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mergeSchema } from '$lib/common'
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
@@ -9,7 +10,8 @@
 	export let workspaceId: string | undefined
 	export let job: Job
 
-	let payload: object = {}
+	let default_payload: object = {}
+	let enum_payload: object = {}
 
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
 
@@ -24,7 +26,8 @@
 			workspace: workspaceId ?? $workspaceStore ?? '',
 			id: jobId
 		})
-		payload = job_result?.default_args ?? {}
+		default_payload = job_result?.default_args ?? {}
+		enum_payload = job_result?.enums ?? {}
 	}
 </script>
 
@@ -41,7 +44,7 @@
 							await JobService.resumeSuspendedFlowAsOwner({
 								workspace: workspaceId ?? $workspaceStore ?? '',
 								id: job?.id ?? '',
-								requestBody: payload
+								requestBody: default_payload
 							})}
 						>Resume <Tooltip
 							>Since you are an owner of this flow, you can send resume events without necessarily
@@ -49,11 +52,15 @@
 						></Button
 					>
 				</div>
+
 				{#if job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
 						<LightweightSchemaForm
-							bind:args={payload}
-							schema={job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {}}
+							bind:args={default_payload}
+							schema={mergeSchema(
+								job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
+								enum_payload
+							)}
 						/>
 					</div>
 				{/if}

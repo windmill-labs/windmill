@@ -10,8 +10,11 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { LogIn, AlertTriangle } from 'lucide-svelte'
+	import { mergeSchema } from '$lib/common'
+	import { emptyString } from '$lib/utils'
+	import { Alert } from '$lib/components/common'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
@@ -30,7 +33,8 @@
 	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let error: string | undefined = undefined
-	let payload: any = {}
+	let default_payload: any = {}
+	let enum_payload: object = {}
 
 	onMount(() => {
 		getJob()
@@ -72,7 +76,8 @@
 			workspace: job?.workspace_id ?? '',
 			id: jobId
 		})
-		payload = job_result?.default_args ?? {}
+		default_payload = job_result?.default_args ?? {}
+		enum_payload = job_result?.enums ?? {}
 	}
 
 	async function getJob() {
@@ -94,7 +99,7 @@
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
 			approver,
-			requestBody: payload
+			requestBody: default_payload
 		})
 		sendUserToast('Flow approved')
 		getJob()
@@ -187,7 +192,15 @@
 		{/if}
 
 		{#if schema}
-			<SchemaForm bind:isValid={valid} {schema} bind:args={payload} />
+			{#if emptyString($enterpriseLicense)}
+				<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+			{:else}
+				<SchemaForm
+					bind:isValid={valid}
+					schema={mergeSchema(schema, enum_payload)}
+					bind:args={default_payload}
+				/>
+			{/if}
 		{/if}
 
 		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
