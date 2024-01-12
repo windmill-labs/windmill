@@ -89,6 +89,24 @@ export type Schema = {
 	required: string[]
 }
 
+export function mergeSchema(
+	schema: Schema | Record<string, any>,
+	enum_payload: Record<string, any> = {}
+) {
+	if (!schema.properties || !enum_payload) {
+		return schema
+	}
+	let new_schema: Schema = JSON.parse(JSON.stringify(schema))
+	for (let [key, value] of Object.entries(new_schema.properties ?? {})) {
+		if (enum_payload[key]) {
+			value.enum = enum_payload[key]
+			value['disableCreate'] = true
+		}
+	}
+
+	return new_schema
+}
+
 export type Meta = { ownerKind: OwnerKind; owner: string; name: string }
 
 type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N
