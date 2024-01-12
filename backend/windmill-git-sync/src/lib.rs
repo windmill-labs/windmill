@@ -22,17 +22,25 @@ pub type DB = Pool<Postgres>;
 
 #[derive(Clone)]
 pub enum DeployedObject {
-    Script { hash: ScriptHash, path: String },
-    Flow { path: String },
-    App { path: String, version: i64 },
+    Script { hash: ScriptHash, path: String, parent_path: Option<String> },
+    Flow { path: String, parent_path: Option<String> },
+    App { path: String, version: i64, parent_path: Option<String> },
 }
 
 impl DeployedObject {
     pub fn get_path(&self) -> &str {
         match self {
             DeployedObject::Script { path, .. } => path,
-            DeployedObject::Flow { path } => path,
+            DeployedObject::Flow { path, .. } => path,
             DeployedObject::App { path, .. } => path,
+        }
+    }
+
+    pub fn get_parent_path(&self) -> Option<String> {
+        match self {
+            DeployedObject::Script { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::Flow { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::App { parent_path, .. } => parent_path.to_owned(),
         }
     }
 }
@@ -45,8 +53,25 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     obj: DeployedObject,
     deployment_message: Option<String>,
     rsmq: Option<R>,
+    skip_db_insert: bool,
 ) -> Result<()> {
-    let skip_git_sync = if obj.get_path().starts_with("u/") {
+    let exclude_path_prefix = "u/";
+    let obj_path = if obj.get_path().starts_with(exclude_path_prefix) {
+        None
+    } else {
+        Some(obj.get_path())
+    };
+    let obj_parent_path = if obj
+        .get_parent_path()
+        .unwrap_or(exclude_path_prefix.to_string())
+        .starts_with(exclude_path_prefix)
+    {
+        None
+    } else {
+        obj.get_parent_path()
+    };
+
+    let skip_git_sync = if obj_path.is_none() && obj_parent_path.is_none() {
         tracing::debug!(
             "Ignoring {} from git sync as it's in a private user folder",
             obj.get_path()
@@ -85,9 +110,15 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                 .strip_prefix("$res:")),
         );
 
+        if let Some(path) = obj_path {
+            args.insert("path".to_string(), json!(path));
+        }
+        if let Some(parent_path) = obj_parent_path {
+            args.insert("parent_path".to_string(), json!(parent_path));
+        }
+
         let message = match obj.clone() {
             DeployedObject::Script { path, .. } => {
-                args.insert("path".to_string(), json!(path.to_string()));
                 if deployment_message.as_ref().is_none()
                     || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                 {
@@ -96,8 +127,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                     deployment_message.clone().unwrap()
                 }
             }
-            DeployedObject::Flow { path } => {
-                args.insert("path".to_string(), json!(path.to_string()));
+            DeployedObject::Flow { path, .. } => {
                 if deployment_message.as_ref().is_none()
                     || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                 {
@@ -107,7 +137,6 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                 }
             }
             DeployedObject::App { path, .. } => {
-                args.insert("path".to_string(), json!(path.to_string()));
                 if deployment_message.as_ref().is_none()
                     || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                 {
@@ -162,7 +191,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     } else {
         vec![]
     };
-    if deployment_message.is_some() || job_uuids.len() > 0 {
+    if !skip_db_insert && (deployment_message.is_some() || job_uuids.len() > 0) {
         // if the git sync job hasn't been triggered, and there is not custom deployment message, there's not point adding an entry to the table
         match obj.clone() {
              DeployedObject::Script { path, hash, .. } => {
@@ -171,13 +200,13 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                      w_id, path, hash.0, &job_uuids, deployment_message,
                  )
              },
-             DeployedObject::Flow { path } => {
+             DeployedObject::Flow { path, .. } => {
                  sqlx::query!(
                      "INSERT INTO deployment_metadata (workspace_id, path, callback_job_ids, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path) WHERE script_hash IS NULL AND app_version IS NULL DO UPDATE SET callback_job_ids = $3, deployment_msg = $4",
                      w_id, path, &job_uuids, deployment_message,
                  )
              }
-             DeployedObject::App { path, version } => {
+             DeployedObject::App { path, version, .. } => {
                  sqlx::query!(
                      "INSERT INTO deployment_metadata (workspace_id, path, app_version, callback_job_ids, deployment_msg) VALUES ($1, $2, $3, $4, $5)",
                      w_id, path, version, &job_uuids, deployment_message,
