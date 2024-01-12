@@ -316,7 +316,7 @@ async fn update_igroup(
     sqlx::query("UPDATE instance_group SET summary = $1 WHERE name = $2")
         .bind(igroup_update.new_summary)
         .bind(&name)
-        .fetch_one(&mut *tx)
+        .execute(&mut *tx)
         .await?;
 
     audit_log(

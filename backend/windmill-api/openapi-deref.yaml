@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.240.0
+  version: 1.241.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -8695,7 +8695,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  /groups/udpate/{name}:
+  /groups/update/{name}:
     post:
       summary: update instance group
       operationId: updateInstanceGroup
@@ -8744,7 +8744,7 @@ paths:
               schema:
                 type: string
   /groups/adduser/{name}:
-    delete:
+    post:
       summary: add user to instance group
       operationId: addUserToInstanceGroup
       tags:
@@ -8774,7 +8774,7 @@ paths:
               schema:
                 type: string
   /groups/removeuser/{name}:
-    delete:
+    post:
       summary: remove user from instance group
       operationId: removeUserFromInstanceGroup
       tags:

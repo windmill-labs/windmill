@@ -5656,7 +5656,7 @@ paths:
               schema:
                 type: string
 
-  /groups/udpate/{name}:
+  /groups/update/{name}:
     post:
       summary: update instance group
       operationId: updateInstanceGroup
@@ -5701,7 +5701,7 @@ paths:
                 type: string
 
   /groups/adduser/{name}:
-    delete:
+    post:
       summary: add user to instance group
       operationId: addUserToInstanceGroup
       tags:
@@ -5729,7 +5729,7 @@ paths:
                 type: string
 
   /groups/removeuser/{name}:
-    delete:
+    post:
       summary: remove user from instance group
       operationId: removeUserFromInstanceGroup
       tags:
