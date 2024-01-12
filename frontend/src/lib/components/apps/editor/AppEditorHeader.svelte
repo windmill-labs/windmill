@@ -92,7 +92,6 @@
 		createUpdatePostgresInput,
 		getPrimaryKeys
 	} from '../components/display/dbtable/utils'
-	import { createS3FileUpload } from '../components/inputs/s3Utils'
 
 	async function hash(message) {
 		try {
@@ -237,18 +236,6 @@
 							}
 						}
 						r.push(...nr)
-					}
-
-					if (c.type === 's3fileinputcomponent') {
-						let config = c.configuration as any
-						let s3Res = config?.resource.value
-
-						if (s3Res) {
-							r.push({
-								input: createS3FileUpload(s3Res, '', '', 'private'),
-								id: x.id
-							})
-						}
 					}
 
 					const processed = r
