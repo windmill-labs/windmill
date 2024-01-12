@@ -121,9 +121,9 @@ dependencies = [
 
 [[package]]
 name = "anstream"
-version = "0.6.5"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d664a92ecae85fd0a7392615844904654d1d5f5514837f471ddef4a057aba1b6"
+checksum = "4cd2405b3ac1faab2990b74d728624cd9fd115651fcecc7c2d8daf01376275ba"
 dependencies = [
  "anstyle",
  "anstyle-parse",
@@ -397,7 +397,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "beec3f8fb8f710b7be84ccd1716e17f38f2868168355cab5f2f168ae988e767e"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "bytes",
  "http",
  "rand 0.8.5",
@@ -578,9 +578,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "aws-config"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11382bd8ac4c6c182a9775990935f96c916a865f1414486595f18eb8cfa9d90b"
+checksum = "7e64b72d4bdbb41a73d27709c65a25b6e4bfc8321bf70fa3a8b19ce7d4eb81b0"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -609,9 +609,9 @@ dependencies = [
 
 [[package]]
 name = "aws-credential-types"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70a1629320d319dc715c6189b172349186557e209d2a7b893ff3d14efd33a47c"
+checksum = "4a7cb3510b95492bd9014b60e2e3bee3e48bc516e220316f8e6b60df18b47331"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
@@ -621,9 +621,9 @@ dependencies = [
 
 [[package]]
 name = "aws-http"
-version = "0.60.1"
+version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30e4199d5d62ab09be6a64650c06cc5c4aa45806fed4c74bc4a5c8eaf039a6fa"
+checksum = "a95d41abe4e941399fdb4bc2f54713eac3c839d98151875948bb24e66ab658f2"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -637,9 +637,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87116d357c905b53f1828d15366363fd27b330a0393cbef349e653f686d36bad"
+checksum = "233cca219c6705d525ace011d6f9bc51aaf32fce5b4c41661d2d7ff22d9b4d49"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -659,9 +659,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.11.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21392b29994de019a7059af5eab144ea49d572dd52863d8e10537267f59f998c"
+checksum = "634fbe5b6591ee2e281cd2ba8641e9bd752dbf5bf338924d6ad4bd5a3304fe31"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -689,9 +689,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da9d9a8ac4cdb8df39f9777fd41e15a9ae0d0b622b00909ae0322b4d2f9e6ac8"
+checksum = "ee41005e0f3a19ae749c7953d9e1f1ef8d2183f76f64966e346fa41c1ba0ed44"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -712,9 +712,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56ba4a42aa91acecd5ca43b330b5c8eb7f8808d720b6a6f796a35faa302fc73d"
+checksum = "fa08168f8a27505e7b90f922c32a489feb1f2133878981a15138bebc849ac09c"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -735,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e3c7c3dcec7cccd24a13953eedf0f2964c2d728d22112744274cf0098ad2e35"
+checksum = "29102eff04d50ef70f11a48823db33e33c6cc5f027bfb6ff4864efbd5f1f66f3"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -759,9 +759,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d222297ca90209dc62245f0a490355795f29de362eb5c19caea4f7f55fe69078"
+checksum = "b92384b39aedb258aa734fe0e7b2ffcd13f33e68227251a72cd2635e0acc8f1a"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-eventstream",
@@ -943,9 +943,9 @@ dependencies = [
 
 [[package]]
 name = "aws-types"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e5d5ee29077e0fcd5ddd0c227b521a33aaf02434b7cdba1c55eec5c1f18ac47"
+checksum = "8549aa62c5b7db5c57ab915200ee214b4f5d8f19b29a4a8fa0b3ad3bca1380e3"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-async",
@@ -1035,9 +1035,9 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
-version = "0.21.6"
+version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c79fed4cdb43e993fcdadc7e58a09fd0e3e649c4436fa11da71c9f1f3ee7feb9"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "base64-simd"
@@ -1542,9 +1542,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.4.14"
+version = "4.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33e92c5c1a78c62968ec57dbc2440366a2d6e5a23faf829970ff1585dc6b18e2"
+checksum = "58e54881c004cec7895b0068a0a954cd5d62da01aef83fa35b1e594497bf5445"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1552,9 +1552,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.4.14"
+version = "4.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4323769dc8a61e2c39ad7dc26f6f2800524691a44d74fe3d1071a5c24db6370"
+checksum = "59cb82d7f531603d2fd1f507441cdd35184fa81beff7bd489570de7f773460bb"
 dependencies = [
  "anstream",
  "anstyle",
@@ -3000,7 +3000,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d3b20d3058763d26d88e6e7a49998841e5296735b00dbfb064ff7cb142933dd"
 dependencies = [
  "async-trait",
- "base64 0.21.6",
+ "base64 0.21.7",
  "dirs-next",
  "hyper",
  "hyper-rustls",
@@ -3345,7 +3345,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06683b93020a07e3dbcf5f8c0f6d40080d725bea7936fc01ad345c01b97dc270"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "bytes",
  "headers-core",
  "http",
@@ -3765,7 +3765,7 @@ version = "8.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "pem 1.1.1",
  "ring 0.16.20",
  "serde",
@@ -4052,7 +4052,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c42f95f9d296f2dcb50665f507ed5a68a171453142663ce44d77a4eb217b053"
 dependencies = [
  "aes 0.7.5",
- "base64 0.21.6",
+ "base64 0.21.7",
  "block-modes",
  "crc-any",
  "des",
@@ -4077,7 +4077,7 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f5982137dccf24ca038daa022eb0ea97a31e9739477445a787a8ef77e015ebb"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "gethostname",
  "mail-builder",
  "rustls 0.22.2",
@@ -4349,7 +4349,7 @@ version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06f19e4cfa0ab5a76b627cec2d81331c49b034988eaf302c3bafeada684eadef"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "bigdecimal 0.4.2",
  "bindgen",
  "bitflags 2.4.1",
@@ -4558,7 +4558,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2524735495ea1268be33d200e1ee97455096a0846295a21548cd2f3541de7050"
 dependencies = [
  "async-trait",
- "base64 0.21.6",
+ "base64 0.21.7",
  "bytes",
  "chrono",
  "futures",
@@ -4813,7 +4813,7 @@ version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8fcc794035347fb64beda2d3b462595dd2753e3f268d89c5aae77e8cf2c310"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "serde",
 ]
 
@@ -5267,7 +5267,7 @@ checksum = "146010e4b7dd4d2d0e58ddc762f6361f77d7a0385c54471199370c17164f67dd"
 dependencies = [
  "ahash 0.8.7",
  "async-stream",
- "base64 0.21.6",
+ "base64 0.21.7",
  "brotli",
  "ethnum",
  "flate2",
@@ -5469,7 +5469,7 @@ version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49b6c5ef183cd3ab4ba005f1ca64c21e8bd97ce4699cfea9e8d9a2c4958ca520"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "byteorder",
  "bytes",
  "fallible-iterator",
@@ -6077,7 +6077,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b1ae8d9ac08420c66222fb9096fc5de435c3c48542bc5336c51892cffafb41"
 dependencies = [
  "async-compression 0.4.5",
- "base64 0.21.6",
+ "base64 0.21.7",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -6425,7 +6425,7 @@ version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
 ]
 
 [[package]]
@@ -6540,7 +6540,7 @@ version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b75583aad4a51c50fc0af69c230d18078c9d5a69a98d0f6013d01053acf744f4"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "bindgen",
  "chrono",
  "data-encoding",
@@ -6717,9 +6717,9 @@ dependencies = [
 
 [[package]]
 name = "serde-aux"
-version = "4.3.1"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "184eba62ebddb71658697c8b08822edee89970bf318c5362189f0de27f85b498"
+checksum = "a86348501c129f3ad50c2f4635a01971f76974cd8a3f335988a0f1581c082765"
 dependencies = [
  "chrono",
  "serde",
@@ -7314,7 +7314,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e37195395df71fd068f6e2082247891bc11e3289624bbc776a0cdfa1ca7f1ea4"
 dependencies = [
  "atoi",
- "base64 0.21.6",
+ "base64 0.21.7",
  "bigdecimal 0.3.1",
  "bitflags 2.4.1",
  "byteorder",
@@ -7359,7 +7359,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6ac0ac3b7ccd10cc96c7ab29791a7dd236bd94021f31eec7ba3d46a74aa1c24"
 dependencies = [
  "atoi",
- "base64 0.21.6",
+ "base64 0.21.7",
  "bigdecimal 0.3.1",
  "bitflags 2.4.1",
  "byteorder",
@@ -8892,7 +8892,7 @@ version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8cdd25c339e200129fe4de81451814e5228c9b771d57378817d6117cc2b3f97"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "flate2",
  "log",
  "native-tls",
@@ -9252,11 +9252,11 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.21.6",
+ "base64 0.21.7",
  "chrono",
  "dotenv",
  "futures",
@@ -9288,7 +9288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9298,7 +9298,7 @@ dependencies = [
  "async_zip",
  "aws-sdk-s3",
  "axum",
- "base64 0.21.6",
+ "base64 0.21.7",
  "bytes",
  "candle-core",
  "candle-nn",
@@ -9360,9 +9360,9 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
- "base64 0.21.6",
+ "base64 0.21.7",
  "chrono",
  "openapiv3",
  "prettyplease 0.1.25",
@@ -9378,7 +9378,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9391,7 +9391,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9425,20 +9425,21 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "rsmq_async",
  "serde",
  "serde_json",
  "sqlx",
  "tracing",
+ "uuid 1.6.1",
  "windmill-common",
  "windmill-queue",
 ]
 
 [[package]]
 name = "windmill-parser"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9446,7 +9447,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9457,7 +9458,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9469,7 +9470,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9480,7 +9481,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -9491,7 +9492,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9508,7 +9509,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9519,7 +9520,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9537,7 +9538,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9555,7 +9556,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9587,11 +9588,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.240.0"
+version = "1.242.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "base64 0.21.6",
+ "base64 0.21.7",
  "bytes",
  "chrono",
  "const_format",

@@ -94,7 +94,25 @@
 		resourceTypes = await getResourceTypes()
 	}
 
+	reorder()
 	loadResourceTypes()
+
+	function reorder() {
+		if (schema?.order && Array.isArray(schema.order)) {
+			const n = {}
+
+			;(schema.order as string[]).forEach((x) => {
+				n[x] = schema.properties[x]
+			})
+
+			Object.keys(schema.properties ?? {})
+				.filter((x) => !schema.order?.includes(x))
+				.forEach((x) => {
+					n[x] = schema.properties[x]
+				})
+			schema.properties = n
+		}
+	}
 </script>
 
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}">

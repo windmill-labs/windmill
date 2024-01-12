@@ -23,10 +23,9 @@
 
 	export let errorOrRecovery: 'error' | 'recovery'
 	export let isEditable: boolean
-	export let slackToggleText: string = 'enable'
+	export let slackToggleText: string = 'Enable'
 	export let showScriptHelpText: boolean = false
 	export let handlerSelected: 'custom' | 'slack'
-	export let handlersOnlyForEe: string[]
 
 	export let handlerPath: string | undefined
 	export let handlerExtraArgs: Record<string, any>
@@ -186,26 +185,18 @@
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-		{#if $enterpriseLicense}
-			<Tab value="slack">Slack</Tab>
-			<Tab value="custom">
-				Custom
-				<slot name="custom-tab-tooltip" />
-			</Tab>
-		{:else}
-			<Tab value="custom">
-				Custom
-				<slot name="custom-tab-tooltip" />
-			</Tab>
-			<Tab value="slack">Slack {handlersOnlyForEe.includes('slack') ? '(ee only)' : ''}</Tab>
-		{/if}
+		<Tab value="slack">Slack</Tab>
+		<Tab value="custom">
+			Custom
+			<slot name="custom-tab-tooltip" />
+		</Tab>
 	</Tabs>
 </div>
 
 {#if handlerSelected === 'custom'}
 	<div class="flex flex-row mb-2">
 		<ScriptPicker
-			disabled={!isEditable}
+			disabled={!isEditable || !$enterpriseLicense}
 			initialPath={customInitialScriptPath}
 			kinds={[Script.kind.SCRIPT, Script.kind.FAILURE]}
 			allowFlow={true}

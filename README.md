@@ -357,8 +357,6 @@ you to have it being synced automatically everyday.
 | QUEUE_LIMIT_WAIT_RESULT                       | None                                       | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.                                                                               | Worker                |
 | DENO_AUTH_TOKENS                              | None                                       | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                                                                                          | Worker                |
 | DENO_FLAGS                                    | None                                       | Override the flags passed to deno (default --allow-all) to tighten permissions. Minimum permissions needed are "--allow-read=args.json --allow-write=result.json"                                                                                                      | Worker                |
-| DENO_EXTRA_IMPORT_MAP                         | None                                       | extra import map to use to run deno scripts (format: `key=value,key=value`)                                                                                                                                                                                            | Worker                |
-| NPM_CONFIG_REGISTRY                           | None                                       | Registry to use for NPM dependencies, set if you have a private repository you need to use instead of the default public NPM registry                                                                                                                                  | Worker                |
 | PIP_LOCAL_DEPENDENCIES                        | None                                       | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                                                                                       |                       |
 | ADDITIONAL_PYTHON_PATHS                       | None                                       | Specify python paths (separated by a :) to be appended to the PYTHONPATH of the python jobs. To be used with PIP_LOCAL_DEPENDENCIES to use python codebases within Windmill                                                                                            | Worker                |
 | INCLUDE_HEADERS                               | None                                       | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                                                                                            | Server                |
@@ -395,41 +393,6 @@ you to have it being synced automatically everyday.
 | DISABLE_NSJAIL                                | true                                       | Disable Nsjail Sandboxing                                                                                                                                                                                                                                              | Worker                |
 | DISABLE_SERVER                                | false                                      | Disable the external API, operate as a worker only instance                                                                                                                                                                                                            | Worker                |
 
-## Run a local dev setup
-
-### only Frontend
-
-This will use the backend of <https://app.windmill.dev> but your own frontend
-with hot-code reloading.
-
-1. Go to `frontend/`:
-   1. `npm install`
-   2. `npm run generate-backend-client`
-   3. `npm run dev`
-2. Et voilà, windmill should be available at `http://localhost:3000/`
-
-### Backend + Frontend
-
-See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
-running options.
-
-1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup. The easiest way to get a working postgres is running
-   `cargo install --version ^0.7 sqlx-cli && sqlx migrate run`. This will also
-   avoid compile time issue with sqlx's `query!` macro
-2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
-   your PATH
-3. Install deno and python3, have the bins at `/usr/bin/deno` and
-   `/usr/local/bin/python3`
-4. Install [caddy](https://caddyserver.com)
-5. Go to `frontend/`:
-   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
-   2. In another shell `npm run build` otherwise the backend will not find the
-      `frontend/build` folder and will crash
-   3. In another shell `sudo caddy run --config Caddyfile`
-6. Go to `backend/`:
-   `DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
-7. Et voilà, windmill should be available at `http://localhost/`
 
 ## Contributors
 

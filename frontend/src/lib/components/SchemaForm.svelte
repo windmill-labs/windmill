@@ -87,10 +87,12 @@
 		resourceTypes = await getResourceTypes()
 	}
 
-	reorder()
 	loadResourceTypes()
 
+	$: schema && reorder()
+
 	function reorder() {
+		console.log('reodering')
 		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
 
@@ -104,6 +106,7 @@
 					n[x] = schema.properties[x]
 				})
 			schema.properties = n
+			keys = Object.keys(schema.properties ?? {})
 		}
 	}
 </script>

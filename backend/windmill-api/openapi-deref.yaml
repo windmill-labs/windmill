@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.237.0
+  version: 1.242.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1525,17 +1525,19 @@ paths:
                       s3_resource_path:
                         type: string
                   git_sync:
-                    type: object
-                    properties: &ref_16
-                      script_path:
-                        type: string
-                      git_repo_resource_path:
-                        type: string
-                      use_individual_branch:
-                        type: boolean
-                    required: &ref_17
-                      - script_path
-                      - git_repo_resource_path
+                    type: array
+                    items:
+                      type: object
+                      properties: &ref_16
+                        script_path:
+                          type: string
+                        git_repo_resource_path:
+                          type: string
+                        use_individual_branch:
+                          type: boolean
+                      required: &ref_17
+                        - script_path
+                        - git_repo_resource_path
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1891,9 +1893,11 @@ paths:
               type: object
               properties:
                 git_sync_settings:
-                  type: object
-                  properties: *ref_16
-                  required: *ref_17
+                  type: array
+                  items:
+                    type: object
+                    properties: *ref_16
+                    required: *ref_17
       responses:
         '200':
           description: status
@@ -8640,6 +8644,8 @@ paths:
                   properties: &ref_82
                     name:
                       type: string
+                    summary:
+                      type: string
                     emails:
                       type: array
                       items:
@@ -8666,6 +8672,141 @@ paths:
                 type: object
                 properties: *ref_82
                 required: *ref_83
+  /groups/create:
+    post:
+      summary: create instance group
+      operationId: createInstanceGroup
+      tags:
+        - group
+      requestBody:
+        description: create instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                summary:
+                  type: string
+              required:
+                - name
+      responses:
+        '200':
+          description: instance group created
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/update/{name}:
+    post:
+      summary: update instance group
+      operationId: updateInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: update instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_summary:
+                  type: string
+              required:
+                - new_summary
+      responses:
+        '200':
+          description: instance group updated
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/delete/{name}:
+    delete:
+      summary: delete instance group
+      operationId: deleteInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      responses:
+        '200':
+          description: instance group deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/adduser/{name}:
+    post:
+      summary: add user to instance group
+      operationId: addUserToInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: user to add to instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required:
+                - email
+      responses:
+        '200':
+          description: user added to instance group
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/removeuser/{name}:
+    post:
+      summary: remove user from instance group
+      operationId: removeUserFromInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: user to remove from instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required:
+                - email
+      responses:
+        '200':
+          description: user removed from instance group
+          content:
+            text/plain:
+              schema:
+                type: string
   /w/{workspace}/groups/list:
     get:
       summary: list groups
@@ -10065,7 +10206,7 @@ paths:
               schema: {}
   /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the file keys available in the worspace files storage (S3)
+      summary: List the file keys available in the workspace files storage (S3)
       operationId: listStoredFiles
       tags:
         - helpers

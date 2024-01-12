@@ -541,8 +541,14 @@
 						<Tab value="retries">Retries</Tab>
 					{/if}
 				</Tabs>
+				<div class="pt-0.5" />
 				{#if optionTabSelected === 'error_handler'}
 					<Section label="Error handler">
+						<svelte:fragment slot="header">
+							<div class="flex flex-row gap-2">
+								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							</div>
+						</svelte:fragment>
 						<svelte:fragment slot="action">
 							<div class="flex flex-row items-center gap-2">
 								<Dropdown
@@ -567,7 +573,7 @@
 						</svelte:fragment>
 						<div class="flex flex-row">
 							<Toggle
-								disabled={!can_write}
+								disabled={!can_write || !$enterpriseLicense}
 								bind:checked={wsErrorHandlerMuted}
 								options={{ right: 'Mute workspace error handler for this schedule' }}
 							/>
@@ -575,7 +581,6 @@
 						<ErrorOrRecoveryHandler
 							isEditable={can_write}
 							errorOrRecovery="error"
-							handlersOnlyForEe={['slack']}
 							showScriptHelpText={true}
 							bind:handlerSelected={errorHandlerSelected}
 							bind:handlerPath={errorHandlerPath}
@@ -610,8 +615,7 @@
 
 						<div class="flex flex-row items-center justify-between">
 							<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-								<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
-									>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
 									Triggered when schedule failed</p
 								>
 								<select
@@ -668,7 +672,6 @@
 						<ErrorOrRecoveryHandler
 							isEditable={can_write && !emptyString($enterpriseLicense)}
 							errorOrRecovery="recovery"
-							handlersOnlyForEe={[]}
 							bind:handlerSelected={recoveryHandlerSelected}
 							bind:handlerPath={recoveryHandlerPath}
 							customInitialScriptPath={recoveryHandlerCustomInitialPath}
@@ -728,6 +731,9 @@
 				{:else if optionTabSelected === 'retries'}
 					<Section label="Retries">
 						<svelte:fragment slot="header">
+							<div class="flex flex-row gap-2">
+								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							</div>
 							<Tooltip>
 								If defined, upon error this schedule will be retried with a delay and a maximum
 								number of attempts as defined below.

@@ -13,6 +13,7 @@ enterprise = ["windmill-queue/enterprise"]
 default = []
 
 [dependencies]
+uuid.workspace = true
 serde.workspace = true
 sqlx.workspace = true
 serde_json.workspace = true

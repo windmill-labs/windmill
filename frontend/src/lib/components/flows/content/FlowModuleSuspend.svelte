@@ -171,11 +171,16 @@
 	{:else}
 		<div class="flex flex-col mt-4 gap-4">
 			{#if flowModule.suspend}
+				{#if emptyString($enterpriseLicense)}
+					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+				{/if}
+
 				<Toggle
 					checked={Boolean(flowModule.suspend.resume_form)}
 					options={{
 						right: 'Add a form to the approval page'
 					}}
+					disabled={emptyString($enterpriseLicense)}
 					on:change={(e) => {
 						if (flowModule.suspend) {
 							if (e.detail) {
@@ -189,7 +194,7 @@
 					}}
 				/>
 				<div>
-					<Slider size="xs" text="How to add dynamic default args">
+					<Slider size="xs" text="How to add dynamic default args & enums">
 						As one of the return key of this step, return an object `default_args` that contains the
 						default arguments of the form arguments. e.g:
 						<pre
@@ -199,6 +204,18 @@
 	default_args: {
 		foo: "foo",
 		bar: true,
+	},
+}`}</code
+							></pre
+						>
+
+						For enums, use `enums`, e.g:
+						<pre
+							><code
+								>{`return {
+	endpoints,
+	enums: {
+		foo: ["choice1", "choice2"]
 	},
 }`}</code
 							></pre

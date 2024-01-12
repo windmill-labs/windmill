@@ -409,6 +409,7 @@
 													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
+														required
 														create={extra['disableCreate'] != true}
 														on:focus={() => {
 															dispatch('focus')
@@ -520,6 +521,7 @@
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">
 					<ArgEnum
+						{required}
 						create={extra['disableCreate'] != true}
 						{defaultValue}
 						{valid}
