@@ -6,7 +6,7 @@
 	export let progress = 0
 	export let ended: boolean = false
 
-	const tweenedProgress = tweened(0, {
+	const tweenedProgress = tweened(progress, {
 		duration: 400,
 		easing: cubicOut
 	})

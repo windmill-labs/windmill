@@ -77,6 +77,8 @@
 
 		const path = (await inputValue?.computeExpr({ file: fileToUpload })) ?? fileToUploadKey
 
+		$fileUploads = $fileUploads.filter((fileUpload) => fileUpload.name !== fileToUpload.name)
+
 		const uploadData: FileUploadData = {
 			name: fileToUpload.name,
 			size: fileToUpload.size,
@@ -210,6 +212,7 @@
 										</Button>
 									{/if}
 									*/
+	let forceDisplayUploads: boolean = false
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -244,7 +247,7 @@
 
 {#if render}
 	<div class="w-full h-full p-2 flex">
-		{#if $fileUploads.length > 0}
+		{#if $fileUploads.length > 0 && !forceDisplayUploads}
 			<div class="border rounded-md flex flex-col gap-1 divide-y h-full w-full p-1">
 				<div class="flex h-full overflow-y-auto flex-col">
 					{#each $fileUploads as fileUpload}
@@ -403,7 +406,7 @@
 						size="xs2"
 						color="light"
 						on:click={() => {
-							$fileUploads = []
+							forceDisplayUploads = true
 						}}
 						startIcon={{
 							icon: Files
@@ -425,6 +428,7 @@
 				returnFileNames
 				includeMimeType
 				on:change={({ detail }) => {
+					forceDisplayUploads = false
 					handleChange(detail)
 				}}
 				class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
