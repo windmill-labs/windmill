@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.242.0](https://github.com/windmill-labs/windmill/compare/v1.241.0...v1.242.0) (2024-01-12)
+
+
+### Features
+
+* Instance group management page ([#2994](https://github.com/windmill-labs/windmill/issues/2994)) ([5f54f55](https://github.com/windmill-labs/windmill/commit/5f54f557903792ea6307b17f966c216cbd402709))
+
+
+### Bug Fixes
+
+* catch more agGrid errors ([01dbf54](https://github.com/windmill-labs/windmill/commit/01dbf548f712c2e669038e4eb704c470d2cb0426))
+
 ## [1.241.0](https://github.com/windmill-labs/windmill/compare/v1.240.0...v1.241.0) (2024-01-12)
 
 
