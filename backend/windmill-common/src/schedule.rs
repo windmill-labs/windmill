@@ -39,6 +39,7 @@ pub struct Schedule {
     pub retry: Option<serde_json::Value>,
     pub no_flow_overlap: bool,
     pub summary: Option<String>,
+    pub tag: Option<String>,
 }
 
 impl Schedule {

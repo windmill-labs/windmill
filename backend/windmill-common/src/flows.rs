@@ -292,6 +292,7 @@ pub enum FlowModuleValue {
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<ScriptHash>,
+        tag_override: Option<String>,
     },
     Flow {
         #[serde(default)]
