@@ -9432,6 +9432,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
+ "uuid 1.6.1",
  "windmill-common",
  "windmill-queue",
 ]

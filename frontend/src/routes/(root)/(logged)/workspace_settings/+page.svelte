@@ -60,13 +60,11 @@
 		script_path: string
 		git_repo_resource_path: string
 		use_individual_branch: boolean
-	}
-	let gitSyncTestJob:
-		| {
-				jobId: string
-				status: 'running' | 'success' | 'failure'
-		  }
-		| undefined = undefined
+	}[]
+	let gitSyncTestJobs: {
+		jobId: string | undefined
+		status: 'running' | 'success' | 'failure' | undefined
+	}[]
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -194,29 +192,29 @@
 		}
 	}
 
-	async function editWindmillGitSyncSettings(
-		gitRepoResourcePath: string,
-		useIndividualBranch: boolean
-	): Promise<void> {
-		if (!emptyString(gitRepoResourcePath)) {
-			gitSyncSettings = {
-				script_path: 'hub/7926/sync-script-to-git-repo-windmill',
-				git_repo_resource_path: `$res:${gitRepoResourcePath.replace('$res:', '')}`,
-				use_individual_branch: useIndividualBranch
+	async function editWindmillGitSyncSettings(): Promise<void> {
+		let alreadySeenResource: string[] = []
+		let finalSettings = gitSyncSettings.map((elmt) => {
+			alreadySeenResource.push(elmt.git_repo_resource_path)
+			return {
+				script_path: elmt.script_path,
+				git_repo_resource_path: `$res:${elmt.git_repo_resource_path.replace('$res:', '')}`,
+				use_individual_branch: elmt.use_individual_branch
 			}
+		})
+		if (alreadySeenResource.some((res, index) => alreadySeenResource.indexOf(res) !== index)) {
+			sendUserToast('Same Git resource used more than once', true)
+			return
+		}
+		if (finalSettings.length > 0) {
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					git_sync_settings: gitSyncSettings
+					git_sync_settings: finalSettings
 				}
 			})
 			sendUserToast('Workspace Git sync settings updated')
 		} else {
-			gitSyncSettings = {
-				script_path: '',
-				git_repo_resource_path: '',
-				use_individual_branch: false
-			}
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -261,18 +259,27 @@
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
 				: undefined
-		if (settings.git_sync !== undefined && settings.git_sync !== null) {
-			gitSyncSettings = {
-				git_repo_resource_path: settings.git_sync.git_repo_resource_path.replace('$res:', ''),
-				script_path: settings.git_sync.script_path,
-				use_individual_branch: settings.git_sync.use_individual_branch ?? false
-			}
+		if (
+			settings.git_sync !== undefined &&
+			settings.git_sync !== null &&
+			settings.git_sync.length > 0
+		) {
+			gitSyncSettings = settings.git_sync.map((settings) => {
+				return {
+					git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
+					script_path: settings.script_path,
+					use_individual_branch: settings.use_individual_branch ?? false
+				}
+			})
+			gitSyncTestJobs = settings.git_sync.map((settings) => {
+				return {
+					jobId: undefined,
+					status: undefined
+				}
+			})
 		} else {
-			gitSyncSettings = {
-				git_repo_resource_path: '',
-				script_path: '',
-				use_individual_branch: false
-			}
+			gitSyncSettings = []
+			gitSyncTestJobs = []
 		}
 
 		// check openai_client_credentials_oauth
@@ -322,18 +329,19 @@
 		)
 	}
 
-	async function runGitSyncTestJob() {
-		if (emptyString(gitSyncSettings.script_path)) {
+	async function runGitSyncTestJob(settingsIdx: number) {
+		let gitSyncSettingsElmt = gitSyncSettings[settingsIdx]
+		if (emptyString(gitSyncSettingsElmt.script_path)) {
 			return
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
 			path: 'hub/7925/git-repo-test-read-write-windmill',
 			requestBody: {
-				repo_url_resource_path: gitSyncSettings.git_repo_resource_path.replace('$res:', '')
+				repo_url_resource_path: gitSyncSettingsElmt.git_repo_resource_path.replace('$res:', '')
 			}
 		})
-		gitSyncTestJob = {
+		gitSyncTestJobs[settingsIdx] = {
 			jobId: jobId,
 			status: 'running'
 		}
@@ -343,7 +351,7 @@
 					workspace: $workspaceStore!,
 					id: jobId
 				})
-				gitSyncTestJob!.status = testResult.success ? 'success' : 'failure'
+				gitSyncTestJobs[settingsIdx].status = testResult.success ? 'success' : 'failure'
 			},
 			timeoutCode: async () => {
 				try {
@@ -776,57 +784,98 @@
 				<br />
 				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
-			<div class="flex mt-5 mb-1 gap-1">
-				{#if gitSyncSettings}
-					{#key gitSyncSettings}
+
+			{#each gitSyncSettings as gitSyncSettingsElmt, idx}
+				<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
+					<h6>Repository #{idx + 1}</h6>
+					<Button
+						color="light"
+						size="xs"
+						startIcon={{ icon: XCircle }}
+						iconOnly={true}
+						on:click={() => {
+							gitSyncSettings.splice(idx, 1)
+							gitSyncSettings = [...gitSyncSettings]
+						}}
+					/>
+				</div>
+				<div class="flex mt-5 mb-1 gap-1">
+					{#key gitSyncSettingsElmt}
 						<ResourcePicker
 							resourceType="git_repository"
-							initialValue={gitSyncSettings?.git_repo_resource_path?.split('$res:')?.[1] || ''}
+							initialValue={gitSyncSettingsElmt.git_repo_resource_path}
 							on:change={(ev) => {
-								editWindmillGitSyncSettings(ev.detail, gitSyncSettings?.use_individual_branch)
+								gitSyncSettingsElmt.git_repo_resource_path = ev.detail
 							}}
 						/>
 						<Button
-							disabled={emptyString(gitSyncSettings?.script_path)}
+							disabled={emptyString(gitSyncSettingsElmt.script_path)}
 							btnClasses="w-32 text-center"
 							color="dark"
-							on:click={() => runGitSyncTestJob()}
+							on:click={() => runGitSyncTestJob(idx)}
 							size="xs">Test connection</Button
 						>
 					{/key}
-				{/if}
-			</div>
-			<div class="flex mb-5 text-normal text-2xs gap-1">
-				{#if gitSyncTestJob !== undefined}
-					{#if gitSyncTestJob?.status === 'running'}
-						<RotateCw size={14} />
-					{:else if gitSyncTestJob?.status === 'success'}
-						<CheckCircle2 size={14} class="text-green-600" />
-					{:else}
-						<XCircle size={14} class="text-red-700" />
+				</div>
+				<div class="flex mb-5 text-normal text-2xs gap-1">
+					{#if gitSyncSettings.filter((settings) => settings.git_repo_resource_path === gitSyncSettingsElmt.git_repo_resource_path).length > 1}
+						<span class="text-red-700">Using the same resource twice is not allowed.</span>
 					{/if}
-					Git sync resource checked via Windmill job
-					<a target="_blank" href={`/run/${gitSyncTestJob?.jobId}?workspace=${$workspaceStore}`}>
-						{gitSyncTestJob?.jobId}
-					</a>WARNING: Only read permissions are verified.
-				{/if}
-			</div>
+					{#if gitSyncTestJobs[idx].status !== undefined}
+						{#if gitSyncTestJobs[idx].status === 'running'}
+							<RotateCw size={14} />
+						{:else if gitSyncTestJobs[idx].status === 'success'}
+							<CheckCircle2 size={14} class="text-green-600" />
+						{:else}
+							<XCircle size={14} class="text-red-700" />
+						{/if}
+						Git sync resource checked via Windmill job
+						<a
+							target="_blank"
+							href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
+						>
+							{gitSyncTestJobs[idx].jobId}
+						</a>WARNING: Only read permissions are verified.
+					{/if}
+				</div>
 
-			<div class="flex mt-5 mb-1 gap-1">
-				{#if gitSyncSettings}
-					<Toggle
-						disabled={emptyString(gitSyncSettings?.git_repo_resource_path)}
-						bind:checked={gitSyncSettings.use_individual_branch}
-						on:change={(ev) => {
-							editWindmillGitSyncSettings(gitSyncSettings.git_repo_resource_path, ev.detail)
-						}}
-						options={{
-							right: 'Create one branch per deployed script/flow/app',
-							rightTooltip:
-								"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
-						}}
-					/>
-				{/if}
+				<div class="flex mt-5 mb-1 gap-1">
+					{#if gitSyncSettings}
+						<Toggle
+							disabled={emptyString(gitSyncSettingsElmt?.git_repo_resource_path)}
+							bind:checked={gitSyncSettingsElmt.use_individual_branch}
+							options={{
+								right: 'Create one branch per deployed script/flow/app',
+								rightTooltip:
+									"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+							}}
+						/>
+					{/if}
+				</div>
+			{/each}
+
+			<div class="flex mt-5 mb-5 gap-1">
+				<Button
+					color="none"
+					variant="border"
+					on:click={() => {
+						gitSyncSettings = [
+							...gitSyncSettings,
+							{
+								script_path: 'hub/7926/sync-script-to-git-repo-windmill',
+								git_repo_resource_path: '',
+								use_individual_branch: false
+							}
+						]
+						gitSyncTestJobs = [
+							...gitSyncTestJobs,
+							{
+								jobId: undefined,
+								status: undefined
+							}
+						]
+					}}>Add connection</Button
+				>
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
@@ -864,6 +913,16 @@ git push</code
 						></pre
 					>
 				</div>
+			</div>
+			<div class="flex mt-5 mb-5 gap-1">
+				<Button
+					color="blue"
+					disabled={gitSyncSettings.some((elmt) => emptyString(elmt.git_repo_resource_path))}
+					on:click={() => {
+						editWindmillGitSyncSettings()
+						console.log('Saving git sync settings', gitSyncSettings)
+					}}>Save Git sync settings</Button
+				>
 			</div>
 		{/if}
 	{:else}
