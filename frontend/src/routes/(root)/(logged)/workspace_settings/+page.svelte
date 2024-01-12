@@ -200,7 +200,7 @@
 	): Promise<void> {
 		if (!emptyString(gitRepoResourcePath)) {
 			gitSyncSettings = {
-				script_path: 'hub/7924/sync-script-to-git-repo-windmill',
+				script_path: 'hub/7926/sync-script-to-git-repo-windmill',
 				git_repo_resource_path: `$res:${gitRepoResourcePath.replace('$res:', '')}`,
 				use_individual_branch: useIndividualBranch
 			}

@@ -40,6 +40,7 @@ use windmill_common::{
     },
     variables::build_crypt,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
@@ -587,17 +588,18 @@ async fn create_app(
     )
     .await?;
 
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(dm) = app.deployment_message {
+        args.insert("deployment_message".to_string(), json!(dm));
+    }
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
         &w_id,
-        JobPayload::AppDependencies {
-            path: app.path.clone(),
-            version: v_id,
-            deployment_message: app.deployment_message,
-        },
-        PushArgs::empty(),
+        JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
+        args,
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -663,7 +665,9 @@ pub async fn get_hub_app_by_id(
 
 async fn delete_app(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -688,10 +692,11 @@ async fn delete_app(
     sqlx::query!(
         "DELETE FROM app WHERE path = $1 AND workspace_id = $2",
         path,
-        w_id
+        &w_id
     )
     .execute(&mut *tx)
     .await?;
+
     audit_log(
         &mut *tx,
         &authed.username,
@@ -703,6 +708,36 @@ async fn delete_app(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::App {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        },
+        Some(format!("App '{}' deleted", path)),
+        rsmq,
+        true,
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE path = $1 AND workspace_id = $2 AND app_version IS NOT NULL",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+        ))
+    })?;
+
     webhook.send_message(
         w_id.clone().clone(),
         WebhookMessage::DeleteApp { workspace: w_id, path: path.to_owned() },
@@ -837,16 +872,18 @@ async fn update_app(
     let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
         PushIsolationLevel::Transaction(tx);
     if let Some(v_id) = v_id {
+        let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(dm) = ns.deployment_message {
+            args.insert("deployment_message".to_string(), json!(dm));
+        }
+        args.insert("parent_path".to_string(), json!(path));
+
         let (dependency_job_uuid, new_tx) = push(
             &db,
             tx,
             &w_id,
-            JobPayload::AppDependencies {
-                path: npath.clone(),
-                version: v_id,
-                deployment_message: ns.deployment_message,
-            },
-            PushArgs::empty(),
+            JobPayload::AppDependencies { path: npath.clone(), version: v_id },
+            args,
             &authed.username,
             &authed.email,
             windmill_common::users::username_to_permissioned_as(&authed.username),
