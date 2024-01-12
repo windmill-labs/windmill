@@ -18,16 +18,15 @@
 		ScriptService,
 		type Flow,
 		SettingService,
-		type Retry,
-		WorkerService
+		type Retry
 	} from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore, workerTags } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { ExternalLink, List, Loader2, RotateCw, Save } from 'lucide-svelte'
+	import { List, Save } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
-	import AssignableTags from './AssignableTags.svelte'
+	import WorkerTagPicker from './WorkerTagPicker.svelte'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
 
@@ -56,14 +55,6 @@
 
 	let script_path = ''
 	let initialScriptPath = ''
-
-	loadWorkerGroups()
-	async function loadWorkerGroups() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
-		}
-		console.log($workerTags)
-	}
 
 	export function openEdit(ePath: string, isFlow: boolean) {
 		is_flow = isFlow
@@ -763,59 +754,7 @@
 					</Section>
 				{:else if optionTabSelected === 'tag'}
 					<Section label="Custom script tag">
-						<div class="flex gap-2 items-center">
-							<div class="max-w-sm grow">
-								{#if $workerTags}
-									{#if $workerTags?.length > 0}
-										<select
-											bind:value={tag}
-											on:change={(e) => {
-												if (tag == '') {
-													tag = undefined
-												}
-											}}
-										>
-											{#if tag}
-												<option value="">reset to default</option>
-											{:else}
-												<option value="" disabled selected>Worker Group Tag</option>
-											{/if}
-											{#each $workerTags ?? [] as tag (tag)}
-												<option value={tag}>{tag}</option>
-											{/each}
-										</select>
-									{:else}
-										<div class="text-sm text-secondary flex flex-row gap-2">
-											No custom worker group tag defined on this instance in "Workers {'->'} Assignable
-											Tags"
-											<a
-												href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-												target="_blank"
-												class="hover:underline"
-											>
-												<div class="flex flex-row gap-2 items-center">
-													See documentation
-													<ExternalLink size="12" />
-												</div>
-											</a>
-										</div>
-									{/if}
-								{:else}
-									<Loader2 class="animate-spin" />
-								{/if}
-							</div>
-
-							<Button
-								variant="border"
-								color="light"
-								on:click={() => {
-									$workerTags = undefined
-									loadWorkerGroups()
-								}}
-								startIcon={{ icon: RotateCw }}
-							/>
-							<AssignableTags />
-						</div>
+						<WorkerTagPicker bind:tag popupPlacement="top-end" />
 					</Section>
 				{/if}
 			</div>
