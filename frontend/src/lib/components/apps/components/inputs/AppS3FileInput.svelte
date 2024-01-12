@@ -369,7 +369,7 @@
 								{/if}
 							</FileProgressBar>
 							{#if !(fileUpload.cancelled || fileUpload.errorMessage !== undefined)}
-								<span class="text-xs text-gray-500">
+								<span class="text-xs text-gray-500 dark:text-gray-200">
 									{fileUpload.progress === 100 ? 'Upload finished' : `Uploading`} to path: {fileUpload.path}
 								</span>
 							{/if}
