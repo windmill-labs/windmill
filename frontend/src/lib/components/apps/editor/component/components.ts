@@ -58,7 +58,13 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
+import type {
+	AppInputSpec,
+	EvalV2AppInput,
+	InputConnectionEval,
+	ResultAppInput,
+	StaticAppInput
+} from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -3037,9 +3043,19 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				pathTemplate: {
+					type: 'evalv2',
+					expr: `\`\${file.name}\``,
+					fieldType: 'template',
+					connections: [
+						{
+							componentId: 'file',
+							id: 'name'
+						}
+					] as InputConnectionEval[]
 				}
-			},
-			componentInput: undefined
+			}
 		}
 	},
 	dbexplorercomponent: {

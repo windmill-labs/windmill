@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FileInput } from '../../../common'
 	import FileProgressBar from '../../../common/FileProgressBar.svelte'
@@ -12,13 +12,12 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { components } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { RunnableComponent, RunnableWrapper } from '../helpers'
-	import type { AppInput } from '../../inputType'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService, type UploadFilePart } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
-	import { Ban, CheckCheck, FileWarning, Trash } from 'lucide-svelte'
+	import { Ban, CheckCheck, FileWarning, Files, Trash } from 'lucide-svelte'
+	import { copyToClipboard } from '$lib/utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -26,14 +25,12 @@
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
 
-	let input: AppInput | undefined = undefined
-	let runnableComponent: RunnableComponent
-	let loading = false
-
 	let resolvedConfig = initConfig(
 		components['s3fileinputcomponent'].initialData.configuration,
 		configuration
 	)
+
+	$: console.log(resolvedConfig.pathTemplate)
 
 	type FileUploadData = {
 		name: string
@@ -76,6 +73,12 @@
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
 		}
+
+		await tick()
+
+		const path = resolvedConfig.pathTemplate
+
+		debugger
 
 		const uploadData: FileUploadData = {
 			name: fileToUpload.name,
@@ -230,6 +233,20 @@
 										</Button>
 									{/if}
 
+									{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}
+										<Button
+											color="light"
+											on:click={() => {
+												copyToClipboard(
+													`https://resolvedConfig.bucketName.s3.amazonaws.com/${fileUpload.name}`
+												)
+											}}
+											size="xs2"
+											variant="border"
+										>
+											Copy link
+										</Button>
+									{/if}
 									{#if fileUpload.progress === 100 || fileUpload.cancelled}
 										<Button
 											size="xs2"
@@ -265,48 +282,42 @@
 									<span class="text-xs text-red-600">{fileUpload.errorMessage}</span>
 								{:else if fileUpload.cancelled}
 									<span class="text-xs text-yellow-600">Upload cancelled</span>
-								{:else if fileUpload.progress === 100}
-									{resolvedConfig.displayDirectLink}
-									{#if resolvedConfig.displayDirectLink}
-										<a
-											href={`https://resolvedConfig.bucketName.s3.amazonaws.com/${fileUpload.name}`}
-											target="_blank"
-											rel="noopener noreferrer"
-											class="text-xs text-green-600"
-										>
-											'https://resolvedConfig.bucketName.s3.amazonaws.com/{fileUpload.name}'
-										</a>
-									{:else}
-										<span class="text-xs text-green-600">Upload finished</span>
-									{/if}
 								{/if}
 							</FileProgressBar>
 						</div>
 					{/each}
 				</div>
 				<div class="flex flex-row gap-1 items-center justify-end p-1">
-					<Button
-						size="xs2"
-						color="light"
-						on:click={() => {
-							$fileUploads = $fileUploads.map((fileUpload) => {
-								if (fileUpload.progress === 100 || fileUpload.cancelled) {
-									return fileUpload
-								}
+					{#if !$fileUploads.every((fileUpload) => fileUpload.progress === 100 || fileUpload.cancelled)}
+						<Button
+							size="xs2"
+							color="light"
+							on:click={() => {
+								$fileUploads = $fileUploads.map((fileUpload) => {
+									if (fileUpload.progress === 100 || fileUpload.cancelled) {
+										return fileUpload
+									}
 
-								fileUpload.cancelled = true
-								fileUpload.progress = 0
-								return fileUpload
-							})
-						}}
-					>
-						Cancel All Uploads
-					</Button>
+									fileUpload.cancelled = true
+									fileUpload.progress = 0
+									return fileUpload
+								})
+							}}
+							startIcon={{
+								icon: Ban
+							}}
+						>
+							Cancel All Uploads
+						</Button>
+					{/if}
 					<Button
 						size="xs2"
 						color="light"
 						on:click={() => {
 							$fileUploads = []
+						}}
+						startIcon={{
+							icon: Files
 						}}
 					>
 						Upload more files
@@ -332,14 +343,3 @@
 		{/if}
 	</div>
 {/if}
-
-<RunnableWrapper
-	noInitialize
-	bind:runnableComponent
-	bind:loading
-	componentInput={input}
-	autoRefresh={false}
-	render={false}
-	id={`${id}`}
-	{outputs}
-/>
