@@ -59,6 +59,7 @@
 
 	export let globalModuleStates: Writable<Record<string, GraphModuleState>>[]
 	export let globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
+	export let childFlow: boolean = false
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -251,11 +252,13 @@
 
 	function onJobsLoaded(mod: FlowStatusModule, job: Job): void {
 		if (mod.id && (mod.flow_jobs ?? []).length == 0) {
-			if ($flowStateStore?.[mod.id]) {
-				$flowStateStore[mod.id] = {
-					...$flowStateStore[mod.id],
-					previewResult: job['result'],
-					previewArgs: job.args
+			if (!childFlow) {
+				if ($flowStateStore?.[mod.id]) {
+					$flowStateStore[mod.id] = {
+						...$flowStateStore[mod.id],
+						previewResult: job['result'],
+						previewArgs: job.args
+					}
 				}
 			}
 			initializeByJob(mod.id)
@@ -303,13 +306,15 @@
 		let modId = flowJobIds?.moduleId
 		if (modId) {
 			if ($flowStateStore?.[modId]) {
-				if (
-					!$flowStateStore[modId].previewResult ||
-					!Array.isArray($flowStateStore[modId]?.previewResult)
-				) {
-					$flowStateStore[modId].previewResult = []
+				if (!childFlow) {
+					if (
+						!$flowStateStore[modId].previewResult ||
+						!Array.isArray($flowStateStore[modId]?.previewResult)
+					) {
+						$flowStateStore[modId].previewResult = []
+					}
+					$flowStateStore[modId].previewArgs = jobLoaded.args
 				}
-				$flowStateStore[modId].previewArgs = jobLoaded.args
 				if (jobLoaded.type == 'QueuedJob') {
 					jobResults[j] = 'Job in progress ...'
 				} else {
@@ -542,6 +547,7 @@
 
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							{childFlow}
 							globalModuleStates={[localModuleStates, ...globalModuleStates]}
 							globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
@@ -588,12 +594,14 @@
 										render={selected == 'sequence' && render}
 										{workspaceId}
 										jobId={mod.job}
+										childFlow
 										on:jobsLoaded={(e) => {
 											onJobsLoaded(mod, e.detail)
 										}}
 									/>
 								{:else}
 									<svelte:self
+										{childFlow}
 										globalModuleStates={[localModuleStates, ...globalModuleStates]}
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 										render={selected == 'sequence' && render}
