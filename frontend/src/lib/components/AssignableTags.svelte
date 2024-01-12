@@ -11,6 +11,7 @@
 	let newTag: string = ''
 
 	export let customTags: string[] | undefined = undefined
+	export let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 
 	async function loadCustomTags() {
 		try {
@@ -26,7 +27,7 @@
 </script>
 
 <Popup
-	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+	floatingConfig={{ strategy: 'absolute', placement: placement }}
 	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 >
 	<svelte:fragment slot="button">

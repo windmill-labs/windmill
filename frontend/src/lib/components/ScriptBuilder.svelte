@@ -1,17 +1,10 @@
 <script lang="ts">
-	import {
-		DraftService,
-		NewScript,
-		Script,
-		ScriptService,
-		WorkerService,
-		type NewScriptWithDraft
-	} from '$lib/gen'
+	import { DraftService, NewScript, Script, ScriptService, type NewScriptWithDraft } from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
@@ -34,12 +27,9 @@
 		CheckCircle,
 		Code,
 		DiffIcon,
-		ExternalLink,
-		Loader2,
 		Pen,
 		Plus,
 		Rocket,
-		RotateCw,
 		Save,
 		Settings,
 		X
@@ -59,7 +49,7 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
-	import AssignableTags from './AssignableTags.svelte'
+	import WorkerTagPicker from './WorkerTagPicker.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -80,14 +70,6 @@
 	let scriptEditor: ScriptEditor | undefined = undefined
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
-
-	loadWorkerGroups()
-
-	async function loadWorkerGroups() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
-		}
-	}
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -599,59 +581,7 @@
 											group tag (queue). For instance, you could setup an "highmem", or "gpu" tag.
 										</Tooltip>
 									</svelte:fragment>
-									<div class="flex gap-2 items-center">
-										<div class="max-w-sm grow">
-											{#if $workerTags}
-												{#if $workerTags?.length > 0}
-													<select
-														bind:value={script.tag}
-														on:change={(e) => {
-															if (script.tag == '') {
-																script.tag = undefined
-															}
-														}}
-													>
-														{#if script.tag}
-															<option value="">reset to default</option>
-														{:else}
-															<option value="" disabled selected>Worker Group Tag</option>
-														{/if}
-														{#each $workerTags ?? [] as tag (tag)}
-															<option value={tag}>{tag}</option>
-														{/each}
-													</select>
-												{:else}
-													<div class="text-sm text-secondary flex flex-row gap-2">
-														No custom worker group tag defined on this instance in "Workers {'->'} Assignable
-														Tags"
-														<a
-															href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-															target="_blank"
-															class="hover:underline"
-														>
-															<div class="flex flex-row gap-2 items-center">
-																See documentation
-																<ExternalLink size="12" />
-															</div>
-														</a>
-													</div>
-												{/if}
-											{:else}
-												<Loader2 class="animate-spin" />
-											{/if}
-										</div>
-
-										<Button
-											variant="border"
-											color="light"
-											on:click={() => {
-												$workerTags = undefined
-												loadWorkerGroups()
-											}}
-											startIcon={{ icon: RotateCw }}
-										/>
-										<AssignableTags />
-									</div>
+									<WorkerTagPicker bind:tag={script.tag} />
 								</Section>
 								<Section label="Cache">
 									<div class="flex gap-2 shrink flex-col">

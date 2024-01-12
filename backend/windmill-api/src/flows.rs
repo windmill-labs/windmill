@@ -880,6 +880,7 @@ mod tests {
                         )]
                         .into(),
                         hash: None,
+                        tag_override: None,
                     },
                     stop_after_if: None,
                     summary: None,
@@ -948,6 +949,7 @@ mod tests {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
                     hash: None,
+                    tag_override: None,
                 },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
@@ -983,7 +985,8 @@ mod tests {
                     }
                   },
                 "type": "script",
-                "path": "test"
+                "path": "test",
+                "tag_override": Option::<String>::None,
               },
             },
             {
@@ -1026,7 +1029,8 @@ mod tests {
             "value": {
               "input_transforms": {},
               "type": "script",
-              "path": "test"
+              "path": "test",
+              "tag_override": Option::<String>::None,
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",

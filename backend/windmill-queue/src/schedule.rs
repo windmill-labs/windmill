@@ -130,6 +130,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     concurrency_time_window_s: concurrency_time_window_s,
                     cache_ttl: cache_ttl,
                     priority: priority,
+                    tag_override: schedule.tag.clone(),
                 },
                 Some("flow".to_string()),
                 timeout,
@@ -146,7 +147,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     language,
                     priority,
                 },
-                tag,
+                schedule.tag.or(tag),
                 timeout,
             )
         }
