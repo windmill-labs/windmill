@@ -15,8 +15,8 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, handle_child, parse_npm_config,
         read_result, set_logs, start_child_process, write_file, write_file_binary,
     },
-    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
-    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
+    DISABLE_NUSER, HOME_ENV, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{
@@ -50,7 +50,6 @@ pub const EMPTY_FILE: &str = "<empty>";
 lazy_static::lazy_static! {
     pub static ref TRUSTED_DEP: Regex = Regex::new(r"//\s?trustedDependencies:(.*)\n").unwrap();
 
-    pub static ref BUN_BUNFIG_EXTRA: Option<String> = std::env::var("BUN_BUNFIG_EXTRA").ok();
 }
 
 pub async fn gen_lockfile(
@@ -88,7 +87,8 @@ pub async fn gen_lockfile(
 
     // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
     let registry = NPM_CONFIG_REGISTRY.read().await.clone();
-    if registry.is_some() || BUN_BUNFIG_EXTRA.is_some() {
+    let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
+    if registry.is_some() || bunfig_install_scopes.is_some() {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
             if url.is_empty() {
@@ -112,7 +112,9 @@ registry = {}
 {}
 "#,
             registry_toml_string,
-            BUN_BUNFIG_EXTRA.as_ref().unwrap_or(&"".to_string())
+            bunfig_install_scopes
+                .map(|x| format!("[install.scopes]\n{x}"))
+                .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
         let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
