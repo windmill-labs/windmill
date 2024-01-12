@@ -3052,10 +3052,9 @@ This is a paragraph.
 							},
 							*/
 							pathTemplate: {
-								type: 'evalv2',
+								type: 'eval',
 								expr: `\`\${file.name}\``,
 								fieldType: 'template',
-								connections: [] as InputConnectionEval[]
 							}
 						}
 					}
