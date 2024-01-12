@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.237.0
+  version: 1.240.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -8640,6 +8640,8 @@ paths:
                   properties: &ref_82
                     name:
                       type: string
+                    summary:
+                      type: string
                     emails:
                       type: array
                       items:
@@ -8666,6 +8668,141 @@ paths:
                 type: object
                 properties: *ref_82
                 required: *ref_83
+  /groups/create:
+    post:
+      summary: create instance group
+      operationId: createInstanceGroup
+      tags:
+        - group
+      requestBody:
+        description: create instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                summary:
+                  type: string
+              required:
+                - name
+      responses:
+        '200':
+          description: instance group created
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/udpate/{name}:
+    post:
+      summary: update instance group
+      operationId: updateInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: update instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_summary:
+                  type: string
+              required:
+                - new_summary
+      responses:
+        '200':
+          description: instance group updated
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/delete/{name}:
+    delete:
+      summary: delete instance group
+      operationId: deleteInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      responses:
+        '200':
+          description: instance group deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/adduser/{name}:
+    delete:
+      summary: add user to instance group
+      operationId: addUserToInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: user to add to instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required:
+                - email
+      responses:
+        '200':
+          description: user added to instance group
+          content:
+            text/plain:
+              schema:
+                type: string
+  /groups/removeuser/{name}:
+    delete:
+      summary: remove user from instance group
+      operationId: removeUserFromInstanceGroup
+      tags:
+        - group
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: *ref_81
+      requestBody:
+        description: user to remove from instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required:
+                - email
+      responses:
+        '200':
+          description: user removed from instance group
+          content:
+            text/plain:
+              schema:
+                type: string
   /w/{workspace}/groups/list:
     get:
       summary: list groups
