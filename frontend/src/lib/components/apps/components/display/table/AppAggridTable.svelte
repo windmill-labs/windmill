@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
-	import { isObject } from '$lib/utils'
+	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
@@ -138,58 +138,63 @@
 	let state: any = undefined
 	function mountGrid() {
 		if (eGui) {
-			createGrid(
-				eGui,
-				{
-					rowData: value,
-					columnDefs:
-						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-							? resolvedConfig?.columnDefs
-							: [],
-					pagination: resolvedConfig?.pagination,
-					paginationAutoPageSize: resolvedConfig?.pagination,
-					defaultColDef: {
-						flex: resolvedConfig.flex ? 1 : 0,
-						editable: resolvedConfig?.allEditable,
-						onCellValueChanged
-					},
-					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
-					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
-						? resolvedConfig.rowMultiselectWithClick
-						: undefined,
-					onPaginationChanged: (event) => {
-						outputs?.page.set(event.api.paginationGetCurrentPage())
-					},
-					initialState: state,
-					suppressRowDeselection: true,
-					...(resolvedConfig?.extraConfig ?? {}),
-					onStateUpdated: (e) => {
-						state = e?.api?.getState()
-						resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
-					},
-					onGridReady: (e) => {
-						outputs?.ready.set(true)
-						value = value
-						if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
-							e.api.getRowNode('0')?.setSelected(true)
-						}
-						$componentControl[id] = {
-							agGrid: { api: e.api, columnApi: e.columnApi },
-							setSelectedIndex: (index) => {
-								e.api.getRowNode(index.toString())?.setSelected(true)
+			try {
+				createGrid(
+					eGui,
+					{
+						rowData: value,
+						columnDefs:
+							Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+								? resolvedConfig?.columnDefs
+								: [],
+						pagination: resolvedConfig?.pagination,
+						paginationAutoPageSize: resolvedConfig?.pagination,
+						defaultColDef: {
+							flex: resolvedConfig.flex ? 1 : 0,
+							editable: resolvedConfig?.allEditable,
+							onCellValueChanged
+						},
+						rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
+						rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
+							? resolvedConfig.rowMultiselectWithClick
+							: undefined,
+						onPaginationChanged: (event) => {
+							outputs?.page.set(event.api.paginationGetCurrentPage())
+						},
+						initialState: state,
+						suppressRowDeselection: true,
+						...(resolvedConfig?.extraConfig ?? {}),
+						onStateUpdated: (e) => {
+							state = e?.api?.getState()
+							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
+						},
+						onGridReady: (e) => {
+							outputs?.ready.set(true)
+							value = value
+							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
+								e.api.getRowNode('0')?.setSelected(true)
 							}
-						}
-						api = e.api
-						resolvedConfig?.extraConfig?.['onGridReady']?.(e)
+							$componentControl[id] = {
+								agGrid: { api: e.api, columnApi: e.columnApi },
+								setSelectedIndex: (index) => {
+									e.api.getRowNode(index.toString())?.setSelected(true)
+								}
+							}
+							api = e.api
+							resolvedConfig?.extraConfig?.['onGridReady']?.(e)
+						},
+						onSelectionChanged: (e) => {
+							onSelectionChanged(e.api)
+							resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
+						},
+						getRowId: (data) => data.data['__index']
 					},
-					onSelectionChanged: (e) => {
-						onSelectionChanged(e.api)
-						resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
-					},
-					getRowId: (data) => data.data['__index']
-				},
-				{}
-			)
+					{}
+				)
+			} catch (e) {
+				console.error(e)
+				sendUserToast("Couldn't mount the grid:" + e, true)
+			}
 		}
 	}
 
@@ -225,25 +230,30 @@
 		}
 	}
 	function updateOptions() {
-		api?.updateGridOptions({
-			rowData: value,
-			columnDefs:
-				Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-					? resolvedConfig?.columnDefs
+		try {
+			api?.updateGridOptions({
+				rowData: value,
+				columnDefs:
+					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+						? resolvedConfig?.columnDefs
+						: undefined,
+				pagination: resolvedConfig?.pagination,
+				paginationAutoPageSize: resolvedConfig?.pagination,
+				defaultColDef: {
+					flex: resolvedConfig.flex ? 1 : 0,
+					editable: resolvedConfig?.allEditable,
+					onCellValueChanged
+				},
+				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
+				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
+					? resolvedConfig.rowMultiselectWithClick
 					: undefined,
-			pagination: resolvedConfig?.pagination,
-			paginationAutoPageSize: resolvedConfig?.pagination,
-			defaultColDef: {
-				flex: resolvedConfig.flex ? 1 : 0,
-				editable: resolvedConfig?.allEditable,
-				onCellValueChanged
-			},
-			rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
-			rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
-				? resolvedConfig.rowMultiselectWithClick
-				: undefined,
-			...(resolvedConfig?.extraConfig ?? {})
-		})
+				...(resolvedConfig?.extraConfig ?? {})
+			})
+		} catch (e) {
+			console.error(e)
+			sendUserToast("Couldn't update the grid:" + e, true)
+		}
 	}
 </script>
 
