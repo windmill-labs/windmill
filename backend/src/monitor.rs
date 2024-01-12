@@ -21,9 +21,9 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING,
     },
@@ -35,8 +35,9 @@ use windmill_common::{
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SendResult, JOB_DEFAULT_TIMEOUT,
-    KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SendResult, BUNFIG_INSTALL_SCOPES,
+    JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL,
+    SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "enterprise")]
@@ -137,6 +138,9 @@ pub async fn initial_load(
 
     if worker_mode {
         reload_npm_config_registry_setting(&db).await;
+    }
+    if worker_mode {
+        reload_bunfig_install_scopes_setting(&db).await;
     }
 }
 
@@ -302,29 +306,33 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn reload_extra_pip_index_url_setting(db: &DB) {
-    if let Err(e) = reload_option_setting(
+    reload_option_setting_with_tracing(
         db,
         EXTRA_PIP_INDEX_URL_SETTING,
         "PIP_EXTRA_INDEX_URL",
         PIP_EXTRA_INDEX_URL.clone(),
     )
-    .await
-    {
-        tracing::error!("Error reloading extra_pip_index_url period: {:?}", e)
-    }
+    .await;
 }
 
 pub async fn reload_npm_config_registry_setting(db: &DB) {
-    if let Err(e) = reload_option_setting(
+    reload_option_setting_with_tracing(
         db,
         NPM_CONFIG_REGISTRY_SETTING,
         "NPM_CONFIG_REGISTRY",
         NPM_CONFIG_REGISTRY.clone(),
     )
-    .await
-    {
-        tracing::error!("Error reloading npm_config_registry period: {:?}", e)
-    }
+    .await;
+}
+
+pub async fn reload_bunfig_install_scopes_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        BUNFIG_INSTALL_SCOPES_SETTING,
+        "BUNFIG_INSTALL_SCOPES",
+        BUNFIG_INSTALL_SCOPES.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_retention_period_setting(db: &DB) {
@@ -343,16 +351,13 @@ pub async fn reload_retention_period_setting(db: &DB) {
 }
 
 pub async fn reload_job_default_timeout_setting(db: &DB) {
-    if let Err(e) = reload_option_setting(
+    reload_option_setting_with_tracing(
         db,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         "JOB_DEFAULT_TIMEOUT_SECS",
         JOB_DEFAULT_TIMEOUT.clone(),
     )
-    .await
-    {
-        tracing::error!("Error reloading job default timeout: {:?}", e)
-    }
+    .await;
 }
 
 pub async fn reload_request_size(db: &DB) {
@@ -400,6 +405,16 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
+    db: &DB,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<T>>>,
+) {
+    if let Err(e) = reload_option_setting(db, setting_name, std_env_var, lock.clone()).await {
+        tracing::error!("Error reloading setting {}: {:?}", setting_name, e)
+    }
+}
 pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     db: &DB,
     setting_name: &str,
