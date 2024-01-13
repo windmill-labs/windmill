@@ -349,9 +349,10 @@
 			</div>
 		{:else}
 			<div class="absolute top-2 left-2 z5000">
-				<OperatorMenu {favoriteLinks} />
+				<OperatorMenu />
 			</div>
 		{/if}
+
 		<div
 			class={classNames(
 				'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
@@ -423,7 +424,7 @@
 					<div
 						class={classNames(
 							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
-							devOnly ? 'hidden' : ''
+							devOnly || $userStore?.operator ? 'hidden' : ''
 						)}
 					>
 						<button
