@@ -45,7 +45,16 @@
 		w &&
 		vegaEmbed(
 			divEl,
-			{ ...result, ...{ width: w - 100 } },
+			{
+				...result,
+				...{
+					width: w - 100,
+					config: {
+						legend: { orient: 'bottom', ...(result?.['config']?.['legend'] ?? {}) },
+						...(result?.['config'] ?? {})
+					}
+				}
+			},
 			{
 				mode: 'vega-lite',
 				actions: false,
