@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.244.1](https://github.com/windmill-labs/windmill/compare/v1.244.0...v1.244.1) (2024-01-13)
+
+
+### Bug Fixes
+
+* menu colors ([b84cd6d](https://github.com/windmill-labs/windmill/commit/b84cd6d52d723fea55a407d347afec1c669da03a))
+* menu colors ([5201dcd](https://github.com/windmill-labs/windmill/commit/5201dcdd679690bf82b2606d85829ae9333e09ac))
+
 ## [1.244.0](https://github.com/windmill-labs/windmill/compare/v1.243.0...v1.244.0) (2024-01-13)
 
 
