@@ -285,17 +285,14 @@ pub enum JobPayload {
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
-        deployment_message: Option<String>,
     },
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
-        deployment_message: Option<String>,
     },
     AppDependencies {
         path: String,
         version: i64,
-        deployment_message: Option<String>,
     },
     Flow {
         path: String,
@@ -320,6 +317,7 @@ pub enum JobPayload {
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
+        tag_override: Option<String>,
     },
     DeploymentCallback {
         path: String,

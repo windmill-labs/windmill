@@ -101,7 +101,7 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_high_performance_w
         value = "true"
       }, {
         name  = "DATABASE_URL"
-        value = "postgres://${aws_db_instance.windmill_cluster_rds.username}:${aws_db_instance.windmill_cluster_rds.password}@${aws_db_instance.windmill_cluster_rds.endpoint}/${aws_db_instance.windmill_cluster_rds.db_name}"
+        value = "postgres://${aws_db_instance.windmill_cluster_rds.username}:${aws_db_instance.windmill_cluster_rds.password}@${aws_db_instance.windmill_cluster_rds.endpoint}/${aws_db_instance.windmill_cluster_rds.db_name}?sslmode=disable"
         }, {
         name  = "MODE"
         value = "worker"

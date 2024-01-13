@@ -219,7 +219,12 @@ async function run() {{
     Deno.exit(0);
 }}
 run().catch(async (e) => {{
-    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    let err = {{ message: e.message, name: e.name, stack: e.stack }};
+    let step_id = Deno.env.get("WM_FLOW_STEP_ID");
+    if (step_id) {{
+        err["step_id"] = step_id;
+    }}
+    await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
 }});
     "#,

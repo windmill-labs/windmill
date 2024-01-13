@@ -15,8 +15,8 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, handle_child, parse_npm_config,
         read_result, set_logs, start_child_process, write_file, write_file_binary,
     },
-    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
-    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
+    DISABLE_NUSER, HOME_ENV, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{
@@ -49,6 +49,7 @@ pub const EMPTY_FILE: &str = "<empty>";
 
 lazy_static::lazy_static! {
     pub static ref TRUSTED_DEP: Regex = Regex::new(r"//\s?trustedDependencies:(.*)\n").unwrap();
+
 }
 
 pub async fn gen_lockfile(
@@ -85,8 +86,19 @@ pub async fn gen_lockfile(
     .await?;
 
     // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
-    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        let (url, token_opt) = parse_npm_config(s);
+    let registry = NPM_CONFIG_REGISTRY.read().await.clone();
+    let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
+    if registry.is_some() || bunfig_install_scopes.is_some() {
+        let (url, token_opt) = if let Some(ref s) = registry {
+            let url = s.trim();
+            if url.is_empty() {
+                ("https://registry.npmjs.org".to_string(), None)
+            } else {
+                parse_npm_config(s)
+            }
+        } else {
+            ("https://registry.npmjs.org".to_string(), None)
+        };
         let registry_toml_string = if let Some(token) = token_opt {
             format!("{{ url = \"{url}\", token = \"{token}\" }}")
         } else {
@@ -96,8 +108,13 @@ pub async fn gen_lockfile(
             r#"
 [install]
 registry = {}
+
+{}
 "#,
-            registry_toml_string
+            registry_toml_string,
+            bunfig_install_scopes
+                .map(|x| format!("[install.scopes]\n{x}"))
+                .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
         let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
@@ -400,7 +417,12 @@ async function run() {{
     process.exit(0);
 }}
 run().catch(async (e) => {{
-    await fs.writeFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    let err = {{ message: e.message, name: e.name, stack: e.stack }};
+    let step_id = process.env.WM_FLOW_STEP_ID;
+    if (step_id) {{
+        err["step_id"] = step_id;
+    }}
+    await fs.writeFile("result.json", JSON.stringify(err));
     process.exit(1);
 }});
     "#,

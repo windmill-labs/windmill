@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.240.0
+  version: 1.243.0
   title: Windmill API
 
   contact:
@@ -1193,7 +1193,9 @@ paths:
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   git_sync:
-                    $ref: "#/components/schemas/WorkspaceGitSync"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkspaceGitSync"
                 required:
                   - code_completion_enabled
 
@@ -1532,7 +1534,9 @@ paths:
               type: object
               properties:
                 git_sync_settings:
-                  $ref: "#/components/schemas/WorkspaceGitSync"
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WorkspaceGitSync"
 
       responses:
         "200":
@@ -1994,13 +1998,10 @@ paths:
                   type: string
                 expires_in:
                   type: integer
-                owner:
-                  type: string
                 client:
                   type: string
               required:
                 - expires_in
-                - owner
                 - client
       responses:
         "200":
@@ -5628,6 +5629,134 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstanceGroup"
 
+  /groups/create:
+    post:
+      summary: create instance group
+      operationId: createInstanceGroup
+      tags:
+        - group
+      requestBody:
+        description: create instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                summary:
+                  type: string
+              required:
+                - name
+      responses:
+        "200":
+          description: instance group created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /groups/update/{name}:
+    post:
+      summary: update instance group
+      operationId: updateInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: update instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_summary:
+                  type: string
+              required:
+                - new_summary
+      responses:
+        "200":
+          description: instance group updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /groups/delete/{name}:
+    delete:
+      summary: delete instance group
+      operationId: deleteInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: instance group deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /groups/adduser/{name}:
+    post:
+      summary: add user to instance group
+      operationId: addUserToInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: user to add to instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required:
+                - email
+      responses:
+        "200":
+          description: user added to instance group
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /groups/removeuser/{name}:
+    post:
+      summary: remove user from instance group
+      operationId: removeUserFromInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: user to remove from instance group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required:
+                - email
+      responses:
+        "200":
+          description: user removed from instance group
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/groups/list:
     get:
       summary: list groups
@@ -6718,7 +6847,7 @@ paths:
 
   /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the file keys available in the worspace files storage (S3)
+      summary: List the file keys available in the workspace files storage (S3)
       operationId: listStoredFiles
       tags:
         - helpers
@@ -8455,6 +8584,8 @@ components:
           type: string
         no_flow_overlap:
           type: boolean
+        tag:
+          type: string
       required:
         - path
         - edited_by
@@ -8528,6 +8659,8 @@ components:
           type: boolean
         summary:
           type: string
+        tag:
+          type: string
       required:
         - path
         - schedule
@@ -8568,6 +8701,8 @@ components:
           type: boolean
         summary:
           type: string
+        tag:
+          type: string
       required:
         - schedule
         - timezone
@@ -8597,6 +8732,8 @@ components:
       type: object
       properties:
         name:
+          type: string
+        summary:
           type: string
         emails:
           type: array

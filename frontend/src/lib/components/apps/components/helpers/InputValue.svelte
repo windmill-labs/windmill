@@ -18,7 +18,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
 	import { deepEqual } from 'fast-equals'
-	import { isCodeInjection } from '$lib/utils'
+	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -30,8 +30,8 @@
 	export let field: string = key
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
-	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const groupContext = getContext<GroupContext>('GroupContext')
@@ -94,8 +94,8 @@
 	let firstDebounce = true
 	const debounce_ms = 50
 
-	export async function computeExpr() {
-		const nvalue = await evalExpr(lastInput as EvalAppInput)
+	export async function computeExpr(args?: Record<string, any>) {
+		const nvalue = await evalExpr(lastInput as EvalAppInput, args)
 		if (!deepEqual(nvalue, value)) {
 			value = nvalue
 		}
@@ -146,6 +146,7 @@
 
 	const debounceEval = async () => {
 		let nvalue = await evalExpr(lastInput as EvalAppInput)
+
 		if (field) {
 			editorContext?.evalPreview.update((x) => {
 				x[`${id}.${field}`] = nvalue
@@ -250,12 +251,15 @@
 		}
 	}
 
-	async function evalExpr(input: EvalAppInput | EvalV2AppInput): Promise<any> {
+	async function evalExpr(
+		input: EvalAppInput | EvalV2AppInput,
+		args?: Record<string, any>
+	): Promise<any> {
 		if (iterContext && $iterContext.disabled) return
 		try {
 			const r = await eval_like(
 				input.expr,
-				computeGlobalContext($worldStore, fullContext),
+				computeGlobalContext($worldStore, deepMergeWithPriority(fullContext, args ?? {})),
 				true,
 				$state,
 				$mode == 'dnd',

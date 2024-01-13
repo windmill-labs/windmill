@@ -122,6 +122,11 @@
         "ordinal": 23,
         "name": "no_flow_overlap",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 24,
+        "name": "tag",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -153,7 +158,8 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
   "hash": "fdd3710a381dac33ef5ee5ec5564a4874e6d7807d43fa6ea7b8408cad9e97480"

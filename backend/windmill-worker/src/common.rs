@@ -667,7 +667,7 @@ pub async fn handle_child(
                         if line.is_empty() {
                             continue;
                         }
-                        append_with_limit(&mut joined, &line, &mut log_remaining, child_name == "powershell run" || child_name == "bash run");
+                        append_with_limit(&mut joined, &line, &mut log_remaining);
                         if log_remaining == 0 {
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                             let _ = set_too_many_logs.send(true);
@@ -852,15 +852,16 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
+lazy_static::lazy_static! {
+    static ref RE_00: Regex = Regex::new('\u{00}'.to_string().as_str()).unwrap();
+}
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
-fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize, remove_x00: bool) {
+fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     let src_str;
-    let src = if remove_x00 {
-        src_str = src.replace('\u{00}', "");
-        src_str.as_str()
-    } else {
-        src
+    let src = {
+        src_str = RE_00.replace_all(src, "");
+        src_str.as_ref()
     };
     if !*CLOUD_HOSTED {
         dst.push('\n');

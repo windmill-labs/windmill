@@ -196,6 +196,8 @@
 				<PanelSection
 					title={componentSettings?.item.data.type == 'steppercomponent'
 						? 'Validations'
+						: componentSettings?.item.data.type == 's3fileinputcomponent'
+						? 'Path template'
 						: hasInteraction
 						? 'Event handler'
 						: 'Data source'}

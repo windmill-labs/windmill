@@ -20,7 +20,7 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 
 function create_context_function_template(eval_string: string, context, noReturn: boolean) {
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll) {
+return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles) {
 "use strict";
 ${
 	Object.keys(context).length > 0
@@ -55,10 +55,12 @@ function make_context_evaluator(
 	close,
 	validate,
 	invalidate,
-	validateAll
+	validateAll,
+	clearFiles
 ) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
+
 	return functor()
 }
 
@@ -114,6 +116,7 @@ export async function eval_like(
 			validate?: (key: string) => void
 			invalidate?: (key: string, error: string) => void
 			validateAll?: () => void
+			clearFiles?: () => void
 		}
 	>,
 	worldStore: World | undefined,
@@ -135,6 +138,7 @@ export async function eval_like(
 		}
 	})
 	let evaluator = make_context_evaluator(text, context, noReturn)
+
 	return await evaluator(
 		context,
 		proxiedState,
@@ -185,6 +189,9 @@ export async function eval_like(
 		},
 		(id) => {
 			controlComponents[id]?.validateAll?.()
+		},
+		(id) => {
+			controlComponents[id]?.clearFiles?.()
 		}
 	)
 }

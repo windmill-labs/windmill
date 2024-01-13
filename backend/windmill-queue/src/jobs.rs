@@ -25,6 +25,7 @@ use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
 use prometheus::IntCounter;
+use regex::Regex;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Client, StatusCode,
@@ -1005,6 +1006,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 retry: schedule.retry,
                 summary: schedule.summary,
                 no_flow_overlap: schedule.no_flow_overlap,
+                tag: schedule.tag,
             },
         )
         .await;
@@ -2291,6 +2293,10 @@ impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<HashMap<String, Box<J
 //     }
 // }
 
+lazy_static::lazy_static! {
+    pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
@@ -2496,23 +2502,21 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             dedicated_worker,
             None,
         ),
-        JobPayload::Dependencies { hash, language, path, dedicated_worker, deployment_message } => {
-            (
-                Some(hash.0),
-                Some(path),
-                Some((deployment_message.unwrap_or_else(String::new), None)),
-                JobKind::Dependencies,
-                None,
-                None,
-                Some(language),
-                None,
-                None,
-                None,
-                dedicated_worker,
-                None,
-            )
-        }
-        JobPayload::FlowDependencies { path, dedicated_worker, deployment_message } => {
+        JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
+            Some(hash.0),
+            Some(path),
+            None,
+            JobKind::Dependencies,
+            None,
+            None,
+            Some(language),
+            None,
+            None,
+            None,
+            dedicated_worker,
+            None,
+        ),
+        JobPayload::FlowDependencies { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
@@ -2530,7 +2534,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             (
                 None,
                 Some(path),
-                Some((deployment_message.unwrap_or_else(String::new), None)),
+                None,
                 JobKind::FlowDependencies,
                 Some(value.clone()),
                 Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
@@ -2542,10 +2546,10 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
             )
         }
-        JobPayload::AppDependencies { path, version, deployment_message } => (
+        JobPayload::AppDependencies { path, version } => (
             Some(version),
             Some(path),
-            Some((deployment_message.unwrap_or_else(String::new), None)),
+            None,
             JobKind::AppDependencies,
             None,
             None,
@@ -2618,6 +2622,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             concurrency_time_window_s,
             cache_ttl,
             priority,
+            tag_override,
         } => {
             let mut input_transforms = HashMap::<String, InputTransform>::new();
             for (arg_name, arg_value) in args {
@@ -2630,6 +2635,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         input_transforms: input_transforms,
                         path: path.clone(),
                         hash: Some(hash),
+                        tag_override: tag_override,
                     },
                     stop_after_if: None,
                     summary: None,
@@ -2871,13 +2877,32 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 "deno".to_string()
             }
         };
-        tag.map(|x| x.as_str().replace("$workspace", workspace_id).to_string())
-            .unwrap_or_else(|| {
-                language
-                    .as_ref()
-                    .map(|x| x.as_str().to_string())
-                    .unwrap_or_else(default)
-            })
+        let interpolated_tag = tag.map(|x| {
+            let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
+            if RE_ARG_TAG.is_match(&workspaced) {
+                let mut interpolated = workspaced.clone();
+                for cap in RE_ARG_TAG.captures_iter(&workspaced) {
+                    let arg_name = cap.get(1).unwrap().as_str();
+                    let value = serde_json::to_value(&args).unwrap_or_default();
+                    let arg_value = value
+                        .get(arg_name)
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default();
+                    interpolated =
+                        interpolated.replace(format!("$args[{}]", arg_name).as_str(), arg_value);
+                }
+                interpolated
+            } else {
+                workspaced
+            }
+        });
+
+        interpolated_tag.unwrap_or_else(|| {
+            language
+                .as_ref()
+                .map(|x| x.as_str().to_string())
+                .unwrap_or_else(default)
+        })
     };
 
     let mut tx = match tx {

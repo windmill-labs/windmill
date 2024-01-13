@@ -248,6 +248,8 @@ lazy_static::lazy_static! {
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
@@ -3213,16 +3215,22 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
             .execute(db)
             .await?;
 
-            let deployment_message = job.raw_code.as_ref().map(|x| x.clone());
+            let (deployment_message, parent_path) =
+                get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
             if let Err(e) = handle_deployment_metadata(
                 &job.email,
                 &job.created_by,
                 &db,
                 &w_id,
-                DeployedObject::Script { hash, path: script_path.to_string() },
+                DeployedObject::Script {
+                    hash,
+                    path: script_path.to_string(),
+                    parent_path: parent_path.clone(),
+                },
                 deployment_message.clone(),
                 rsmq.clone(),
+                false,
             )
             .await
             {
@@ -3262,6 +3270,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                         w_id,
                         script_path,
                         deployment_message,
+                        parent_path,
                         &job.email,
                         &job.created_by,
                         &job.permissioned_as,
@@ -3298,6 +3307,7 @@ async fn trigger_python_dependents_to_recompute_dependencies<
     w_id: &str,
     script_path: &str,
     deployment_message: Option<String>,
+    parent_path: Option<String>,
     email: &str,
     created_by: &str,
     permissioned_as: &str,
@@ -3318,6 +3328,14 @@ async fn trigger_python_dependents_to_recompute_dependencies<
             PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
         let r = get_latest_deployed_hash_for_path(db, w_id, s.as_str()).await;
         if let Ok(r) = r {
+            let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+            if let Some(ref dm) = deployment_message {
+                args.insert("deployment_message".to_string(), json!(dm));
+            }
+            if let Some(ref p_path) = parent_path {
+                args.insert("parent_path".to_string(), json!(p_path));
+            }
+
             let (job_uuid, new_tx) = windmill_queue::push(
                 db,
                 tx,
@@ -3327,9 +3345,8 @@ async fn trigger_python_dependents_to_recompute_dependencies<
                     hash: r.0,
                     language: r.5,
                     dedicated_worker: r.6,
-                    deployment_message: deployment_message.clone(),
                 },
-                PushArgs::empty(),
+                args,
                 &created_by,
                 email,
                 permissioned_as.to_string(),
@@ -3429,14 +3446,18 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
     .execute(db)
     .await?;
 
+    let (deployment_message, parent_path) =
+        get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
     if let Err(e) = handle_deployment_metadata(
         &job.email,
         &job.created_by,
         &db,
         &job.workspace_id,
-        DeployedObject::Flow { path: job_path },
-        job.raw_code.as_ref().map(|x| x.clone()),
+        DeployedObject::Flow { path: job_path, parent_path },
+        deployment_message,
         rsmq.clone(),
+        false,
     )
     .await
     {
@@ -3444,6 +3465,31 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
     }
 
     Ok(())
+}
+
+fn get_deployment_msg_and_parent_path_from_args(
+    args: Option<Json<HashMap<String, Box<RawValue>>>>,
+) -> (Option<String>, Option<String>) {
+    let args_map = args.map(|json_hashmap| json_hashmap.0);
+    let deployment_message = args_map
+        .clone()
+        .map(|hashmap| {
+            hashmap
+                .get("deployment_message")
+                .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
+                .flatten()
+        })
+        .flatten();
+    let parent_path = args_map
+        .clone()
+        .map(|hashmap| {
+            hashmap
+                .get("parent_path")
+                .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
+                .flatten()
+        })
+        .flatten();
+    (deployment_message, parent_path)
 }
 
 #[async_recursion]
@@ -3809,14 +3855,18 @@ async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             .execute(db)
             .await?;
 
+        let (deployment_message, parent_path) =
+            get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
         if let Err(e) = handle_deployment_metadata(
             &job.email,
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::App { path: job_path, version: id },
-            job.raw_code.as_ref().map(|x| x.clone()),
+            DeployedObject::App { path: job_path, version: id, parent_path },
+            deployment_message,
             rsmq.clone(),
+            false,
         )
         .await
         {

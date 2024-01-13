@@ -693,6 +693,9 @@ export const quickStyleProperties: Record<
 	fileinputcomponent: {
 		container: containerDefaultProps
 	},
+	s3fileinputcomponent: {
+		container: containerDefaultProps
+	},
 	textinputcomponent: {
 		input: inputDefaultProps
 	},

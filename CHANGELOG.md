@@ -1,6 +1,48 @@
 # Changelog
 
 
+## [1.243.0](https://github.com/windmill-labs/windmill/compare/v1.242.0...v1.243.0) (2024-01-13)
+
+
+### Features
+
+* add support for bun install scopes ([d785def](https://github.com/windmill-labs/windmill/commit/d785deff3312b076e3ed9043924f514f8823e041))
+* **frontend:** s3 file upload ([#2976](https://github.com/windmill-labs/windmill/issues/2976)) ([3c59fb8](https://github.com/windmill-labs/windmill/commit/3c59fb8b4d8a80077c2f352ccf1314fd32ff442c))
+* GIt sync to multiple repo ([#2996](https://github.com/windmill-labs/windmill/issues/2996)) ([fda0e28](https://github.com/windmill-labs/windmill/commit/fda0e28db31fba9f71be6db7280696c3949fd7be))
+* support dynamic args in tags ([aafd7d9](https://github.com/windmill-labs/windmill/commit/aafd7d90037bae20808e836d34c352ca6b357155))
+* Tag override for scheduled scripts ([#2998](https://github.com/windmill-labs/windmill/issues/2998)) ([99484bd](https://github.com/windmill-labs/windmill/commit/99484bdc20bac966ca1d9d45ca4278133ea91b87))
+
+
+### Bug Fixes
+
+* allow for any extra bunfig config ([e200889](https://github.com/windmill-labs/windmill/commit/e200889cff6c5166ce6564d7f9d606c1613fe03b))
+
+## [1.242.0](https://github.com/windmill-labs/windmill/compare/v1.241.0...v1.242.0) (2024-01-12)
+
+
+### Features
+
+* Instance group management page ([#2994](https://github.com/windmill-labs/windmill/issues/2994)) ([5f54f55](https://github.com/windmill-labs/windmill/commit/5f54f557903792ea6307b17f966c216cbd402709))
+
+
+### Bug Fixes
+
+* catch more agGrid errors ([01dbf54](https://github.com/windmill-labs/windmill/commit/01dbf548f712c2e669038e4eb704c470d2cb0426))
+
+## [1.241.0](https://github.com/windmill-labs/windmill/compare/v1.240.0...v1.241.0) (2024-01-12)
+
+
+### Features
+
+* Instance group CRUD API ([#2992](https://github.com/windmill-labs/windmill/issues/2992)) ([5a157c4](https://github.com/windmill-labs/windmill/commit/5a157c415e7f075d3f57872a9adf7f5130632bb6))
+* make dedicated workers for flows able to share runtime for the same scripts ([d59b89e](https://github.com/windmill-labs/windmill/commit/d59b89ec3cdf2285c0eac56d7678fc0b9a2c2a32))
+
+
+### Bug Fixes
+
+* add cache for flow as flow step ([28ac763](https://github.com/windmill-labs/windmill/commit/28ac7632cf767b1c0df30d93c841ad32bf891202))
+* git sync now works for delete and rename ([#2988](https://github.com/windmill-labs/windmill/issues/2988)) ([cde574b](https://github.com/windmill-labs/windmill/commit/cde574b8910bbaf737e0d7e515c42fc796911c5e))
+
 ## [1.240.0](https://github.com/windmill-labs/windmill/compare/v1.239.0...v1.240.0) (2024-01-11)
 
 

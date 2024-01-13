@@ -30,6 +30,7 @@
 	import { clearStores } from '$lib/storeUtils'
 	import { goto } from '$app/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -150,20 +151,24 @@
 	]
 
 	export let isCollapsed: boolean = false
+	export let noGap: boolean = false
 
 	let leaveWorkspaceModal = false
 </script>
 
 <nav
-	class="grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-16 justify-between"
+	class={twMerge(
+		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between',
+		noGap ? 'gap-0' : 'gap-16'
+	)}
 >
-	<div class="space-y-1 pt-4 mb-6 md:mb-10">
+	<div class={twMerge('space-y-1 pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
 		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 		{/each}
 	</div>
 	<div class="flex flex-col h-full justify-end">
-		<div class="space-y-0.5 mb-6 md:mb-10">
+		<div class={twMerge('space-y-0.5 mb-6 md:mb-10', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
 			<UserMenu {isCollapsed} />
 			{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				{#if menuLink.subItems}
@@ -176,7 +181,7 @@
 								<div class="py-1" role="none">
 									{#if subItem?.['action']}
 										<button
-											class="{subItem['class']} px-4 py-2 !text-2xs"
+											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
 											on:click={subItem?.['action']}
 										>
 											<div class="flex flex-row items-center gap-2">
@@ -190,7 +195,9 @@
 									{:else}
 										<a
 											href={subItem.href}
-											class="text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
+											class={twMerge(
+												'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
+											)}
 											role="menuitem"
 											tabindex="-1"
 										>

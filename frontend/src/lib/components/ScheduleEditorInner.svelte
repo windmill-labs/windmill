@@ -26,6 +26,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { List, Save } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
+	import WorkerTagPicker from './WorkerTagPicker.svelte'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
 
@@ -144,6 +145,7 @@
 	let pathError = ''
 	let summary = ''
 	let no_flow_overlap = false
+	let tag: string | undefined = undefined
 
 	let validCRON = true
 	$: allowSchedule = isValid && validCRON && script_path != ''
@@ -271,6 +273,7 @@
 			}
 			args = s.args ?? {}
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
+			tag = s.tag
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
 		}
@@ -303,7 +306,8 @@
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
-					no_flow_overlap: no_flow_overlap
+					no_flow_overlap: no_flow_overlap,
+					tag: tag
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -330,7 +334,8 @@
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
-					no_flow_overlap: no_flow_overlap
+					no_flow_overlap: no_flow_overlap,
+					tag: tag
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -533,16 +538,25 @@
 				</div>
 			</Section>
 
+			{#if !is_flow}{/if}
+
 			<div class="flex flex-col gap-2">
 				<Tabs bind:selected={optionTabSelected}>
 					<Tab value="error_handler">Error Handler</Tab>
 					<Tab value="recovery_handler">Recovery Handler</Tab>
 					{#if itemKind === 'script'}
 						<Tab value="retries">Retries</Tab>
+						<Tab value="tag">Custom tag</Tab>
 					{/if}
 				</Tabs>
+				<div class="pt-0.5" />
 				{#if optionTabSelected === 'error_handler'}
 					<Section label="Error handler">
+						<svelte:fragment slot="header">
+							<div class="flex flex-row gap-2">
+								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							</div>
+						</svelte:fragment>
 						<svelte:fragment slot="action">
 							<div class="flex flex-row items-center gap-2">
 								<Dropdown
@@ -567,7 +581,7 @@
 						</svelte:fragment>
 						<div class="flex flex-row">
 							<Toggle
-								disabled={!can_write}
+								disabled={!can_write || !$enterpriseLicense}
 								bind:checked={wsErrorHandlerMuted}
 								options={{ right: 'Mute workspace error handler for this schedule' }}
 							/>
@@ -575,7 +589,6 @@
 						<ErrorOrRecoveryHandler
 							isEditable={can_write}
 							errorOrRecovery="error"
-							handlersOnlyForEe={['slack']}
 							showScriptHelpText={true}
 							bind:handlerSelected={errorHandlerSelected}
 							bind:handlerPath={errorHandlerPath}
@@ -610,8 +623,7 @@
 
 						<div class="flex flex-row items-center justify-between">
 							<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-								<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
-									>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
 									Triggered when schedule failed</p
 								>
 								<select
@@ -668,7 +680,6 @@
 						<ErrorOrRecoveryHandler
 							isEditable={can_write && !emptyString($enterpriseLicense)}
 							errorOrRecovery="recovery"
-							handlersOnlyForEe={[]}
 							bind:handlerSelected={recoveryHandlerSelected}
 							bind:handlerPath={recoveryHandlerPath}
 							customInitialScriptPath={recoveryHandlerCustomInitialPath}
@@ -728,6 +739,9 @@
 				{:else if optionTabSelected === 'retries'}
 					<Section label="Retries">
 						<svelte:fragment slot="header">
+							<div class="flex flex-row gap-2">
+								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							</div>
 							<Tooltip>
 								If defined, upon error this schedule will be retried with a delay and a maximum
 								number of attempts as defined below.
@@ -737,6 +751,13 @@
 							</Tooltip>
 						</svelte:fragment>
 						<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script'} />
+					</Section>
+				{:else if optionTabSelected === 'tag'}
+					<Section
+						label="Custom script tag"
+						tooltip="When set, the script tag will be overridden by this tag"
+					>
+						<WorkerTagPicker bind:tag popupPlacement="top-end" />
 					</Section>
 				{/if}
 			</div>

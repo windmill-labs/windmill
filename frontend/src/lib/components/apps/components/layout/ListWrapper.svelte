@@ -1,24 +1,23 @@
 <script lang="ts">
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { setContext } from 'svelte'
 	import type { ListInputs, ListContext } from '../../types'
 	import { writable } from 'svelte/store'
 
 	export let index: number
 	export let value: any
 	export let disabled = false
-
+	export let onSet: ((id: string, value: any) => void) | undefined = undefined
+	export let onRemove: ((id: string) => void) | undefined = undefined
 	const ctx = writable({ index, value, disabled })
-
-	const dispatch = createEventDispatcher()
 
 	$: $ctx = { index, value, disabled }
 	setContext<ListContext>('ListWrapperContext', ctx)
 	setContext<ListInputs>('ListInputs', {
 		set: (id: string, value: any) => {
-			dispatch('set', { id, value })
+			onSet?.(id, value)
 		},
 		remove(id) {
-			dispatch('remove', id)
+			onRemove?.(id)
 		}
 	})
 </script>

@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use crate::db::ApiAuthed;
 use crate::{
     db::DB,
@@ -24,6 +26,7 @@ use axum::{
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
@@ -38,7 +41,7 @@ use windmill_common::{
     scripts::Schema,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
 };
-use windmill_queue::PushArgs;
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
@@ -354,6 +357,11 @@ async fn create_flow(
     )
     .await?;
 
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(dm) = nf.deployment_message {
+        args.insert("deployment_message".to_string(), json!(dm));
+    }
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut new_tx) = push(
         &db,
@@ -362,9 +370,8 @@ async fn create_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
-            deployment_message: nf.deployment_message,
         },
-        PushArgs::empty(),
+        args,
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -568,6 +575,12 @@ async fn update_flow(
 
     let tx = PushIsolationLevel::Transaction(tx);
 
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(dm) = nf.deployment_message {
+        args.insert("deployment_message".to_string(), json!(dm));
+    }
+    args.insert("parent_path".to_string(), json!(flow_path));
+
     let (dependency_job_uuid, mut new_tx) = push(
         &db,
         tx,
@@ -575,9 +588,8 @@ async fn update_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
-            deployment_message: nf.deployment_message,
         },
-        PushArgs::empty(),
+        args,
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -708,8 +720,10 @@ struct Archived {
 
 async fn archive_flow_by_path(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
@@ -736,6 +750,27 @@ async fn archive_flow_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!(
+            "Flow '{}' {}",
+            path,
+            if archived.archived.unwrap_or(true) {
+                "archived"
+            } else {
+                "unarchived"
+            }
+        )),
+        rsmq,
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::ArchiveFlow { workspace: w_id, path: path.to_owned() },
@@ -746,7 +781,9 @@ async fn archive_flow_by_path(
 
 async fn delete_flow_by_path(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -780,6 +817,32 @@ async fn delete_flow_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Flow '{}' deleted", path)),
+        rsmq,
+        true,
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE path = $1 AND workspace_id = $2 AND script_hash IS NULL and app_version IS NULL",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+        ))
+    })?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteFlow { workspace: w_id, path: path.to_owned() },
@@ -817,6 +880,7 @@ mod tests {
                         )]
                         .into(),
                         hash: None,
+                        tag_override: None,
                     },
                     stop_after_if: None,
                     summary: None,
@@ -885,6 +949,7 @@ mod tests {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
                     hash: None,
+                    tag_override: None,
                 },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
@@ -920,7 +985,8 @@ mod tests {
                     }
                   },
                 "type": "script",
-                "path": "test"
+                "path": "test",
+                "tag_override": Option::<String>::None,
               },
             },
             {
@@ -963,7 +1029,8 @@ mod tests {
             "value": {
               "input_transforms": {},
               "type": "script",
-              "path": "test"
+              "path": "test",
+              "tag_override": Option::<String>::None,
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",

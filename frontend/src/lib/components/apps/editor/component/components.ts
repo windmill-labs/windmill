@@ -44,7 +44,8 @@ import {
 	FileBarChart,
 	Menu,
 	Network,
-	Database
+	Database,
+	UploadCloud
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -57,7 +58,12 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
+import type {
+	AppInputSpec,
+	EvalV2AppInput,
+	ResultAppInput,
+	StaticAppInput
+} from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -186,6 +192,8 @@ export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 }
 
+export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'>
+
 export type DecisionTreeNode = {
 	id: string
 	label: string
@@ -264,6 +272,7 @@ export type TypedComponent =
 	| StatisticCardComponent
 	| MenuComponent
 	| DecisionTreeComponent
+	| S3FileInputComponent
 	| AgChartsComponent
 	| AgChartsComponentEe
 
@@ -378,7 +387,8 @@ const labels = {
 	open: 'Open a modal or a drawer',
 	close: 'Close a modal or a drawer',
 	openModal: 'Open a modal (deprecated)',
-	closeModal: 'Close a modal (deprecated)'
+	closeModal: 'Close a modal (deprecated)',
+	clearFiles: 'Clear files from a S3 file input'
 }
 
 const onSuccessClick = {
@@ -450,6 +460,14 @@ const onSuccessClick = {
 		close: {
 			id: {
 				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
 				fieldType: 'text',
 				type: 'static',
 				value: ''
@@ -2983,6 +3001,64 @@ This is a paragraph.
 					next: []
 				}
 			] as DecisionTreeNode[]
+		}
+	},
+	s3fileinputcomponent: {
+		name: 'S3 File Uploader',
+		icon: UploadCloud,
+		documentationLink: `${documentationBaseUrl}/s3fileinput`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'oneOf',
+					selected: 's3',
+					labels: {
+						s3: 'S3'
+					},
+					configuration: {
+						s3: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								value: '',
+								subFieldType: 's3'
+							} as StaticAppInput,
+							acceptedFileTypes: {
+								type: 'static',
+								value: ['image/*', 'application/pdf'] as string[],
+								fieldType: 'array'
+							},
+							allowMultiple: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to select more than one file'
+							},
+							text: {
+								type: 'static',
+								value: 'Drag and drop files or click to select them',
+								fieldType: 'text'
+							},
+							/*
+							displayDirectLink: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							},
+							*/
+							pathTemplate: {
+								type: 'eval',
+								expr: `\`\${file.name}\``,
+								fieldType: 'template',
+							}
+						}
+					}
+				} as const
+			}
 		}
 	},
 	dbexplorercomponent: {

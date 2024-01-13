@@ -1044,7 +1044,7 @@ async fn edit_large_file_storage_config(
 
 #[derive(Deserialize)]
 struct EditGitSyncConfig {
-    git_sync_settings: Option<WorkspaceGitRepo>,
+    git_sync_settings: Option<Vec<WorkspaceGitRepo>>,
 }
 
 async fn edit_git_sync_config(
@@ -1078,7 +1078,7 @@ async fn edit_git_sync_config(
     .await?;
 
     if let Some(git_sync_settings) = new_config.git_sync_settings {
-        let serialized_config = serde_json::to_value::<WorkspaceGitRepo>(git_sync_settings)
+        let serialized_config = serde_json::to_value::<Vec<WorkspaceGitRepo>>(git_sync_settings)
             .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(
