@@ -45,7 +45,7 @@
 
 	let flow: Flow | undefined
 	let can_write = false
-	let path = $page.params.path
+	$: path = $page.params.path
 	let shareModal: ShareModal
 	let deploymentInProgress = false
 
@@ -56,7 +56,7 @@
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
 	$: {
-		if ($workspaceStore && $userStore) {
+		if ($workspaceStore && $userStore && $page.params.path) {
 			loadFlow()
 		}
 	}
@@ -312,9 +312,9 @@
 					<Pane size={60} minSize={20}>
 						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
 							<div class="flex flex-col gap-2 mb-8">
-								{#if !emptyString(flow.description)}
+								{#if !emptyString(flow?.description)}
 									<div class=" break-words whitespace-pre-wrap text-sm mb-4 !text-secondary">
-										<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
+										<Urlize text={defaultIfEmptyString(flow?.description, 'No description')} />
 									</div>
 								{/if}
 							</div>

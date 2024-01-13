@@ -349,7 +349,7 @@
 			</div>
 		{:else}
 			<div class="absolute top-2 left-2 z5000">
-				<OperatorMenu />
+				<OperatorMenu {favoriteLinks} />
 			</div>
 		{/if}
 
