@@ -13,6 +13,7 @@
 
 	let darkMode: boolean = false
 	export let isCollapsed: boolean = false
+	export let lightMode: boolean = false
 </script>
 
 <Menu>
@@ -22,6 +23,7 @@
 			icon={User}
 			label={`User (${$userStore?.username ?? $userStore?.email})`}
 			{isCollapsed}
+			{lightMode}
 		/>
 	</div>
 	<div class="divide-y">

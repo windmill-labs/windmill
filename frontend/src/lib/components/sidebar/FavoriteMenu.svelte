@@ -5,6 +5,7 @@
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	export let lightMode: boolean = false
 
 	export let isCollapsed: boolean = false
 	export let favoriteLinks = [] as {
@@ -16,7 +17,7 @@
 
 <Menu>
 	<div slot="trigger">
-		<MenuButton class="!text-xs" icon={Star} label={'Favorites'} {isCollapsed} />
+		<MenuButton class="!text-xs" icon={Star} label={'Favorites'} {isCollapsed} {lightMode} />
 	</div>
 
 	<div class="overflow-hidden" role="none">
