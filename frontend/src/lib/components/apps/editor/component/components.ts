@@ -61,7 +61,6 @@ import type { Size } from '../../svelte-grid/types'
 import type {
 	AppInputSpec,
 	EvalV2AppInput,
-	InputConnectionEval,
 	ResultAppInput,
 	StaticAppInput
 } from '../../inputType'
