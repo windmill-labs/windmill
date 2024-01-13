@@ -237,13 +237,16 @@
 						}
 						r.push(...nr)
 					}
-					return r
+
+					const processed = r
 						.filter((x) => x.input)
 						.map(async (o) => {
 							if (o.input?.type == 'runnable') {
 								return await processRunnable(o.id, o.input.runnable, o.input.fields)
 							}
 						})
+
+					return processed
 				})
 				.concat(
 					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
@@ -251,6 +254,7 @@
 					})
 				)
 		)) as ([string, Record<string, any>] | undefined)[]
+
 		policy.triggerables = Object.fromEntries(
 			allTriggers.filter(Boolean) as [string, Record<string, any>][]
 		)
