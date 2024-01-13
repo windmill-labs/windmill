@@ -266,7 +266,6 @@
 						requestBody: {
 							refresh_token: valueToken.refresh_token ?? '',
 							expires_in: valueToken.expires_in,
-							owner: path.split('/').slice(0, 2).join('/'),
 							client: resourceType
 						}
 					})

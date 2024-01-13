@@ -8250,6 +8250,8 @@ paths:
                   type: boolean
                 summary:
                   type: string
+                tag:
+                  type: string
               required: &ref_148
                 - path
                 - schedule
@@ -8318,6 +8320,8 @@ paths:
                 no_flow_overlap:
                   type: boolean
                 summary:
+                  type: string
+                tag:
                   type: string
               required: &ref_150
                 - schedule
@@ -8464,6 +8468,8 @@ paths:
                     type: string
                   no_flow_overlap:
                     type: boolean
+                  tag:
+                    type: string
                 required: &ref_80
                   - path
                   - edited_by

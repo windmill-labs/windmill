@@ -78,26 +78,7 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'only needed to prepare upgrade to EE',
 			storage: 'setting'
 		},
-		{
-			label: 'Pip Extra Index Url',
-			description: 'Add private PIP registry',
-			key: 'pip_extra_index_url',
-			fieldType: 'text',
-			placeholder: 'https://username:password@pypi.company.com/simple',
-			storage: 'setting',
-			ee_only:
-				'You can still set this setting by using PIP_EXTRA_INDEX_URL as env variable to the worker containers'
-		},
-		{
-			label: 'Npm Config Registry',
-			description: 'Add private NPM registry',
-			key: 'npm_config_registry',
-			fieldType: 'text',
-			placeholder: 'https://yourregistry',
-			storage: 'setting',
-			ee_only:
-				'You can still set this setting by using NPM_CONFIG_REGISTRY as env variable to the worker containers'
-		},
+
 		{
 			label: 'Expose metrics',
 			description: 'Expose prometheus metrics for workers and servers on port 8001 at /metrics',
@@ -115,6 +96,44 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only:
 				'You can still set this setting by using OPENAI_AZURE_BASE_PATH as env variable to the server containers'
+		}
+	],
+	'SSO/OAuth': [
+		{
+			label: 'Require users to have been added manually to windmill to sign in through OAuth',
+			key: 'require_preexisting_user_for_oauth',
+			fieldType: 'boolean',
+			storage: 'setting'
+		}
+	],
+	Registries: [
+		{
+			label: 'Pip Extra Index Url',
+			description: 'Add private PIP registry',
+			key: 'pip_extra_index_url',
+			fieldType: 'text',
+			placeholder: 'https://username:password@pypi.company.com/simple',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Npm Config Registry',
+			description: 'Add private NPM registry',
+			key: 'npm_config_registry',
+			fieldType: 'text',
+			placeholder: 'https://yourregistry',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Bunfig Install Scopes',
+			description:
+				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
+			key: 'bunfig_install_scopes',
+			fieldType: 'text',
+			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	SMTP: [
@@ -157,14 +176,6 @@ export const settings: Record<string, Setting[]> = {
 			key: 'smtp_tls_implicit',
 			fieldType: 'boolean',
 			storage: 'config'
-		}
-	],
-	'SSO/OAuth': [
-		{
-			label: 'Require users to have been added manually to windmill to sign in through OAuth',
-			key: 'require_preexisting_user_for_oauth',
-			fieldType: 'boolean',
-			storage: 'setting'
 		}
 	],
 	Debug: [

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.242.0
+  version: 1.243.0
   title: Windmill API
 
   contact:
@@ -1998,13 +1998,10 @@ paths:
                   type: string
                 expires_in:
                   type: integer
-                owner:
-                  type: string
                 client:
                   type: string
               required:
                 - expires_in
-                - owner
                 - client
       responses:
         "200":
@@ -8587,6 +8584,8 @@ components:
           type: string
         no_flow_overlap:
           type: boolean
+        tag:
+          type: string
       required:
         - path
         - edited_by
@@ -8660,6 +8659,8 @@ components:
           type: boolean
         summary:
           type: string
+        tag:
+          type: string
       required:
         - path
         - schedule
@@ -8699,6 +8700,8 @@ components:
         no_flow_overlap:
           type: boolean
         summary:
+          type: string
+        tag:
           type: string
       required:
         - schedule

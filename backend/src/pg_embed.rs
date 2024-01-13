@@ -34,11 +34,12 @@ pub async fn start() -> anyhow::Result<(String, PgEmbed)> {
 
     pg.start_db().await.expect("pg start db");
 
-    if !pg.database_exists("windmill").await.expect("db exists") {
-        pg.create_database("windmill")
-            .await
-            .expect("pg create database");
-    }
+    //TODO: re-enable this to make it work
+    // if !pg.database_exists("windmill").await.expect("db exists") {
+    //     pg.create_database("windmill")
+    //         .await
+    //         .expect("pg create database");
+    // }
 
     let uri = pg.full_db_uri("windmill");
     Ok((uri, pg))

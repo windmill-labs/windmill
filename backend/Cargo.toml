@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.242.0"
+version = "1.243.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.242.0"
+version = "1.243.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -69,7 +69,7 @@ uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false} 
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
 
 [dev-dependencies]
 serde_json.workspace = true

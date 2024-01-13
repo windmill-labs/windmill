@@ -7,6 +7,8 @@ pub const JOB_DEFAULT_TIMEOUT_SECS_SETTING: &str = "job_default_timeout";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
 pub const LICENSE_KEY_SETTING: &str = "license_key";
 pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
+pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
+
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";

@@ -317,6 +317,7 @@ pub enum JobPayload {
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
+        tag_override: Option<String>,
     },
     DeploymentCallback {
         path: String,

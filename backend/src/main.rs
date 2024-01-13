@@ -22,11 +22,12 @@ use tokio::{
 use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CUSTOM_TAGS_SETTING,
+        DISABLE_STATS_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     stats::schedule_stats,
     utils::{rd_string, Mode},
@@ -42,9 +43,10 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_require_preexisting_user, monitor_db, monitor_pool,
-    reload_base_url_setting, reload_extra_pip_index_url_setting,
-    reload_job_default_timeout_setting, reload_license_key, reload_npm_config_registry_setting,
-    reload_retention_period_setting, reload_server_config, reload_worker_config,
+    reload_base_url_setting, reload_bunfig_install_scopes_setting,
+    reload_extra_pip_index_url_setting, reload_job_default_timeout_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_retention_period_setting, reload_server_config,
+    reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -425,6 +427,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 NPM_CONFIG_REGISTRY_SETTING => {
                                                     reload_npm_config_registry_setting(&db).await
+                                                },
+                                                BUNFIG_INSTALL_SCOPES_SETTING => {
+                                                    reload_bunfig_install_scopes_setting(&db).await
                                                 },
                                                 KEEP_JOB_DIR_SETTING => {
                                                     load_keep_job_dir(&db).await;

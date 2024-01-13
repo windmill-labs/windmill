@@ -17,26 +17,19 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { copyToClipboard } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { WorkerService } from '$lib/gen'
-	import { AlertTriangle, Clipboard, Loader2, RotateCw } from 'lucide-svelte'
+	import { AlertTriangle, Clipboard } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
-	import AssignableTags from '$lib/components/AssignableTags.svelte'
+	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 
 	export let noEditor: boolean
 
 	const { selectedId, flowStore, initialPath, previewArgs, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
-
-	async function loadWorkerGroups() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
-		}
-	}
 
 	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$pathStore}`
@@ -44,7 +37,6 @@
 
 	$: if ($selectedId == 'settings-worker-group') {
 		$workerTags = undefined
-		loadWorkerGroups()
 	}
 
 	function asSchema(x: any) {
@@ -327,54 +319,7 @@
 							'flow' and the steps will be executed with their respective tag
 						</Alert>
 						<span class="my-4 text-lg font-bold">Worker Group Tag (Queue)</span>
-						<div class="flex gap-2 items-center">
-							{#if $workerTags}
-								{#if $workerTags?.length > 0}
-									<div class="max-w-sm grow">
-										<select
-											placeholder="Worker group tag"
-											bind:value={$flowStore.tag}
-											on:change={(e) => {
-												if ($flowStore.tag == '') {
-													$flowStore.tag = undefined
-												}
-											}}
-										>
-											{#if $flowStore.tag}
-												<option value="">reset to default</option>
-											{:else}
-												<option value="" disabled selected>Worker Group Tag</option>
-											{/if}
-											{#each $workerTags ?? [] as tag (tag)}
-												<option value={tag}>{tag}</option>
-											{/each}
-										</select>
-									</div>
-								{:else}
-									<div class="text-sm text-secondary italic mb-2">
-										No custom worker group tag defined on this instance in "Workers {'->'} Assignable
-										Tags". See
-										<a
-											href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-											target="_blank">documentation</a
-										>
-									</div>
-								{/if}
-							{:else}
-								<Loader2 class="animate-spin" />
-							{/if}
-
-							<Button
-								variant="border"
-								color="light"
-								on:click={() => {
-									$workerTags = undefined
-									loadWorkerGroups()
-								}}
-								startIcon={{ icon: RotateCw }}
-							/>
-							<AssignableTags />
-						</div>
+						<WorkerTagPicker bind:tag={$flowStore.tag} />
 
 						<div class="py-6" />
 						<span class="my-4 text-lg font-bold flex items-baseline gap-8"
