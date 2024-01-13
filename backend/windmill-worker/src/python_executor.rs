@@ -280,7 +280,12 @@ except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
     with open("result.json", 'w') as f:
-        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}
+        import os
+        flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
+        if flow_node_id:
+            err['step_id'] = flow_node_id
+        err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
 "#,
