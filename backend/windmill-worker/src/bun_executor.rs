@@ -417,7 +417,12 @@ async function run() {{
     process.exit(0);
 }}
 run().catch(async (e) => {{
-    await fs.writeFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    let err = {{ message: e.message, name: e.name, stack: e.stack }};
+    let step_id = process.env.WM_FLOW_STEP_ID;
+    if (step_id) {{
+        err["step_id"] = step_id;
+    }}
+    await fs.writeFile("result.json", JSON.stringify(err));
     process.exit(1);
 }});
     "#,
