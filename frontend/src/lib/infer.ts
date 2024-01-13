@@ -207,15 +207,12 @@ function argSigToJsonSchemaType(
 		delete oldS.items
 	}
 
-	let sameItems = oldS.items?.type == 'string' && newS.items?.type == 'string'
-	let savedItems: any = undefined
-	if (sameItems) {
-		savedItems = JSON.parse(JSON.stringify(oldS.items))
-	}
 	Object.assign(oldS, newS)
-	if (sameItems) {
-		oldS.items = savedItems
-	}
+
+	// if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
+	// 	sendUserToast(JSON.stringify(savedItems))
+	// 	oldS.items = savedItems
+	// }
 
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined

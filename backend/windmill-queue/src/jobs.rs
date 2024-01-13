@@ -2496,23 +2496,21 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             dedicated_worker,
             None,
         ),
-        JobPayload::Dependencies { hash, language, path, dedicated_worker, deployment_message } => {
-            (
-                Some(hash.0),
-                Some(path),
-                Some((deployment_message.unwrap_or_else(String::new), None)),
-                JobKind::Dependencies,
-                None,
-                None,
-                Some(language),
-                None,
-                None,
-                None,
-                dedicated_worker,
-                None,
-            )
-        }
-        JobPayload::FlowDependencies { path, dedicated_worker, deployment_message } => {
+        JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
+            Some(hash.0),
+            Some(path),
+            None,
+            JobKind::Dependencies,
+            None,
+            None,
+            Some(language),
+            None,
+            None,
+            None,
+            dedicated_worker,
+            None,
+        ),
+        JobPayload::FlowDependencies { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
@@ -2530,7 +2528,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             (
                 None,
                 Some(path),
-                Some((deployment_message.unwrap_or_else(String::new), None)),
+                None,
                 JobKind::FlowDependencies,
                 Some(value.clone()),
                 Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
@@ -2542,10 +2540,10 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
             )
         }
-        JobPayload::AppDependencies { path, version, deployment_message } => (
+        JobPayload::AppDependencies { path, version } => (
             Some(version),
             Some(path),
-            Some((deployment_message.unwrap_or_else(String::new), None)),
+            None,
             JobKind::AppDependencies,
             None,
             None,

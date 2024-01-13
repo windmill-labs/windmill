@@ -126,7 +126,6 @@
 					}
 					return 'file'
 				} else if (
-					keys.length == 3 &&
 					keys.includes('resume') &&
 					keys.includes('cancel') &&
 					keys.includes('approvalPage')

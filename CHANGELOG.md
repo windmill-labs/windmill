@@ -1,6 +1,83 @@
 # Changelog
 
 
+## [1.242.0](https://github.com/windmill-labs/windmill/compare/v1.241.0...v1.242.0) (2024-01-12)
+
+
+### Features
+
+* Instance group management page ([#2994](https://github.com/windmill-labs/windmill/issues/2994)) ([5f54f55](https://github.com/windmill-labs/windmill/commit/5f54f557903792ea6307b17f966c216cbd402709))
+
+
+### Bug Fixes
+
+* catch more agGrid errors ([01dbf54](https://github.com/windmill-labs/windmill/commit/01dbf548f712c2e669038e4eb704c470d2cb0426))
+
+## [1.241.0](https://github.com/windmill-labs/windmill/compare/v1.240.0...v1.241.0) (2024-01-12)
+
+
+### Features
+
+* Instance group CRUD API ([#2992](https://github.com/windmill-labs/windmill/issues/2992)) ([5a157c4](https://github.com/windmill-labs/windmill/commit/5a157c415e7f075d3f57872a9adf7f5130632bb6))
+* make dedicated workers for flows able to share runtime for the same scripts ([d59b89e](https://github.com/windmill-labs/windmill/commit/d59b89ec3cdf2285c0eac56d7678fc0b9a2c2a32))
+
+
+### Bug Fixes
+
+* add cache for flow as flow step ([28ac763](https://github.com/windmill-labs/windmill/commit/28ac7632cf767b1c0df30d93c841ad32bf891202))
+* git sync now works for delete and rename ([#2988](https://github.com/windmill-labs/windmill/issues/2988)) ([cde574b](https://github.com/windmill-labs/windmill/commit/cde574b8910bbaf737e0d7e515c42fc796911c5e))
+
+## [1.240.0](https://github.com/windmill-labs/windmill/compare/v1.239.0...v1.240.0) (2024-01-11)
+
+
+### Features
+
+* **cli:** introduce --stateful for CLI, in preparation for --raw to become the default ([39ecf80](https://github.com/windmill-labs/windmill/commit/39ecf8017ee88c4311cb2dd580b20cd59066612e))
+
+## [1.239.0](https://github.com/windmill-labs/windmill/compare/v1.238.0...v1.239.0) (2024-01-11)
+
+
+### Features
+
+* add configurable ordering for script's generated UI ([717ccc9](https://github.com/windmill-labs/windmill/commit/717ccc94a06ee65a5676c7d9091faf892396657e))
+* **frontend:** AG chart ([#2972](https://github.com/windmill-labs/windmill/issues/2972)) ([e3c1661](https://github.com/windmill-labs/windmill/commit/e3c166154da4251e21a5f6a6fcf5b2e101b558e1))
+
+
+### Bug Fixes
+
+* **cli:** improve .wmillignore handling of folders ([6996c90](https://github.com/windmill-labs/windmill/commit/6996c9083d9ae93922caf68e5658f18b49678630))
+* handle Etc/Unknown timezone better ([8c97ef0](https://github.com/windmill-labs/windmill/commit/8c97ef0394925b49a04c253259783be301e8f4ee))
+* only cache flow if it's a success ([589e683](https://github.com/windmill-labs/windmill/commit/589e683c27f15fcb48993f2f6e91523abef1794a))
+* spelling error dtails -&gt; details ([#2986](https://github.com/windmill-labs/windmill/issues/2986)) ([308c4ce](https://github.com/windmill-labs/windmill/commit/308c4ceb475fef033ea87af5f772e1f35b4fb16d))
+
+## [1.238.0](https://github.com/windmill-labs/windmill/compare/v1.237.0...v1.238.0) (2024-01-10)
+
+
+### Features
+
+* add ability to use secrets in pip requirements ([3517c7f](https://github.com/windmill-labs/windmill/commit/3517c7f28389a4ddf46a6bef4f2044aa94174050))
+* add support for multiselect in python ([c8a793d](https://github.com/windmill-labs/windmill/commit/c8a793d35ea843fb75428182edc06cfe7105af3b))
+* **frontend:** add shortcuts to audit logs ([#2975](https://github.com/windmill-labs/windmill/issues/2975)) ([4147d16](https://github.com/windmill-labs/windmill/commit/4147d1604a4c50ad0c667b413d64b44b357fb7e4))
+* **frontend:** Display the index by which a node can be selected with the setTab function + add tooltip ([#2974](https://github.com/windmill-labs/windmill/issues/2974)) ([cffae36](https://github.com/windmill-labs/windmill/commit/cffae3633107d9359e04354ba01876ccaf98193a))
+* S3 multipart upload accepts a custom S3 resource ([#2982](https://github.com/windmill-labs/windmill/issues/2982)) ([eea0d92](https://github.com/windmill-labs/windmill/commit/eea0d92dd11a3607fbb156e2bf3a3a001ab5e6a0))
+
+
+### Bug Fixes
+
+* main compile ([#2983](https://github.com/windmill-labs/windmill/issues/2983)) ([6d5c3f0](https://github.com/windmill-labs/windmill/commit/6d5c3f0f2252be15bf0169a42f5baa06d592911c))
+
+## [1.237.0](https://github.com/windmill-labs/windmill/compare/v1.236.2...v1.237.0) (2024-01-08)
+
+
+### Features
+
+* make okta SSO configurable using custom domain ([4f01ee8](https://github.com/windmill-labs/windmill/commit/4f01ee89de743eab6ae323dea1ec4190ee23e0bf))
+
+
+### Bug Fixes
+
+* delete is captured in more fields in app ([d340fbc](https://github.com/windmill-labs/windmill/commit/d340fbc02fd9500249c1d23799c1bdbfe9602cb8))
+
 ## [1.236.2](https://github.com/windmill-labs/windmill/compare/v1.236.1...v1.236.2) (2024-01-08)
 
 

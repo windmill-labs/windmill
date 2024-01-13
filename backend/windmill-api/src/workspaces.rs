@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 use std::str::FromStr;
 
 use crate::db::ApiAuthed;
@@ -18,10 +18,9 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{send_email_if_possible, WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
-    variables::build_crypt,
     webhook_util::{InstanceEvent, WebhookShared},
 };
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 use axum::response::Redirect;
 use axum::{
     body::StreamBody,
@@ -32,10 +31,10 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 use chrono::{Datelike, TimeZone, Timelike};
 use magic_crypt::MagicCryptTrait;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 use stripe::CustomerId;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
@@ -43,6 +42,7 @@ use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
+use windmill_common::variables::build_crypt;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::workspaces::WorkspaceGitRepo;
 use windmill_common::{
@@ -83,7 +83,6 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
         .route("/is_premium", get(is_premium))
-        .route("/premium_info", get(premium_info))
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/edit_error_handler", post(edit_error_handler))
@@ -94,7 +93,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/leave", post(leave_workspace));
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "stripe")]
     {
         if STRIPE_KEY.is_none() {
             return router;
@@ -102,12 +101,13 @@ pub fn workspaced_service() -> Router {
             tracing::info!("stripe enabled");
 
             return router
+                .route("/premium_info", get(premium_info))
                 .route("/checkout", get(stripe_checkout))
                 .route("/billing_portal", get(stripe_portal));
         }
     }
 
-    #[cfg(not(feature = "enterprise"))]
+    #[cfg(not(feature = "stripe"))]
     router
 }
 pub fn global_service() -> Router {
@@ -324,6 +324,7 @@ pub struct PremiumWorkspaceInfo {
     pub usage: Option<i32>,
     pub seats: Option<i32>,
 }
+#[cfg(feature = "stripe")]
 async fn premium_info(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -395,14 +396,14 @@ async fn premium_info(
     Ok(Json(result))
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 #[derive(Deserialize)]
 struct PlanQuery {
     plan: String,
     seats: Option<i32>,
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 async fn stripe_checkout(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -491,7 +492,7 @@ async fn stripe_checkout(
     }
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "stripe")]
 async fn stripe_portal(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -1043,7 +1044,7 @@ async fn edit_large_file_storage_config(
 
 #[derive(Deserialize)]
 struct EditGitSyncConfig {
-    git_sync_settings: Option<WorkspaceGitRepo>,
+    git_sync_settings: Option<Vec<WorkspaceGitRepo>>,
 }
 
 async fn edit_git_sync_config(
@@ -1077,7 +1078,7 @@ async fn edit_git_sync_config(
     .await?;
 
     if let Some(git_sync_settings) = new_config.git_sync_settings {
-        let serialized_config = serde_json::to_value::<WorkspaceGitRepo>(git_sync_settings)
+        let serialized_config = serde_json::to_value::<Vec<WorkspaceGitRepo>>(git_sync_settings)
             .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(

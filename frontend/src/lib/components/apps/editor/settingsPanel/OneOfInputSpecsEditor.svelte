@@ -13,6 +13,7 @@
 	export let id: string
 	export let resourceOnly: boolean
 	export let tooltip: string | undefined
+	export let disabledOptions: string[] = []
 
 	$: {
 		if (oneOf == undefined) {
@@ -63,7 +64,7 @@
 		}}
 	>
 		{#each Object.keys(inputSpecsConfiguration ?? {}) as choice}
-			{#if !getValueOfDeprecated(inputSpecsConfiguration[choice]) || oneOf.selected === choice}
+			{#if (!disabledOptions.includes(choice) && !getValueOfDeprecated(inputSpecsConfiguration[choice])) || oneOf.selected === choice}
 				<option value={choice}>{labels?.[choice] ?? choice}</option>
 			{/if}
 		{/each}

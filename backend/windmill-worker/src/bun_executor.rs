@@ -12,8 +12,8 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        start_child_process, write_file, write_file_binary,
+        create_args_and_out_file, get_reserved_variables, handle_child, parse_npm_config,
+        read_result, set_logs, start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
     NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
@@ -49,6 +49,8 @@ pub const EMPTY_FILE: &str = "<empty>";
 
 lazy_static::lazy_static! {
     pub static ref TRUSTED_DEP: Regex = Regex::new(r"//\s?trustedDependencies:(.*)\n").unwrap();
+
+    pub static ref BUN_BUNFIG_EXTRA: Option<String> = std::env::var("BUN_BUNFIG_EXTRA").ok();
 }
 
 pub async fn gen_lockfile(
@@ -85,20 +87,17 @@ pub async fn gen_lockfile(
     .await?;
 
     // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
-    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        let (url, token_opt) = if s.contains(":_authToken=") {
-            let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
-            let url = split_url
-                .get(0)
-                .map(|u| u.to_string())
-                .unwrap_or("".to_string());
-            let token = split_url
-                .get(1)
-                .map(|t| t.to_string())
-                .unwrap_or("".to_string());
-            (url, Some(token))
+    let registry = NPM_CONFIG_REGISTRY.read().await.clone();
+    if registry.is_some() || BUN_BUNFIG_EXTRA.is_some() {
+        let (url, token_opt) = if let Some(ref s) = registry {
+            let url = s.trim();
+            if url.is_empty() {
+                ("https://registry.npmjs.org".to_string(), None)
+            } else {
+                parse_npm_config(s)
+            }
         } else {
-            (s.to_owned(), None)
+            ("https://registry.npmjs.org".to_string(), None)
         };
         let registry_toml_string = if let Some(token) = token_opt {
             format!("{{ url = \"{url}\", token = \"{token}\" }}")
@@ -109,8 +108,11 @@ pub async fn gen_lockfile(
             r#"
 [install]
 registry = {}
+
+{}
 "#,
-            registry_toml_string
+            registry_toml_string,
+            BUN_BUNFIG_EXTRA.as_ref().unwrap_or(&"".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
         let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;

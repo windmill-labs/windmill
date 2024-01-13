@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.236.2",
+	"version": "1.242.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -97,6 +97,8 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.9",
+		"ag-charts-community": "^9.0.1",
+		"ag-charts-enterprise": "^9.0.1",
 		"ag-grid-community": "^31.0.0",
 		"ag-grid-enterprise": "^31.0.0",
 		"ansi_up": "^5.2.1",
@@ -131,7 +133,7 @@
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.1.0",
-		"windmill-parser-wasm": "^1.226.9",
+		"windmill-parser-wasm": "^1.237.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yaml": "^2.3.4",

@@ -10,6 +10,7 @@ use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::flow_status::RestartedFrom;
+use windmill_common::variables::get_workspace_key;
 
 use crate::db::ApiAuthed;
 
@@ -17,7 +18,6 @@ use crate::{
     db::DB,
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
-    variables::get_workspace_key,
 };
 use anyhow::Context;
 use axum::{

@@ -1183,8 +1183,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         if let Ok(flow) = value {
                             let workers = spawn_dedicated_workers_for_flow(
                                 &flow.modules,
-                                &_wp.path,
                                 &_wp.workspace_id,
+                                &_wp.path,
                                 killpill_tx.clone(),
                                 &killpill_rx,
                                 db,
@@ -1195,7 +1195,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             )
                             .await;
                             workers.into_iter().for_each(|(path, sender, handle)| {
-                                dedicated_handles.push(handle);
+                                tracing::info!(
+                                    "spawned dedicated worker for flow: {}",
+                                    path.as_str()
+                                );
+                                if let Some(h) = handle {
+                                    dedicated_handles.push(h);
+                                }
                                 hm.insert(path, sender);
                             });
                         }
@@ -1224,7 +1230,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 )
                 .await
                 {
-                    dedicated_handles.push(handle);
+                    if let Some(h) = handle {
+                        dedicated_handles.push(h);
+                    }
                     hm.insert(path, sender);
                 } else {
                     tracing::error!(
@@ -1754,7 +1762,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     println!("worker {} exited", i_worker);
 }
 
-type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, JoinHandle<()>);
+type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, Option<JoinHandle<()>>);
 
 // spawn one dedicated worker per compatible steps of the flow, associating the node id to the dedicated worker channel send
 #[async_recursion]
@@ -1771,24 +1779,37 @@ async fn spawn_dedicated_workers_for_flow(
     job_completed_tx: &JobCompletedSender,
 ) -> Vec<DedicatedWorker> {
     let mut workers = vec![];
+    let mut script_path_to_worker: HashMap<String, Sender<Arc<QueuedJob>>> = HashMap::new();
     for module in modules.iter() {
         match &module.value {
             FlowModuleValue::Script { path, hash, .. } => {
-                if let Some(dedi_w) = spawn_dedicated_worker(
-                    SpawnWorker::Script { path: path.to_string(), hash: hash.clone() },
-                    w_id,
-                    killpill_tx.clone(),
-                    killpill_rx,
-                    db,
-                    worker_dir,
-                    base_internal_url,
-                    worker_name,
-                    job_completed_tx,
-                    Some(module.id.clone()),
-                )
-                .await
-                {
-                    workers.push(dedi_w);
+                let key = format!(
+                    "{}:{}",
+                    path,
+                    hash.clone()
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| "".to_string())
+                );
+                if let Some(sender) = script_path_to_worker.get(&key) {
+                    workers.push((module.id.clone(), sender.clone(), None));
+                } else {
+                    if let Some(dedi_w) = spawn_dedicated_worker(
+                        SpawnWorker::Script { path: path.to_string(), hash: hash.clone() },
+                        w_id,
+                        killpill_tx.clone(),
+                        killpill_rx,
+                        db,
+                        worker_dir,
+                        base_internal_url,
+                        worker_name,
+                        job_completed_tx,
+                        Some(module.id.clone()),
+                    )
+                    .await
+                    {
+                        script_path_to_worker.insert(key, dedi_w.1.clone());
+                        workers.push(dedi_w);
+                    }
                 }
             }
             FlowModuleValue::ForloopFlow { modules, .. } => {
@@ -2051,7 +2072,7 @@ async fn spawn_dedicated_worker(
                 tracing::error!("error in dedicated worker: {:?}", e);
             };
         });
-        return Some((node_id.unwrap_or(path2), dedicated_worker_tx, handle));
+        return Some((node_id.unwrap_or(path2), dedicated_worker_tx, Some(handle)));
         // (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))
     }
 }
@@ -2493,7 +2514,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             &job.args,
         )
         .await;
-        if job.is_flow_step {
+        if job.is_flow_step && !matches!(job.job_kind, JobKind::Flow) {
             let flow_path = sqlx::query_scalar!(
                 "SELECT script_path FROM queue WHERE id = $1",
                 &job.parent_job.unwrap()
@@ -3192,16 +3213,22 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
             .execute(db)
             .await?;
 
-            let deployment_message = job.raw_code.as_ref().map(|x| x.clone());
+            let (deployment_message, parent_path) =
+                get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
             if let Err(e) = handle_deployment_metadata(
                 &job.email,
                 &job.created_by,
                 &db,
                 &w_id,
-                DeployedObject::Script { hash, path: script_path.to_string() },
+                DeployedObject::Script {
+                    hash,
+                    path: script_path.to_string(),
+                    parent_path: parent_path.clone(),
+                },
                 deployment_message.clone(),
                 rsmq.clone(),
+                false,
             )
             .await
             {
@@ -3241,6 +3268,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                         w_id,
                         script_path,
                         deployment_message,
+                        parent_path,
                         &job.email,
                         &job.created_by,
                         &job.permissioned_as,
@@ -3277,6 +3305,7 @@ async fn trigger_python_dependents_to_recompute_dependencies<
     w_id: &str,
     script_path: &str,
     deployment_message: Option<String>,
+    parent_path: Option<String>,
     email: &str,
     created_by: &str,
     permissioned_as: &str,
@@ -3297,6 +3326,14 @@ async fn trigger_python_dependents_to_recompute_dependencies<
             PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
         let r = get_latest_deployed_hash_for_path(db, w_id, s.as_str()).await;
         if let Ok(r) = r {
+            let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+            if let Some(ref dm) = deployment_message {
+                args.insert("deployment_message".to_string(), json!(dm));
+            }
+            if let Some(ref p_path) = parent_path {
+                args.insert("parent_path".to_string(), json!(p_path));
+            }
+
             let (job_uuid, new_tx) = windmill_queue::push(
                 db,
                 tx,
@@ -3306,9 +3343,8 @@ async fn trigger_python_dependents_to_recompute_dependencies<
                     hash: r.0,
                     language: r.5,
                     dedicated_worker: r.6,
-                    deployment_message: deployment_message.clone(),
                 },
-                PushArgs::empty(),
+                args,
                 &created_by,
                 email,
                 permissioned_as.to_string(),
@@ -3408,14 +3444,18 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
     .execute(db)
     .await?;
 
+    let (deployment_message, parent_path) =
+        get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
     if let Err(e) = handle_deployment_metadata(
         &job.email,
         &job.created_by,
         &db,
         &job.workspace_id,
-        DeployedObject::Flow { path: job_path },
-        job.raw_code.as_ref().map(|x| x.clone()),
+        DeployedObject::Flow { path: job_path, parent_path },
+        deployment_message,
         rsmq.clone(),
+        false,
     )
     .await
     {
@@ -3423,6 +3463,31 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
     }
 
     Ok(())
+}
+
+fn get_deployment_msg_and_parent_path_from_args(
+    args: Option<Json<HashMap<String, Box<RawValue>>>>,
+) -> (Option<String>, Option<String>) {
+    let args_map = args.map(|json_hashmap| json_hashmap.0);
+    let deployment_message = args_map
+        .clone()
+        .map(|hashmap| {
+            hashmap
+                .get("deployment_message")
+                .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
+                .flatten()
+        })
+        .flatten();
+    let parent_path = args_map
+        .clone()
+        .map(|hashmap| {
+            hashmap
+                .get("parent_path")
+                .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
+                .flatten()
+        })
+        .flatten();
+    (deployment_message, parent_path)
 }
 
 #[async_recursion]
@@ -3788,14 +3853,18 @@ async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             .execute(db)
             .await?;
 
+        let (deployment_message, parent_path) =
+            get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
         if let Err(e) = handle_deployment_metadata(
             &job.email,
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::App { path: job_path, version: id },
-            job.raw_code.as_ref().map(|x| x.clone()),
+            DeployedObject::App { path: job_path, version: id, parent_path },
+            deployment_message,
             rsmq.clone(),
+            false,
         )
         .await
         {

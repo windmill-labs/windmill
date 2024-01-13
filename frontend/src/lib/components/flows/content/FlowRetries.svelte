@@ -3,6 +3,7 @@
 	import { SecondsInput } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	export let flowModuleRetry: Retry | undefined
 	export let disabled: boolean = false
@@ -66,8 +67,8 @@
 		}}
 	>
 		<ToggleButton light value="disabled" label="Disabled" />
-		<ToggleButton light value="constant" label="Constant" />
-		<ToggleButton light value="exponential" label="Exponential" />
+		<ToggleButton disabled={!$enterpriseLicense} light value="constant" label="Constant" />
+		<ToggleButton disabled={!$enterpriseLicense} light value="exponential" label="Exponential" />
 	</ToggleButtonGroup>
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">

@@ -16,6 +16,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
+    variables::get_secret_value_as_admin,
     worker::WORKER_CONFIG,
     DB,
 };
@@ -107,6 +108,10 @@ pub async fn pip_compile(
     } else {
         requirements.to_string()
     };
+
+    #[cfg(feature = "enterprise")]
+    let requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+
     let req_hash = format!("py-{}", calculate_hash(&requirements));
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -518,6 +523,37 @@ if args["{name}"] is None:
     ))
 }
 
+async fn replace_pip_secret(
+    db: &DB,
+    w_id: &str,
+    req: &str,
+    worker_name: &str,
+    job_id: &Uuid,
+) -> error::Result<String> {
+    if PIP_SECRET_VARIABLE.is_match(req) {
+        let capture = PIP_SECRET_VARIABLE.captures(req);
+        let variable = capture.unwrap().get(1).unwrap().as_str();
+        if !variable.contains("/PIP_SECRET_") {
+            return Err(error::Error::InternalErr(format!(
+                "invalid secret variable in pip requirements, (last part of path ma): {}",
+                req
+            )));
+        }
+        let secret = get_secret_value_as_admin(db, w_id, variable).await?;
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job_id,
+            workspace_id = %w_id,
+            "found secret variable in pip requirements: {}",
+            req
+        );
+        let req = PIP_SECRET_VARIABLE.replace(req, secret.as_str());
+        Ok(req.to_string())
+    } else {
+        Ok(req.to_string())
+    }
+}
+
 async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<String>,
@@ -595,6 +631,10 @@ async fn handle_python_deps(
         additional_python_paths.append(&mut venv_path);
     }
     Ok(additional_python_paths)
+}
+
+lazy_static::lazy_static! {
+    static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^s\}]+)\}").unwrap();
 }
 
 pub async fn handle_python_reqs(
@@ -705,7 +745,7 @@ pub async fn handle_python_reqs(
                 .stderr(Stdio::piped());
             start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
         } else {
-            let fssafe_req = NON_ALPHANUM_CHAR.replace_all(req, "_").to_string();
+            let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
             let req = format!("'{}'", req);
             let mut command_args = vec![
                 PYTHON_PATH.as_str(),

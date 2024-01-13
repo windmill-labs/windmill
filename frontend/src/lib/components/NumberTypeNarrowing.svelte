@@ -16,11 +16,31 @@
 
 <div class="flex flex-col gap-2">
 	<div class="flex gap-2">
-		<Toggle bind:checked={minChecked} options={{ right: 'min' }} />
+		<Toggle
+			bind:checked={minChecked}
+			on:change={(e) => {
+				if (e.detail) {
+					min = 0
+				} else {
+					min = undefined
+				}
+			}}
+			options={{ right: 'min' }}
+		/>
 		<input type="number" bind:value={min} disabled={!minChecked} />
 	</div>
 	<div class="flex gap-2">
-		<Toggle bind:checked={maxChecked} options={{ right: 'max' }} />
+		<Toggle
+			bind:checked={maxChecked}
+			on:change={(e) => {
+				if (e.detail) {
+					max = 42
+				} else {
+					max = undefined
+				}
+			}}
+			options={{ right: 'max' }}
+		/>
 		<input type="number" bind:value={max} disabled={!maxChecked} />
 	</div>
 	<Label label="Currency">

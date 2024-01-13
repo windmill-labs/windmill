@@ -629,6 +629,7 @@ const config = {
 					{
 						display: 'block',
 						fontSize: theme('fontSize.sm'),
+						boxShadow: theme('boxShadow.sm'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
 						border: `1px solid ${theme('colors.gray.300')}`,
