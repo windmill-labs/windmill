@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.244.0](https://github.com/windmill-labs/windmill/compare/v1.243.0...v1.244.0) (2024-01-13)
+
+
+### Features
+
+* **frontend:** Operator mode ([#2973](https://github.com/windmill-labs/windmill/issues/2973)) ([aaff17f](https://github.com/windmill-labs/windmill/commit/aaff17f813ae3f31cae58bb40b9c8118e772a2d8))
+
+
+### Bug Fixes
+
+* add ability to set secret variable from python ([0733dd1](https://github.com/windmill-labs/windmill/commit/0733dd118e463f73caa9155b97fc8d9b02759e06))
+* improve oauth accounts permissions ([1621975](https://github.com/windmill-labs/windmill/commit/16219755a7fa8b9ff5a901c18842a1eceb68086a))
+* improve table behavior when searching ([f0c4901](https://github.com/windmill-labs/windmill/commit/f0c4901c218cfc4564f9f2be0cacaf3d9997d822))
+
 ## [1.243.0](https://github.com/windmill-labs/windmill/compare/v1.242.0...v1.243.0) (2024-01-13)
 
 
