@@ -40,3 +40,4 @@ async-recursion.workspace = true
 bigdecimal.workspace = true
 axum.workspace = true
 serde_urlencoded.workspace = true
+regex.workspace = true

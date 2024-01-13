@@ -25,6 +25,7 @@ use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
 use prometheus::IntCounter;
+use regex::Regex;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Client, StatusCode,
@@ -2292,6 +2293,10 @@ impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<HashMap<String, Box<J
 //     }
 // }
 
+lazy_static::lazy_static! {
+    pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
@@ -2872,13 +2877,32 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 "deno".to_string()
             }
         };
-        tag.map(|x| x.as_str().replace("$workspace", workspace_id).to_string())
-            .unwrap_or_else(|| {
-                language
-                    .as_ref()
-                    .map(|x| x.as_str().to_string())
-                    .unwrap_or_else(default)
-            })
+        let interpolated_tag = tag.map(|x| {
+            let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
+            if RE_ARG_TAG.is_match(&workspaced) {
+                let mut interpolated = workspaced.clone();
+                for cap in RE_ARG_TAG.captures_iter(&workspaced) {
+                    let arg_name = cap.get(1).unwrap().as_str();
+                    let value = serde_json::to_value(&args).unwrap_or_default();
+                    let arg_value = value
+                        .get(arg_name)
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default();
+                    interpolated =
+                        interpolated.replace(format!("$args[{}]", arg_name).as_str(), arg_value);
+                }
+                interpolated
+            } else {
+                workspaced
+            }
+        });
+
+        interpolated_tag.unwrap_or_else(|| {
+            language
+                .as_ref()
+                .map(|x| x.as_str().to_string())
+                .unwrap_or_else(default)
+        })
     };
 
     let mut tx = match tx {
