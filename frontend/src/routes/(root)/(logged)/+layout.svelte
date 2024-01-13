@@ -11,7 +11,6 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { slide } from 'svelte/transition'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
@@ -34,12 +33,11 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Menu as MenuIcon } from 'lucide-svelte'
+	import { ArrowLeft } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspacedOpenai } from '$lib/components/copilot/lib'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import Portal from 'svelte-portal'
+	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -205,15 +203,9 @@
 		}
 	}
 
-	let menuSlide: boolean = false
-
-	$: isOnHome = $page.url.pathname === '/'
-
-	$: if (isCollapsed && $userStore?.operator && isOnHome) {
+	$: if (isCollapsed && $userStore?.operator) {
 		isCollapsed = false
 	}
-
-	$: menuSlide && !isOnHome && $userStore?.operator && (menuSlide = false)
 </script>
 
 <svelte:window bind:innerWidth />
@@ -232,7 +224,7 @@
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	<div>
-		{#if !$userStore?.operator || !isOnHome}
+		{#if !$userStore?.operator}
 			<div
 				class={classNames(
 					'relative md:hidden',
@@ -356,83 +348,33 @@
 				</div>
 			</div>
 		{:else}
-			<Portal target="#operator-menu">
-				<Button
-					color="blue"
-					on:click={() => {
-						menuSlide = true
-					}}
-					startIcon={{ icon: MenuIcon }}
-					size="sm"
-					btnClasses="hidden md:flex"
-				>
-					Menu
-				</Button>
-			</Portal>
-			{#if menuSlide}
-				<div
-					id="sidebar"
-					class={classNames(
-						'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
-						isCollapsed ? 'md:w-12' : 'md:w-40',
-						devOnly ? '!hidden' : '',
-						'z5000'
-					)}
-					transition:slide={{ axis: 'x', duration: 100 }}
-				>
-					<div
-						class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
-					>
-						<button
-							on:click={() => {
-								goto('/')
-							}}
-						>
-							<div
-								class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
-								class:w-40={!isCollapsed}
-							>
-								<div class:mr-1={!isCollapsed}>
-									<WindmillIcon white={true} height="20px" width="20px" />
-								</div>
-								{#if !isCollapsed}
-									<div class="text-sm mt-0.5 text-white"> Windmill </div>
-								{/if}
-							</div>
-						</button>
-						<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-							<WorkspaceMenu {isCollapsed} />
-							<FavoriteMenu {favoriteLinks} {isCollapsed} />
-						</div>
-
-						<SidebarContent {isCollapsed} />
-					</div>
-				</div>
-			{/if}
+			<div class="absolute top-2 left-2 z5000">
+				<OperatorMenu {favoriteLinks} />
+			</div>
 		{/if}
 		<div
 			class={classNames(
 				'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
-				menuSlide ? 'opacity-100 z-40' : 'opacity-0'
+				'opacity-0'
 			)}
 		>
-			<div class={twMerge('fixed inset-0 flex ', menuSlide ? ' z-40' : '-z-0')}>
+			<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
 				<div
 					class={classNames(
 						'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
-						menuSlide ? 'translate-x-0' : '-translate-x-full'
+						'-translate-x-full'
 					)}
 				>
 					<div
 						class={classNames(
 							'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
-							menuSlide ? 'opacity-100' : 'opacity-0'
+							'opacity-0'
 						)}
 					>
 						<button
 							type="button"
 							on:click={() => {
-								menuSlide = !menuSlide
+								// menuSlide = !menuSlide
 							}}
 							class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 						>
@@ -472,11 +414,7 @@
 			id="content"
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
-				devOnly || ($userStore?.operator && isOnHome)
-					? '!pl-0'
-					: isCollapsed
-					? 'md:pl-12'
-					: 'md:pl-40',
+				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200'
 			)}
 		>
@@ -491,11 +429,7 @@
 						<button
 							type="button"
 							on:click={() => {
-								if ($userStore?.operator) {
-									menuSlide = true
-								} else {
-									menuOpen = true
-								}
+								menuOpen = true
 							}}
 							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
 						>
