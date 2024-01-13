@@ -250,7 +250,7 @@ class Windmill:
         """Get variable from Windmill"""
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
-    def set_variable(self, path: str, value: str) -> None:
+    def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
         """Set variable from Windmill"""
         # check if variable exists
         r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
@@ -261,7 +261,7 @@ class Windmill:
                 json={
                     "path": path,
                     "value": value,
-                    "is_secret": False,
+                    "is_secret": is_secret,
                     "description": "",
                 },
             )
@@ -689,11 +689,11 @@ def get_variable(path: str) -> str:
 
 
 @init_global_client
-def set_variable(path: str, value: str) -> None:
+def set_variable(path: str, value: str, is_secret: bool = False) -> None:
     """
     Set the variable at a given path as a string, creating it if it does not exist
     """
-    return _client.set_variable(path, value)
+    return _client.set_variable(path, value, is_secret)
 
 
 @init_global_client
