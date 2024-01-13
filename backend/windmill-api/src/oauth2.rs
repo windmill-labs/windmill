@@ -382,7 +382,6 @@ async fn connect(
 #[derive(Deserialize)]
 struct CreateAccount {
     client: String,
-    owner: String,
     refresh_token: Option<String>,
     expires_in: i64,
 }
@@ -396,11 +395,10 @@ async fn create_account(
     let mut tx = user_db.begin(&authed).await?;
 
     let id = sqlx::query_scalar!(
-        "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, \
-         $2, $3, now() + ($4 || ' seconds')::interval, $5) RETURNING id",
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token) VALUES ($1, \
+         $2, now() + ($3 || ' seconds')::interval, $4) RETURNING id",
         w_id,
         payload.client,
-        payload.owner,
         payload.expires_in.to_string(),
         payload.refresh_token
     )
