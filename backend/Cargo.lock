@@ -4853,7 +4853,9 @@ dependencies = [
  "futures",
  "lazy_static",
  "log",
+ "reqwest",
  "thiserror",
+ "tokio",
  "zip",
 ]
 

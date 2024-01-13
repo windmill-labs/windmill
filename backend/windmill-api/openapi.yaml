@@ -1998,13 +1998,10 @@ paths:
                   type: string
                 expires_in:
                   type: integer
-                owner:
-                  type: string
                 client:
                   type: string
               required:
                 - expires_in
-                - owner
                 - client
       responses:
         "200":
