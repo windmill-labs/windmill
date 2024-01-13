@@ -5,6 +5,8 @@
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { classNames } from '$lib/utils'
 	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { userStore } from '$lib/stores'
 
 	type MainButton = {
 		label: string
@@ -34,7 +36,14 @@
 	<div class="mx-auto">
 		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center">
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
-				<div class="text-lg min-w-24 font-bold truncate">{title}</div>{#if tag}
+				<div
+					class={twMerge(
+						'text-lg min-w-24 font-bold truncate',
+						$userStore?.operator ? 'pl-10' : ''
+					)}
+				>
+					{title}
+				</div>{#if tag}
 					<Badge>tag: {tag}</Badge>
 				{/if}
 				<slot />
