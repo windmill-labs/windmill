@@ -26,7 +26,7 @@
 			{lightMode}
 		/>
 	</div>
-	<div class="divide-y">
+	<div class="divide-y z-20">
 		<div class="px-4 py-3" role="none">
 			<p class="text-sm font-medium text-primary truncate" role="none">
 				{$userStore?.email}
@@ -83,6 +83,7 @@
 
 		<div class="py-1" role="none">
 			<MenuItem
+				href="#"
 				on:click={() => logout()}
 				class={twMerge(
 					'flex flex-row gap-2 items-center px-4 py-2 ',

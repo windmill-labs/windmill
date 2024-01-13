@@ -11,7 +11,8 @@
 
 	let isRecent = true
 	let interval
-	computeDate()
+
+	$: date && computeDate()
 
 	onMount(() => {
 		interval = setInterval(() => {

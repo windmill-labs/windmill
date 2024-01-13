@@ -34,7 +34,6 @@
 	let viewTab = 'result'
 </script>
 
-<svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 <TestJobLoader bind:job={currentJob} bind:watchJob on:done={onDone} />
 
 <div class="p-4 flex flex-col gap-2 items-start">
