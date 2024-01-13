@@ -437,26 +437,24 @@
 												<RowWrapper
 													value={row.original}
 													index={rowIndex}
-													on:set={(e) => {
-														const { id, value } = e.detail
+													onSet={(id, value) => {
 														if (!inputs[id]) {
 															inputs[id] = { [rowIndex]: value }
 														} else {
 															inputs[id] = { ...inputs[id], [rowIndex]: value }
 														}
+
 														outputs?.inputs.set(inputs, true)
 													}}
-													on:remove={(e) => {
-														const id = e.detail
+													onRemove={(id) => {
 														if (inputs?.[id] == undefined) {
 															return
 														}
-														if (rowIndex == 0) {
+														delete inputs[id][rowIndex]
+														inputs[id] = { ...inputs[id] }
+														if (Object.keys(inputs?.[id] ?? {}).length == 0) {
 															delete inputs[id]
 															inputs = { ...inputs }
-														} else {
-															delete inputs[id][rowIndex]
-															inputs[id] = { ...inputs[id] }
 														}
 														outputs?.inputs.set(inputs, true)
 													}}
