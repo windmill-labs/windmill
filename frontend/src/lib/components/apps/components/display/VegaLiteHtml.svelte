@@ -24,15 +24,14 @@
 
 	let vegaEmbed
 	onMount(async () => {
-		if (divEl) {
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega@5.22.1')
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
-			vegaEmbed = window['vegaEmbed']
-		}
+		//@ts-ignore
+		await import('https://cdn.jsdelivr.net/npm/vega@5.22.1')
+		//@ts-ignore
+		await import('https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
+		//@ts-ignore
+		await import('https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
+
+		vegaEmbed = window['vegaEmbed']
 	})
 
 	let h: number | undefined = undefined
