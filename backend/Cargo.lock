@@ -9571,6 +9571,7 @@ dependencies = [
  "itertools 0.12.0",
  "lazy_static",
  "prometheus",
+ "regex",
  "reqwest",
  "rsmq_async",
  "serde",
