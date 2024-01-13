@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.244.2](https://github.com/windmill-labs/windmill/compare/v1.244.1...v1.244.2) (2024-01-13)
+
+
+### Bug Fixes
+
+* improve favorite menu ([a1f93a4](https://github.com/windmill-labs/windmill/commit/a1f93a495e36e04b40c58bb8e33ab2336628ba8b))
+
 ## [1.244.1](https://github.com/windmill-labs/windmill/compare/v1.244.0...v1.244.1) (2024-01-13)
 
 
