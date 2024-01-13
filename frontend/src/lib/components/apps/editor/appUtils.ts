@@ -21,7 +21,12 @@ import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
-import type { EvalAppInput, StaticAppInput } from '../inputType'
+import type {
+	StaticAppInput,
+	EvalAppInput,
+	EvalV2AppInput,
+	InputConnectionEval
+} from '../inputType'
 import { get, type Writable } from 'svelte/store'
 import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
@@ -251,19 +256,32 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
-function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any; expr?: string }) {
+function cleanseValue(
+	key: string,
+	value: {
+		type: 'eval' | 'static' | 'evalv2'
+		value?: any
+		expr?: string
+		connections?: InputConnectionEval[]
+	}
+) {
 	if (!value) {
 		return [key, undefined]
 	}
 	if (value.type === 'static') {
 		return [key, { type: value.type, value: value.value }]
-	} else {
+	} else if (value.type === 'eval') {
 		return [key, { type: value.type, expr: value.expr }]
+	} else {
+		return [key, { type: value.type, expr: value.expr, connections: value.connections }]
 	}
 }
 
 export function cleanseOneOfConfiguration(
-	configuration: Record<string, Record<string, GeneralAppInput & (StaticAppInput | EvalAppInput)>>
+	configuration: Record<
+		string,
+		Record<string, GeneralAppInput & (StaticAppInput | EvalAppInput | EvalV2AppInput)>
+	>
 ) {
 	return Object.fromEntries(
 		Object.entries(configuration).map(([key, val]) => [
@@ -602,10 +620,14 @@ export type InitConfig<
 		string,
 		| StaticAppInput
 		| EvalAppInput
+		| EvalV2AppInput
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+				>
 		  }
 	>
 > = {
@@ -631,10 +653,14 @@ export function initConfig<
 		string,
 		| StaticAppInput
 		| EvalAppInput
+		| EvalV2AppInput
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+				>
 		  }
 	>
 >(
@@ -645,7 +671,10 @@ export function initConfig<
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput | boolean>>
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput | boolean>
+				>
 		  }
 		| any
 	>

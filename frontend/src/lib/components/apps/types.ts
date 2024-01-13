@@ -75,7 +75,7 @@ export type RichConfigurations = Record<string, RichConfiguration>
 
 export type StaticRichConfigurations = Record<
 	string,
-	RichConfigurationT<GeneralAppInput & (StaticAppInput | EvalAppInput)>
+	RichConfigurationT<GeneralAppInput & (StaticAppInput | EvalAppInput | EvalV2AppInput)>
 >
 
 export interface BaseAppComponent extends Partial<Aligned> {
@@ -248,6 +248,7 @@ export type AppViewerContext = {
 				validate?: (key: string) => void
 				invalidate?: (key: string, error: string) => void
 				validateAll?: () => void
+				clearFiles?: () => void
 			}
 		>
 	>

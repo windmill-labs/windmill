@@ -50,6 +50,13 @@ const open = {
 	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#open'
 }
 
+const clearFiles = {
+	title: 'clearFiles',
+	description: 'Clear the files of a file input component.',
+	example: 'clearFiles(id: string)',
+	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#clearFiles'
+}
+
 const close = {
 	title: 'close',
 	description: 'Use the close function to close a modal or a drawer.',
@@ -94,6 +101,8 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [getAgGrid, setSelectedIndex]
 		case 'aggridcomponentee':
 			return [getAgGrid, setSelectedIndex]
+		case 's3fileinputcomponent':
+			return [clearFiles]
 		case 'displaycomponent':
 		case 'dateinputcomponent':
 		case 'textinputcomponent':

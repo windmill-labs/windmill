@@ -239,6 +239,12 @@ declare function invalidate(id: string, key: number, error: string): void;
  * @param id component's id
  */
 declare function validateAll(id: string, key: number): void;
+
+/** Clear the files of a file input component
+ * @param id component's id
+ */
+declare function clearFiles(id: string): void;
+
 `
 		: ''
 }
@@ -248,6 +254,9 @@ declare const iter: {index: number, value: any};
 
 /** The row within the context of a table */
 declare const row: {index: number, value: Record<string, any>, disabled: boolean};
+
+/** The file within the s3 file input */
+declare const file: File | undefined;
 
 /** The group fields within the context of a container's group */
 declare const group: Record<string, any>;
