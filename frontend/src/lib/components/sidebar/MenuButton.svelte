@@ -13,8 +13,10 @@
 	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
 		<button
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-primary ',
-				lightMode ? 'hover:bg-surface-hover ' : '  hover:bg-[#34363c]',
+				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
+				lightMode
+					? 'text-primary hover:bg-surface-hover '
+					: '  hover:bg-[#34363c] text-primary-inverse dark:text-primary',
 				'transition-all',
 				$$props.class
 			)}
@@ -24,13 +26,24 @@
 				<svelte:component
 					this={icon}
 					size={16}
-					class={twMerge('flex-shrink-0 text-primary group-hover:text-secondary', 'transition-all')}
+					class={twMerge(
+						'flex-shrink-0',
+						lightMode
+							? 'text-primary group-hover:text-secondary'
+							: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',
+						'transition-all'
+					)}
 				/>
 			{/if}
 
 			{#if !isCollapsed && label}
 				<span
-					class={twMerge('whitespace-pre truncate text-primary', 'transition-all', $$props.class)}
+					class={twMerge(
+						'whitespace-pre truncate',
+						lightMode ? 'text-primary' : 'text-primary-inverse  dark:text-primary',
+						'transition-all',
+						$$props.class
+					)}
 				>
 					{label}
 				</span>
