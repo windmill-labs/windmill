@@ -296,7 +296,7 @@ pub async fn handle_bun_job(
 
     let nodejs_mode: bool = inner_content.starts_with("//nodejs");
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(not(feature = "enterprise"))]
     if nodejs_mode {
         return Err(error::Error::ExecutionErr(
             "Nodejs mode is an EE feature".to_string(),
