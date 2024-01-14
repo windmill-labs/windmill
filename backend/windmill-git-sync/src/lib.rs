@@ -118,9 +118,11 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
             if let Some(parent_path) = obj_parent_path.clone() {
                 args.insert("parent_path".to_string(), json!(parent_path));
             }
+            args.insert("workspace_id".to_string(), json!(w_id));
 
             let message = match obj.clone() {
                 DeployedObject::Script { path, .. } => {
+                    args.insert("path_type".to_string(), json!("script"));
                     if deployment_message.as_ref().is_none()
                         || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                     {
@@ -130,6 +132,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                     }
                 }
                 DeployedObject::Flow { path, .. } => {
+                    args.insert("path_type".to_string(), json!("flow"));
                     if deployment_message.as_ref().is_none()
                         || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                     {
@@ -139,6 +142,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                     }
                 }
                 DeployedObject::App { path, .. } => {
+                    args.insert("path_type".to_string(), json!("app"));
                     if deployment_message.as_ref().is_none()
                         || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                     {
