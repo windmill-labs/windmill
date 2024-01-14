@@ -339,7 +339,8 @@ pub async fn handle_bun_job(
         // TODO: remove once bun implement a reasonable set of trusted deps
         let trusted_deps = get_trusted_deps(inner_content);
         let empty_trusted_deps = trusted_deps.len() == 0;
-        let has_custom_config_registry = common_bun_proc_envs.contains_key("NPM_CONFIG_REGISTRY");
+        let has_custom_config_registry = NPM_CONFIG_REGISTRY.read().await.is_some()
+            || BUNFIG_INSTALL_SCOPES.read().await.is_some();
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
