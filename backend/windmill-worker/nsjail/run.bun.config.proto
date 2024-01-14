@@ -1,14 +1,14 @@
-name: "bun run script"
+name: "{LANG} run script"
 
 mode: ONCE
-hostname: "bun"
+hostname: "{LANG}"
 log_level: ERROR
 
 disable_rl: true
 
 mount_proc: true
 
-cwd: "/tmp/bun"
+cwd: "/tmp/{LANG}"
 
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
@@ -64,14 +64,14 @@ mount {
 
 mount {
     src: "{JOB_DIR}/package.json"
-    dst: "/tmp/bun/package.json"
+    dst: "/tmp/{LANG}/package.json"
     is_bind: true
     mandatory: true
 }
 
 mount {
     src: "{JOB_DIR}/bun.lockb"
-    dst: "/tmp/bun/bun.lockb"
+    dst: "/tmp/{LANG}/bun.lockb"
     is_bind: true
     mandatory: false
 }
@@ -79,7 +79,14 @@ mount {
 
 mount {
     src: "{JOB_DIR}/wrapper.ts"
-    dst: "/tmp/bun/wrapper.ts"
+    dst: "/tmp/{LANG}/wrapper.ts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/wrapper.mjs"
+    dst: "/tmp/{LANG}/wrapper.mjs"
     is_bind: true
     mandatory: false
 }
@@ -87,14 +94,22 @@ mount {
 
 mount {
     src: "{JOB_DIR}/loader.bun.ts"
-    dst: "/tmp/bun/loader.bun.ts"
+    dst: "/tmp/{LANG}/loader.bun.ts"
     is_bind: true
     mandatory: false
 }
 
 mount {
+    src: "{JOB_DIR}/node_modules"
+    dst: "/tmp/{LANG}/node_modules"
+    is_bind: true
+    mandatory: false
+}
+
+
+mount {
     src: "{JOB_DIR}/main.ts"
-    dst: "/tmp/bun/main.ts"
+    dst: "/tmp/{LANG}/main.ts"
     is_bind: true
     mandatory: false
 }
@@ -102,13 +117,13 @@ mount {
 
 mount {
     src: "{JOB_DIR}/args.json"
-    dst: "/tmp/bun/args.json"
+    dst: "/tmp/{LANG}/args.json"
     is_bind: true
 }
 
 mount {
     src: "{JOB_DIR}/result.json"
-    dst: "/tmp/bun/result.json"
+    dst: "/tmp/{LANG}/result.json"
     rw: true
     is_bind: true
 }
@@ -143,6 +158,6 @@ mount {
 
 {SHARED_MOUNT}
 
-envar: "HOME=/tmp/bun"
+envar: "HOME=/tmp/{LANG}"
 
 
