@@ -193,6 +193,12 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+ARG nsjail=""
+
+RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
+    && apt-get install -y \
+    curl nodejs; fi
+
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm &&  printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
 
@@ -209,7 +215,7 @@ RUN chmod 755 /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=oven/bun:1.0.18 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.0.22 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/

@@ -16,8 +16,8 @@
 	export let flowPath: string | null = null
 	export let canSaveInputs: boolean = true
 
-	let runnableId: string | undefined = scriptPath || flowPath || undefined
-	let runnableType: RunnableType | undefined = scriptHash
+	$: runnableId = scriptPath || flowPath || undefined
+	$: runnableType = scriptHash
 		? RunnableType.SCRIPT_HASH
 		: scriptPath
 		? RunnableType.SCRIPT_PATH
@@ -128,6 +128,7 @@
 
 	$: {
 		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
+			console.log('loading inputs')
 			loadInputHistory()
 			loadSavedInputs()
 		}
@@ -264,7 +265,7 @@
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if previousInputs.length > 0}
-						{#each previousInputs as i}
+						{#each previousInputs as i (i.id)}
 							<button
 								class={classNames(
 									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,

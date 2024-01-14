@@ -16,7 +16,7 @@ use crate::{
         read_result, set_logs, start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
-    DISABLE_NUSER, HOME_ENV, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{
@@ -294,6 +294,15 @@ pub async fn handle_bun_job(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
+    let nodejs_mode: bool = inner_content.starts_with("//nodejs");
+
+    #[cfg(not(feature = "enterprise"))]
+    if nodejs_mode {
+        return Err(error::Error::ExecutionErr(
+            "Nodejs mode is an EE feature".to_string(),
+        ));
+    }
+
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -331,7 +340,7 @@ pub async fn handle_bun_job(
                 common_bun_proc_envs.clone(),
             )
             .await?;
-            if !has_trusted_deps {
+            if !has_trusted_deps && !nodejs_mode {
                 remove_dir_all(format!("{}/node_modules", job_dir)).await?;
             }
         }
@@ -339,7 +348,8 @@ pub async fn handle_bun_job(
         // TODO: remove once bun implement a reasonable set of trusted deps
         let trusted_deps = get_trusted_deps(inner_content);
         let empty_trusted_deps = trusted_deps.len() == 0;
-        let has_custom_config_registry = common_bun_proc_envs.contains_key("NPM_CONFIG_REGISTRY");
+        let has_custom_config_registry = NPM_CONFIG_REGISTRY.read().await.is_some()
+            || BUNFIG_INSTALL_SCOPES.read().await.is_some();
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
@@ -361,7 +371,7 @@ pub async fn handle_bun_job(
         .await?;
         // }
 
-        if empty_trusted_deps && !has_custom_config_registry {
+        if empty_trusted_deps && !has_custom_config_registry && !nodejs_mode {
             let node_modules_path = format!("{}/node_modules", job_dir);
             let node_modules_exists = tokio::fs::metadata(&node_modules_path).await.is_ok();
             if node_modules_exists {
@@ -370,7 +380,11 @@ pub async fn handle_bun_job(
         }
     }
 
-    logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
+    if nodejs_mode {
+        logs.push_str("\n\n--- NODE CODE EXECUTION ---\n");
+    } else {
+        logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
+    }
 
     let logs_f = async {
         set_logs(&logs, &job.id, &db).await;
@@ -445,27 +459,65 @@ run().catch(async (e) => {{
         Ok(reserved_variables) as error::Result<HashMap<String, String>>
     };
 
-    let write_loader_f = async {
-        write_file(
-            &job_dir,
-            "loader.bun.ts",
-            &format!(
-                r#"
+    let loader = RELATIVE_BUN_LOADER
+        .replace("W_ID", &job.workspace_id)
+        .replace("BASE_INTERNAL_URL", base_internal_url)
+        .replace("TOKEN", &client.get_token().await)
+        .replace("CURRENT_PATH", job.script_path());
+    let write_loader_f = async move {
+        if nodejs_mode {
+            write_file(
+                &job_dir,
+                "node_builder.ts",
+                &format!(
+                    r#"
+{}
+
+import {{ readdir }} from "node:fs/promises";
+
+let fileNames = []
+try {{
+    fileNames = await readdir("{job_dir}/node_modules")
+}} catch (e) {{
+
+}}
+
+const bo = await Bun.build({{
+    entrypoints: ["{job_dir}/wrapper.ts"],
+    outdir: "./",
+    target: "node",
+    plugins: [p],
+    external: fileNames,
+  }});
+
+if (!bo.success) {{
+    bo.logs.forEach((l) => console.log(l));
+    process.exit(1);
+}}
+"#,
+                    loader
+                ),
+            )
+            .await?;
+            Ok(()) as error::Result<()>
+        } else {
+            write_file(
+                &job_dir,
+                "loader.bun.ts",
+                &format!(
+                    r#"
 import {{ plugin }} from "bun";
 
 {}
 
 plugin(p)
 "#,
-                RELATIVE_BUN_LOADER
-                    .replace("W_ID", &job.workspace_id)
-                    .replace("BASE_INTERNAL_URL", base_internal_url)
-                    .replace("TOKEN", &client.get_token().await)
-                    .replace("CURRENT_PATH", job.script_path())
-            ),
-        )
-        .await?;
-        Ok(()) as error::Result<()>
+                    loader
+                ),
+            )
+            .await?;
+            Ok(()) as error::Result<()>
+        }
     };
 
     let (reserved_variables, _, _, _) = tokio::try_join!(
@@ -475,12 +527,47 @@ plugin(p)
         write_loader_f
     )?;
 
+    if nodejs_mode {
+        let mut child = Command::new(&*BUN_PATH);
+        child
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(common_bun_proc_envs.clone())
+            .env("PATH", PATH_ENV.as_str())
+            .args(vec!["run", "node_builder.ts"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let child_process = start_child_process(child, &*BUN_PATH).await?;
+        handle_child(
+            &job.id,
+            db,
+            logs,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            &job.workspace_id,
+            "bun build",
+            job.timeout,
+            false,
+        )
+        .await?;
+        tokio::fs::rename(
+            format!("{job_dir}/wrapper.js"),
+            format!("{job_dir}/wrapper.mjs"),
+        )
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("Could not move wrapper to mjs: {e}")))?;
+    }
+
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
+                .replace("{LANG}", if nodejs_mode { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
@@ -489,14 +576,16 @@ plugin(p)
         .await?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-        nsjail_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(envs)
-            .envs(reserved_variables)
-            .envs(common_bun_proc_envs)
-            .env("PATH", PATH_ENV.as_str())
-            .args(vec![
+        let args = if nodejs_mode {
+            vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                &NODE_PATH,
+                "/tmp/nodejs/wrapper.mjs",
+            ]
+        } else {
+            vec![
                 "--config",
                 "run.config.proto",
                 "--",
@@ -507,31 +596,57 @@ plugin(p)
                 "-r",
                 "/tmp/bun/loader.bun.ts",
                 "/tmp/bun/wrapper.ts",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
-    } else {
-        let script_path = format!("{job_dir}/wrapper.ts");
-        let args = vec![
-            "run",
-            "-i",
-            "--prefer-offline",
-            "-r",
-            "./loader.bun.ts",
-            &script_path,
-        ];
-        let mut bun_cmd = Command::new(&*BUN_PATH);
-        bun_cmd
+            ]
+        };
+        nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
             .envs(common_bun_proc_envs)
+            .env("PATH", PATH_ENV.as_str())
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bun_cmd, &*BUN_PATH).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+    } else {
+        let cmd = if nodejs_mode {
+            let script_path = format!("{job_dir}/wrapper.mjs");
+
+            let mut bun_cmd = Command::new(&*NODE_PATH);
+            bun_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(envs)
+                .envs(reserved_variables)
+                .envs(common_bun_proc_envs)
+                .args(vec![&script_path])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            bun_cmd
+        } else {
+            let script_path = format!("{job_dir}/wrapper.ts");
+
+            let mut bun_cmd = Command::new(&*BUN_PATH);
+            bun_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(envs)
+                .envs(reserved_variables)
+                .envs(common_bun_proc_envs)
+                .args(vec![
+                    "run",
+                    "-i",
+                    "--prefer-offline",
+                    "-r",
+                    "./loader.bun.ts",
+                    &script_path,
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            bun_cmd
+        };
+        start_child_process(cmd, &*BUN_PATH).await?
     };
 
     handle_child(

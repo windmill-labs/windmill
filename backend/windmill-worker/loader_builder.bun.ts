@@ -7,7 +7,8 @@ const bo = await Bun.build({
 
 const fs = require("fs/promises");
 
-const captureVersion = /(^\@?[^\@]+)(?:\@(.+))?/;
+const captureVersion =
+  /^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@([^\/]+))?.*$/;
 
 if (!bo.success) {
   bo.logs.forEach((l) => console.log(l));
@@ -22,6 +23,12 @@ if (!bo.success) {
   const dependencies: Record<string, string[]> = {};
   for (const i of imports) {
     let [_, name, version] = i.path.match(captureVersion) ?? [];
+    if (name == undefined) {
+      throw Error("Unrecognized import: " + i.path);
+    }
+    if (name.startsWith("node:")) {
+      continue;
+    }
     let splitted = name.split("/");
     if (splitted.length > 2) {
       name = splitted.slice(0, 2).join("/");
