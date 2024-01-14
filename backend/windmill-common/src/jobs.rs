@@ -294,6 +294,11 @@ pub enum JobPayload {
         path: String,
         version: i64,
     },
+    RawScriptDependencies {
+        script_path: String,
+        content: String,
+        language: ScriptLang,
+    },
     Flow {
         path: String,
         dedicated_worker: Option<bool>,

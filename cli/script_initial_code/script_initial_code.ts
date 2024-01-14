@@ -1,0 +1,105 @@
+export interface ScriptMetadata {
+    summary: string,
+    description: string,
+    lock: string[],
+    is_template: boolean,
+    kind: string,
+    schema: {
+        $schema: string,
+        type: string,
+        properties: { [name: string]: SchemaProperty},
+        required: string[]
+    }
+}
+
+export interface SchemaProperty {
+	type: string | undefined
+	description?: string
+	pattern?: string
+	default?: any
+	enum?: string[]
+	contentEncoding?: 'base64' | 'binary'
+	format?: string
+	items?: {
+		type?: 'string' | 'number' | 'bytes' | 'object'
+		contentEncoding?: 'base64'
+		enum?: string[]
+	}
+	min?: number
+	max?: number
+	currency?: string
+	currencyLocale?: string
+	multiselect?: boolean
+	customErrorMessage?: string
+	properties?: { [name: string]: SchemaProperty }
+	required?: string[]
+	showExpr?: string
+}
+
+export function defaultScriptMetadata(): ScriptMetadata {
+    return {
+        summary: '',
+        description: '',
+        lock: [],
+        is_template: false,
+        kind: 'script',
+        schema: {
+            $schema: 'https://json-schema.org/draft/2020-12/schema',
+            type: 'object',
+            properties: {},
+            required: []
+        }
+    }
+}
+
+export const script_initial_code = {
+    python3: `def main():
+    return "Hello world"
+`,
+    
+    nativets: `export async function main() {
+    return "Hello world";
+}
+`,
+
+    bun: `export async function main() {
+  return "Hello world";
+}
+`,
+
+    deno: `export async function main() {
+  return "Hello world";
+}
+`,
+
+    go: `package inner
+func main() (interface{}, error) {
+    return "Hello world", nil
+}
+`,
+
+    mysql: `SELECT 'Hello world' AS message
+`,
+
+    bigquery: `SELECT 'Hello world' AS message
+`,
+
+    snowflake: `SELECT 'Hello world' AS message
+`,
+
+    mssql: `SELECT 'Hello world' AS message
+`,
+
+    graphql: `query() {
+    demo() {}
+}`,
+
+    postgresql: `SELECT 'Hello world' AS message
+`,
+
+    bash: `echo "Hello world"
+`,
+
+    powershell: `Write-Output "Hello world"`,
+
+}
