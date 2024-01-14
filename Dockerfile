@@ -193,6 +193,8 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+ARG nsjail=""
+
 RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
     && apt-get install -y \
     curl nodejs; fi
