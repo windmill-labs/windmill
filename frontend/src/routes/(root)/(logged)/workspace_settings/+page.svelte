@@ -862,7 +862,7 @@
 						gitSyncSettings = [
 							...gitSyncSettings,
 							{
-								script_path: 'hub/7926/sync-script-to-git-repo-windmill',
+								script_path: 'hub/7927/sync-script-to-git-repo-windmill',
 								git_repo_resource_path: '',
 								use_individual_branch: false
 							}
