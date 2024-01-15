@@ -2,7 +2,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'
-	import { BashIcon, GoIcon, PythonIcon, TypeScriptIcon } from './'
+	import { BashIcon, GoIcon, PythonIcon } from './'
 	import JavaScript from './JavaScript.svelte'
 	import FetchIcon from './FetchIcon.svelte'
 	import DockerIcon from '$lib/components/icons/DockerIcon.svelte'
@@ -13,6 +13,8 @@
 	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
 	import GraphqlIcon from '$lib/components/icons/GraphqlIcon.svelte'
 	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
+	import BunIcon from '$lib/components/icons/BunIcon.svelte'
+	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -47,9 +49,9 @@
 	> = {
 		go: GoIcon,
 		python3: PythonIcon,
-		deno: TypeScriptIcon,
+		deno: DenoIcon,
 		// graphql: TypeScriptIcon,
-		bun: TypeScriptIcon,
+		bun: BunIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
