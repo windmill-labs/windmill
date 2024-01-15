@@ -85,40 +85,7 @@ pub async fn gen_lockfile(
     )
     .await?;
 
-    // if custom NPM registry is being used, write bunfig.toml at the root of the job dir
-    let registry = NPM_CONFIG_REGISTRY.read().await.clone();
-    let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
-    if registry.is_some() || bunfig_install_scopes.is_some() {
-        let (url, token_opt) = if let Some(ref s) = registry {
-            let url = s.trim();
-            if url.is_empty() {
-                ("https://registry.npmjs.org".to_string(), None)
-            } else {
-                parse_npm_config(s)
-            }
-        } else {
-            ("https://registry.npmjs.org".to_string(), None)
-        };
-        let registry_toml_string = if let Some(token) = token_opt {
-            format!("{{ url = \"{url}\", token = \"{token}\" }}")
-        } else {
-            format!("\"{url}\"")
-        };
-        let bunfig_toml = format!(
-            r#"
-[install]
-registry = {}
-
-{}
-"#,
-            registry_toml_string,
-            bunfig_install_scopes
-                .map(|x| format!("[install.scopes]\n{x}"))
-                .unwrap_or("".to_string())
-        );
-        tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
-    }
+    gen_bunfig(job_dir).await?;
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
@@ -217,6 +184,42 @@ registry = {}
     }
 }
 
+async fn gen_bunfig(job_dir: &str) -> Result<()> {
+    let registry = NPM_CONFIG_REGISTRY.read().await.clone();
+    let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
+    Ok(if registry.is_some() || bunfig_install_scopes.is_some() {
+        let (url, token_opt) = if let Some(ref s) = registry {
+            let url = s.trim();
+            if url.is_empty() {
+                ("https://registry.npmjs.org".to_string(), None)
+            } else {
+                parse_npm_config(s)
+            }
+        } else {
+            ("https://registry.npmjs.org".to_string(), None)
+        };
+        let registry_toml_string = if let Some(token) = token_opt {
+            format!("{{ url = \"{url}\", token = \"{token}\" }}")
+        } else {
+            format!("\"{url}\"")
+        };
+        let bunfig_toml = format!(
+            r#"
+[install]
+registry = {}
+
+{}
+"#,
+            registry_toml_string,
+            bunfig_install_scopes
+                .map(|x| format!("[install.scopes]\n{x}"))
+                .unwrap_or("".to_string())
+        );
+        tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
+        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
+    })
+}
+
 pub async fn install_lockfile(
     logs: &mut String,
     mem_peak: &mut i32,
@@ -238,6 +241,7 @@ pub async fn install_lockfile(
         .stderr(Stdio::piped());
     let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
+    gen_bunfig(job_dir).await?;
     handle_child(
         job_id,
         db,
