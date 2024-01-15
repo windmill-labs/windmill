@@ -307,6 +307,9 @@ pub async fn handle_bun_job(
         ));
     }
 
+    let has_custom_config_registry =
+        NPM_CONFIG_REGISTRY.read().await.is_some() || BUNFIG_INSTALL_SCOPES.read().await.is_some();
+
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -344,7 +347,7 @@ pub async fn handle_bun_job(
                 common_bun_proc_envs.clone(),
             )
             .await?;
-            if !has_trusted_deps && !nodejs_mode {
+            if !has_trusted_deps && !has_custom_config_registry && !nodejs_mode {
                 remove_dir_all(format!("{}/node_modules", job_dir)).await?;
             }
         }
@@ -352,8 +355,7 @@ pub async fn handle_bun_job(
         // TODO: remove once bun implement a reasonable set of trusted deps
         let trusted_deps = get_trusted_deps(inner_content);
         let empty_trusted_deps = trusted_deps.len() == 0;
-        let has_custom_config_registry = NPM_CONFIG_REGISTRY.read().await.is_some()
-            || BUNFIG_INSTALL_SCOPES.read().await.is_some();
+
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
