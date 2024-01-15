@@ -128,7 +128,7 @@
 	}
 
 	$: {
-		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
+		if ($workspaceStore && jobs && (scriptHash || scriptPath || flowPath)) {
 			console.log('loading inputs')
 			loadInputHistory()
 			loadSavedInputs()
@@ -278,23 +278,25 @@
 				</div>
 			</div>
 		</Pane>
+
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-2">
-				<span class="text-sm font-semibold">Running runs</span>
+				<span class="text-sm font-semibold">Previous runs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if jobs.length > 0}
 						{#each jobs as i (i.id)}
 							<button
 								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
+									'border-orange-400'
 								)}
 							>
 								<div
 									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
 								>
 									<div class="">
-										<div class="rounded-full w-2 h-2 bg-blue-400 animate-pulse" />
+										<div class="rounded-full w-2 h-2 bg-orange-400 animate-pulse" />
 									</div>
 									<div class="col-span-2">
 										{i.created_by}
@@ -318,14 +320,9 @@
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-tertiary">No previous Runs</div>
+						<div class="text-left text-tertiary text-xs">No running runs</div>
 					{/if}
 				</div>
-			</div>
-		</Pane>
-		<Pane>
-			<div class="w-full flex flex-col gap-4 p-2">
-				<span class="text-sm font-semibold">Previous runs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if previousInputs.length > 0}
