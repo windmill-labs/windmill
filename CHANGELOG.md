@@ -1,16 +1,14 @@
 # Changelog
 
 
-## [2.0.0](https://github.com/windmill-labs/windmill/compare/v1.244.2...v2.0.0) (2024-01-15)
+## [1.244.4](https://github.com/windmill-labs/windmill/compare/v1.244.2...v1.244.4) (2024-01-15)
 
 
-### ⚠ BREAKING CHANGES
-
-* git sync branch name no contains the workspace ID and the type ([#3004](https://github.com/windmill-labs/windmill/issues/3004))
 
 ### Features
 
 * experimental nodejs support ([047ee10](https://github.com/windmill-labs/windmill/commit/047ee10246f8e1bb952d3b8cdf21612948ac9843))
+* git sync branch name no contains the workspace ID and the type ([#3004](https://github.com/windmill-labs/windmill/issues/3004))
 
 
 ### Bug Fixes
