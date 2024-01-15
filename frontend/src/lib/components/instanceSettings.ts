@@ -33,8 +33,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'https://windmill.com',
 			storage: 'setting',
+			error: 'Base url must start with http:// or https:// and not end with / or a space',
 			isValid: (value: string | undefined) =>
-				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true
+				value
+					? value?.startsWith('http') &&
+					  value.includes('://') &&
+					  !value?.endsWith('/') &&
+					  !value?.endsWith(' ')
+					: true
 		},
 		{
 			label: 'Request Size Limit In MB',
