@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
+	import { InputService, type Input, RunnableType, type CreateInput, Job } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
@@ -10,6 +10,7 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import TimeAgo from './TimeAgo.svelte'
+	import JobLoader from './runs/JobLoader.svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -139,7 +140,26 @@
 	const selectArgs = (selected_args: any) => {
 		dispatch('selected_args', selected_args)
 	}
+
+	let jobs: Job[] = []
+	let jobLoader: JobLoader | undefined = undefined
+	let loading: boolean = false
 </script>
+
+<JobLoader
+	bind:jobs
+	path={runnableId ?? null}
+	isSkipped={false}
+	jobKindsCat="jobs"
+	jobKinds="all"
+	user={null}
+	folder={null}
+	success="running"
+	argFilter={undefined}
+	bind:loading
+	bind:this={jobLoader}
+	synUrl={false}
+/>
 
 <div class="min-w-[300px] h-full">
 	<Splitpanes horizontal={true}>
@@ -258,7 +278,51 @@
 				</div>
 			</div>
 		</Pane>
+		<Pane>
+			<div class="w-full flex flex-col gap-4 p-2">
+				<span class="text-sm font-semibold">Running runs</span>
 
+				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
+					{#if jobs.length > 0}
+						{#each jobs as i (i.id)}
+							<button
+								class={classNames(
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`
+								)}
+							>
+								<div
+									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
+								>
+									<div class="">
+										<div class="rounded-full w-2 h-2 bg-blue-400 animate-pulse" />
+									</div>
+									<div class="col-span-2">
+										{i.created_by}
+									</div>
+									<div
+										class="whitespace-nowrap col-span-3 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+									>
+										<TimeAgo date={i.created_at ?? ''} />
+									</div>
+									<div class="col-span-2">
+										<a
+											target="_blank"
+											href="/run/{i.id}?workspace={$workspaceStore}"
+											class="text-right float-right text-secondary"
+											title="See run detail in a new tab"
+										>
+											<ExternalLink size={16} />
+										</a>
+									</div>
+								</div>
+							</button>
+						{/each}
+					{:else}
+						<div class="text-center text-tertiary">No previous Runs</div>
+					{/if}
+				</div>
+			</div>
+		</Pane>
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-2">
 				<span class="text-sm font-semibold">Previous runs</span>
