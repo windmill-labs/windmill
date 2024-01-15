@@ -142,7 +142,6 @@
 	}
 
 	let jobs: Job[] = []
-	let jobLoader: JobLoader | undefined = undefined
 	let loading: boolean = false
 </script>
 
@@ -157,7 +156,6 @@
 	success="running"
 	argFilter={undefined}
 	bind:loading
-	bind:this={jobLoader}
 	synUrl={false}
 />
 
