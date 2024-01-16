@@ -2516,6 +2516,20 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             dedicated_worker,
             None,
         ),
+        JobPayload::RawScriptDependencies { script_path, content, language } => (
+            None,
+            Some(script_path),
+            Some((content, None)),
+            JobKind::Dependencies,
+            None,
+            None,
+            Some(language),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
         JobPayload::FlowDependencies { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_scalar!(

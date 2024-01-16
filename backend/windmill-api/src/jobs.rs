@@ -152,6 +152,7 @@ pub fn workspaced_service() -> Router {
             "/result_by_id/:job_id/:node_id",
             get(get_result_by_id).layer(cors.clone()),
         )
+        .route("/run/dependencies", post(run_dependencies_job))
 }
 
 pub fn global_service() -> Router {
@@ -1945,10 +1946,10 @@ pub struct WindmillCompositeResult {
     windmill_content_type: Option<String>,
     result: Option<Box<RawValue>>,
 }
-async fn run_wait_result<T>(
+async fn run_wait_result(
     db: &DB,
     uuid: Uuid,
-    Path((w_id, _)): Path<(String, T)>,
+    w_id: String,
     node_id_for_empty_return: Option<String>,
 ) -> error::Result<Response> {
     let mut result;
@@ -2183,7 +2184,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, Path((w_id, script_path)), None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -2302,7 +2303,7 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, Path((w_id, script_path)), None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -2377,7 +2378,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, Path((w_id, script_hash)), None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -2459,7 +2460,7 @@ async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, Path((w_id, flow_path)), early_return).await
+    run_wait_result(&db, uuid, w_id, early_return).await
 }
 
 async fn run_preview_job(
@@ -2525,6 +2526,82 @@ async fn run_preview_job(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+#[derive(Deserialize)]
+pub struct RunDependenciesRequest {
+    pub raw_scripts: Vec<RawScriptForDependencies>,
+    pub entrypoint: String,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct RawScriptForDependencies {
+    pub script_path: String,
+    pub raw_code: String,
+    pub language: ScriptLang,
+}
+
+#[derive(Serialize)]
+pub struct RunDependenciesResponse {
+    pub dependencies: String,
+}
+
+pub async fn run_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunDependenciesRequest>,
+) -> error::Result<Response> {
+    check_scopes(&authed, || format!("runscript"))?;
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run dependencies jobs for security reasons".to_string(),
+        ));
+    }
+
+    if req.raw_scripts.len() != 1 || req.raw_scripts[0].script_path != req.entrypoint {
+        return Err(error::Error::InternalErr(
+            "For now only a single raw script can be passed to this endpoint, and the entrypoint should be set to the script path".to_string(),
+        ));
+    }
+    let raw_script = req.raw_scripts[0].clone();
+    let script_path = raw_script.script_path;
+    let raw_code = raw_script.raw_code;
+    let language = raw_script.language;
+
+    let (uuid, tx) = push(
+        &db,
+        PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
+        &w_id,
+        JobPayload::RawScriptDependencies {
+            script_path: script_path,
+            content: raw_code,
+            language: language,
+        },
+        PushArgs::empty(),
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    wait_result
 }
 
 #[derive(Deserialize)]
