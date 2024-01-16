@@ -4634,32 +4634,15 @@ paths:
             schema:
               type: object
               properties:
-                content:
-                  type: string
-                language:
-                  type: string
-                  enum:
-                    [
-                      python3,
-                      deno,
-                      go,
-                      bash,
-                      powershell,
-                      postgresql,
-                      mysql,
-                      bigquery,
-                      snowflake,
-                      mssql,
-                      graphql,
-                      nativets,
-                      bun,
-                    ]
-                script_path:
+                raw_scripts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RawScriptForDependencies"
+                entrypoint:
                   type: string
               required:
-                - content
-                - language
-                - script_path
+                - entrypoint
+                - raw_scripts
       responses:
         "201":
           description: dependency job result
@@ -9369,3 +9352,33 @@ components:
       required:
         - timestamp
         - value
+
+    RawScriptForDependencies:
+      type: object
+      properties:
+        content:
+          type: string
+        path:
+          type: string
+        language:
+          type: string
+          enum:
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              powershell,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              mssql,
+              graphql,
+              nativets,
+              bun,
+            ]
+      required:
+        - content
+        - path
+        - language

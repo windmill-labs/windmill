@@ -2530,6 +2530,12 @@ async fn run_preview_job(
 
 #[derive(Deserialize)]
 pub struct RunDependenciesRequest {
+    pub raw_scripts: Vec<RawScriptForDependencies>,
+    pub entrypoint: String,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct RawScriptForDependencies {
     pub script_path: String,
     pub raw_code: String,
     pub language: ScriptLang,
@@ -2554,14 +2560,24 @@ pub async fn run_dependencies_job(
         ));
     }
 
+    if req.raw_scripts.len() != 1 || req.raw_scripts[0].script_path != req.entrypoint {
+        return Err(error::Error::InternalErr(
+            "For now only a single raw script can be passed to this endpoint, and the entrypoint should be set to the script path".to_string(),
+        ));
+    }
+    let raw_script = req.raw_scripts[0].clone();
+    let script_path = raw_script.script_path;
+    let raw_code = raw_script.raw_code;
+    let language = raw_script.language;
+
     let (uuid, tx) = push(
         &db,
         PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
         &w_id,
         JobPayload::RawScriptDependencies {
-            script_path: req.script_path,
-            content: req.raw_code,
-            language: req.language,
+            script_path: script_path,
+            content: raw_code,
+            language: language,
         },
         PushArgs::empty(),
         &authed.username,

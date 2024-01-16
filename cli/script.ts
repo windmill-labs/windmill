@@ -16,10 +16,10 @@ import {
   yamlStringify,
 } from "./deps.ts";
 import { deepEqual } from "./utils.ts";
-import { SchemaProperty, defaultScriptMetadata, script_initial_code, script_initial_yaml } from "./script_initial_code/script_initial_code.ts";
-import { instantiate as instantiateWasm, parse_bash, parse_bigquery, parse_deno, parse_go, parse_graphql, parse_mssql, parse_mysql, parse_powershell, parse_python, parse_snowflake, parse_sql, parse_ts_imports } from "./wasm/windmill_parser_wasm.generated.js"
-import { CHAR_CARRIAGE_RETURN } from "https://deno.land/std@0.188.0/path/_constants.ts";
+import { defaultScriptMetadata, scriptBootstrapCode } from "./bootstrap/script_bootstrap.ts";
+import { instantiate as instantiateWasm, parse_bash, parse_bigquery, parse_deno, parse_go, parse_graphql, parse_mssql, parse_mysql, parse_powershell, parse_python, parse_snowflake, parse_sql } from "./wasm/windmill_parser_wasm.generated.js"
 import { Workspace } from "./workspace.ts";
+import { SchemaProperty } from "./bootstrap/common.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -704,21 +704,23 @@ async function show(opts: GlobalOptions, path: string) {
   log.info(s.content);
 }
 
-async function bootstrap(opts: GlobalOptions & {summary: string, description: string}, script_path: string, language: ScriptLanguage) {
-  const initial_code = script_initial_code[language];
-  if (initial_code === undefined) {
+async function bootstrap(opts: GlobalOptions & {summary: string, description: string}, scriptPath: string, language: ScriptLanguage) {
+  if (!validatePath(scriptPath)) {
+    return;
+  }
+
+  const scriptInitialCode = scriptBootstrapCode[language];
+  if (scriptInitialCode === undefined) {
     throw new Error("Language unknown");
   }
 
   const extension = filePathExtensionFromContentType(language);
-  const code_file_full_path = script_path + extension;
-  if (!validatePath(code_file_full_path)) {
-    return;
-  }
-  const metadata_file_full_path = script_path + ".script.yaml";
+  const scriptCodeFileFullPath = scriptPath + extension;
+  const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
 
   try {
-    await Deno.stat(script_path);
+    await Deno.stat(scriptCodeFileFullPath);
+    await Deno.stat(scriptMetadataFileFullPath);
     throw new Error("File already exists in repository");
   } catch {
     // file does not exist, we can continue
@@ -732,31 +734,31 @@ async function bootstrap(opts: GlobalOptions & {summary: string, description: st
     scriptMetadata.description = opts.description;
   }
 
-  const script_initial_yaml = yamlStringify(scriptMetadata as Record<string, any>);
+  const scriptInitialMetadataYaml = yamlStringify(scriptMetadata as Record<string, any>);
 
-  Deno.writeFile(
-    code_file_full_path,
-    new TextEncoder().encode(initial_code),
+  Deno.writeTextFile(
+    scriptCodeFileFullPath,
+    scriptInitialCode,
     { createNew: true });
   Deno.writeTextFile(
-    metadata_file_full_path,
-    script_initial_yaml,
+    scriptMetadataFileFullPath,
+    scriptInitialMetadataYaml,
     { createNew: true });
 }
 
-async function generateMetadata(opts: GlobalOptions & {lockOnly: boolean, schemaOnly: boolean}, script_path: string) {
-  if (!validatePath(script_path)) {
+async function generateMetadata(opts: GlobalOptions & {lockOnly: boolean, schemaOnly: boolean}, scriptPath: string) {
+  if (!validatePath(scriptPath)) {
     return;
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const language = inferContentTypeFromFilePath(script_path);
+  const language = inferContentTypeFromFilePath(scriptPath);
 
   // read script metadata file
-  const remotePath = script_path
-      .substring(0, script_path.indexOf("."))
+  const remotePath = scriptPath
+      .substring(0, scriptPath.indexOf("."))
       .replaceAll("\\", "/");
   const metadataWithType = await parseMetadataFile(remotePath);
   if (metadataWithType === undefined) {
@@ -764,7 +766,7 @@ async function generateMetadata(opts: GlobalOptions & {lockOnly: boolean, schema
   }
 
   // read script content
-  const scriptContent = await Deno.readTextFile(script_path);
+  const scriptContent = await Deno.readTextFile(scriptPath);
 
   const metadataParsedContent = metadataWithType?.payload as Record<string, any>;
 
@@ -804,18 +806,25 @@ async function updateScriptLock(workspace: Workspace, scriptContent: string, lan
       "Content-Type": "application/json" 
     },
     body: JSON.stringify({
-      "raw_code": scriptContent,
-      "language": language,
-      "script_path": remotePath,
+      "raw_scripts": [{
+        "raw_code": scriptContent,
+        "language": language,
+        "script_path": remotePath,
+      }],
+      "entrypoint": remotePath,
     })
   });
 
-  const response = await rawResponse.json();
-  const lock = response.lock;
-  if (lock === undefined) {
-    throw new Error(`Failed to generate lockfile. Full response was: ${JSON.stringify(response)}`);
+  try {
+    const response = await rawResponse.json();
+    const lock = response.lock;
+    if (lock === undefined) {
+      throw new Error(`Failed to generate lockfile. Full response was: ${JSON.stringify(response)}`);
+    }
+    metadataContent.lock = lock.split("\n");
+  } catch {
+    throw new Error(`Failed to generate lockfile. Status was: ${rawResponse.statusText}`);
   }
-  metadataContent.lock = lock.split("\n");
 }
 
 const command = new Command()
