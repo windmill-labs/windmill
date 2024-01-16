@@ -219,6 +219,9 @@ class Windmill:
     def get_job(self, job_id: str) -> dict:
         return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
 
+    def get_id_token(self, audience: str) -> dict:
+        return self.get(f"/w/{self.workspace}/oidc/token/{audience}").text
+
     def get_job_status(self, job_id: str) -> JobStatus:
         job = self.get_job(job_id)
         job_type = job.get("type", "")

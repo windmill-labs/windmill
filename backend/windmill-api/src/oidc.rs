@@ -9,19 +9,19 @@
 use std::process::Command;
 
 use anyhow;
-use openidconnect::core::{
-    CoreClaimName, CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreResponseType,
-    CoreSubjectIdentifierType,
-};
+
+#[cfg(feature = "enterprise")]
 use openidconnect::{
-    AdditionalClaims, AuthUrl, EmptyAdditionalProviderMetadata, IssuerUrl, JsonWebKeySetUrl,
-    ResponseTypes,
+    core::{
+        CoreClaimName, CoreJsonWebKeySet, CoreJwsSigningAlgorithm, CoreProviderMetadata,
+        CoreResponseType, CoreRsaPrivateSigningKey, CoreSubjectIdentifierType,
+    },
+    AdditionalClaims, AuthUrl, EmptyAdditionalProviderMetadata, IssuerUrl, JsonWebKeyId,
+    JsonWebKeySetUrl, ResponseTypes,
 };
 
-use openidconnect::{
-    core::{CoreJsonWebKeySet, CoreRsaPrivateSigningKey},
-    JsonWebKeyId,
-};
+#[cfg(feature = "enterprise")]
+impl AdditionalClaims for JobClaim {}
 
 use crate::db::DB;
 use axum::extract::Path;
@@ -169,8 +169,6 @@ struct JobClaim {
     email: String,
     workspace: String,
 }
-
-impl AdditionalClaims for JobClaim {}
 
 use crate::db::ApiAuthed;
 use crate::users::Tokened;

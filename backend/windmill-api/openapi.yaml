@@ -1687,6 +1687,14 @@ paths:
       operationId: getOidcToken
       tags:
         - oidc
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: audience
+          in: path
+          required: true
+          schema:
+            type: string
+
       responses:
         "200":
           description: new oidc token
