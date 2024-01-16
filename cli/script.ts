@@ -85,10 +85,20 @@ async function parseMetadataFile(scriptPath: string): Promise<{isJson: boolean, 
         isJson: false,
       } 
     } catch {
-      // no meta file
+      // no metadata file at all. Create it
+      metadataFilePath = scriptPath + ".script.yaml";
+      const scriptInitialMetadata = defaultScriptMetadata()
+      const scriptInitialMetadataYaml = yamlStringify(scriptInitialMetadata as Record<string, any>);
+      Deno.writeTextFile(
+        metadataFilePath,
+        scriptInitialMetadataYaml,
+        { createNew: true });
+      return {
+        payload: scriptInitialMetadata,
+        isJson: false,
+      } 
     }
   }
-  return undefined;
 }
 
 export async function handleFile(
