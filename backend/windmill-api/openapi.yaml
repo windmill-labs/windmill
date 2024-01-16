@@ -1681,6 +1681,29 @@ paths:
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
 
+  /w/{workspace}/oidc/token/{audience}:
+    post:
+      summary: get OIDC token (ee only)
+      operationId: getOidcToken
+      tags:
+        - oidc
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: audience
+          in: path
+          required: true
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: new oidc token
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /w/{workspace}/variables/create:
     post:
       summary: create variable

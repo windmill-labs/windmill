@@ -111,7 +111,8 @@
 						workspace: $workspaceStore!,
 						id: job,
 						requestBody: {
-							reason: 'Connection did not resolve after 5s'
+							reason:
+								'Connection did not resolve after 5s. Do you have native workers or a worker group listening to the proper tag available?'
 						}
 					})
 				} catch (err) {

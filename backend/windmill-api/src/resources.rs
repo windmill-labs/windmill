@@ -544,6 +544,8 @@ pub async fn transform_json_value<'c>(
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.root_job.map(|x| x.to_string()),
+                None,
             )
             .await;
 
