@@ -38,6 +38,7 @@
 
 	let workspaceSettingsInitialized = true
 
+	export let fromWorkspaceSettings: boolean = false
 	export let readOnlyMode: boolean
 
 	export let initialFileKey: { s3: string } | undefined = undefined
@@ -431,22 +432,32 @@
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
 		{#if workspaceSettingsInitialized === false}
-			<Alert type="error" title="Workspace not connected to any S3 storage">
-				<div class="flex flex-row gap-x-1 w-full items-center">
-					<p class="text-clip grow min-w-0">
-						The workspace needs to be connected to an S3 storage to use this feature. You can <a
-							target="_blank"
-							href="/workspace_settings?tab=windmill_lfs">configure it here</a
-						>.
-					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={reloadContent}
-						startIcon={{ icon: RotateCw }}
-					/>
-				</div>
-			</Alert>
+			{#if fromWorkspaceSettings}
+				<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
+					<div class="flex flex-row gap-x-1 w-full items-center">
+						<p class="text-clip grow min-w-0">
+							Double check the S3 resource fields and try again.
+						</p>
+					</div>
+				</Alert>
+			{:else}
+				<Alert type="error" title="Workspace not connected to any S3 storage">
+					<div class="flex flex-row gap-x-1 w-full items-center">
+						<p class="text-clip grow min-w-0">
+							The workspace needs to be connected to an S3 storage to use this feature. You can <a
+								target="_blank"
+								href="/workspace_settings?tab=windmill_lfs">configure it here</a
+							>.
+						</p>
+						<Button
+							variant="border"
+							color="light"
+							on:click={reloadContent}
+							startIcon={{ icon: RotateCw }}
+						/>
+					</div>
+				</Alert>
+			{/if}
 		{:else}
 			<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>
 				<div class="min-w-[30%] border-r">
@@ -629,10 +640,12 @@
 						uploadModalOpen = true
 					}}>Upload File</Button
 				>
-				<Button
-					disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
-					on:click={selectAndClose}>Select</Button
-				>
+				{#if !fromWorkspaceSettings}
+					<Button
+						disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
+						on:click={selectAndClose}>Select</Button
+					>
+				{/if}
 			{/if}
 		</div>
 	</DrawerContent>
@@ -701,6 +714,10 @@
 	}}
 	on:confirmed={() => {
 		uploadFileToS3()
+	}}
+	on:close={() => {
+		fileUploadCancelled = true
+		uploadModalOpen = false
 	}}
 	bind:progressPct={fileUploadProgress}
 	bind:errorMsg={fileUploadErrorMsg}

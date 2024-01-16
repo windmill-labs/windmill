@@ -3,7 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import { FileUp, Loader2 } from 'lucide-svelte'
+	import { FileUp, Loader2, X } from 'lucide-svelte'
 
 	export let title: string
 	export let open: boolean = false
@@ -44,9 +44,19 @@
 					)}
 				>
 					<div class="flex flex-col gap-2">
-						<h3 class="text-lg font-medium text-primary">
-							{title}
-						</h3>
+						<div class="flex justify-between">
+							<h3 class="text-lg font-medium text-primary">
+								{title}
+							</h3>
+							<Button
+								on:click={() => dispatch('close')}
+								title="Close - This will cancel any upload in progress"
+								color="light"
+								size="sm"
+								iconOnly={true}
+								startIcon={{ icon: X }}
+							/>
+						</div>
 						<div class="flex items-center gap-2">
 							<span>Key: </span>
 							<input
