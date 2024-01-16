@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.245.1](https://github.com/windmill-labs/windmill/compare/v1.245.0...v1.245.1) (2024-01-16)
+
+
+### Bug Fixes
+
+* CLI script generate-metadata creates a default file if none exist ([#3015](https://github.com/windmill-labs/windmill/issues/3015)) ([eb48e0a](https://github.com/windmill-labs/windmill/commit/eb48e0a1071d33e19425f2228e029453b3484458))
+
 ## [1.245.0](https://github.com/windmill-labs/windmill/compare/v1.244.4...v1.245.0) (2024-01-16)
 
 
