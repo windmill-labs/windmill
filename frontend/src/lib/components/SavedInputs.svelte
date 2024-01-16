@@ -17,6 +17,23 @@
 	export let flowPath: string | null = null
 	export let canSaveInputs: boolean = true
 
+	// Are the current Inputs valid and able to be saved?
+	export let isValid: boolean
+	export let args: object
+
+	interface EditableInput extends Input {
+		isEditing?: boolean
+		isSaving?: boolean
+	}
+
+	let previousInputs: Input[] = []
+	let savedInputs: EditableInput[] = []
+	let selectedInput: Input | null
+	let jobs: Job[] = []
+	let loading: boolean = false
+	let savingInputs = false
+	const dispatch = createEventDispatcher()
+
 	$: runnableId = scriptPath || flowPath || undefined
 	$: runnableType = scriptHash
 		? RunnableType.SCRIPT_HASH
@@ -25,19 +42,6 @@
 		: flowPath
 		? RunnableType.FLOW_PATH
 		: undefined
-
-	// Are the current Inputs valid and able to be saved?
-	export let isValid: boolean
-	export let args: object
-
-	let previousInputs: Input[] = []
-	interface EditableInput extends Input {
-		isEditing?: boolean
-		isSaving?: boolean
-	}
-	let savedInputs: EditableInput[] = []
-
-	let selectedInput: Input | null
 
 	async function loadInputHistory() {
 		previousInputs = await InputService.getInputHistory({
@@ -56,8 +60,6 @@
 			perPage: 10
 		})
 	}
-
-	let savingInputs = false
 
 	async function saveInput(args: object) {
 		savingInputs = true
@@ -135,14 +137,9 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
-
-	const selectArgs = (selected_args: any) => {
+	function selectArgs(selected_args: any) {
 		dispatch('selected_args', selected_args)
 	}
-
-	let jobs: Job[] = []
-	let loading: boolean = false
 </script>
 
 <JobLoader
