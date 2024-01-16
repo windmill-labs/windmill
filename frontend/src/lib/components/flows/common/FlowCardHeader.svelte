@@ -38,7 +38,7 @@
 				{#if flowModule.value.type === 'identity'}
 					<span class="font-bold text-xs">Identity (input copied to output)</span>
 				{:else if flowModule?.value.type === 'rawscript'}
-					<div class="w-8 mx-0.5">
+					<div class="mx-0.5">
 						<LanguageIcon lang={flowModule.value.language} width={20} height={20} />
 					</div>
 					<input bind:value={flowModule.summary} placeholder={'Summary'} class="w-full grow" />

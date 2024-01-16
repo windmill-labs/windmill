@@ -1,6 +1,37 @@
 # Changelog
 
 
+## [1.245.0](https://github.com/windmill-labs/windmill/compare/v1.244.4...v1.245.0) (2024-01-16)
+
+
+### Features
+
+* add script bootstrap and script generate-metadata CLI commands ([#3007](https://github.com/windmill-labs/windmill/issues/3007)) ([b9bee40](https://github.com/windmill-labs/windmill/commit/b9bee403f1ee922c776cf7a82aef0cdfc04c4c10))
+* Browse s3 bucket content from workspace settings page ([#3013](https://github.com/windmill-labs/windmill/issues/3013)) ([1053979](https://github.com/windmill-labs/windmill/commit/10539790d20e01faf7aa992f44c89ab623a794c0))
+* **frontend:** Add running runs on the script detail page ([#3005](https://github.com/windmill-labs/windmill/issues/3005)) ([c93932a](https://github.com/windmill-labs/windmill/commit/c93932a5b3b17cf3ddc7c86bf047343dc5da114d))
+* **frontend:** add specific bun and deno icons ([#3006](https://github.com/windmill-labs/windmill/issues/3006)) ([e9ab3ce](https://github.com/windmill-labs/windmill/commit/e9ab3ceac901503c6d6e0af0954516af80e1f4a0))
+
+
+### Bug Fixes
+
+* s3 resource is accessed by backend with admin permissions ([#3011](https://github.com/windmill-labs/windmill/issues/3011)) ([9fffe4f](https://github.com/windmill-labs/windmill/commit/9fffe4f6f578665242612a596300e93b6cf2e6b6))
+
+## [1.244.4](https://github.com/windmill-labs/windmill/compare/v1.244.2...v1.244.4) (2024-01-15)
+
+
+
+### Features
+
+* experimental nodejs support ([047ee10](https://github.com/windmill-labs/windmill/commit/047ee10246f8e1bb952d3b8cdf21612948ac9843))
+* git sync branch name no contains the workspace ID and the type ([#3004](https://github.com/windmill-labs/windmill/issues/3004))
+
+
+### Bug Fixes
+
+* git sync branch name no contains the workspace ID and the type ([#3004](https://github.com/windmill-labs/windmill/issues/3004)) ([d845864](https://github.com/windmill-labs/windmill/commit/d845864872aff0057d6a3f5d9df2cc4a8c642be5))
+* improve bun imports resolutions ([2b28854](https://github.com/windmill-labs/windmill/commit/2b288542bdfdba62b9182002db6c8c23cdd9869f))
+* improve bun imports resolutions ([64e592b](https://github.com/windmill-labs/windmill/commit/64e592b874ef0414dcea2a3dd113d323cff0661e))
+
 ## [1.244.2](https://github.com/windmill-labs/windmill/compare/v1.244.1...v1.244.2) (2024-01-13)
 
 

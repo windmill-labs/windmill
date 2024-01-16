@@ -10,6 +10,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
@@ -19,7 +20,6 @@
 		OauthService,
 		Script,
 		WorkspaceService,
-		HelpersService,
 		JobService,
 		ResourceService
 	} from '$lib/gen'
@@ -39,6 +39,9 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import Portal from 'svelte-portal'
+
+	let s3FileViewer: S3FilePicker
 
 	let initialPath: string
 	let scriptPath: string
@@ -371,6 +374,10 @@
 		})
 	}
 </script>
+
+<Portal>
+	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
+</Portal>
 
 <CenteredPage>
 	{#if $userStore?.is_admin || $superadmin}
@@ -746,12 +753,9 @@
 					disabled={!s3ResourceInitialPath}
 					on:click={async () => {
 						if ($workspaceStore) {
-							await HelpersService.datasetStorageTestConnection({
-								workspace: $workspaceStore
-							})
-							sendUserToast('Connection successful')
+							s3FileViewer?.open?.(undefined)
 						}
-					}}>Test Connection</Button
+					}}>Browse content</Button
 				>
 			</div>
 		{:else if tab == 'git_sync'}

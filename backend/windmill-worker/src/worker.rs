@@ -3177,14 +3177,18 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
     token: &str,
     rsmq: Option<R>,
 ) -> error::Result<Box<RawValue>> {
-    let raw_code = sqlx::query_scalar!(
-        "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
-        &job.script_hash.unwrap_or(ScriptHash(0)).0,
-        &job.workspace_id
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or_else(|| "No script found at this hash".to_string());
+    let raw_code = match job.raw_code {
+        Some(ref code) => code.to_owned(),
+        None => sqlx::query_scalar!(
+            "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
+            &job.script_hash.unwrap_or(ScriptHash(0)).0,
+            &job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or_else(|| "No script found at this hash".to_string()),
+    };
+
     let script_path = job.script_path();
     let content = capture_dependency_job(
         &job.id,
@@ -3209,6 +3213,13 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
     .await;
     match content {
         Ok(content) => {
+            if job.script_hash.is_none() {
+                // it a one-off raw script dependency job, no need to update the db
+                return Ok(to_raw_value_owned(
+                    json!({ "success": "Successful lock file generation", "lock": content }),
+                ));
+            }
+
             let hash = job.script_hash.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             sqlx::query!(
