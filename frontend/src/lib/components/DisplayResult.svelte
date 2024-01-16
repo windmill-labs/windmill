@@ -4,10 +4,11 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy, Download, Expand, PanelRightOpen } from 'lucide-svelte'
+	import { Bug, ClipboardCopy, Download, Expand, Info, PanelRightOpen } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import Alert from './common/alert/Alert.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -158,6 +159,10 @@
 			return obj.content
 		}
 	}
+
+	function isPayloadTooLarge(error: { name: string; message: string }) {
+		return error?.name === 'ExecutionErr' && error?.message.includes('Result is too large')
+	}
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
@@ -293,6 +298,22 @@
 				>
 				<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
 				<slot />
+
+				{#if isPayloadTooLarge(result.error)}
+					<div class="my-4">
+						<Alert size="xs" title="Size Limit Exceeded" type="error">
+							We recommend using persistent storage for large data files. See
+							<a
+								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
+								target="_blank"
+								rel="noreferrer"
+								class="hover:underline"
+							>
+								Large Data Files: S3, R2, MinIO
+							</a>
+						</Alert>
+					</div>
+				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
 				<Button
