@@ -154,6 +154,8 @@
 	argFilter={undefined}
 	bind:loading
 	synUrl={false}
+	syncQueuedRunsCount={false}
+	refreshRate={10000}
 />
 
 <div class="min-w-[300px] h-full">

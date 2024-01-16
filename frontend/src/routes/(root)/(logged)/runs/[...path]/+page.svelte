@@ -78,7 +78,7 @@
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
-				jobLoader?.loadJobs()
+				jobLoader?.loadJobs(true)
 			}, 2000)
 		}
 	}
@@ -92,7 +92,7 @@
 		completedJobs = undefined
 		selectedManualDate = 0
 		selectedId = undefined
-		jobLoader?.loadJobs()
+		jobLoader?.loadJobs(true)
 	}
 </script>
 
@@ -129,7 +129,7 @@
 	on:confirmed={async () => {
 		cancelAllJobs = false
 		let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
-		jobLoader?.loadJobs()
+		jobLoader?.loadJobs(true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}}
 	on:canceled={() => {

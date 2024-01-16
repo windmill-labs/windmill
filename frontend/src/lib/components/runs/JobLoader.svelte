@@ -42,12 +42,12 @@
 	export let resultError = ''
 	export let loading: boolean = false
 	export let synUrl: boolean = true
+	export let refreshRate = 5000
+	export let syncQueuedRunsCount: boolean = true
 
 	let mounted: boolean = false
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
-
-	const REFRESH_RATE = 10000
 
 	// This reactive statement is used to sync the url with the current state of the filters
 	$: if (synUrl) {
@@ -89,7 +89,7 @@
 		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs && hideSchedules)
 
 	$: if (mounted && !intervalId && autoRefresh) {
-		intervalId = setInterval(syncer, REFRESH_RATE)
+		intervalId = setInterval(syncer, refreshRate)
 	}
 
 	$: if (mounted && intervalId && !autoRefresh) {
@@ -137,7 +137,11 @@
 		})
 	}
 
-	export async function loadJobs(): Promise<void> {
+	export async function loadJobs(shouldGetCount?: boolean): Promise<void> {
+		if (shouldGetCount) {
+			getCount()
+		}
+
 		loading = true
 		try {
 			jobs = await fetchJobs(maxTs, minTs)
@@ -166,8 +170,11 @@
 	}
 
 	async function syncer() {
-		if (sync && jobs && maxTs == undefined) {
+		if (syncQueuedRunsCount) {
 			getCount()
+		}
+
+		if (sync && jobs && maxTs == undefined) {
 			if (success == 'running') {
 				loadJobs()
 			} else {
@@ -273,9 +280,8 @@
 		loadPaths()
 		loadUsernames()
 		loadFolders()
-		// Initial sync
-		getCount()
-		intervalId = setInterval(syncer, REFRESH_RATE)
+
+		intervalId = setInterval(syncer, refreshRate)
 
 		document.addEventListener('visibilitychange', () => {
 			if (document.hidden) {
