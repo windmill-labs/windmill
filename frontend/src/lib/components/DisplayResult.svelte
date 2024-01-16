@@ -4,10 +4,11 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy, Download, Expand, PanelRightOpen } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, PanelRightOpen, Table2 } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import AutoDataTable from './table/AutoDataTable.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -158,6 +159,17 @@
 			return obj.content
 		}
 	}
+
+	function isArrayWithObjects(json) {
+		return (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			json.every((item) => typeof item === 'object' && Object.keys(item).length > 0)
+		)
+	}
+
+	$: isTableDisplay = isArrayWithObjects(result)
+	let richRender: boolean = false
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
@@ -178,6 +190,12 @@
 							><ClipboardCopy size={16} /></button
 						>
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+						<button
+							aria-label="Render as table"
+							on:click={() => {
+								richRender = !richRender
+							}}><Table2 size={16} /></button
+						>
 					</div>
 				{/if}</div
 			>
@@ -337,6 +355,8 @@
 					</button>
 				{/each}
 			</div>
+		{:else if !forceJson && isTableDisplay && richRender}
+			<AutoDataTable objects={result} />
 		{:else if largeObject}
 			{#if 'filename' in result && 'file' in result}
 				<div

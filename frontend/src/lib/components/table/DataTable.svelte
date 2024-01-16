@@ -39,6 +39,7 @@
 
 			{#if perPage !== undefined}
 				<select class="!text-xs !w-16" bind:value={perPage}>
+					<option value={5}>5</option>
 					<option value={25}>25</option>
 					<option value={50}>50</option>
 					<option value={100}>100</option>
