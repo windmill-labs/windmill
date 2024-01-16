@@ -4,7 +4,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { Bug, ClipboardCopy, Download, Expand, Info, PanelRightOpen } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, PanelRightOpen } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
