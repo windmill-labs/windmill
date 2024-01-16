@@ -47,6 +47,8 @@
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
 
+	const REFRESH_RATE = 10000
+
 	// This reactive statement is used to sync the url with the current state of the filters
 	$: if (synUrl) {
 		let searchParams = new URLSearchParams()
@@ -87,7 +89,7 @@
 		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs && hideSchedules)
 
 	$: if (mounted && !intervalId && autoRefresh) {
-		intervalId = setInterval(syncer, 5000)
+		intervalId = setInterval(syncer, REFRESH_RATE)
 	}
 
 	$: if (mounted && intervalId && !autoRefresh) {
@@ -137,7 +139,6 @@
 
 	export async function loadJobs(): Promise<void> {
 		loading = true
-		getCount()
 		try {
 			jobs = await fetchJobs(maxTs, minTs)
 
@@ -165,8 +166,8 @@
 	}
 
 	async function syncer() {
-		getCount()
 		if (sync && jobs && maxTs == undefined) {
+			getCount()
 			if (success == 'running') {
 				loadJobs()
 			} else {
@@ -272,7 +273,9 @@
 		loadPaths()
 		loadUsernames()
 		loadFolders()
-		intervalId = setInterval(syncer, 5000)
+		// Initial sync
+		getCount()
+		intervalId = setInterval(syncer, REFRESH_RATE)
 
 		document.addEventListener('visibilitychange', () => {
 			if (document.hidden) {
