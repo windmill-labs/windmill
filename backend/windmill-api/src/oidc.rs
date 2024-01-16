@@ -14,7 +14,8 @@ use openidconnect::core::{
     CoreSubjectIdentifierType,
 };
 use openidconnect::{
-    AuthUrl, EmptyAdditionalProviderMetadata, IssuerUrl, JsonWebKeySetUrl, ResponseTypes,
+    AdditionalClaims, AuthUrl, EmptyAdditionalProviderMetadata, IssuerUrl, JsonWebKeySetUrl,
+    ResponseTypes,
 };
 
 use openidconnect::{
@@ -23,9 +24,11 @@ use openidconnect::{
 };
 
 use crate::db::DB;
+use axum::extract::Path;
 use axum::routing::get;
 use axum::Extension;
 use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "enterprise")]
 pub fn global_service() -> Router {
@@ -41,44 +44,74 @@ pub fn global_service() -> Router {
     Router::new()
 }
 
-pub fn generate_pems() {
-    let public_key = Command::new("openssl")
-        .arg("genrsa")
-        .arg("3072")
-        .output()
-        .expect("failed to execute process");
-
-    let private_key = Command::new("openssl")
-        .arg("rsa")
-        .arg("-pubout")
-        .output()
-        .expect("failed to execute process");
-    //     # generate a private key with the correct length
-    // openssl genrsa -out private-key.pem 3072
-
-    // # generate corresponding public key
-    // openssl rsa -in private-key.pem -pubout -out public-key.pem
+#[cfg(not(feature = "enterprise"))]
+pub fn workspaced_service() -> Router {
+    Router::new()
 }
+
+#[cfg(feature = "enterprise")]
+pub fn workspaced_service() -> Router {
+    Router::new().route("/token/:audience", get(gen_token))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct Keys {
+    private_key: String,
+}
+
+async fn gen_pems(db: &DB) -> anyhow::Result<Keys> {
+    let private_key_cmd = Command::new("openssl")
+        .arg("genrsa")
+        .arg("--traditional")
+        .arg("2048")
+        .output()
+        .expect("failed to execute process");
+
+    let private_key = String::from_utf8(private_key_cmd.stdout).unwrap();
+
+    tracing::debug!("Generated private key: {}", private_key);
+    let keys = Keys { private_key };
+
+    sqlx::query!(
+        "INSERT INTO global_settings (name, value) VALUES ('rsa_keys', $1)",
+        serde_json::to_value(&keys).unwrap()
+    )
+    .execute(db)
+    .await?;
+
+    Ok(keys)
+}
+
+#[cfg(feature = "enterprise")]
+async fn get_private_key(db: &DB) -> anyhow::Result<String> {
+    let key = sqlx::query_scalar!(
+        "SELECT value->>'private_key' FROM global_settings WHERE name = 'rsa_keys'",
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+
+    if let Some(key) = key {
+        return Ok(key);
+    } else {
+        let keys = gen_pems(db).await?;
+        return Ok(keys.private_key);
+    }
+}
+
 #[cfg(feature = "enterprise")]
 pub async fn jwks(
     Extension(db): Extension<DB>,
 ) -> windmill_common::error::JsonResult<CoreJsonWebKeySet> {
-    use openidconnect::{core::CoreJsonWebKey, PrivateSigningKey};
-    use windmill_common::utils::get_uid;
+    use openidconnect::PrivateSigningKey;
 
-    let uid = get_uid(&db).await?;
-
-    let jwks = CoreJsonWebKeySet::new(vec![
-        CoreJsonWebKey::new_rsa(vec![], vec![], None), // // RSA keys may also be constructed directly using CoreJsonWebKey::new_rsa(). Providers
-                                                       // // aiming to support other key types may provide their own implementation of the
-                                                       // // JsonWebKey trait or submit a PR to add the desired support to this crate.
-                                                       // CoreRsaPrivateSigningKey::from_pem(
-                                                       //     &pem.to_string(),
-                                                       //     Some(JsonWebKeyId::new("key1".to_string())),
-                                                       // )
-                                                       // .map_err(|e| anyhow::anyhow!("Failed to parse PEM: {}", e))?
-                                                       // .as_verification_key(),
-    ]);
+    let private_key = get_private_key(&db).await?;
+    let jwks = CoreJsonWebKeySet::new(vec![CoreRsaPrivateSigningKey::from_pem(
+        &private_key,
+        Some(JsonWebKeyId::new("windmill".to_string())),
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to parse PEM: {}", e))?
+    .as_verification_key()]);
 
     Ok(Json(jwks))
 }
@@ -126,22 +159,88 @@ pub fn get_provider_metadata(base_url: String) -> anyhow::Result<CoreProviderMet
     return Ok(provider_metadata);
 }
 
-#[cfg(feature = "enterprise")]
-pub fn gen_token() {
-    use chrono::Utc;
-    use openidconnect::{
-        core::{CoreIdToken, CoreIdTokenClaims},
-        Audience, EmptyAdditionalClaims, EndUserEmail, StandardClaims, SubjectIdentifier,
-    };
-    use time::Duration;
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+struct JobClaim {
+    job_id: String,
+    path: Option<String>,
+    flow_path: Option<String>,
+    groups: Vec<String>,
+    username: String,
+    email: String,
+    workspace: String,
+}
 
-    let id_token = CoreIdToken::new(
-        CoreIdTokenClaims::new(
+impl AdditionalClaims for JobClaim {}
+
+use crate::db::ApiAuthed;
+use crate::users::Tokened;
+
+#[cfg(feature = "enterprise")]
+pub async fn gen_token(
+    authed: ApiAuthed,
+    token: Tokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, audience)): Path<(String, String)>,
+) -> windmill_common::error::Result<String> {
+    use chrono::{Duration, Utc};
+    use openidconnect::{
+        core::{CoreGenderClaim, CoreJsonWebKeyType, CoreJweContentEncryptionAlgorithm},
+        Audience, EndUserEmail, IdToken, IdTokenClaims, StandardClaims, SubjectIdentifier,
+    };
+    use windmill_queue::get_queued_job;
+
+    use crate::users::get_groups_for_user;
+
+    let private_key = get_private_key(&db).await?;
+
+    let username = authed.username;
+    let email = authed.email;
+
+    let job_id = {
+        let job = sqlx::query_scalar!("SELECT job FROM token WHERE token = $1", token.token)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+        if job.is_none() {
+            return Err(anyhow::anyhow!("Token not found").into());
+        } else {
+            job.unwrap()
+        }
+    };
+    let mut tx = db.begin().await?;
+    let job = get_queued_job(job_id, &w_id, &mut tx).await?;
+    tx.commit().await?;
+
+    let job = job.ok_or_else(|| anyhow::anyhow!("Queued job {} not found", job_id))?;
+    let issue_url = crate::BASE_URL.read().await.clone();
+    let flow_path = if let Some(uuid) = job.parent_job {
+        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+    } else {
+        None
+    };
+
+    let groups = get_groups_for_user(&w_id, &username, &email, &db)
+        .await
+        .ok()
+        .unwrap_or_default();
+
+    let id_token = IdToken::<
+        JobClaim,
+        CoreGenderClaim,
+        CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm,
+        CoreJsonWebKeyType,
+    >::new(
+        IdTokenClaims::<JobClaim, CoreGenderClaim>::new(
             // Specify the issuer URL for the OpenID Connect Provider.
-            IssuerUrl::new("https://accounts.example.com".to_string())?,
+            IssuerUrl::new(issue_url)
+                .map_err(|e| anyhow::anyhow!("Failed to generate IssueUrl: {}", e))?,
             // The audience is usually a single entry with the client ID of the client for whom
             // the ID token is intended. This is a required claim.
-            vec![Audience::new("client-id-123".to_string())],
+            vec![Audience::new(audience)],
             // The ID token expiration is usually much shorter than that of the access or refresh
             // tokens issued to clients.
             Utc::now() + Duration::seconds(300),
@@ -151,36 +250,49 @@ pub fn gen_token() {
             StandardClaims::new(
                 // Stable subject identifiers are recommended in place of e-mail addresses or other
                 // potentially unstable identifiers. This is the only required claim.
-                SubjectIdentifier::new("5f83e0ca-2b8e-4e8c-ba0a-f80fe9bc3632".to_string()),
+                SubjectIdentifier::new("windmill".to_string()),
             )
             // Optional: specify the user's e-mail address. This should only be provided if the
             // client has been granted the 'profile' or 'email' scopes.
-            .set_email(Some(EndUserEmail::new("bob@example.com".to_string())))
+            .set_email(Some(EndUserEmail::new(job.email.clone())))
             // Optional: specify whether the provider has verified the user's e-mail address.
             .set_email_verified(Some(true)),
             // OpenID Connect Providers may supply custom claims by providing a struct that
             // implements the AdditionalClaims trait. This requires manually using the
             // generic IdTokenClaims struct rather than the CoreIdTokenClaims type alias,
             // however.
-            EmptyAdditionalClaims {},
+            JobClaim {
+                job_id: job_id.to_string(),
+                path: job.script_path,
+                flow_path,
+                username: job.created_by,
+                email: job.email,
+                workspace: job.workspace_id,
+                groups,
+            },
         ),
         // The private key used for signing the ID token. For confidential clients (those able
         // to maintain a client secret), a CoreHmacKey can also be used, in conjunction
         // with one of the CoreJwsSigningAlgorithm::HmacSha* signing algorithms. When using an
         // HMAC-based signing algorithm, the UTF-8 representation of the client secret should
         // be used as the HMAC key.
-        &CoreRsaPrivateSigningKey::from_pem(&rsa_pem, Some(JsonWebKeyId::new("key1".to_string())))
-            .expect("Invalid RSA private key"),
+        &CoreRsaPrivateSigningKey::from_pem(
+            &private_key,
+            Some(JsonWebKeyId::new("windmill".to_string())),
+        )
+        .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?,
         // Uses the RS256 signature algorithm. This crate supports any RS*, PS*, or HS*
         // signature algorithm.
         CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
         // When returning the ID token alongside an access token (e.g., in the Authorization Code
         // flow), it is recommended to pass the access token here to set the `at_hash` claim
         // automatically.
-        Some(&access_token),
+        None,
         // When returning the ID token alongside an authorization code (e.g., in the implicit
         // flow), it is recommended to pass the authorization code here to set the `c_hash` claim
         // automatically.
         None,
-    )?;
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to generate token: {}", e))?;
+    Ok(id_token.to_string())
 }
