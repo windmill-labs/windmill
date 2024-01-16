@@ -9,6 +9,10 @@
 	import Portal from 'svelte-portal'
 	import { PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
+	import DataTable from '../table/DataTable.svelte'
+	import Cell from '../table/Cell.svelte'
+	import Head from '../table/Head.svelte'
+	import Row from '../table/Row.svelte'
 
 	export let json: any
 	export let level = 0
@@ -58,13 +62,44 @@
 	$: keyLimit = isArray ? 1 : 100
 
 	$: fullyCollapsed = keys.length > 1 && collapsed
+
+	function isArrayWithObjects(json) {
+		return (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			json.every((item) => typeof item === 'object' && Object.keys(item).length > 0)
+		)
+	}
+
+	$: isTableDisplay = isArrayWithObjects(json)
 </script>
 
 <Portal>
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
 
-{#if keys.length > 0}
+{#if isTableDisplay}
+	<div class="my-2">
+		<DataTable size="xs" shouldHidePagination={false}>
+			<Head>
+				<tr>
+					{#each Object.keys(json[0] ?? {}) ?? [] as key, index}
+						<Cell head first={index == 0}>{key}</Cell>
+					{/each}
+				</tr>
+			</Head>
+			<tbody class="divide-y">
+				{#each json as row}
+					<Row>
+						{#each Object.values(row ?? {}) ?? [] as value, index}
+							<Cell first={index == 0}>{value}</Cell>
+						{/each}
+					</Row>
+				{/each}
+			</tbody>
+		</DataTable>
+	</div>
+{:else if keys.length > 0}
 	{#if !fullyCollapsed}
 		<span>
 			{#if level != 0 && keys.length > 1}

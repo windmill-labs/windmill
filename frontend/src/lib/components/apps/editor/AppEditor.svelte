@@ -564,11 +564,10 @@
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									<div class="absolute bottom-2 left-4 z-50">
-										<div class="flex flex-row gap-2 text-xs items-center">
+									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
+										<div class="flex flex-row gap-2 text-xs items-center p-0.5">
 											<Button
 												color="light"
-												variant="border"
 												size="xs2"
 												disabled={$scale <= 30}
 												on:click={() => {
@@ -580,7 +579,6 @@
 											{$scale}%
 											<Button
 												color="light"
-												variant="border"
 												size="xs2"
 												disabled={$scale >= 100}
 												on:click={() => {
