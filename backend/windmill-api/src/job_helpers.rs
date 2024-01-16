@@ -132,8 +132,8 @@ struct DuckdbConnectionSettingsQueryV2 {
 
 async fn duckdb_connection_settings_v2(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Json(query): Json<DuckdbConnectionSettingsQueryV2>,
@@ -142,15 +142,15 @@ async fn duckdb_connection_settings_v2(
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
-                &user_db,
                 &db,
+                Some(user_db),
                 &token,
                 &w_id,
                 s3_resource_path.as_str(),
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+        None => get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?,
     };
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
@@ -225,8 +225,8 @@ struct PolarsStorageOptions {
 
 async fn polars_connection_settings_v2(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Json(query): Json<PolarsConnectionSettingsQueryV2>,
@@ -235,15 +235,15 @@ async fn polars_connection_settings_v2(
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
-                &user_db,
                 &db,
+                Some(user_db),
                 &token,
                 &w_id,
                 s3_resource_path.as_str(),
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+        None => get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?,
     };
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
@@ -274,8 +274,8 @@ struct S3ResourceInfoQuery {
 
 async fn s3_resource_info(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Json(query): Json<S3ResourceInfoQuery>,
@@ -284,15 +284,15 @@ async fn s3_resource_info(
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
-                &user_db,
                 &db,
+                Some(user_db),
                 &token,
                 &w_id,
                 s3_resource_path.as_str(),
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+        None => get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?,
     };
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
@@ -307,12 +307,11 @@ struct WindmillLargeFile {
 
 async fn test_connection(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
 ) -> error::JsonResult<()> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
     if s3_resource_opt.is_none() {
         return Err(error::Error::NotFound(
             "No datasets storage resource defined at the workspace level".to_string(),
@@ -350,13 +349,12 @@ struct ListStoredDatasetsResponse {
 
 async fn list_stored_files(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<ListStoredFilesQuery>,
 ) -> error::JsonResult<ListStoredDatasetsResponse> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -464,14 +462,13 @@ enum WindmillContentType {
 
 async fn load_file_metadata(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<LoadFileMetadataQuery>,
 ) -> error::JsonResult<LoadFileMetadataResponse> {
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -505,7 +502,6 @@ async fn load_file_metadata(
 
 async fn load_file_preview(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
@@ -519,7 +515,7 @@ async fn load_file_preview(
     }
 
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -669,14 +665,13 @@ struct DeleteS3FileQuery {
 
 async fn delete_s3_file(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<DeleteS3FileQuery>,
 ) -> error::JsonResult<()> {
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -705,13 +700,12 @@ struct MoveS3FileQuery {
 
 async fn move_s3_file(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<MoveS3FileQuery>,
 ) -> error::JsonResult<()> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?;
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -774,8 +768,8 @@ struct UploadFileResponse {
 
 async fn multipart_upload_s3_file(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Json(query): Json<UploadFileQuery>,
@@ -791,15 +785,15 @@ async fn multipart_upload_s3_file(
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
-                &user_db,
                 &db,
+                Some(user_db),
                 &token,
                 &w_id,
                 s3_resource_path.as_str(),
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &user_db, &db, &token, &w_id).await?,
+        None => get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?,
     };
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
@@ -920,20 +914,18 @@ pub struct S3Object {
 
 async fn get_workspace_s3_resource<'c>(
     authed: &ApiAuthed,
-    user_db: &UserDB,
     db: &DB,
+    user_db: Option<UserDB>,
     token: &str,
     w_id: &str,
 ) -> error::Result<Option<S3Resource>> {
-    let mut tx = user_db.clone().begin(authed).await?;
     let raw_lfs_opt = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(db)
     .await?
     .flatten();
-    tx.commit().await?;
 
     if raw_lfs_opt.is_none() {
         return Ok(None);
@@ -959,13 +951,13 @@ async fn get_workspace_s3_resource<'c>(
         Some(stripped) => stripped,
         None => s3_lfs.s3_resource_path.as_str(),
     };
-    return get_s3_resource(authed, user_db, db, token, w_id, stripped_resource_path).await;
+    return get_s3_resource(authed, db, user_db, token, w_id, stripped_resource_path).await;
 }
 
 async fn get_s3_resource<'c>(
     authed: &ApiAuthed,
-    user_db: &UserDB,
     db: &DB,
+    user_db: Option<UserDB>,
     token: &str,
     w_id: &str,
     s3_resource_path: &str,
