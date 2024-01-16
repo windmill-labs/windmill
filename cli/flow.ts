@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
-import { SEP, log } from "./deps.ts";
+import { SEP, log, yamlStringify } from "./deps.ts";
 import {
   colors,
   Command,
@@ -13,6 +13,7 @@ import {
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
+import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
 
 export interface FlowFile {
   summary: string;
@@ -193,6 +194,31 @@ async function run(
   log.info(jobInfo.result ?? {});
 }
 
+export function bootstrap(opts: GlobalOptions & {summary: string, description: string}, flowPath: string) {
+  if (!validatePath(flowPath)) {
+    return;
+  }
+
+  const flowDirFullPath = `${flowPath}.flow`
+  Deno.mkdirSync(flowDirFullPath, { recursive: false });
+
+  const newFlowDefinition = defaultFlowDefinition();
+  if (opts.summary !== undefined) {
+    newFlowDefinition.summary = opts.summary;
+  }
+  if (opts.description !== undefined) {
+    newFlowDefinition.description = opts.description;
+  }
+
+  const newFlowDefinitionYaml = yamlStringify(newFlowDefinition as Record<string, any>);
+
+  const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
+  Deno.writeTextFile(
+    flowYamlPath,
+    newFlowDefinitionYaml,
+    { createNew: true });
+}
+
 const command = new Command()
   .description("flow related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -213,6 +239,11 @@ const command = new Command()
     "-s --silent",
     "Do not ouput anything other then the final output. Useful for scripting."
   )
-  .action(run as any);
+  .action(run as any)
+  .command("bootstrap", "create a new empty flow")
+  .arguments("<flow_path:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any);
 
 export default command;

@@ -4617,6 +4617,45 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run/dependencies:
+    post:
+      summary: run a one-off dependencies job
+      operationId: runRawScriptDependencies
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: raw script content
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raw_scripts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RawScriptForDependencies"
+                entrypoint:
+                  type: string
+              required:
+                - entrypoint
+                - raw_scripts
+      responses:
+        "201":
+          description: dependency job result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lock:
+                    type: string
+                required:
+                  - lock
+
   /w/{workspace}/jobs/run/preview_flow:
     post:
       summary: run flow preview
@@ -9313,3 +9352,33 @@ components:
       required:
         - timestamp
         - value
+
+    RawScriptForDependencies:
+      type: object
+      properties:
+        content:
+          type: string
+        path:
+          type: string
+        language:
+          type: string
+          enum:
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              powershell,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              mssql,
+              graphql,
+              nativets,
+              bun,
+            ]
+      required:
+        - content
+        - path
+        - language
