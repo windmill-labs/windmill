@@ -401,7 +401,7 @@ async fn get_resource_value_interpolated(
 ) -> JsonResult<Option<serde_json::Value>> {
     return get_resource_value_interpolated_internal(
         &authed,
-        &user_db,
+        Some(user_db),
         &db,
         w_id.as_str(),
         path.to_path(),
@@ -416,14 +416,14 @@ use async_recursion::async_recursion;
 
 pub async fn get_resource_value_interpolated_internal(
     authed: &ApiAuthed,
-    user_db: &UserDB,
+    user_db: Option<UserDB>, // if none, no permission will be checked to access the resource
     db: &DB,
     workspace: &str,
     path: &str,
     job_id: Option<Uuid>,
     token: &str,
 ) -> Result<Option<serde_json::Value>> {
-    let mut tx = user_db.clone().begin(authed).await?;
+    let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
 
     let value_o = sqlx::query_scalar!(
         "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -440,7 +440,16 @@ pub async fn get_resource_value_interpolated_internal(
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
         Ok(Some(
-            transform_json_value(authed, user_db, db, workspace, value, &job_id, token).await?,
+            transform_json_value(
+                authed,
+                user_db.clone(),
+                db,
+                workspace,
+                value,
+                &job_id,
+                token,
+            )
+            .await?,
         ))
     } else {
         Ok(None)
@@ -450,7 +459,7 @@ pub async fn get_resource_value_interpolated_internal(
 #[async_recursion]
 pub async fn transform_json_value<'c>(
     authed: &ApiAuthed,
-    user_db: &UserDB,
+    user_db: Option<UserDB>, // if none, no permission will be checked to access the resources/variables
     db: &DB,
     workspace: &str,
     v: Value,
@@ -460,9 +469,19 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
-            let v = crate::variables::get_value_internal(tx, db, workspace, path, &authed.username)
-                .await?;
+            let tx: Transaction<'_, Postgres> =
+                authed_transaction_or_default(authed, user_db.clone(), db).await?;
+            let v = crate::variables::get_value_internal(
+                tx,
+                db,
+                workspace,
+                path,
+                user_db
+                    .clone()
+                    .map(|_| authed.username.as_str())
+                    .unwrap_or("backend"),
+            )
+            .await?;
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -470,7 +489,8 @@ pub async fn transform_json_value<'c>(
             if path.split("/").count() < 2 {
                 return Err(Error::InternalErr(format!("Invalid resource path: {path}")));
             }
-            let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
+            let mut tx: Transaction<'_, Postgres> =
+                authed_transaction_or_default(authed, user_db.clone(), db).await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
                 path,
@@ -481,13 +501,13 @@ pub async fn transform_json_value<'c>(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(authed, user_db, db, workspace, v, job_id, token).await
+                transform_json_value(authed, user_db.clone(), db, workspace, v, job_id, token).await
             } else {
                 Ok(Value::Null)
             }
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
-            let mut tx = user_db.clone().begin(authed).await?;
+            let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
             let job = sqlx::query_as::<_, QueuedJob>(
                 "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
             )
@@ -500,7 +520,8 @@ pub async fn transform_json_value<'c>(
             let job = not_found_if_none(job, "Job", job_id.unwrap().to_string())?;
 
             let flow_path = if let Some(uuid) = job.parent_job {
-                let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
+                let mut tx: Transaction<'_, Postgres> =
+                    authed_transaction_or_default(authed, user_db.clone(), db).await?;
                 let p = sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
                     .fetch_optional(&mut *tx)
                     .await?
@@ -539,12 +560,25 @@ pub async fn transform_json_value<'c>(
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(authed, user_db, db, workspace, b, job_id, token).await?,
+                    transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
+                        .await?,
                 );
             }
             Ok(Value::Object(m))
         }
         a @ _ => Ok(a),
+    }
+}
+
+async fn authed_transaction_or_default<'c>(
+    authed: &ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+) -> sqlx::error::Result<Transaction<'c, Postgres>> {
+    if let Some(user_db) = user_db {
+        user_db.begin(authed).await
+    } else {
+        db.clone().begin().await
     }
 }
 
