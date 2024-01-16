@@ -2,7 +2,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'
-	import { BashIcon, GoIcon, PythonIcon } from './'
+	import { BashIcon, GoIcon, PythonIcon, TypeScriptIcon } from './'
 	import JavaScript from './JavaScript.svelte'
 	import FetchIcon from './FetchIcon.svelte'
 	import DockerIcon from '$lib/components/icons/DockerIcon.svelte'
@@ -49,9 +49,9 @@
 	> = {
 		go: GoIcon,
 		python3: PythonIcon,
-		deno: DenoIcon,
+		deno: TypeScriptIcon,
 		// graphql: TypeScriptIcon,
-		bun: BunIcon,
+		bun: TypeScriptIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
@@ -68,10 +68,22 @@
 	}
 </script>
 
-<svelte:component
-	this={langToComponent[lang]}
-	title={languageLabel[lang]}
-	width={width * scale}
-	height={height * scale}
-	{...$$restProps}
-/>
+<div class="relative">
+	<svelte:component
+		this={langToComponent[lang]}
+		title={languageLabel[lang]}
+		width={width * scale}
+		height={height * scale}
+		{...$$restProps}
+	/>
+	{#if lang === 'deno'}
+		<div class="absolute -top-1 -right-1 rounded-full">
+			<DenoIcon width={width * scale * 0.6} height={height * scale * 0.8} />
+		</div>
+	{/if}
+	{#if lang === 'bun'}
+		<div class="absolute -top-1 -right-1 rounded-full">
+			<BunIcon width={width * scale * 0.6} height={height * scale * 0.8} />
+		</div>
+	{/if}
+</div>
