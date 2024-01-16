@@ -113,6 +113,7 @@ pub async fn create_token_for_owner_in_bg(
         let w_id = job.workspace_id.clone();
         let owner = job.permissioned_as.clone();
         let email = job.email.clone();
+        let job_id = job.id.clone();
         tokio::spawn(async move {
             let token = create_token_for_owner(
                 &db.clone(),
@@ -121,6 +122,7 @@ pub async fn create_token_for_owner_in_bg(
                 "ephemeral-script",
                 *SCRIPT_TOKEN_EXPIRY,
                 &email,
+                &job_id,
             )
             .await
             .expect("could not create job token");
@@ -138,6 +140,7 @@ pub async fn create_token_for_owner(
     label: &str,
     expires_in: u64,
     email: &str,
+    job_id: &Uuid,
 ) -> error::Result<String> {
     // TODO: Bad implementation. We should not have access to this DB here.
     if let Some(token) = JOB_TOKEN.as_ref() {
@@ -156,15 +159,16 @@ pub async fn create_token_for_owner(
 
     sqlx::query_scalar!(
         "INSERT INTO token
-            (workspace_id, token, owner, label, expiration, super_admin, email)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)",
+            (workspace_id, token, owner, label, expiration, super_admin, email, job)
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7, $8)",
         &w_id,
         token,
         owner,
         label,
         expires_in.to_string(),
         is_super_admin,
-        email
+        email,
+        job_id
     )
     .execute(db)
     .await?;

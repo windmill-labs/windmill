@@ -781,6 +781,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             "ephemeral-script",
             *SCRIPT_TOKEN_EXPIRY,
             &job.email,
+            &job.id,
         )
         .await
         .expect("could not create job token");

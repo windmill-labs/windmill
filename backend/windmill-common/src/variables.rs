@@ -144,7 +144,9 @@ pub async fn get_reserved_variables(
     flow_path: Option<String>,
     schedule_path: Option<String>,
     step_id: Option<String>,
-) -> [ContextualVariable; 15] {
+    root_flow_id: Option<String>,
+    jwt_token: Option<String>,
+) -> [ContextualVariable; 17] {
     let state_path = {
         let trigger = if schedule_path.is_some() {
             username.to_string()
@@ -234,10 +236,16 @@ pub async fn get_reserved_variables(
             description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
         },
         ContextualVariable {
+            name: "WM_ROOT_FLOW_JOB_ID".to_string(),
+            value: root_flow_id.unwrap_or_else(|| "".to_string()),
+            description: "Job id of the root flow if the job is a flow step".to_string(),
+        },
+        ContextualVariable {
             name: "WM_FLOW_PATH".to_string(),
             value: flow_path.unwrap_or_else(|| "".to_string()),
             description: "Path of the encapsulating flow if the job is a flow step".to_string(),
         },
+
         ContextualVariable {
             name: "WM_SCHEDULE_PATH".to_string(),
             value: schedule_path.unwrap_or_else(|| "".to_string()),
@@ -269,6 +277,11 @@ pub async fn get_reserved_variables(
             name: "WM_OBJECT_PATH".to_string(),
             value: object_path,
             description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
-        }
+        },
+        ContextualVariable {
+            name: "WM_OIDC_JWT".to_string(),
+            value: jwt_token.unwrap_or_else(|| "".to_string()),
+            description: "OIDC JWT token (EE only)".to_string(),
+        },
     ]
 }

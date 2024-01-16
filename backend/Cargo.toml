@@ -216,3 +216,4 @@ aws-config = "1.0.3"
 polars = { version = "0.35.2", features = ["lazy", "parquet", "aws", "csv", "dtype-full"] }
 polars-io = { version = "0.35.2", features = ["csv"] }
 object_store = { version = "0.8.0", features = ["aws"] }
+openidconnect = { version = "3.4.0" }
