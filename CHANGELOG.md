@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.246.9](https://github.com/windmill-labs/windmill/compare/v1.246.8...v1.246.9) (2024-01-17)
+
+
+### Bug Fixes
+
+* avoid too long diffs in cli ([828cdd4](https://github.com/windmill-labs/windmill/commit/828cdd45f08a12071a028052b19503a441f047b1))
+
 ## [1.246.8](https://github.com/windmill-labs/windmill/compare/v1.246.7...v1.246.8) (2024-01-17)
 
 
