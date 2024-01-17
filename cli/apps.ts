@@ -24,13 +24,13 @@ export interface AppFile {
 
 export async function pushApp(
   workspace: string,
-  remotePath: string,
-  app: AppFile | AppWithLastVersion | undefined,
+  filePath: string,
   newApp: AppFile,
   message?: string
 ): Promise<void> {
-  remotePath = removeType(remotePath, "app");
+  const remotePath = removeType(filePath, "app");
   // deleting old app if it exists in raw mode
+  let app = undefined;
   try {
     app = await AppService.getAppByPath({
       workspace,
@@ -102,20 +102,9 @@ async function push(opts: GlobalOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  let app: AppWithLastVersion | undefined = undefined;
-  try {
-    app = await AppService.getAppByPath({
-      workspace: workspace.workspaceId,
-      path: remotePath,
-    });
-  } catch {
-    // app doesn't exist
-  }
-
   await pushApp(
     workspace.workspaceId,
-    remotePath,
-    app,
+    filePath,
     parseFromFile(filePath)
   );
   console.log(colors.bold.underline.green("App pushed"));
