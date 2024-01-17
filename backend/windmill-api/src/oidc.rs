@@ -150,11 +150,12 @@ pub fn get_provider_metadata(base_url: String) -> anyhow::Result<CoreProviderMet
         CoreClaimName::new("exp".to_string()),
         CoreClaimName::new("iat".to_string()),
         CoreClaimName::new("iss".to_string()),
-        CoreClaimName::new("name".to_string()),
-        CoreClaimName::new("given_name".to_string()),
-        CoreClaimName::new("family_name".to_string()),
-        CoreClaimName::new("picture".to_string()),
-        CoreClaimName::new("locale".to_string()),
+        CoreClaimName::new("job_id".to_string()),
+        CoreClaimName::new("path".to_string()),
+        CoreClaimName::new("flow_path".to_string()),
+        CoreClaimName::new("groups".to_string()),
+        CoreClaimName::new("username".to_string()),
+        CoreClaimName::new("workspace".to_string()),
     ]));
     return Ok(provider_metadata);
 }
@@ -248,7 +249,15 @@ pub async fn gen_token(
             StandardClaims::new(
                 // Stable subject identifiers are recommended in place of e-mail addresses or other
                 // potentially unstable identifiers. This is the only required claim.
-                SubjectIdentifier::new("windmill".to_string()),
+                SubjectIdentifier::new(format!(
+                    "{}::{}::{}::{}",
+                    email,
+                    job.script_path
+                        .clone()
+                        .unwrap_or_else(|| "no_path".to_string()),
+                    flow_path.clone().unwrap_or_else(|| "no_flow".to_string()),
+                    w_id
+                )),
             )
             // Optional: specify the user's e-mail address. This should only be provided if the
             // client has been granted the 'profile' or 'email' scopes.
