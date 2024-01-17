@@ -35,7 +35,7 @@ pub fn global_service() -> Router {
     Router::new()
         .route(
             "/.well-known/openid-configuration",
-            post(openid_configuration),
+            get(openid_configuration),
         )
         .route("/jwks", get(jwks))
 }
@@ -51,7 +51,7 @@ pub fn workspaced_service() -> Router {
 
 #[cfg(feature = "enterprise")]
 pub fn workspaced_service() -> Router {
-    Router::new().route("/token/:audience", get(gen_token))
+    Router::new().route("/token/:audience", post(gen_token))
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
