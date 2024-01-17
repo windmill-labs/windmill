@@ -576,6 +576,13 @@ def run_script_by_path_sync(
 
 
 @init_global_client
+def get_id_token(audience: str) -> str:
+    """
+    Get a JWT token for the given audience for OIDC purposes to login into third parties like AWS, Vault, GCP, etc.
+    """
+    return _client.get_id_token(audience)
+
+@init_global_client
 def get_job_status(job_id: str) -> JobStatus:
     return _client.get_job_status(job_id)
 
