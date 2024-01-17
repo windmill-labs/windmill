@@ -1,6 +1,66 @@
 # Changelog
 
 
+## [1.246.4](https://github.com/windmill-labs/windmill/compare/v1.246.3...v1.246.4) (2024-01-17)
+
+
+### Bug Fixes
+
+* **frontend:** Fix deno logo + add missing onDestroy ([#3025](https://github.com/windmill-labs/windmill/issues/3025)) ([b9de44c](https://github.com/windmill-labs/windmill/commit/b9de44c2b7daf964834af1d3598dbf40971e4a4f))
+* make DisplayResult more resilient ([b42c84d](https://github.com/windmill-labs/windmill/commit/b42c84df40e234436e7fcf30a64317e654bed3ed))
+* wmill app push &lt;path_to_app_file&gt; ([#3024](https://github.com/windmill-labs/windmill/issues/3024)) ([803962a](https://github.com/windmill-labs/windmill/commit/803962a943001ff5f2a58bf36f955cc16e92d2b1))
+
+## [1.246.3](https://github.com/windmill-labs/windmill/compare/v1.246.2...v1.246.3) (2024-01-17)
+
+
+### Bug Fixes
+
+* oidc token generation endpoint GET -&gt; POST ([1f3e374](https://github.com/windmill-labs/windmill/commit/1f3e374b85581da463fda8727d9379d6711b7da8))
+
+## [1.246.2](https://github.com/windmill-labs/windmill/compare/v1.246.1...v1.246.2) (2024-01-17)
+
+
+### Bug Fixes
+
+* oidc token generation endpoint GET -&gt; POST ([3119830](https://github.com/windmill-labs/windmill/commit/3119830062e9d4e30438950e208a2dde4eb12759))
+
+## [1.246.1](https://github.com/windmill-labs/windmill/compare/v1.246.0...v1.246.1) (2024-01-17)
+
+
+### Bug Fixes
+
+* expose getIdToken in python-client ([4604ccd](https://github.com/windmill-labs/windmill/commit/4604ccde7dd656627605b8c55256cc3628235cab))
+* expose getIdToken in typescript-client ([6568c9f](https://github.com/windmill-labs/windmill/commit/6568c9f93aa477c142bde6d989e4eec3a2440687))
+
+## [1.246.0](https://github.com/windmill-labs/windmill/compare/v1.245.1...v1.246.0) (2024-01-17)
+
+
+### Features
+
+* OIDC support ([#3017](https://github.com/windmill-labs/windmill/issues/3017)) ([640ebcb](https://github.com/windmill-labs/windmill/commit/640ebcb146eae371abfa637a4f55fe1919aab013))
+
+## [1.245.1](https://github.com/windmill-labs/windmill/compare/v1.245.0...v1.245.1) (2024-01-16)
+
+
+### Bug Fixes
+
+* CLI script generate-metadata creates a default file if none exist ([#3015](https://github.com/windmill-labs/windmill/issues/3015)) ([eb48e0a](https://github.com/windmill-labs/windmill/commit/eb48e0a1071d33e19425f2228e029453b3484458))
+
+## [1.245.0](https://github.com/windmill-labs/windmill/compare/v1.244.4...v1.245.0) (2024-01-16)
+
+
+### Features
+
+* add script bootstrap and script generate-metadata CLI commands ([#3007](https://github.com/windmill-labs/windmill/issues/3007)) ([b9bee40](https://github.com/windmill-labs/windmill/commit/b9bee403f1ee922c776cf7a82aef0cdfc04c4c10))
+* Browse s3 bucket content from workspace settings page ([#3013](https://github.com/windmill-labs/windmill/issues/3013)) ([1053979](https://github.com/windmill-labs/windmill/commit/10539790d20e01faf7aa992f44c89ab623a794c0))
+* **frontend:** Add running runs on the script detail page ([#3005](https://github.com/windmill-labs/windmill/issues/3005)) ([c93932a](https://github.com/windmill-labs/windmill/commit/c93932a5b3b17cf3ddc7c86bf047343dc5da114d))
+* **frontend:** add specific bun and deno icons ([#3006](https://github.com/windmill-labs/windmill/issues/3006)) ([e9ab3ce](https://github.com/windmill-labs/windmill/commit/e9ab3ceac901503c6d6e0af0954516af80e1f4a0))
+
+
+### Bug Fixes
+
+* s3 resource is accessed by backend with admin permissions ([#3011](https://github.com/windmill-labs/windmill/issues/3011)) ([9fffe4f](https://github.com/windmill-labs/windmill/commit/9fffe4f6f578665242612a596300e93b6cf2e6b6))
+
 ## [1.244.4](https://github.com/windmill-labs/windmill/compare/v1.244.2...v1.244.4) (2024-01-15)
 
 

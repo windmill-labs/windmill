@@ -162,6 +162,7 @@
 			use:dndzone={{
 				items,
 				flipDurationMs: 200,
+				dragDisabled,
 				dropTargetStyle: {}
 			}}
 			on:consider={handleConsider}
@@ -189,11 +190,12 @@
 							on:mousedown={startDrag}
 							on:touchstart={startDrag}
 							on:keydown={handleKeyDown}
+							aria-label="drag-handle"
+							style={dragDisabled ? 'cursor: grab' : 'cursor: grabbing'}
 						>
 							<GripVertical size={16} />
 						</div>
 					</div>
-
 					{#if canDisableTabs && disabledTabs}
 						<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
 					{/if}

@@ -219,6 +219,9 @@ class Windmill:
     def get_job(self, job_id: str) -> dict:
         return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
 
+    def get_id_token(self, audience: str) -> dict:
+        return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
+
     def get_job_status(self, job_id: str) -> JobStatus:
         job = self.get_job(job_id)
         job_type = job.get("type", "")
@@ -571,6 +574,13 @@ def run_script_by_path_sync(
         timeout=timeout,
     )
 
+
+@init_global_client
+def get_id_token(audience: str) -> str:
+    """
+    Get a JWT token for the given audience for OIDC purposes to login into third parties like AWS, Vault, GCP, etc.
+    """
+    return _client.get_id_token(audience)
 
 @init_global_client
 def get_job_status(job_id: str) -> JobStatus:

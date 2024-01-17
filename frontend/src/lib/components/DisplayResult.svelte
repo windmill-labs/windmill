@@ -358,7 +358,7 @@
 		{:else if !forceJson && isTableDisplay && richRender}
 			<AutoDataTable objects={result} />
 		{:else if largeObject}
-			{#if 'filename' in result && 'file' in result}
+			{#if typeof result == 'object' && 'filename' in result && 'file' in result}
 				<div
 					><a
 						download={result.filename ?? result.file?.filename ?? 'windmill.file'}

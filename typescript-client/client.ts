@@ -1,4 +1,10 @@
-import { ResourceService, VariableService, JobService, HelpersService } from "./index";
+import {
+  ResourceService,
+  VariableService,
+  JobService,
+  HelpersService,
+  OidcService,
+} from "./index";
 import { OpenAPI } from "./index";
 import type { DenoS3LightClientSettings } from "./index";
 
@@ -269,18 +275,20 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 //   });
 // }
 
-export async function denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings> {
+export async function denoS3LightClientSettings(
+  s3_resource_path: string | undefined
+): Promise<DenoS3LightClientSettings> {
   !clientSet && setClient();
   const workspace = getWorkspace();
   const s3Resource = await HelpersService.s3ResourceInfo({
     workspace: workspace,
     requestBody: {
-      s3_resource_path: s3_resource_path
-    }
+      s3_resource_path: s3_resource_path,
+    },
   });
   let settings: DenoS3LightClientSettings = {
     ...s3Resource,
-  }
+  };
   return settings;
 }
 
@@ -314,6 +322,20 @@ export function getResumeEndpoints(approver?: string): Promise<{
   cancel: string;
 }> {
   return getResumeUrls(approver);
+}
+
+/**
+ * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
+ * @param audience audience of the token
+ * @returns jwt token
+ */
+export async function getIdToken(audience: string): Promise<string> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  return await OidcService.getOidcToken({
+    workspace,
+    audience,
+  });
 }
 
 export function base64ToUint8Array(data: string): Uint8Array {
