@@ -11,4 +11,4 @@ npx --yes openapi-typescript-codegen --input "${script_dirpath}/../backend/windm
 cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 echo 'export type { S3Object, DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
-echo 'export { setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, getState, denoS3LightClientSettings } from "./client";' >> "${script_dirpath}/src/index.ts"
+echo 'export { setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, getState, denoS3LightClientSettings, OidcService } from "./client";' >> "${script_dirpath}/src/index.ts"
