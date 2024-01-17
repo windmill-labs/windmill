@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.246.2](https://github.com/windmill-labs/windmill/compare/v1.246.1...v1.246.2) (2024-01-17)
+
+
+### Bug Fixes
+
+* oidc token generation endpoint GET -&gt; POST ([3119830](https://github.com/windmill-labs/windmill/commit/3119830062e9d4e30438950e208a2dde4eb12759))
+
 ## [1.246.1](https://github.com/windmill-labs/windmill/compare/v1.246.0...v1.246.1) (2024-01-17)
 
 
