@@ -1,6 +1,28 @@
 # Changelog
 
 
+## [1.245.1](https://github.com/windmill-labs/windmill/compare/v1.245.0...v1.245.1) (2024-01-16)
+
+
+### Bug Fixes
+
+* CLI script generate-metadata creates a default file if none exist ([#3015](https://github.com/windmill-labs/windmill/issues/3015)) ([eb48e0a](https://github.com/windmill-labs/windmill/commit/eb48e0a1071d33e19425f2228e029453b3484458))
+
+## [1.245.0](https://github.com/windmill-labs/windmill/compare/v1.244.4...v1.245.0) (2024-01-16)
+
+
+### Features
+
+* add script bootstrap and script generate-metadata CLI commands ([#3007](https://github.com/windmill-labs/windmill/issues/3007)) ([b9bee40](https://github.com/windmill-labs/windmill/commit/b9bee403f1ee922c776cf7a82aef0cdfc04c4c10))
+* Browse s3 bucket content from workspace settings page ([#3013](https://github.com/windmill-labs/windmill/issues/3013)) ([1053979](https://github.com/windmill-labs/windmill/commit/10539790d20e01faf7aa992f44c89ab623a794c0))
+* **frontend:** Add running runs on the script detail page ([#3005](https://github.com/windmill-labs/windmill/issues/3005)) ([c93932a](https://github.com/windmill-labs/windmill/commit/c93932a5b3b17cf3ddc7c86bf047343dc5da114d))
+* **frontend:** add specific bun and deno icons ([#3006](https://github.com/windmill-labs/windmill/issues/3006)) ([e9ab3ce](https://github.com/windmill-labs/windmill/commit/e9ab3ceac901503c6d6e0af0954516af80e1f4a0))
+
+
+### Bug Fixes
+
+* s3 resource is accessed by backend with admin permissions ([#3011](https://github.com/windmill-labs/windmill/issues/3011)) ([9fffe4f](https://github.com/windmill-labs/windmill/commit/9fffe4f6f578665242612a596300e93b6cf2e6b6))
+
 ## [1.244.4](https://github.com/windmill-labs/windmill/compare/v1.244.2...v1.244.4) (2024-01-15)
 
 

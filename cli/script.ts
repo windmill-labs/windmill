@@ -13,8 +13,13 @@ import {
   Table,
   writeAllSync,
   yamlParse,
+  yamlStringify,
 } from "./deps.ts";
 import { deepEqual } from "./utils.ts";
+import { defaultScriptMetadata, scriptBootstrapCode } from "./bootstrap/script_bootstrap.ts";
+import { instantiate as instantiateWasm, parse_bash, parse_bigquery, parse_deno, parse_go, parse_graphql, parse_mssql, parse_mysql, parse_powershell, parse_python, parse_snowflake, parse_sql } from "./wasm/windmill_parser_wasm.generated.js"
+import { Workspace } from "./workspace.ts";
+import { SchemaProperty } from "./bootstrap/common.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -63,6 +68,39 @@ export async function handleScriptMetadata(
   }
 }
 
+async function parseMetadataFile(scriptPath: string): Promise<{isJson: boolean, payload: any} | undefined> {
+  let metadataFilePath = scriptPath + ".script.json";
+  try {
+    await Deno.stat(metadataFilePath);
+    return {
+      payload: JSON.parse(await Deno.readTextFile(metadataFilePath)),
+      isJson: true,
+    }
+  } catch {
+    try {
+      metadataFilePath = scriptPath + ".script.yaml";
+      await Deno.stat(metadataFilePath);
+      return {
+        payload: yamlParse(await Deno.readTextFile(metadataFilePath)),
+        isJson: false,
+      } 
+    } catch {
+      // no metadata file at all. Create it
+      metadataFilePath = scriptPath + ".script.yaml";
+      const scriptInitialMetadata = defaultScriptMetadata()
+      const scriptInitialMetadataYaml = yamlStringify(scriptInitialMetadata as Record<string, any>);
+      Deno.writeTextFile(
+        metadataFilePath,
+        scriptInitialMetadataYaml,
+        { createNew: true });
+      return {
+        payload: scriptInitialMetadata,
+        isJson: false,
+      } 
+    }
+  }
+}
+
 export async function handleFile(
   path: string,
   workspace: string,
@@ -88,21 +126,7 @@ export async function handleFile(
     const remotePath = path
       .substring(0, path.indexOf("."))
       .replaceAll("\\", "/");
-    const metaPath = remotePath + ".script.json";
-    let typed = undefined;
-    try {
-      await Deno.stat(metaPath);
-      typed = JSON.parse(await Deno.readTextFile(metaPath));
-    } catch {
-      const metaPath = remotePath + ".script.yaml";
-      try {
-        await Deno.stat(metaPath);
-        typed = yamlParse(await Deno.readTextFile(metaPath));
-      } catch {
-        // no meta file
-      }
-    }
-
+    const typed = (await parseMetadataFile(path))?.payload;
     const language = inferContentTypeFromFilePath(path);
 
     let remote = undefined;
@@ -256,22 +280,45 @@ export async function findContentFile(filePath: string) {
   return validCandidates[0];
 }
 
+type ScriptLanguage = "python3" | "deno" | "bun" | "nativets" | "go" | "bash" | "powershell" | "postgresql" | "mysql" | "bigquery" | "snowflake" | "mssql" | "graphql";
+
+export function filePathExtensionFromContentType(language: ScriptLanguage): string {
+  if (language === "python3") {
+    return ".py";
+  } else if (language === "nativets") {
+    return ".fetch.ts";
+  } else if (language === "bun") {
+    return ".bun.ts";
+  } else if (language === "deno") {
+    return ".ts";
+  } else if (language === "go") {
+    return ".go";
+  } else if (language === "mysql") {
+    return ".my.sql";
+  } else if (language === "bigquery") {
+    return ".bq.sql";
+  } else if (language === "snowflake") {
+    return ".sf.sql";
+  } else if (language === "mssql") {
+    return ".ms.sql";
+  } else if (language === "postgresql") {
+    return ".pg.sql";
+  } else if (language === "graphql") {
+    return ".gql";
+  } else if (language === "bash") {
+    return ".sh";
+  } else if (language === "powershell") {
+    return ".ps1";
+  } else {
+    throw new Error(
+      "Invalid language: " + language
+    );
+  }
+}
+
 export function inferContentTypeFromFilePath(
   contentPath: string
-):
-  | "python3"
-  | "deno"
-  | "bun"
-  | "nativets"
-  | "go"
-  | "bash"
-  | "powershell"
-  | "postgresql"
-  | "mysql"
-  | "bigquery"
-  | "snowflake"
-  | "mssql"
-  | "graphql" {
+): ScriptLanguage {
   if (contentPath.endsWith(".py")) {
     return "python3";
   } else if (contentPath.endsWith("fetch.ts")) {
@@ -304,6 +351,189 @@ export function inferContentTypeFromFilePath(
     );
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// below functions copied from Windmill's FE inferArgs function. TODO: refactor           //
+////////////////////////////////////////////////////////////////////////////////////////////
+export function inferSchema(language: ScriptLanguage, content: string, currentSchema: any) {
+  let inferedSchema: any;
+  if (language === "python3") {
+    inferedSchema = JSON.parse(parse_python(content));
+  } else if (language === "nativets") {
+    inferedSchema = JSON.parse(parse_deno(content));
+  } else if (language === "bun") {
+    inferedSchema = JSON.parse(parse_deno(content));
+  } else if (language === "deno") {
+    inferedSchema = JSON.parse(parse_deno(content));
+  } else if (language === "go") {
+    inferedSchema = JSON.parse(parse_go(content));
+  } else if (language === "mysql") {
+    inferedSchema = JSON.parse(parse_mysql(content));
+    inferedSchema.args = [
+      { name: 'database', typ: { resource: 'mysql' } }, 
+      ...inferedSchema.args
+    ]
+  } else if (language === "bigquery") {
+    inferedSchema = JSON.parse(parse_bigquery(content));
+    inferedSchema.args = [
+      { name: 'database', typ: { resource: 'bigquery' } },
+      ...inferedSchema.args
+    ]
+  } else if (language === "snowflake") {
+    inferedSchema = JSON.parse(parse_snowflake(content));
+    inferedSchema.args = [
+      { name: 'database', typ: { resource: 'snowflake' } },
+      ...inferedSchema.args
+    ]
+  } else if (language === "mssql") {
+    inferedSchema = JSON.parse(parse_mssql(content));
+    inferedSchema.args = [
+      { name: 'database', typ: { resource: 'ms_sql_server' } },
+      ...inferedSchema.args
+    ]
+  } else if (language === "postgresql") {
+    inferedSchema = JSON.parse(parse_sql(content));
+    inferedSchema.args = [
+      { name: 'database', typ: { resource: 'postgresql' } },
+      ...inferedSchema.args
+    ]
+  } else if (language === "graphql") {
+    inferedSchema = JSON.parse(parse_graphql(content));
+    inferedSchema.args = [
+      { name: 'api', typ: { resource: 'graphql' } }, 
+      ...inferedSchema.args
+    ]
+  } else if (language === "bash") {
+    inferedSchema = JSON.parse(parse_bash(content));
+  } else if (language === "powershell") {
+    inferedSchema = JSON.parse(parse_powershell(content));
+  } else {
+    throw new Error(
+      "Invalid language: " + language
+    );
+  }
+  if (inferedSchema.type == 'Invalid') {
+    throw new Error(`Script invalid, it cannot be parsed to infer schema. Error was: ${inferedSchema.error}`)
+  }
+
+  currentSchema.required = []
+	const oldProperties = JSON.parse(JSON.stringify(currentSchema.properties))
+	currentSchema.properties = {}
+
+	for (const arg of inferedSchema.args) {
+		if (!(arg.name in oldProperties)) {
+			currentSchema.properties[arg.name] = { description: '', type: '' }
+		} else {
+			currentSchema.properties[arg.name] = oldProperties[arg.name]
+		}
+		currentSchema.properties[arg.name] = sortObject(currentSchema.properties[arg.name])
+
+		argSigToJsonSchemaType(arg.typ, currentSchema.properties[arg.name])
+
+		currentSchema.properties[arg.name].default = arg.default
+
+		if (!arg.has_default && !currentSchema.required.includes(arg.name)) {
+			currentSchema.required.push(arg.name)
+		}
+	}
+
+  return currentSchema;
+}
+
+function sortObject(obj: any): any {
+	return Object.keys(obj)
+		.sort()
+		.reduce((acc, key) => ({
+      ...acc, [key]: obj[key]
+  }), {})
+}
+
+function argSigToJsonSchemaType(
+	typ:
+		| string
+		| { resource: string | null }
+		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
+		| { str: string[] | null }
+		| { object: { key: string; typ: any }[] },
+	oldS: SchemaProperty
+): void {
+	const newS: SchemaProperty = { type: '' }
+	if (typ === 'int') {
+		newS.type = 'integer'
+	} else if (typ === 'float') {
+		newS.type = 'number'
+	} else if (typ === 'bool') {
+		newS.type = 'boolean'
+	} else if (typ === 'email') {
+		newS.type = 'string'
+		newS.format = 'email'
+	} else if (typ === 'sql') {
+		newS.type = 'string'
+		newS.format = 'sql'
+	} else if (typ === 'yaml') {
+		newS.type = 'string'
+		newS.format = 'yaml'
+	} else if (typ === 'bytes') {
+		newS.type = 'string'
+		newS.contentEncoding = 'base64'
+	} else if (typ === 'datetime') {
+		newS.type = 'string'
+		newS.format = 'date-time'
+	} else if (typeof typ !== 'string' && `object` in typ) {
+		newS.type = 'object'
+		if (typ.object) {
+			const properties: Record<string, SchemaProperty> = {};
+			for (const prop of typ.object) {
+				properties[prop.key] = {type: undefined}
+				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+			}
+			newS.properties = properties
+		}
+	} else if (typeof typ !== 'string' && `str` in typ) {
+		newS.type = 'string'
+		if (typ.str) {
+			newS.enum = typ.str
+		}
+	} else if (typeof typ !== 'string' && `resource` in typ) {
+		newS.type = 'object'
+		newS.format = `resource-${typ.resource}`
+	} else if (typeof typ !== 'string' && `list` in typ) {
+		newS.type = 'array'
+		if (typ.list === 'int' || typ.list === 'float') {
+			newS.items = { type: 'number' }
+		} else if (typ.list === 'bytes') {
+			newS.items = { type: 'string', contentEncoding: 'base64' }
+		} else if (typ.list == 'string') {
+			newS.items = { type: 'string' }
+		} else if (typ.list && typeof typ.list == 'object' && 'str' in typ.list) {
+			newS.items = { type: 'string', enum: typ.list.str }
+		} else {
+			newS.items = { type: 'object' }
+		}
+	} else {
+		newS.type = 'object'
+	}
+
+	if (oldS.type != newS.type) {
+		for (const prop of Object.getOwnPropertyNames(newS)) {
+			if (prop != 'description') {
+				delete oldS[prop]
+			}
+		}
+	} else if (oldS.format == 'date-time' && newS.format != 'date-time') {
+		delete oldS.format
+	} else if (oldS.items?.type != newS.items?.type) {
+		delete oldS.items
+	}
+
+	Object.assign(oldS, newS)
+	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
+		oldS.format = undefined
+	}
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+// end of refactoring TODO                                                                //
+////////////////////////////////////////////////////////////////////////////////////////////
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   const workspace = await resolveWorkspace(opts);
@@ -484,6 +714,129 @@ async function show(opts: GlobalOptions, path: string) {
   log.info(s.content);
 }
 
+async function bootstrap(opts: GlobalOptions & {summary: string, description: string}, scriptPath: string, language: ScriptLanguage) {
+  if (!validatePath(scriptPath)) {
+    return;
+  }
+
+  const scriptInitialCode = scriptBootstrapCode[language];
+  if (scriptInitialCode === undefined) {
+    throw new Error("Language unknown");
+  }
+
+  const extension = filePathExtensionFromContentType(language);
+  const scriptCodeFileFullPath = scriptPath + extension;
+  const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
+
+  try {
+    await Deno.stat(scriptCodeFileFullPath);
+    await Deno.stat(scriptMetadataFileFullPath);
+    throw new Error("File already exists in repository");
+  } catch {
+    // file does not exist, we can continue
+  }
+
+  const scriptMetadata = defaultScriptMetadata();
+  if (opts.summary !== undefined) {
+    scriptMetadata.summary = opts.summary;
+  }
+  if (opts.description !== undefined) {
+    scriptMetadata.description = opts.description;
+  }
+
+  const scriptInitialMetadataYaml = yamlStringify(scriptMetadata as Record<string, any>);
+
+  Deno.writeTextFile(
+    scriptCodeFileFullPath,
+    scriptInitialCode,
+    { createNew: true });
+  Deno.writeTextFile(
+    scriptMetadataFileFullPath,
+    scriptInitialMetadataYaml,
+    { createNew: true });
+}
+
+async function generateMetadata(opts: GlobalOptions & {lockOnly: boolean, schemaOnly: boolean}, scriptPath: string) {
+  if (!validatePath(scriptPath)) {
+    return;
+  }
+
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const language = inferContentTypeFromFilePath(scriptPath);
+
+  // read script metadata file
+  const remotePath = scriptPath
+      .substring(0, scriptPath.indexOf("."))
+      .replaceAll("\\", "/");
+  const metadataWithType = await parseMetadataFile(remotePath);
+  if (metadataWithType === undefined) {
+    throw new Error("Script metadata file does not exist at this path");
+  }
+
+  // read script content
+  const scriptContent = await Deno.readTextFile(scriptPath);
+
+  const metadataParsedContent = metadataWithType?.payload as Record<string, any>;
+
+  if (!opts.lockOnly) {
+    await updateScriptSchema(scriptContent, language, metadataParsedContent);
+  }
+
+  if (!opts.schemaOnly) {
+    await updateScriptLock(workspace, scriptContent, language, remotePath, metadataParsedContent);
+  }
+
+  let metaPath = remotePath + ".script.yaml";
+  let newMetadataContent = yamlStringify(metadataParsedContent);
+  if (metadataWithType.isJson) {
+    metaPath = remotePath + ".script.json"
+    newMetadataContent = JSON.stringify(metadataParsedContent);
+  }
+  Deno.writeTextFile(
+    metaPath,
+    newMetadataContent);
+}
+
+async function updateScriptSchema(scriptContent: string, language: ScriptLanguage, metadataContent: Record<string, any>): Promise<void> {
+  // infer schema from script content and update it inplace
+  await instantiateWasm();
+  const newSchema = inferSchema(language, scriptContent, metadataContent.schema);
+  metadataContent.schema = newSchema;
+}
+
+async function updateScriptLock(workspace: Workspace, scriptContent: string, language: ScriptLanguage, remotePath: string, metadataContent: Record<string, any>): Promise<void> {
+  // generate the script lock running a dependency job in Windmill and update it inplace
+  // TODO: update this once the client is released
+  const rawResponse = await fetch(`${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`, {
+    method: "POST",
+    headers: { 
+      "Cookie": `token=${workspace.token}`,
+      "Content-Type": "application/json" 
+    },
+    body: JSON.stringify({
+      "raw_scripts": [{
+        "raw_code": scriptContent,
+        "language": language,
+        "script_path": remotePath,
+      }],
+      "entrypoint": remotePath,
+    })
+  });
+
+  try {
+    const response = await rawResponse.json();
+    const lock = response.lock;
+    if (lock === undefined) {
+      throw new Error(`Failed to generate lockfile. Full response was: ${JSON.stringify(response)}`);
+    }
+    metadataContent.lock = lock.split("\n");
+  } catch {
+    throw new Error(`Failed to generate lockfile. Status was: ${rawResponse.statusText}`);
+  }
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -505,8 +858,18 @@ const command = new Command()
   )
   .option(
     "-s --silent",
-    "Do not ouput anything other then the final output. Useful for scripting."
+    "Do not output anything other then the final output. Useful for scripting."
   )
-  .action(run as any);
+  .action(run as any)
+  .command("bootstrap", "create a new script")
+  .arguments("<path:string> <language:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any)
+  .command("generate-metadata", "re-generate the metadata file updating the lock and the script schema")
+  .arguments("<path:string>")
+  .option("--lock-only", "re-generate only the lock")
+  .option("--schema-only", "re-generate only script schema")
+  .action(generateMetadata as any);
 
 export default command;

@@ -9,7 +9,7 @@ name = "windmill_api"
 path = "src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "openidconnect"]
 stripe = ["async-stripe"]
 enterprise_saml = ["samael"]
 benchmark = []
@@ -89,3 +89,4 @@ aws-sdk-s3.workspace = true
 polars.workspace = true
 polars-io.workspace = true
 object_store.workspace = true
+openidconnect = { workspace = true, optional = true}
