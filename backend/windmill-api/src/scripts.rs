@@ -456,8 +456,6 @@ async fn create_script(
         Some(String::new())
     } else {
         ns.lock
-            .as_ref()
-            .map(|x| x.join("\n"))
             .and_then(|e| if e.is_empty() { None } else { Some(e) })
     };
 
