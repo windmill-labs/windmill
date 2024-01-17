@@ -3,6 +3,7 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  OidcService,
 } from "./index";
 import { OpenAPI } from "./index";
 import type { DenoS3LightClientSettings } from "./index";
@@ -21,7 +22,6 @@ export {
   SettingsService,
   UserService,
   WorkspaceService,
-  OidcService,
 } from "./index";
 
 export type Sql = string;
