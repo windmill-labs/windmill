@@ -312,7 +312,7 @@
 					</Head>
 					<tbody class="divide-y">
 						{#each data as row, index (index)}
-							<Row dividable>
+							<Row dividable selected={selection.includes(JSON.stringify(row))}>
 								<Cell first={true} last={false} class="w-6">
 									<input
 										type="checkbox"
