@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.246.4](https://github.com/windmill-labs/windmill/compare/v1.246.3...v1.246.4) (2024-01-17)
+
+
+### Bug Fixes
+
+* **frontend:** Fix deno logo + add missing onDestroy ([#3025](https://github.com/windmill-labs/windmill/issues/3025)) ([b9de44c](https://github.com/windmill-labs/windmill/commit/b9de44c2b7daf964834af1d3598dbf40971e4a4f))
+* make DisplayResult more resilient ([b42c84d](https://github.com/windmill-labs/windmill/commit/b42c84df40e234436e7fcf30a64317e654bed3ed))
+* wmill app push &lt;path_to_app_file&gt; ([#3024](https://github.com/windmill-labs/windmill/issues/3024)) ([803962a](https://github.com/windmill-labs/windmill/commit/803962a943001ff5f2a58bf36f955cc16e92d2b1))
+
 ## [1.246.3](https://github.com/windmill-labs/windmill/compare/v1.246.2...v1.246.3) (2024-01-17)
 
 
