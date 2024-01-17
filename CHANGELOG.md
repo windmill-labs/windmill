@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.246.1](https://github.com/windmill-labs/windmill/compare/v1.246.0...v1.246.1) (2024-01-17)
+
+
+### Bug Fixes
+
+* expose getIdToken in python-client ([4604ccd](https://github.com/windmill-labs/windmill/commit/4604ccde7dd656627605b8c55256cc3628235cab))
+* expose getIdToken in typescript-client ([6568c9f](https://github.com/windmill-labs/windmill/commit/6568c9f93aa477c142bde6d989e4eec3a2440687))
+
 ## [1.246.0](https://github.com/windmill-labs/windmill/compare/v1.245.1...v1.246.0) (2024-01-17)
 
 
