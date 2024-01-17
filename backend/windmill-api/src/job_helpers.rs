@@ -1,3 +1,4 @@
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{cmp, time::Duration};
 
 use crate::{db::DB, resources::get_resource_value_interpolated_internal, users::Tokened};
@@ -741,7 +742,8 @@ async fn move_s3_file(
 
 #[derive(Deserialize)]
 struct UploadFileQuery {
-    pub file_key: String,
+    pub file_key: Option<String>, // if none, the file will be placed in windmill_uploads/ with a random name.
+    pub file_extension: Option<String>, // preferred extension for the file in case a random name has to be generated
     pub part_content: Vec<u8>,
     pub upload_id: Option<String>, // should be None for the first call to initiate the upload
 
@@ -764,6 +766,7 @@ struct UploadFileResponse {
     pub upload_id: String,
     pub parts: Vec<UploadFilePart>, // parts already uploaded, with their part_number and the tag associated
     pub is_done: bool, // whether the transfer is finished, either b/c it got cancelled or because the last chunk was uploaded
+    pub file_key: String,
 }
 
 async fn multipart_upload_s3_file(
@@ -779,7 +782,23 @@ async fn multipart_upload_s3_file(
         query.parts.len(),
         query.is_final
     );
-    let file_key = query.file_key.clone();
+    let file_key = match query.file_key.clone() {
+        Some(fk) => fk,
+        None => {
+            // for now, we place all files into `windmill_uploads` folder with a random name
+            // TODO: make the folder configurable via the workspace settings
+            format!(
+                "windmill_uploads/upload_{}_{}.{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis(),
+                rand::random::<u16>(),
+                query.file_extension.unwrap_or(".file".to_string())
+            )
+            .to_string()
+        }
+    };
 
     let s3_resource_opt = match query.s3_resource_path.clone() {
         Some(s3_resource_path) => {
@@ -816,9 +835,10 @@ async fn multipart_upload_s3_file(
                 error::Error::InternalErr(err.to_string())
             })?;
         return Ok(Json(UploadFileResponse {
-            upload_id: upload_id,
+            upload_id,
             parts: vec![], // empty parts as the transfer has been cancelled
             is_done: true,
+            file_key,
         }));
     }
 
@@ -885,7 +905,7 @@ async fn multipart_upload_s3_file(
         let _complete_multipart_upload_res = s3_client
             .complete_multipart_upload()
             .bucket(&s3_resource.bucket)
-            .key(&query.file_key)
+            .key(&file_key)
             .upload_id(&upload_id)
             .multipart_upload(
                 CompletedMultipartUpload::builder()
@@ -901,9 +921,10 @@ async fn multipart_upload_s3_file(
     }
 
     return Ok(Json(UploadFileResponse {
-        upload_id: upload_id,
+        upload_id,
         parts: new_parts,
         is_done: query.is_final,
+        file_key,
     }));
 }
 

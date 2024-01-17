@@ -10503,6 +10503,8 @@ paths:
               properties:
                 file_key:
                   type: string
+                file_extension:
+                  type: string
                 part_content:
                   type: array
                   items:
@@ -10528,8 +10530,7 @@ paths:
                 s3_resource_path:
                   type: string
               required:
-                - file_key
-                - part_content_base64
+                - part_content
                 - parts
                 - is_final
                 - cancel_upload
@@ -10551,7 +10552,10 @@ paths:
                       required: *ref_97
                   is_done:
                     type: boolean
+                  file_key:
+                    type: string
                 required:
+                  - file_key
                   - upload_id
                   - parts
                   - is_done

@@ -271,7 +271,12 @@
 			sendUserToast('Error reading file, no data read', true)
 			return
 		}
+		let fileExtension: string | undefined = fileToUpload.name.split('.').pop()
+		if (emptyString(fileExtension)) {
+			fileExtension = undefined
+		}
 
+		let s3FileKeyFinal: string | undefined = fileToUploadKey
 		fileUploadProgress = 0
 		while (true) {
 			let { value: chunk_2, done: readerDone } = await reader.read()
@@ -284,7 +289,8 @@
 			let response = await HelpersService.multipartFileUpload({
 				workspace: $workspaceStore!,
 				requestBody: {
-					file_key: fileToUploadKey,
+					file_key: s3FileKeyFinal,
+					file_extension: fileExtension,
 					part_content: Array.from(chunk),
 					upload_id: upload_id,
 					parts: parts,
@@ -292,6 +298,7 @@
 					cancel_upload: fileUploadCancelled
 				}
 			})
+			s3FileKeyFinal = response.file_key
 			upload_id = response.upload_id
 			parts = response.parts
 			if (response.is_done) {
