@@ -69,6 +69,7 @@ export async function handleScriptMetadata(
 }
 
 async function parseMetadataFile(scriptPath: string): Promise<{isJson: boolean, payload: any} | undefined> {
+  
   let metadataFilePath = scriptPath + ".script.json";
   try {
     await Deno.stat(metadataFilePath);
@@ -126,7 +127,7 @@ export async function handleFile(
     const remotePath = path
       .substring(0, path.indexOf("."))
       .replaceAll("\\", "/");
-    const typed = (await parseMetadataFile(path))?.payload;
+    const typed = (await parseMetadataFile(remotePath))?.payload;
     const language = inferContentTypeFromFilePath(path);
 
     let remote = undefined;
@@ -831,7 +832,7 @@ async function updateScriptLock(workspace: Workspace, scriptContent: string, lan
     if (lock === undefined) {
       throw new Error(`Failed to generate lockfile. Full response was: ${JSON.stringify(response)}`);
     }
-    metadataContent.lock = lock.split("\n");
+    metadataContent.lock = lock;
   } catch {
     throw new Error(`Failed to generate lockfile. Status was: ${rawResponse.statusText}`);
   }
