@@ -241,7 +241,7 @@ pub async fn gen_token(
             vec![Audience::new(audience)],
             // The ID token expiration is usually much shorter than that of the access or refresh
             // tokens issued to clients.
-            Utc::now() + Duration::seconds(300),
+            Utc::now() + Duration::hours(48),
             // The issue time is usually the current time.
             Utc::now(),
             // Set the standard claims defined by the OpenID Connect Core spec.
