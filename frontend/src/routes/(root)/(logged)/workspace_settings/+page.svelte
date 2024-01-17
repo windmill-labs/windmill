@@ -68,6 +68,7 @@
 		jobId: string | undefined
 		status: 'running' | 'success' | 'failure' | undefined
 	}[]
+	let workspaceDefaultAppPath: string | undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -225,6 +226,26 @@
 				}
 			})
 			sendUserToast('Workspace Git sync settings reset')
+		}
+	}
+
+	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
+		if (emptyString(appPath)) {
+			await WorkspaceService.editWorkspaceDefaultApp({
+				workspace: $workspaceStore!,
+				requestBody: {
+					default_app_path: undefined
+				}
+			})
+			sendUserToast('Workspace default app reset')
+		} else {
+			await WorkspaceService.editWorkspaceDefaultApp({
+				workspace: $workspaceStore!,
+				requestBody: {
+					default_app_path: appPath
+				}
+			})
+			sendUserToast('Workspace default app set')
 		}
 	}
 
@@ -434,6 +455,8 @@
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
 				</Tab>
+				<!-- invisible default app tab as it does not do anything right now -->
+				<!-- it is still accessible by going to /workspace_settings?tab=default_app -->
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
@@ -927,6 +950,24 @@ git push</code
 						console.log('Saving git sync settings', gitSyncSettings)
 					}}>Save Git sync settings</Button
 				>
+			</div>
+		{:else if tab == 'default_app'}
+			<PageHeader title="Workspace default app" primary={false} />
+			{#if !$enterpriseLicense}
+				<Alert type="info" title="Windmill EE only feature">
+					Default app can only be set on Windmill Enterprise Edition.
+				</Alert>
+			{/if}
+			<div class="mt-5 flex gap-1">
+				{#key workspaceDefaultAppPath}
+					<ScriptPicker
+						initialPath={workspaceDefaultAppPath}
+						itemKind="app"
+						on:select={(ev) => {
+							editWorkspaceDefaultApp(ev?.detail?.path)
+						}}
+					/>
+				{/key}
 			</div>
 		{/if}
 	{:else}

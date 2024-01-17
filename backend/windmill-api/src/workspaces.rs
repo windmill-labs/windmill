@@ -91,6 +91,8 @@ pub fn workspaced_service() -> Router {
             post(edit_large_file_storage_config),
         )
         .route("/edit_git_sync_config", post(edit_git_sync_config))
+        .route("/edit_default_app", post(edit_default_app))
+        .route("/default_app", get(get_default_app))
         .route("/leave", post(leave_workspace));
 
     #[cfg(feature = "stripe")]
@@ -162,6 +164,7 @@ pub struct WorkspaceSettings {
     pub error_handler_muted_on_cancel: Option<bool>,
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitRepo
+    pub default_app: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -1099,6 +1102,84 @@ async fn edit_git_sync_config(
     tx.commit().await?;
 
     Ok(format!("Edit git sync config for workspace {}", &w_id))
+}
+
+#[derive(Deserialize)]
+struct EditDefaultApp {
+    default_app_path: Option<String>,
+}
+
+async fn edit_default_app(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDefaultApp>,
+) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Setting a workspace default app is only available on Windmill Enterprise Edition"
+                .to_string(),
+        ));
+    }
+
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.default_app_path);
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspaces.edit_default_app",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("args_for_audit", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    if let Some(default_app_path) = new_config.default_app_path {
+        sqlx::query!(
+            "UPDATE workspace_settings SET default_app = $1 WHERE workspace_id = $2",
+            default_app_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET default_app = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit default app for workspace {}", &w_id))
+}
+
+#[derive(Serialize)]
+struct WorkspaceDefaultApp {
+    pub default_app_path: Option<String>,
+}
+async fn get_default_app(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<WorkspaceDefaultApp> {
+    let mut tx = db.begin().await?;
+    let default_app_path = sqlx::query_scalar!(
+        "SELECT default_app FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|err| Error::InternalErr(format!("getting default_app: {err}")))?;
+    tx.commit().await?;
+
+    Ok(Json(WorkspaceDefaultApp { default_app_path }))
 }
 
 async fn edit_error_handler(
