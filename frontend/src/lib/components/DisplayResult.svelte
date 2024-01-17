@@ -194,7 +194,7 @@
 							aria-label="Render as table"
 							on:click={() => {
 								richRender = !richRender
-							}}><Table2 size={16} /></button
+							}}><Table2 size={16} class={richRender ? 'text-blue-500' : ''} /></button
 						>
 					</div>
 				{/if}</div

@@ -28,9 +28,11 @@
 </script>
 
 <div class={twMerge('border h-full overflow-auto', rounded ? 'rounded-md' : '')}>
-	<table class={twMerge('min-w-full divide-y')}>
-		<slot />
-	</table>
+	<div class={twMerge('h-full overflow-auto', rounded ? 'rounded-md' : '')}>
+		<table class={twMerge('min-w-full divide-y')}>
+			<slot />
+		</table>
+	</div>
 	{#if paginated && !shouldHidePagination}
 		<div
 			class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2 sticky bottom-0"

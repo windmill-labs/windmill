@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { ArrowDown, ArrowUp, Download, EyeIcon, MoreVertical, MoveVertical } from 'lucide-svelte'
+	import {
+		ArrowDown,
+		ArrowUp,
+		Download,
+		EyeIcon,
+		MoreVertical,
+		MoveVertical,
+		Columns
+	} from 'lucide-svelte'
 	import Dropdown from '../DropdownV2.svelte'
 	import Cell from './Cell.svelte'
 	import DataTable from './DataTable.svelte'
@@ -10,19 +18,21 @@
 	import { isEmail, isLink } from './tableUtils'
 	import type { BadgeColor } from '../common'
 	import Popover from '../Popover.svelte'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import Button from '../common/button/Button.svelte'
 
 	export let objects: Array<Record<string, any>> = []
 
 	let currentPage = 1
-	let perPage = 10
+	let perPage = 5
 	let search: string = ''
 
 	$: data = objects
-		.filter((row) => {
-			return Object.values(row).some((value) => {
-				return value.toString().toLowerCase().includes(search.toLowerCase())
-			})
-		})
+		.filter((row) =>
+			Object.values(row).some((value) =>
+				JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
+			)
+		)
 		.sort((a, b) => {
 			if (activeSorting) {
 				if (activeSorting.direction == 'asc') {
@@ -35,13 +45,9 @@
 			}
 		})
 		.slice((currentPage - 1) * perPage, currentPage * perPage)
-		.map((row) => {
-			return Object.fromEntries(
-				Object.entries(row).filter(([key, value]) => {
-					return !hiddenColumns.includes(key)
-				})
-			)
-		})
+		.map((row) =>
+			Object.fromEntries(Object.entries(row).filter(([key, value]) => !hiddenColumns.includes(key)))
+		)
 
 	let hiddenColumns = [] as Array<string>
 	let activeSorting:
@@ -54,7 +60,7 @@
 	let selection = [] as Array<string>
 
 	// Function to handle individual row checkbox change
-	function handleCheckboxChange(rowId) {
+	function handleCheckboxChange(rowId: string) {
 		if (selection.includes(rowId)) {
 			// Remove the id from the selection array
 			selection = selection.filter((id) => id !== rowId)
@@ -65,31 +71,63 @@
 	}
 
 	// Function to handle select all checkbox change
-	function handleSelectAllChange(event) {
-		if (event.target.checked) {
+	function handleSelectAllChange() {
+		if (selection.length === 0) {
 			// Select all rows
-			selection = data.map((row) => row.id)
+			selection = data.map((row) => JSON.stringify(row))
 		} else {
 			// Deselect all rows
 			selection = []
 		}
+		selection = [...selection]
 	}
 
 	let renderCount = 0
 
 	const badgeColors: BadgeColor[] = ['gray', 'blue', 'red', 'green', 'yellow', 'indigo']
+	const darkBadgeColors: BadgeColor[] = [
+		'dark-gray',
+		'dark-blue',
+		'dark-red',
+		'dark-green',
+		'dark-yellow',
+		'dark-indigo'
+	]
+	let darkMode = false
 	let wrapperWidth = 0
 </script>
 
+<DarkModeObserver bind:darkMode />
+
 <div class="w-full" bind:clientWidth={wrapperWidth}>
-	<div class="flex flex-col divide-y gap-2 pt-4 mt-4" style={`max-width: ${wrapperWidth}px;`}>
+	<div class="flex flex-col gap-2 py-4 my-4" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
 				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs w-24" />
 				{#if selection.length > 0}
-					<span class="text-xs text-gray-500">
+					<span class="text-xs text-gray-500 dark:text-gray-200">
 						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
 					</span>
+				{/if}
+				{#if hiddenColumns.length > 0}
+					<div class="flex flex-row gap-2 justify-center items-center">
+						<span class="text-xs text-gray-500 dark:text-gray-200">
+							{pluralize(hiddenColumns?.length ?? 1, 'column') + ' hidden'}
+						</span>
+						<Button
+							size="xs2"
+							color="light"
+							variant="border"
+							on:click={() => {
+								hiddenColumns = []
+							}}
+							startIcon={{
+								icon: Columns
+							}}
+						>
+							Restore hidden columns
+						</Button>
+					</div>
 				{/if}
 			</div>
 			<Dropdown
@@ -192,127 +230,148 @@
 			</Dropdown>
 		</div>
 		{#key renderCount}
-			<DataTable
-				size="sm"
-				shouldHidePagination={false}
-				paginated={true}
-				bind:currentPage
-				bind:perPage
-				on:next={() => {
-					currentPage += 1
-				}}
-				on:previous={() => {
-					currentPage -= 1
-				}}
-				on:change={(event) => {
-					currentPage = event.detail
-				}}
-				showNext={currentPage * perPage < objects.length}
-			>
-				<Head>
-					<tr>
-						<Cell head first={true} last={false}>
-							<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
-						</Cell>
-						{#each Object.keys(data[0] ?? {}) ?? [] as key, index}
-							<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
-								<div class="flex flex-row gap-1 items-center">
-									{key}
-									<button
-										class="p-1 w-6 h-6 flex justify-center items-center"
-										on:click={() => {
-											hiddenColumns = [...hiddenColumns, key]
-										}}
-										disabled={hiddenColumns.includes(key) ||
-											hiddenColumns.length == Object.keys(objects[0] ?? {}).length - 1}
-									>
-										<EyeIcon size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
-									</button>
-									{#if activeSorting?.column === key}
+			{#if data.length == 0}
+				<div class="flex flex-col items-center justify-center border rounded-md py-8">
+					<div class="text-gray-500 dark:text-gray-200 text-sm"> No data found </div>
+					<div class="text-gray-500 dark:text-gray-200 text-xs">
+						Try changing your search query
+					</div>
+				</div>
+			{:else}
+				<DataTable
+					size="sm"
+					shouldHidePagination={false}
+					paginated={true}
+					bind:currentPage
+					bind:perPage
+					on:next={() => {
+						currentPage += 1
+					}}
+					on:previous={() => {
+						currentPage -= 1
+					}}
+					on:change={(event) => {
+						currentPage = event.detail
+					}}
+					showNext={currentPage * perPage < objects.length}
+				>
+					<Head>
+						<tr>
+							<Cell head first={true} last={false}>
+								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
+							</Cell>
+							{#each Object.keys(data[0] ?? {}) ?? [] as key, index}
+								<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
+									<div class="flex flex-row gap-1 items-center">
+										{key}
 										<button
 											class="p-1 w-6 h-6 flex justify-center items-center"
 											on:click={() => {
-												activeSorting = {
-													column: key,
-													direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-												}
+												hiddenColumns = [...hiddenColumns, key]
 											}}
-											disabled={hiddenColumns.includes(key)}
+											disabled={hiddenColumns.includes(key) ||
+												hiddenColumns.length == Object.keys(objects[0] ?? {}).length - 1}
 										>
-											{#if activeSorting?.direction == 'asc'}
-												<ArrowDown size="16" />
-											{:else}
-												<ArrowUp size="16" />
-											{/if}
+											<EyeIcon size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
 										</button>
-									{:else}
-										<button
-											class="p-1 w-6 h-6 flex justify-center items-center"
-											on:click={() => {
-												activeSorting = {
-													column: key,
-													direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-												}
-											}}
-											disabled={hiddenColumns.includes(key)}
-										>
-											<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
-										</button>
-									{/if}
-								</div>
-							</Cell>
-						{/each}
-					</tr>
-				</Head>
-				<tbody class="divide-y">
-					{#each data as row, index (index)}
-						<Row dividable>
-							<Cell first={true} last={false} class="w-6">
-								<input
-									type="checkbox"
-									class="!w-4 !h-4"
-									value={selection.includes(row.id)}
-									on:change={() => handleCheckboxChange(JSON.stringify(row))}
-								/>
-							</Cell>
-							{#each Object.values(row ?? {}) ?? [] as value, index}
-								<Cell last={index == Object.values(row ?? {}).length - 1}>
-									{#if Array.isArray(value) && typeof value[0] === 'string'}
-										<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
-											{#each value as item, index}
-												<Badge color={badgeColors[index % badgeColors.length]}>
-													{item}
-												</Badge>
-											{/each}
-										</div>
-									{:else if typeof value === 'string' && isEmail(value)}
-										<a href={`mailto:${value}`} class="hover:underline">
-											{value}
-										</a>
-									{:else if typeof value === 'string' && isLink(value)}
-										<a href={value} target="_blank" class="hover:underline">
-											{value}
-										</a>
-									{:else}
-										<Popover
-											placement="bottom"
-											notClickable
-											disablePopup={typeof value === 'string' && value.length < 50}
-										>
-											<div
-												class="max-w-80 text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
+										{#if activeSorting?.column === key}
+											<button
+												class="p-1 w-6 h-6 flex justify-center items-center"
+												on:click={() => {
+													activeSorting = {
+														column: key,
+														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+													}
+												}}
+												disabled={hiddenColumns.includes(key)}
 											>
-												{value}
-											</div>
-											<svelte:fragment slot="text">{value}</svelte:fragment>
-										</Popover>
-									{/if}
+												{#if activeSorting?.direction == 'asc'}
+													<ArrowDown size="16" />
+												{:else}
+													<ArrowUp size="16" />
+												{/if}
+											</button>
+										{:else}
+											<button
+												class="p-1 w-6 h-6 flex justify-center items-center"
+												on:click={() => {
+													activeSorting = {
+														column: key,
+														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+													}
+												}}
+												disabled={hiddenColumns.includes(key)}
+											>
+												<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
+											</button>
+										{/if}
+									</div>
 								</Cell>
 							{/each}
-						</Row>
-					{/each}
-				</tbody>
-			</DataTable>
+						</tr>
+					</Head>
+					<tbody class="divide-y">
+						{#each data as row, index (index)}
+							<Row dividable>
+								<Cell first={true} last={false} class="w-6">
+									<input
+										type="checkbox"
+										class="!w-4 !h-4"
+										checked={selection.includes(JSON.stringify(row))}
+										on:change={() => handleCheckboxChange(JSON.stringify(row))}
+									/>
+								</Cell>
+								{#each Object.values(row ?? {}) ?? [] as value, index}
+									<Cell last={index == Object.values(row ?? {}).length - 1}>
+										{#if Array.isArray(value) && typeof value[0] === 'string'}
+											<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
+												{#each value as item, index}
+													<Badge
+														color={darkMode
+															? darkBadgeColors[index % darkBadgeColors.length]
+															: badgeColors[index % badgeColors.length]}
+													>
+														{item}
+													</Badge>
+												{/each}
+											</div>
+										{:else if Array.isArray(value)}
+											<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
+												{#each value as val}
+													<div class="p-2 bg-surface-secondary rounded-md text-2xs">
+														{JSON.stringify(val)}
+													</div>
+												{/each}
+											</div>
+										{:else if typeof value === 'string' && isEmail(value)}
+											<a href={`mailto:${value}`} class="hover:underline">
+												{value}
+											</a>
+										{:else if typeof value === 'string' && isLink(value)}
+											<a href={value} target="_blank" class="hover:underline">
+												{value}
+											</a>
+										{:else}
+											<Popover
+												placement="bottom"
+												notClickable
+												disablePopup={typeof value === 'string' && value.length < 50}
+											>
+												<div
+													class="max-w-80 text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
+												>
+													{value}
+												</div>
+												<svelte:fragment slot="text">{value}</svelte:fragment>
+											</Popover>
+										{/if}
+									</Cell>
+								{/each}
+							</Row>
+						{/each}
+					</tbody>
+				</DataTable>
+			{/if}
 		{/key}
 	</div>
 </div>
@@ -320,7 +379,7 @@
 <style>
 	.three-lines {
 		display: -webkit-box;
-		-webkit-line-clamp: 2;
+		-webkit-line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}
