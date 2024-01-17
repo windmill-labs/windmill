@@ -2,7 +2,6 @@
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   AppService,
-  AppWithLastVersion,
   colors,
   Command,
   ListableApp,
@@ -25,12 +24,12 @@ export interface AppFile {
 export async function pushApp(
   workspace: string,
   filePath: string,
+  app: AppFile | undefined,
   newApp: AppFile,
   message?: string
 ): Promise<void> {
   const remotePath = removeType(filePath, "app");
   // deleting old app if it exists in raw mode
-  let app = undefined;
   try {
     app = await AppService.getAppByPath({
       workspace,
@@ -105,6 +104,7 @@ async function push(opts: GlobalOptions, filePath: string) {
   await pushApp(
     workspace.workspaceId,
     filePath,
+    undefined,
     parseFromFile(filePath)
   );
   console.log(colors.bold.underline.green("App pushed"));
