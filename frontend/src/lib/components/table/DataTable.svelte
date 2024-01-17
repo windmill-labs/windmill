@@ -28,7 +28,7 @@
 </script>
 
 <div class={twMerge('border h-full overflow-auto', rounded ? 'rounded-md' : '')}>
-	<div class={twMerge('h-full overflow-auto', rounded ? 'rounded-md' : '')}>
+	<div class={twMerge('overflow-auto')}>
 		<table class={twMerge('min-w-full divide-y')}>
 			<slot />
 		</table>
