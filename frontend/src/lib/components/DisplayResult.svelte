@@ -169,7 +169,7 @@
 	}
 
 	$: isTableDisplay = isArrayWithObjects(result)
-	let richRender: boolean = false
+	let richRender: boolean = true
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
