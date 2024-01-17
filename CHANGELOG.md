@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.246.6](https://github.com/windmill-labs/windmill/compare/v1.246.5...v1.246.6) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([0e9b649](https://github.com/windmill-labs/windmill/commit/0e9b649d03f79cdf6d5bece5dc0ae8072e22f5b0))
+
 ## [1.246.5](https://github.com/windmill-labs/windmill/compare/v1.246.4...v1.246.5) (2024-01-17)
 
 
