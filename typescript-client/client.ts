@@ -6,7 +6,6 @@ import {
 } from "./index";
 import { OpenAPI } from "./index";
 import type { DenoS3LightClientSettings } from "./index";
-import { OidcService } from "./src";
 
 export {
   AdminService,
@@ -22,6 +21,7 @@ export {
   SettingsService,
   UserService,
   WorkspaceService,
+  OidcService,
 } from "./index";
 
 export type Sql = string;
