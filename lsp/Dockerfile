@@ -54,7 +54,7 @@ RUN pipenv install
 
 COPY pyls_launcher.py .
 
-RUN mkdir -p /tmp/monaco
+RUN mkdir -p /tmp/monaco && chmod -R 777 /tmp/monaco
 
 RUN cd /tmp/monaco && yarn add -D windmill-client
 
