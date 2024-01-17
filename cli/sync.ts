@@ -383,7 +383,11 @@ async function compareDynFSElement(
   }
 
   for (const [k] of Object.entries(m2)) {
-    if (m1[k] === undefined) {
+    if (
+      m1[k] === undefined &&
+      !k?.endsWith(".script.yaml") &&
+      !k?.endsWith(".script.json")
+    ) {
       changes.push({ name: "deleted", path: k });
     }
   }
