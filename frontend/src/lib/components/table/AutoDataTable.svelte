@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowDown, ArrowUp, Download, EyeIcon, MoreVertical } from 'lucide-svelte'
+	import { ArrowDown, ArrowUp, Download, EyeIcon, MoreVertical, MoveVertical } from 'lucide-svelte'
 	import Dropdown from '../DropdownV2.svelte'
 	import Cell from './Cell.svelte'
 	import DataTable from './DataTable.svelte'
@@ -7,6 +7,9 @@
 	import Row from './Row.svelte'
 	import { pluralize } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { isEmail, isLink } from './tableUtils'
+	import type { BadgeColor } from '../common'
+	import Popover from '../Popover.svelte'
 
 	export let objects: Array<Record<string, any>> = []
 
@@ -74,220 +77,251 @@
 
 	let renderCount = 0
 
-	const badgeColors = ['gray', 'blue', 'red', 'green', 'yellow', 'indigo']
+	const badgeColors: BadgeColor[] = ['gray', 'blue', 'red', 'green', 'yellow', 'indigo']
+	let wrapperWidth = 0
 </script>
 
-<div class="flex flex-col divide-y gap-2 pt-4 mt-4">
-	<div class="flex flex-row justify-between items-center">
-		<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
-			<input bind:value={search} placeholder="Search..." class="h-8 !text-xs w-24" />
-			{#if selection.length > 0}
-				<span class="text-xs text-gray-500">
-					{pluralize(selection?.length ?? 1, 'item') + ' selected'}
-				</span>
-			{/if}
-		</div>
-		<Dropdown
-			items={() => {
-				const actions = [
-					{
-						displayName: 'Download CSV',
-						icon: Download,
-						action: () => {
-							const csv = objects
-								.map((row) => {
-									return Object.values(row).join(',')
-								})
-								.join('\n')
+<div class="w-full" bind:clientWidth={wrapperWidth}>
+	<div class="flex flex-col divide-y gap-2 pt-4 mt-4" style={`max-width: ${wrapperWidth}px;`}>
+		<div class="flex flex-row justify-between items-center">
+			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
+				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs w-24" />
+				{#if selection.length > 0}
+					<span class="text-xs text-gray-500">
+						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
+					</span>
+				{/if}
+			</div>
+			<Dropdown
+				items={() => {
+					const actions = [
+						{
+							displayName: 'Download CSV',
+							icon: Download,
+							action: () => {
+								const csv = objects
+									.map((row) => {
+										return Object.values(row).join(',')
+									})
+									.join('\n')
 
-							const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-							const url = URL.createObjectURL(blob)
-							const link = document.createElement('a')
-							link.setAttribute('href', url)
-							link.setAttribute('download', 'data.csv')
-							link.style.visibility = 'hidden'
-							document.body.appendChild(link)
-							link.click()
+								const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+								const url = URL.createObjectURL(blob)
+								const link = document.createElement('a')
+								link.setAttribute('href', url)
+								link.setAttribute('download', 'data.csv')
+								link.style.visibility = 'hidden'
+								document.body.appendChild(link)
+								link.click()
 
-							document.body.removeChild(link)
+								document.body.removeChild(link)
+							}
+						},
+						{
+							displayName: 'Download JSON',
+							icon: Download,
+							action: () => {
+								const json = JSON.stringify(objects, null, 2)
+
+								const blob = new Blob([json], { type: 'text/json;charset=utf-8;' })
+								const url = URL.createObjectURL(blob)
+								const link = document.createElement('a')
+								link.setAttribute('href', url)
+								link.setAttribute('download', 'data.json')
+								link.style.visibility = 'hidden'
+								document.body.appendChild(link)
+								link.click()
+
+								document.body.removeChild(link)
+							}
+						},
+						{
+							displayName: 'Restore hidden columns',
+							icon: EyeIcon,
+							action: () => {
+								hiddenColumns = []
+							}
 						}
-					},
-					{
-						displayName: 'Download JSON',
-						icon: Download,
-						action: () => {
-							const json = JSON.stringify(objects, null, 2)
+					]
 
-							const blob = new Blob([json], { type: 'text/json;charset=utf-8;' })
-							const url = URL.createObjectURL(blob)
-							const link = document.createElement('a')
-							link.setAttribute('href', url)
-							link.setAttribute('download', 'data.json')
-							link.style.visibility = 'hidden'
-							document.body.appendChild(link)
-							link.click()
+					if (selection.length > 0) {
+						actions.push({
+							displayName: 'Delete selected',
+							icon: EyeIcon,
+							action: () => {
+								selection = []
+								renderCount++
+							}
+						})
 
-							document.body.removeChild(link)
-						}
-					},
-					{
-						displayName: 'Restore hidden columns',
-						icon: EyeIcon,
-						action: () => {
-							hiddenColumns = []
-						}
+						// Download selected as CSV
+						actions.push({
+							displayName: 'Download selected as CSV',
+							icon: Download,
+							action: () => {
+								const csv = objects
+									.filter((row) => selection.includes(JSON.stringify(row)))
+									.map((row) => {
+										return Object.values(row).join(',')
+									})
+									.join('\n')
+
+								const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+								const url = URL.createObjectURL(blob)
+								const link = document.createElement('a')
+								link.setAttribute('href', url)
+								link.setAttribute('download', 'data.csv')
+								link.style.visibility = 'hidden'
+								document.body.appendChild(link)
+								link.click()
+
+								document.body.removeChild(link)
+							}
+						})
 					}
-				]
 
-				if (selection.length > 0) {
-					actions.push({
-						displayName: 'Delete selected',
-						icon: EyeIcon,
-						action: () => {
-							selection = []
-							renderCount++
-						}
-					})
-
-					// Download selected as CSV
-					actions.push({
-						displayName: 'Download selected as CSV',
-						icon: Download,
-						action: () => {
-							const csv = objects
-								.filter((row) => selection.includes(JSON.stringify(row)))
-								.map((row) => {
-									return Object.values(row).join(',')
-								})
-								.join('\n')
-
-							const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-							const url = URL.createObjectURL(blob)
-							const link = document.createElement('a')
-							link.setAttribute('href', url)
-							link.setAttribute('download', 'data.csv')
-							link.style.visibility = 'hidden'
-							document.body.appendChild(link)
-							link.click()
-
-							document.body.removeChild(link)
-						}
-					})
-				}
-
-				return actions
-			}}
-		>
-			<svelte:fragment slot="buttonReplacement">
-				<MoreVertical
-					size={8}
-					class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-				/>
-			</svelte:fragment>
-		</Dropdown>
-	</div>
-	{#key renderCount}
-		<DataTable
-			size="sm"
-			shouldHidePagination={false}
-			paginated={true}
-			{perPage}
-			{currentPage}
-			on:next={() => {
-				currentPage += 1
-			}}
-			on:previous={() => {
-				currentPage -= 1
-			}}
-			on:change={(event) => {
-				currentPage = event.detail
-			}}
-			showNext={currentPage * perPage < objects.length}
-		>
-			<Head>
-				<tr>
-					<Cell head first={true} last={false} class="w-6">
-						<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
-					</Cell>
-					{#each Object.keys(data[0] ?? {}) ?? [] as key, index}
-						<Cell head first={index == 0} last={index == Object.keys(objects[0] ?? {}).length - 1}>
-							<div class="flex flex-row gap-1 items-center">
-								{key}
-								<button
-									class="p-1 w-6 h-6 flex justify-center items-center"
-									on:click={() => {
-										hiddenColumns = [...hiddenColumns, key]
-									}}
-									disabled={hiddenColumns.includes(key) ||
-										hiddenColumns.length == Object.keys(objects[0] ?? {}).length - 1}
-								>
-									<EyeIcon size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
-								</button>
-								{#if activeSorting?.column === key}
+					return actions
+				}}
+			>
+				<svelte:fragment slot="buttonReplacement">
+					<MoreVertical
+						size={8}
+						class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+					/>
+				</svelte:fragment>
+			</Dropdown>
+		</div>
+		{#key renderCount}
+			<DataTable
+				size="sm"
+				shouldHidePagination={false}
+				paginated={true}
+				bind:currentPage
+				bind:perPage
+				on:next={() => {
+					currentPage += 1
+				}}
+				on:previous={() => {
+					currentPage -= 1
+				}}
+				on:change={(event) => {
+					currentPage = event.detail
+				}}
+				showNext={currentPage * perPage < objects.length}
+			>
+				<Head>
+					<tr>
+						<Cell head first={true} last={false}>
+							<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
+						</Cell>
+						{#each Object.keys(data[0] ?? {}) ?? [] as key, index}
+							<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
+								<div class="flex flex-row gap-1 items-center">
+									{key}
 									<button
 										class="p-1 w-6 h-6 flex justify-center items-center"
 										on:click={() => {
-											activeSorting = {
-												column: key,
-												direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-											}
+											hiddenColumns = [...hiddenColumns, key]
 										}}
-										disabled={hiddenColumns.includes(key)}
+										disabled={hiddenColumns.includes(key) ||
+											hiddenColumns.length == Object.keys(objects[0] ?? {}).length - 1}
 									>
-										{#if activeSorting?.direction == 'asc'}
-											<ArrowDown size="16" />
-										{:else}
-											<ArrowUp size="16" />
-										{/if}
+										<EyeIcon size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
 									</button>
-								{:else}
-									<button
-										class="p-1 w-6 h-6 flex justify-center items-center"
-										on:click={() => {
-											activeSorting = {
-												column: key,
-												direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-											}
-										}}
-										disabled={hiddenColumns.includes(key)}
-									>
-										<ArrowDown size="16" class=" hover:text-gray-600 text-gray-400" />
-									</button>
-								{/if}
-							</div>
-						</Cell>
-					{/each}
-				</tr>
-			</Head>
-			<tbody class="divide-y">
-				{#each data as row, index (index)}
-					<Row>
-						<Cell first={true} last={false} class="w-6">
-							<input
-								type="checkbox"
-								class="!w-4 !h-4"
-								value={selection.includes(row.id)}
-								on:change={() => handleCheckboxChange(JSON.stringify(row))}
-							/>
-						</Cell>
-						{#each Object.values(row ?? {}) ?? [] as value, index}
-							<Cell first={index == 0} last={index == Object.values(row ?? {}).length - 1}>
-								{#if Array.isArray(value)}
-									<div class="flex flex-row gap-1">
-										{#each value as item, index}
-											<Badge color={badgeColors[index % badgeColors.length]}>
-												{item}
-											</Badge>
-										{/each}
-									</div>
-								{:else}
-									{value}
-								{/if}
+									{#if activeSorting?.column === key}
+										<button
+											class="p-1 w-6 h-6 flex justify-center items-center"
+											on:click={() => {
+												activeSorting = {
+													column: key,
+													direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+												}
+											}}
+											disabled={hiddenColumns.includes(key)}
+										>
+											{#if activeSorting?.direction == 'asc'}
+												<ArrowDown size="16" />
+											{:else}
+												<ArrowUp size="16" />
+											{/if}
+										</button>
+									{:else}
+										<button
+											class="p-1 w-6 h-6 flex justify-center items-center"
+											on:click={() => {
+												activeSorting = {
+													column: key,
+													direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+												}
+											}}
+											disabled={hiddenColumns.includes(key)}
+										>
+											<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
+										</button>
+									{/if}
+								</div>
 							</Cell>
 						{/each}
-					</Row>
-				{/each}
-			</tbody>
-		</DataTable>
-	{/key}
+					</tr>
+				</Head>
+				<tbody class="divide-y">
+					{#each data as row, index (index)}
+						<Row dividable>
+							<Cell first={true} last={false} class="w-6">
+								<input
+									type="checkbox"
+									class="!w-4 !h-4"
+									value={selection.includes(row.id)}
+									on:change={() => handleCheckboxChange(JSON.stringify(row))}
+								/>
+							</Cell>
+							{#each Object.values(row ?? {}) ?? [] as value, index}
+								<Cell last={index == Object.values(row ?? {}).length - 1}>
+									{#if Array.isArray(value) && typeof value[0] === 'string'}
+										<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
+											{#each value as item, index}
+												<Badge color={badgeColors[index % badgeColors.length]}>
+													{item}
+												</Badge>
+											{/each}
+										</div>
+									{:else if typeof value === 'string' && isEmail(value)}
+										<a href={`mailto:${value}`} class="hover:underline">
+											{value}
+										</a>
+									{:else if typeof value === 'string' && isLink(value)}
+										<a href={value} target="_blank" class="hover:underline">
+											{value}
+										</a>
+									{:else}
+										<Popover
+											placement="bottom"
+											notClickable
+											disablePopup={typeof value === 'string' && value.length < 50}
+										>
+											<div
+												class="max-w-80 text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
+											>
+												{value}
+											</div>
+											<svelte:fragment slot="text">{value}</svelte:fragment>
+										</Popover>
+									{/if}
+								</Cell>
+							{/each}
+						</Row>
+					{/each}
+				</tbody>
+			</DataTable>
+		{/key}
+	</div>
 </div>
+
+<style>
+	.three-lines {
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+</style>
