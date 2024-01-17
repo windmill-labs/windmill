@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.246.0](https://github.com/windmill-labs/windmill/compare/v1.245.1...v1.246.0) (2024-01-17)
+
+
+### Features
+
+* OIDC support ([#3017](https://github.com/windmill-labs/windmill/issues/3017)) ([640ebcb](https://github.com/windmill-labs/windmill/commit/640ebcb146eae371abfa637a4f55fe1919aab013))
+
 ## [1.245.1](https://github.com/windmill-labs/windmill/compare/v1.245.0...v1.245.1) (2024-01-16)
 
 
