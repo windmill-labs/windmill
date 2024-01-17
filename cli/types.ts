@@ -64,6 +64,10 @@ export function isSuperset(
 
 export function showDiff(local: string, remote: string) {
   let finalString = "";
+  if (local?.length > 20000 || remote?.length > 20000) {
+    log.info("Diff too large to display");
+    return;
+  }
   for (const part of Diff.diffLines(local, remote)) {
     if (part.removed) {
       // print red if removed without newline
