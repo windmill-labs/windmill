@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.246.5](https://github.com/windmill-labs/windmill/compare/v1.246.4...v1.246.5) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve app push for cli ([e6de809](https://github.com/windmill-labs/windmill/commit/e6de809ff29a9df54af5fef3f425072e24de49ec))
+* lock file in metadata is now a string ([#3027](https://github.com/windmill-labs/windmill/issues/3027)) ([8752dcb](https://github.com/windmill-labs/windmill/commit/8752dcbb191279b44a2b86ee0ed45ab040465b96))
+
 ## [1.246.4](https://github.com/windmill-labs/windmill/compare/v1.246.3...v1.246.4) (2024-01-17)
 
 
