@@ -220,7 +220,6 @@
 						<ComponentInputTypeEditor
 							{evalV2editor}
 							bind:componentInput={componentSettings.item.data.componentInput}
-							id={component.id}
 						/>
 
 						<div class="flex flex-col w-full gap-2 mt-2">
@@ -371,6 +370,7 @@
 					inputSpecsConfiguration={initialConfiguration}
 					bind:inputSpecs={componentSettings.item.data.configuration}
 					userInputEnabled={false}
+					acceptSelf
 				/>
 			</PanelSection>
 		{:else if componentSettings.item.data.type != 'containercomponent'}

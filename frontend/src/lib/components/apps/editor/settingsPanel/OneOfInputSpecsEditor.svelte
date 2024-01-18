@@ -14,6 +14,7 @@
 	export let resourceOnly: boolean
 	export let tooltip: string | undefined
 	export let disabledOptions: string[] = []
+	export let acceptSelf: boolean = false
 
 	$: {
 		if (oneOf == undefined) {
@@ -84,6 +85,7 @@
 					key={nestedKey}
 					bind:componentInput={oneOf.configuration[oneOf.selected][nestedKey]}
 					{id}
+					{acceptSelf}
 					userInputEnabled={false}
 					{shouldCapitalize}
 					{resourceOnly}

@@ -1,6 +1,42 @@
 # Changelog
 
 
+## [1.246.9](https://github.com/windmill-labs/windmill/compare/v1.246.8...v1.246.9) (2024-01-17)
+
+
+### Bug Fixes
+
+* avoid too long diffs in cli ([828cdd4](https://github.com/windmill-labs/windmill/commit/828cdd45f08a12071a028052b19503a441f047b1))
+
+## [1.246.8](https://github.com/windmill-labs/windmill/compare/v1.246.7...v1.246.8) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([d00de26](https://github.com/windmill-labs/windmill/commit/d00de2640abfe6265f12ee4f237c9ee5ba3e00db))
+
+## [1.246.7](https://github.com/windmill-labs/windmill/compare/v1.246.6...v1.246.7) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([8a6ea49](https://github.com/windmill-labs/windmill/commit/8a6ea496022ad70c658121e9694b634177dcc578))
+
+## [1.246.6](https://github.com/windmill-labs/windmill/compare/v1.246.5...v1.246.6) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([0e9b649](https://github.com/windmill-labs/windmill/commit/0e9b649d03f79cdf6d5bece5dc0ae8072e22f5b0))
+
+## [1.246.5](https://github.com/windmill-labs/windmill/compare/v1.246.4...v1.246.5) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve app push for cli ([e6de809](https://github.com/windmill-labs/windmill/commit/e6de809ff29a9df54af5fef3f425072e24de49ec))
+* lock file in metadata is now a string ([#3027](https://github.com/windmill-labs/windmill/issues/3027)) ([8752dcb](https://github.com/windmill-labs/windmill/commit/8752dcbb191279b44a2b86ee0ed45ab040465b96))
+
 ## [1.246.4](https://github.com/windmill-labs/windmill/compare/v1.246.3...v1.246.4) (2024-01-17)
 
 

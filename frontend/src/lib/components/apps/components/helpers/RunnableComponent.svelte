@@ -515,7 +515,7 @@
 		recordJob(jobId, result, undefined, transformerResult)
 		delete $errorByComponent[id]
 
-		dispatch('success')
+		dispatch('success', result)
 		donePromise?.(result)
 	}
 
@@ -530,7 +530,7 @@
 	onMount(() => {
 		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 			let rejectCb: (err: Error) => void
-			let p: Partial<CancelablePromise<any>> = new Promise<void>((resolve, reject) => {
+			let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
 				executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)

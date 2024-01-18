@@ -14,6 +14,7 @@
 	export let resourceOnly = false
 	export let displayType = false
 	export let deletable = false
+	export let acceptSelf: boolean = false
 
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
 
@@ -25,6 +26,7 @@
 		{#each Object.keys(finalInputSpecsConfiguration) as k}
 			{#if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
+					{acceptSelf}
 					key={k}
 					bind:oneOf={inputSpecs[k]}
 					{id}
@@ -37,6 +39,7 @@
 			{:else}
 				{@const meta = finalInputSpecsConfiguration?.[k]}
 				<InputsSpecEditor
+					{acceptSelf}
 					key={k}
 					bind:componentInput={inputSpecs[k]}
 					{id}

@@ -165,6 +165,9 @@
 		// let widgets: HTMLElement | undefined =
 		// 	document.getElementById('monaco-widgets-root') ?? undefined
 
+		if (!divEl) {
+			return
+		}
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,

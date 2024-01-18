@@ -14,6 +14,7 @@
 	export let id: string
 	export let field: string
 	export let fixedOverflowWidgets: boolean = true
+	export let acceptSelf: boolean = false
 
 	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
@@ -25,7 +26,7 @@
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $state, false)
 			: undefined
 
 	if (
