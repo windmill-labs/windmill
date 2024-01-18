@@ -59,7 +59,7 @@
 			requestBody: {
 				...r,
 				parent_hash: r.hash,
-				lock: r.lock?.split('\n')
+				lock: r.lock
 			}
 		})
 		dispatch('change')
