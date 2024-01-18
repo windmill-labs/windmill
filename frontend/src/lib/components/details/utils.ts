@@ -15,7 +15,7 @@ export async function unarchiveScript(hash: string, workspace: string) {
 		requestBody: {
 			...r,
 			parent_hash: hash,
-			lock: r.lock?.split('\n')
+			lock: r.lock
 		}
 	})
 	return ns
