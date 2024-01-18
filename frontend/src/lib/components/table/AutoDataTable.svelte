@@ -6,7 +6,8 @@
 		EyeIcon,
 		MoreVertical,
 		MoveVertical,
-		Columns
+		Columns,
+		EyeOff
 	} from 'lucide-svelte'
 	import Dropdown from '../DropdownV2.svelte'
 	import Cell from './Cell.svelte'
@@ -52,12 +53,6 @@
 			}
 		})
 		.slice((currentPage - 1) * perPage, currentPage * perPage)
-		.map(({ _id, rowData }) => ({
-			_id: _id,
-			rowData: Object.fromEntries(
-				Object.entries(rowData).filter(([key]) => !hiddenColumns.includes(key))
-			)
-		}))
 
 	let hiddenColumns = [] as Array<string>
 	let activeSorting:
@@ -127,6 +122,24 @@
 						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
 					</span>
 				{/if}
+				{#if hiddenColumns.length > 0}
+					<div class="flex flex-row gap-2 justify-center items-center mx-2">
+						<span class="text-xs text-gray-500 dark:text-gray-200" />
+						<Button
+							size="xs2"
+							color="light"
+							variant="border"
+							on:click={() => {
+								hiddenColumns = []
+							}}
+							startIcon={{
+								icon: Columns
+							}}
+						>
+							Display hidden columns ({pluralize(hiddenColumns?.length ?? 1, 'column')})
+						</Button>
+					</div>
+				{/if}
 			</div>
 			<div class="flex flex-row items-center gap-2">
 				<Button
@@ -188,7 +201,7 @@
 
 						if (hiddenColumns.length > 0) {
 							actions.push({
-								displayName: 'Restore hidden columns',
+								displayName: 'Display hidden columns',
 								icon: EyeIcon,
 								action: () => {
 									hiddenColumns = []
@@ -254,16 +267,28 @@
 								<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
 									<div class="flex flex-row gap-1 items-center">
 										{key}
-										<button
-											class="p-1 w-6 h-6 flex justify-center items-center"
-											on:click={() => {
-												hiddenColumns = [...hiddenColumns, key]
-											}}
-											disabled={hiddenColumns.includes(key) ||
-												hiddenColumns.length == Object.keys(objects[0] ?? {}).length - 1}
-										>
-											<EyeIcon size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
-										</button>
+										{#if hiddenColumns.includes(key)}
+											<button
+												class="p-1 w-6 h-6 flex justify-center items-center"
+												on:click={() => {
+													hiddenColumns = hiddenColumns.filter((col) => col !== key)
+												}}
+											>
+												<EyeOff size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
+											</button>
+										{:else}
+											<button
+												class="p-1 w-6 h-6 flex justify-center items-center"
+												on:click={() => {
+													hiddenColumns = [...hiddenColumns, key]
+												}}
+											>
+												<EyeIcon
+													size="16"
+													class="hover:text-gray-600 text-gray-400 rounded-full "
+												/>
+											</button>
+										{/if}
 										{#if isSortable(key)}
 											{#if activeSorting?.column === key}
 												<button
@@ -313,9 +338,12 @@
 										on:change={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
-								{#each Object.values(rowData ?? {}) ?? [] as value, index}
+								{#each Object.keys(rowData ?? {}) ?? [] as key, index}
+									{@const value = rowData[key]}
 									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
-										{#if Array.isArray(value) && typeof value[0] === 'string'}
+										{#if hiddenColumns.includes(key)}
+											...
+										{:else if Array.isArray(value) && typeof value[0] === 'string'}
 											<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
 												{#each value as item, index}
 													<Badge
@@ -362,30 +390,6 @@
 							</Row>
 						{/each}
 					</tbody>
-					<svelte:fragment slot="footer">
-						<div>
-							{#if hiddenColumns.length > 0}
-								<div class="flex flex-row gap-2 justify-center items-center mx-2">
-									<span class="text-xs text-gray-500 dark:text-gray-200">
-										{pluralize(hiddenColumns?.length ?? 1, 'column') + ' hidden'}
-									</span>
-									<Button
-										size="xs2"
-										color="light"
-										variant="border"
-										on:click={() => {
-											hiddenColumns = []
-										}}
-										startIcon={{
-											icon: Columns
-										}}
-									>
-										Restore hidden columns
-									</Button>
-								</div>
-							{/if}
-						</div>
-					</svelte:fragment>
 				</DataTable>
 			{/if}
 		{/key}

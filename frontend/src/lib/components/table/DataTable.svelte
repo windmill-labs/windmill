@@ -35,9 +35,8 @@
 	</div>
 	{#if paginated && !shouldHidePagination}
 		<div
-			class="bg-surface border-t flex flex-row justify-between p-1 items-center gap-2 sticky bottom-0"
+			class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2 sticky bottom-0"
 		>
-			<slot name="footer" />
 			<div class="flex flex-row gap-2 items-center">
 				<span class="text-xs">Page: {currentPage}</span>
 
