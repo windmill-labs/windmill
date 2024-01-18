@@ -98,7 +98,7 @@ impl IntoResponse for Error {
         if matches!(status, axum::http::StatusCode::NOT_FOUND) {
             tracing::warn!(message = e.to_string());
         } else {
-            tracing::error!(essage = e.to_string());
+            tracing::error!(message = e.to_string());
         };
 
         axum::response::Response::builder()
