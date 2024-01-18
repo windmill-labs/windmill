@@ -108,7 +108,7 @@ async function parseMetadataFile(
       await Deno.stat(metadataFilePath);
       let payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
       if (Array.isArray(payload?.["lock"])) {
-        payload = payload["lock"].join("\n");
+        payload["lock"] = payload["lock"].join("\n");
       }
       return {
         payload,
