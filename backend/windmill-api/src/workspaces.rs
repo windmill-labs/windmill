@@ -1117,7 +1117,7 @@ async fn edit_error_handler(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         w_id,
         "error_handler",
-        "The group the error handler acts on belhalf of",
+        "The group the error handler acts on behalf of",
         serde_json::json!({username_to_permissioned_as(&authed.username): true})
     )
     .execute(&mut *tx)
