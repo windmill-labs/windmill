@@ -376,6 +376,7 @@ async function compareDynFSElement(
       if (typeof o == "object" && Array.isArray(o?.["lock"])) {
         o["lock"] = o["lock"].join("\n");
       }
+      return o;
     } else {
       return yamlParse(v);
     }
@@ -386,7 +387,7 @@ async function compareDynFSElement(
     } else if (
       m2[k] != v &&
       (!k.endsWith(".json") || !deepEqual(JSON.parse(v), JSON.parse(m2[k]))) &&
-      (!k.endsWith(".yaml") || !deepEqual(parseYaml(k, v), parseYaml(k, v)))
+      (!k.endsWith(".yaml") || !deepEqual(parseYaml(k, v), parseYaml(k, m2[k])))
     ) {
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }

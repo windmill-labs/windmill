@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.246.13](https://github.com/windmill-labs/windmill/compare/v1.246.12...v1.246.13) (2024-01-18)
+
+
+### Bug Fixes
+
+* cli sync improvement ([58cad70](https://github.com/windmill-labs/windmill/commit/58cad70363310eb107a3e4c8c7b9428630e5deb3))
+
+## [1.246.12](https://github.com/windmill-labs/windmill/compare/v1.246.11...v1.246.12) (2024-01-18)
+
+
+### Bug Fixes
+
+* cli sync improvement ([c8f269b](https://github.com/windmill-labs/windmill/commit/c8f269b870adac9628b197f4ab3516ccdbd590d3))
+
 ## [1.246.11](https://github.com/windmill-labs/windmill/compare/v1.246.10...v1.246.11) (2024-01-18)
 
 
