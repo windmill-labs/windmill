@@ -27,27 +27,37 @@
 	let perPage = 5
 	let search: string = ''
 
-	$: data = objects
-		.filter((row) =>
-			Object.values(row).some((value) =>
+	let nextId = 1
+	const structuredObjects = objects.map((obj) => {
+		return {
+			_id: nextId++,
+			rowData: { ...obj }
+		}
+	})
+
+	$: data = structuredObjects
+		.filter(({ rowData }) =>
+			Object.values(rowData).some((value) =>
 				JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
 			)
 		)
 		.sort((a, b) => {
-			if (activeSorting) {
-				if (activeSorting.direction == 'asc') {
-					return a[activeSorting.column] > b[activeSorting.column] ? 1 : -1
-				} else {
-					return a[activeSorting.column] < b[activeSorting.column] ? 1 : -1
-				}
+			if (!activeSorting) return 0
+			const valA = a.rowData[activeSorting.column]
+			const valB = b.rowData[activeSorting.column]
+			if (activeSorting.direction === 'asc') {
+				return valA > valB ? 1 : -1
 			} else {
-				return 0
+				return valA < valB ? 1 : -1
 			}
 		})
 		.slice((currentPage - 1) * perPage, currentPage * perPage)
-		.map((row) =>
-			Object.fromEntries(Object.entries(row).filter(([key, value]) => !hiddenColumns.includes(key)))
-		)
+		.map(({ _id, rowData }) => ({
+			_id: _id,
+			rowData: Object.fromEntries(
+				Object.entries(rowData).filter(([key]) => !hiddenColumns.includes(key))
+			)
+		}))
 
 	let hiddenColumns = [] as Array<string>
 	let activeSorting:
@@ -57,10 +67,10 @@
 		  }
 		| undefined = undefined
 
-	let selection = [] as Array<string>
+	let selection = [] as Array<number>
 
 	// Function to handle individual row checkbox change
-	function handleCheckboxChange(rowId: string) {
+	function handleCheckboxChange(rowId: number) {
 		if (selection.includes(rowId)) {
 			// Remove the id from the selection array
 			selection = selection.filter((id) => id !== rowId)
@@ -74,7 +84,7 @@
 	function handleSelectAllChange() {
 		if (selection.length === 0) {
 			// Select all rows
-			selection = data.map((row) => JSON.stringify(row))
+			selection = data.map((row) => row._id)
 		} else {
 			// Deselect all rows
 			selection = []
@@ -137,10 +147,8 @@
 							displayName: 'Download CSV',
 							icon: Download,
 							action: () => {
-								const csv = objects
-									.map((row) => {
-										return Object.values(row).join(',')
-									})
+								const csv = structuredObjects
+									.map(({ rowData }) => Object.values(rowData).join(','))
 									.join('\n')
 
 								const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -197,11 +205,9 @@
 							displayName: 'Download selected as CSV',
 							icon: Download,
 							action: () => {
-								const csv = objects
-									.filter((row) => selection.includes(JSON.stringify(row)))
-									.map((row) => {
-										return Object.values(row).join(',')
-									})
+								const csv = structuredObjects
+									.filter(({ _id }) => selection.includes(_id))
+									.map(({ rowData }) => Object.values(rowData).join(','))
 									.join('\n')
 
 								const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -260,7 +266,7 @@
 							<Cell head first={true} last={false}>
 								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
 							</Cell>
-							{#each Object.keys(data[0] ?? {}) ?? [] as key, index}
+							{#each Object.keys(data[0].rowData ?? {}) ?? [] as key, index}
 								<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
 									<div class="flex flex-row gap-1 items-center">
 										{key}
@@ -311,18 +317,18 @@
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each data as row, index (index)}
-							<Row dividable selected={selection.includes(JSON.stringify(row))}>
+						{#each data as { _id, rowData }, index (index)}
+							<Row dividable selected={selection.includes(_id)}>
 								<Cell first={true} last={false} class="w-6">
 									<input
 										type="checkbox"
 										class="!w-4 !h-4"
-										checked={selection.includes(JSON.stringify(row))}
-										on:change={() => handleCheckboxChange(JSON.stringify(row))}
+										checked={selection.includes(_id)}
+										on:change={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
-								{#each Object.values(row ?? {}) ?? [] as value, index}
-									<Cell last={index == Object.values(row ?? {}).length - 1}>
+								{#each Object.values(rowData ?? {}) ?? [] as value, index}
+									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
 										{#if Array.isArray(value) && typeof value[0] === 'string'}
 											<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
 												{#each value as item, index}
