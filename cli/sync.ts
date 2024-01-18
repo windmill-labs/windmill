@@ -1,4 +1,4 @@
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
 import {
   colors,
   Command,
@@ -710,6 +710,19 @@ async function push(
     opts
   );
 
+  const version = await fetchVersion(workspace.remote);
+
+  log.info(colors.gray("Remote version: " + version));
+
+  const reducedVersion = version
+    .split(" v")[1]
+    .split("-")[0]
+    .split(".")
+    .map((v) => parseInt(v));
+  const lockfileUseArray =
+    reducedVersion[1] < 246 ||
+    reducedVersion[1] == 246 ||
+    reducedVersion[2] < 5;
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
@@ -726,6 +739,7 @@ async function push(
       return;
     }
     log.info(colors.gray(`Applying changes to files ...`));
+
     const alreadySynced: string[] = [];
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -741,7 +755,9 @@ async function push(
           await handleScriptMetadata(
             change.path,
             workspace.workspaceId,
-            alreadySynced
+            alreadySynced,
+            opts.message,
+            lockfileUseArray
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -753,7 +769,8 @@ async function push(
             change.path,
             workspace.workspaceId,
             alreadySynced,
-            opts.message
+            opts.message,
+            lockfileUseArray
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -791,7 +808,8 @@ async function push(
             change.path,
             workspace.workspaceId,
             alreadySynced,
-            opts.message
+            opts.message,
+            lockfileUseArray
           )
         ) {
           continue;
