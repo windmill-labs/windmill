@@ -4388,6 +4388,8 @@ paths:
                   type: boolean
                 deployment_message:
                   type: string
+                concurrency_key:
+                  type: string
               required: &ref_36
                 - path
                 - summary

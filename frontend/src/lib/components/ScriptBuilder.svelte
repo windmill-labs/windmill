@@ -559,6 +559,7 @@
 													on:click={() => {
 														script.concurrent_limit = undefined
 														script.concurrency_time_window_s = undefined
+														script.concurrency_key = undefined
 													}}
 													variant="border">Remove Limits</Button
 												>
@@ -568,6 +569,14 @@
 											<SecondsInput
 												disabled={!$enterpriseLicense}
 												bind:seconds={script.concurrency_time_window_s}
+											/>
+										</Label>
+										<Label label="Custom concurrency key">
+											<input
+												type="text"
+												autofocus
+												bind:value={script.concurrency_key}
+												placeholder="custom-concurrency-key"
 											/>
 										</Label>
 									</div>

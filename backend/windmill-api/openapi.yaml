@@ -7707,6 +7707,8 @@ components:
           type: boolean
         deployment_message:
           type: string
+        concurrency_key:
+          type: string
       required:
         - path
         - summary

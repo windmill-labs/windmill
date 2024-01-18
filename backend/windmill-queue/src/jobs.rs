@@ -590,9 +590,10 @@ pub async fn add_completed_job<
         .await?;
     }
     if queued_job.concurrent_limit.is_some() {
+        let concurrency_key = concurrency_key(db, queued_job).await;
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-            queued_job.full_path(),
+            concurrency_key,
             queued_job.id.hyphenated().to_string(),
         )
         .execute(&mut tx)
@@ -1441,6 +1442,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         // Else the job is subject to concurrency limits
         let job_script_path = pulled_job.script_path.clone().unwrap();
 
+        let job_concurrency_key = concurrency_key(db, &pulled_job).await;
+        tracing::warn!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
         let job_custom_concurrency_time_window_s =
@@ -1468,7 +1471,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         ON CONFLICT (concurrency_id) 
         DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')
         RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
-            pulled_job.full_path(),
+            job_concurrency_key,
             jobs_uuids_init_json_value,
             pulled_job.id.hyphenated().to_string(),
         )
@@ -1522,7 +1525,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         }
         let x = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
-            pulled_job.full_path(),
+            job_concurrency_key,
             pulled_job.id.hyphenated().to_string(),
 
         )
@@ -1778,6 +1781,32 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         }
     };
     Ok(job)
+}
+
+async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String {
+    if queued_job.is_flow() {
+        // custom concurrency keys are not yet supported for flows
+        queued_job.full_path()
+    } else {
+        let concurrency_key = sqlx::query_scalar!(
+            "SELECT concurrency_key FROM script WHERE hash = $1",
+            queued_job.script_hash.unwrap_or(ScriptHash(0)).0
+        )
+        .fetch_one(db)
+        .await;
+        match concurrency_key {
+            Ok(Some(custom_concurrency_key)) => custom_concurrency_key,
+            Ok(None) => queued_job.full_path(),
+            _ => {
+                tracing::warn!(
+                    "Unable to retrieve concurrency key for script {:?} | {:?}",
+                    queued_job.script_path,
+                    queued_job.script_hash
+                );
+                queued_job.full_path()
+            }
+        }
+    }
 }
 
 #[derive(FromRow)]
