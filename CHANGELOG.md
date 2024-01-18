@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.246.14](https://github.com/windmill-labs/windmill/compare/v1.246.13...v1.246.14) (2024-01-18)
+
+
+### Bug Fixes
+
+* fix OIDC issuer ([8b302b4](https://github.com/windmill-labs/windmill/commit/8b302b4dc564c6336deca26d36c270c70a0efd98))
+
 ## [1.246.13](https://github.com/windmill-labs/windmill/compare/v1.246.12...v1.246.13) (2024-01-18)
 
 
