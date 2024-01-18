@@ -1,6 +1,35 @@
 # Changelog
 
 
+## [1.246.13](https://github.com/windmill-labs/windmill/compare/v1.246.12...v1.246.13) (2024-01-18)
+
+
+### Bug Fixes
+
+* cli sync improvement ([58cad70](https://github.com/windmill-labs/windmill/commit/58cad70363310eb107a3e4c8c7b9428630e5deb3))
+
+## [1.246.12](https://github.com/windmill-labs/windmill/compare/v1.246.11...v1.246.12) (2024-01-18)
+
+
+### Bug Fixes
+
+* cli sync improvement ([c8f269b](https://github.com/windmill-labs/windmill/commit/c8f269b870adac9628b197f4ab3516ccdbd590d3))
+
+## [1.246.11](https://github.com/windmill-labs/windmill/compare/v1.246.10...v1.246.11) (2024-01-18)
+
+
+### Bug Fixes
+
+* improve cli script deletion ([20c422c](https://github.com/windmill-labs/windmill/commit/20c422c5467b4188a7618bc4c7c303c70346a5a9))
+
+## [1.246.10](https://github.com/windmill-labs/windmill/compare/v1.246.9...v1.246.10) (2024-01-18)
+
+
+### Bug Fixes
+
+* make cli backcompatible with respect to lockfile ([eb000f1](https://github.com/windmill-labs/windmill/commit/eb000f1fbc697869aab46b3be430c8d56b7a7e8c))
+* make some eval onDemandOnly ([36905da](https://github.com/windmill-labs/windmill/commit/36905daef60d78725d5b78d70e314281ed297565))
+
 ## [1.246.9](https://github.com/windmill-labs/windmill/compare/v1.246.8...v1.246.9) (2024-01-17)
 
 
