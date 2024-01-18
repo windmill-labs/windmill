@@ -4,8 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-wmill = ">=1.246.8"
-wmill_pg = ">=1.246.8"
+wmill = ">=1.246.10"
+wmill_pg = ">=1.246.10"
 sendgrid = "*"
 mysql-connector-python = "*"
 pymongo = "*"
