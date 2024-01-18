@@ -9,6 +9,7 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
+	import Markdown from 'svelte-exmarkdown'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -33,6 +34,7 @@
 		| 's3object'
 		| 's3object-list'
 		| 'plain'
+		| 'markdown'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -139,6 +141,8 @@
 					result.every((elt) => inferResultKind(elt) === 's3object')
 				) {
 					return 's3object-list'
+				} else if (isMarkdown(result)) {
+					return 'markdown'
 				}
 			} catch (err) {}
 		}
@@ -150,6 +154,24 @@
 
 	function toJsonStr(result: any) {
 		return JSON.stringify(result ?? null, null, 4) ?? 'null'
+	}
+
+	function isMarkdown(text: string): boolean {
+		// Regular expressions for different Markdown patterns
+		const patterns = [
+			/^#{1,6}\s/, // headers
+			/\*\*(.*?)\*\*/g, // bold
+			/_(.*?)_/g, // italic
+			/\[(.*?)\]\((.*?)\)/g, // links
+			/^- .*/gm, // unordered list
+			/^\d+. .*/gm, // ordered list
+			/```[\s\S]*?```/g, // code block
+			/^\|.*\|.*(\r?\n|\r)\|\s*(:?-+:?\s*\|)+(:?-+:?\s*)/ // table
+			// ... add more patterns as needed
+		]
+
+		// Check if any of the patterns are found in the text
+		return patterns.some((pattern) => pattern.test(text))
 	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string }) {
@@ -355,6 +377,8 @@
 					</button>
 				{/each}
 			</div>
+		{:else if !forceJson && resultKind == 'markdown'}
+			<Markdown md={result} />
 		{:else if !forceJson && isTableDisplay && richRender}
 			<AutoDataTable objects={result} />
 		{:else if largeObject}

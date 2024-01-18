@@ -82,7 +82,7 @@
 
 	// Function to handle select all checkbox change
 	function handleSelectAllChange() {
-		if (selection.length === 0) {
+		if (selection.length === 0 || selection.length < data.length) {
 			// Select all rows
 			selection = data.map((row) => row._id)
 		} else {
@@ -105,6 +105,14 @@
 	]
 	let darkMode = false
 	let wrapperWidth = 0
+
+	function isSortable(key: string) {
+		return (
+			typeof objects[0][key] === 'string' ||
+			typeof objects[0][key] === 'number' ||
+			typeof objects[0][key] === 'boolean'
+		)
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -113,127 +121,103 @@
 	<div class="flex flex-col gap-2 py-4 my-4" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
-				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs w-24" />
+				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs !w-80" />
 				{#if selection.length > 0}
 					<span class="text-xs text-gray-500 dark:text-gray-200">
 						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
 					</span>
 				{/if}
-				{#if hiddenColumns.length > 0}
-					<div class="flex flex-row gap-2 justify-center items-center">
-						<span class="text-xs text-gray-500 dark:text-gray-200">
-							{pluralize(hiddenColumns?.length ?? 1, 'column') + ' hidden'}
-						</span>
-						<Button
-							size="xs2"
-							color="light"
-							variant="border"
-							on:click={() => {
-								hiddenColumns = []
-							}}
-							startIcon={{
-								icon: Columns
-							}}
-						>
-							Restore hidden columns
-						</Button>
-					</div>
-				{/if}
 			</div>
-			<Dropdown
-				items={() => {
-					const actions = [
-						{
-							displayName: 'Download CSV',
-							icon: Download,
-							action: () => {
-								const csv = structuredObjects
-									.map(({ rowData }) => Object.values(rowData).join(','))
-									.join('\n')
+			<div class="flex flex-row items-center gap-2">
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{ icon: Download }}
+					on:click={() => {
+						const csv = structuredObjects
+							.filter(({ _id }) => {
+								if (selection.length > 0) {
+									return selection.includes(_id)
+								} else {
+									return true
+								}
+							})
+							.map(({ rowData }) => Object.values(rowData).join(','))
+							.join('\n')
 
-								const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-								const url = URL.createObjectURL(blob)
-								const link = document.createElement('a')
-								link.setAttribute('href', url)
-								link.setAttribute('download', 'data.csv')
-								link.style.visibility = 'hidden'
-								document.body.appendChild(link)
-								link.click()
+						const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+						const url = URL.createObjectURL(blob)
+						const link = document.createElement('a')
+						link.setAttribute('href', url)
+						link.setAttribute('download', 'data.csv')
+						link.style.visibility = 'hidden'
+						document.body.appendChild(link)
+						link.click()
 
-								document.body.removeChild(link)
+						document.body.removeChild(link)
+					}}
+				>
+					{#if selection.length > 0}
+						Download selected as CSV
+					{:else}
+						Download as CSV
+					{/if}
+				</Button>
+				<Dropdown
+					items={() => {
+						const actions = [
+							{
+								displayName: 'Download JSON',
+								icon: Download,
+								action: () => {
+									const json = JSON.stringify(objects, null, 2)
+
+									const blob = new Blob([json], { type: 'text/json;charset=utf-8;' })
+									const url = URL.createObjectURL(blob)
+									const link = document.createElement('a')
+									link.setAttribute('href', url)
+									link.setAttribute('download', 'data.json')
+									link.style.visibility = 'hidden'
+									document.body.appendChild(link)
+									link.click()
+
+									document.body.removeChild(link)
+								}
 							}
-						},
-						{
-							displayName: 'Download JSON',
-							icon: Download,
-							action: () => {
-								const json = JSON.stringify(objects, null, 2)
+						]
 
-								const blob = new Blob([json], { type: 'text/json;charset=utf-8;' })
-								const url = URL.createObjectURL(blob)
-								const link = document.createElement('a')
-								link.setAttribute('href', url)
-								link.setAttribute('download', 'data.json')
-								link.style.visibility = 'hidden'
-								document.body.appendChild(link)
-								link.click()
-
-								document.body.removeChild(link)
-							}
-						},
-						{
-							displayName: 'Restore hidden columns',
-							icon: EyeIcon,
-							action: () => {
-								hiddenColumns = []
-							}
+						if (hiddenColumns.length > 0) {
+							actions.push({
+								displayName: 'Restore hidden columns',
+								icon: EyeIcon,
+								action: () => {
+									hiddenColumns = []
+								}
+							})
 						}
-					]
 
-					if (selection.length > 0) {
-						actions.push({
-							displayName: 'Delete selected',
-							icon: EyeIcon,
-							action: () => {
-								selection = []
-								renderCount++
-							}
-						})
+						if (selection.length > 0) {
+							actions.push({
+								displayName: 'Clear selection',
+								icon: Columns,
+								action: () => {
+									selection = []
+									renderCount++
+								}
+							})
+						}
 
-						// Download selected as CSV
-						actions.push({
-							displayName: 'Download selected as CSV',
-							icon: Download,
-							action: () => {
-								const csv = structuredObjects
-									.filter(({ _id }) => selection.includes(_id))
-									.map(({ rowData }) => Object.values(rowData).join(','))
-									.join('\n')
-
-								const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-								const url = URL.createObjectURL(blob)
-								const link = document.createElement('a')
-								link.setAttribute('href', url)
-								link.setAttribute('download', 'data.csv')
-								link.style.visibility = 'hidden'
-								document.body.appendChild(link)
-								link.click()
-
-								document.body.removeChild(link)
-							}
-						})
-					}
-
-					return actions
-				}}
-			>
-				<svelte:fragment slot="buttonReplacement">
-					<MoreVertical
-						size={8}
-						class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-					/>
-				</svelte:fragment>
-			</Dropdown>
+						return actions
+					}}
+				>
+					<svelte:fragment slot="buttonReplacement">
+						<MoreVertical
+							size={8}
+							class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+						/>
+					</svelte:fragment>
+				</Dropdown>
+			</div>
 		</div>
 		{#key renderCount}
 			{#if data.length == 0}
@@ -280,36 +264,38 @@
 										>
 											<EyeIcon size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
 										</button>
-										{#if activeSorting?.column === key}
-											<button
-												class="p-1 w-6 h-6 flex justify-center items-center"
-												on:click={() => {
-													activeSorting = {
-														column: key,
-														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-													}
-												}}
-												disabled={hiddenColumns.includes(key)}
-											>
-												{#if activeSorting?.direction == 'asc'}
-													<ArrowDown size="16" />
-												{:else}
-													<ArrowUp size="16" />
-												{/if}
-											</button>
-										{:else}
-											<button
-												class="p-1 w-6 h-6 flex justify-center items-center"
-												on:click={() => {
-													activeSorting = {
-														column: key,
-														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-													}
-												}}
-												disabled={hiddenColumns.includes(key)}
-											>
-												<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
-											</button>
+										{#if isSortable(key)}
+											{#if activeSorting?.column === key}
+												<button
+													class="p-1 w-6 h-6 flex justify-center items-center"
+													on:click={() => {
+														activeSorting = {
+															column: key,
+															direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+														}
+													}}
+													disabled={hiddenColumns.includes(key)}
+												>
+													{#if activeSorting?.direction == 'asc'}
+														<ArrowDown size="16" />
+													{:else}
+														<ArrowUp size="16" />
+													{/if}
+												</button>
+											{:else}
+												<button
+													class="p-1 w-6 h-6 flex justify-center items-center"
+													on:click={() => {
+														activeSorting = {
+															column: key,
+															direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+														}
+													}}
+													disabled={hiddenColumns.includes(key)}
+												>
+													<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
+												</button>
+											{/if}
 										{/if}
 									</div>
 								</Cell>
@@ -376,6 +362,30 @@
 							</Row>
 						{/each}
 					</tbody>
+					<svelte:fragment slot="footer">
+						<div>
+							{#if hiddenColumns.length > 0}
+								<div class="flex flex-row gap-2 justify-center items-center mx-2">
+									<span class="text-xs text-gray-500 dark:text-gray-200">
+										{pluralize(hiddenColumns?.length ?? 1, 'column') + ' hidden'}
+									</span>
+									<Button
+										size="xs2"
+										color="light"
+										variant="border"
+										on:click={() => {
+											hiddenColumns = []
+										}}
+										startIcon={{
+											icon: Columns
+										}}
+									>
+										Restore hidden columns
+									</Button>
+								</div>
+							{/if}
+						</div>
+					</svelte:fragment>
 				</DataTable>
 			{/if}
 		{/key}
