@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.246.15](https://github.com/windmill-labs/windmill/compare/v1.246.14...v1.246.15) (2024-01-18)
+
+
+### Bug Fixes
+
+* improve error message format for logs ([582339c](https://github.com/windmill-labs/windmill/commit/582339c83ef32a81c3b02d88a47fab3fd18ce2fe))
+
 ## [1.246.14](https://github.com/windmill-labs/windmill/compare/v1.246.13...v1.246.14) (2024-01-18)
 
 
