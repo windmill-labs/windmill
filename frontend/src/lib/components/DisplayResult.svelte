@@ -149,6 +149,7 @@
 	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
+		console.log('toJsonStr', result)
 		return JSON.stringify(result ?? null, null, 4) ?? 'null'
 	}
 
@@ -158,10 +159,6 @@
 		} else {
 			return obj.content
 		}
-	}
-
-	function isPayloadTooLarge(error: { name: string; message: string }) {
-		return error?.name === 'ExecutionErr' && error?.message.includes('Result is too large')
 	}
 </script>
 
@@ -284,8 +281,8 @@
 				<pre>{result?.['result']}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
-			<div
-				><a
+			<div>
+				<a
 					download={result.filename ?? result.file?.filename ?? 'windmill.file'}
 					href="data:application/octet-stream;base64,{contentOrRootString(result.file)}">Download</a
 				>
@@ -298,22 +295,6 @@
 				>
 				<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
 				<slot />
-
-				{#if isPayloadTooLarge(result.error)}
-					<div class="my-4">
-						<Alert size="xs" title="Size Limit Exceeded" type="error">
-							We recommend using persistent storage for large data files. See
-							<a
-								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
-								target="_blank"
-								rel="noreferrer"
-								class="hover:underline"
-							>
-								Large Data Files: S3, R2, MinIO
-							</a>
-						</Alert>
-					</div>
-				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
 				<Button
@@ -373,11 +354,26 @@
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
 							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}>Download</a
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 					>
+						Download {filename ? '' : 'as JSON'}
+					</a>
+				</div>
+
+				<div class="my-4">
+					<Alert size="xs" title="Size Limit Exceeded" type="error">
+						We recommend using persistent storage for large data files. See
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
+							target="_blank"
+							rel="noreferrer"
+							class="hover:underline"
+						>
+							Large Data Files: S3, R2, MinIO
+						</a>
+					</Alert>
 				</div>
 			{/if}
-			<div class="mb-21">JSON is too large to be displayed in full</div>
 			{#if result && result != 'WINDMILL_TOO_BIG'}
 				<ObjectViewer json={result} />
 			{/if}
