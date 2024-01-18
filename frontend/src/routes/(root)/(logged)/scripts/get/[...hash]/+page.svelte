@@ -116,7 +116,7 @@
 			requestBody: {
 				...r,
 				parent_hash: hash,
-				lock: r.lock?.split('\n')
+				lock: r.lock
 			}
 		})
 		sendUserToast(`Unarchived script`)

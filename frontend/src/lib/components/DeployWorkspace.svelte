@@ -263,7 +263,7 @@
 					workspace: workspaceToDeployTo!,
 					requestBody: {
 						...script,
-						lock: script.lock?.split('\n'),
+						lock: script.lock,
 						parent_hash: alreadyExists
 							? (
 									await ScriptService.getScriptByPath({
