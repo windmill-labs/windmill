@@ -211,7 +211,7 @@ pub async fn gen_token(
     tx.commit().await?;
 
     let job = job.ok_or_else(|| anyhow::anyhow!("Queued job {} not found", job_id))?;
-    let issue_url = crate::BASE_URL.read().await.clone();
+    let issue_url = format!("{}/api/oidc/", crate::BASE_URL.read().await.clone());
     let flow_path = if let Some(uuid) = job.parent_job {
         sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
             .fetch_optional(&db)
