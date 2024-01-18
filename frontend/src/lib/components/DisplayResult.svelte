@@ -4,10 +4,12 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy, Download, Expand, PanelRightOpen } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, PanelRightOpen, Table2 } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import AutoDataTable from './table/AutoDataTable.svelte'
+	import Markdown from 'svelte-exmarkdown'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -32,6 +34,7 @@
 		| 's3object'
 		| 's3object-list'
 		| 'plain'
+		| 'markdown'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -93,9 +96,9 @@
 					return 'json'
 				}
 
-				if (isRectangularArray(result)) {
+				if ((keys.length == 1 && keys[0] == 'table-row') || isRectangularArray(result)) {
 					return 'table-row'
-				} else if (isObjectOfArray(result, keys)) {
+				} else if ((keys.length == 1 && keys[0] == 'table-col') || isObjectOfArray(result, keys)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'html') {
 					return 'html'
@@ -138,6 +141,8 @@
 					result.every((elt) => inferResultKind(elt) === 's3object')
 				) {
 					return 's3object-list'
+				} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
+					return 'markdown'
 				}
 			} catch (err) {}
 		}
@@ -157,6 +162,42 @@
 		} else {
 			return obj.content
 		}
+	}
+
+	function isArrayWithObjects(json) {
+		return (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			json.every((item) => typeof item === 'object' && Object.keys(item).length > 0)
+		)
+	}
+
+	$: isTableDisplay = isArrayWithObjects(result)
+	let richRender: boolean = true
+
+	type InputObject = { [key: string]: number[] }
+
+	function transform(input: InputObject): any[] {
+		const maxLength = Math.max(...Object.values(input).map((arr) => arr.length))
+		const result: Array<{
+			[key: string]: number | null
+		}> = []
+
+		for (let i = 0; i < maxLength; i++) {
+			const obj: { [key: string]: number | null } = {}
+
+			for (const key of Object.keys(input)) {
+				if (i < input[key].length) {
+					obj[key] = input[key][i]
+				} else {
+					obj[key] = null
+				}
+			}
+
+			result.push(obj)
+		}
+
+		return result
 	}
 </script>
 
@@ -178,36 +219,30 @@
 							><ClipboardCopy size={16} /></button
 						>
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+						{#if isTableDisplay}
+							<button
+								aria-label="Render as table"
+								on:click={() => {
+									richRender = !richRender
+								}}
+							>
+								<Table2 size={16} class={richRender ? 'text-blue-500' : ''} /></button
+							>
+						{/if}
 					</div>
 				{/if}</div
 			>
 		{/if}
-		{#if !forceJson && resultKind == 'table-col'}<div
-				class="grid grid-flow-col-dense border rounded-md"
-			>
-				{#each Object.keys(result) as col}
-					<div class="flex flex-col max-h-40 min-w-full">
-						<div
-							class="px-12 text-left uppercase border-b bg-surface-secondary overflow-hidden rounded-t-md"
-						>
-							{col}
-						</div>
-						{#if Array.isArray(result[col])}
-							{#each result[col] as item}
-								<div class="px-12 text-left text-xs whitespace-nowrap overflow-auto pb-2">
-									{typeof item === 'string' ? item : JSON.stringify(item)}
-								</div>
-							{/each}
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{:else if !forceJson && resultKind == 'table-row'}<div
-				class="grid grid-flow-col-dense border border-gray-200"
-			>
+		{#if !forceJson && resultKind == 'table-col'}
+			{@const data = 'table-col' in result ? result['table-col'] : result}
+
+			<AutoDataTable objects={transform(data)} />
+		{:else if !forceJson && resultKind == 'table-row'}
+			{@const data = 'table-row' in result ? result['table-row'] : result}
+			<div class="grid grid-flow-col-dense border border-gray-200">
 				<TableCustom>
 					<tbody slot="body">
-						{#each asListOfList(result) as row}
+						{#each Array.isArray(asListOfList(data)) ? asListOfList(data) : [] as row}
 							<tr>
 								{#each row as v}
 									<td class="!text-xs">{truncate(JSON.stringify(v), 200) ?? ''}</td>
@@ -337,6 +372,12 @@
 					</button>
 				{/each}
 			</div>
+		{:else if !forceJson && resultKind == 'markdown'}
+			<div class="prose dark:prose-invert">
+				<Markdown md={result?.md ?? result?.markdown} />
+			</div>
+		{:else if !forceJson && isTableDisplay && richRender}
+			<AutoDataTable objects={result} />
 		{:else if largeObject}
 			{#if typeof result == 'object' && 'filename' in result && 'file' in result}
 				<div
