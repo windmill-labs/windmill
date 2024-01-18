@@ -27,6 +27,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
+	import ArgInputFileUpload from './common/fileUpload/ArgInputFileUpload.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -78,6 +79,7 @@
 	let error: string = ''
 
 	let s3FilePicker: S3FilePicker
+	let s3FileUploadRawMode: false
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -475,26 +477,35 @@
 					.replace('_', '')
 					.toLowerCase() == 's3object'}
 				<div class="flex flex-col w-full gap-1">
-					<JsonEditor
-						bind:editor
-						on:focus={(e) => {
-							dispatch('focus')
-						}}
-						code={JSON.stringify({ s3: '' }, null, 2)}
-						bind:value
-					/>
-					<Button
-						variant="border"
-						color="light"
+					<Toggle
+						bind:checked={s3FileUploadRawMode}
 						size="xs"
-						btnClasses="mt-1"
-						on:click={() => {
-							s3FilePicker?.open?.(value)
-						}}
-						startIcon={{ icon: Pipette }}
-					>
-						Choose an object from the catalog
-					</Button>
+						options={{ right: 'Raw S3 object input' }}
+					/>
+					{#if s3FileUploadRawMode}
+						<JsonEditor
+							bind:editor
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							code={JSON.stringify({ s3: '' }, null, 2)}
+							bind:value
+						/>
+						<Button
+							variant="border"
+							color="light"
+							size="xs"
+							btnClasses="mt-1"
+							on:click={() => {
+								s3FilePicker?.open?.(value)
+							}}
+							startIcon={{ icon: Pipette }}
+						>
+							Choose an object from the catalog
+						</Button>
+					{:else}
+						<ArgInputFileUpload bind:uploadedFile={value} />
+					{/if}
 				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
