@@ -96,9 +96,9 @@
 					return 'json'
 				}
 
-				if (isRectangularArray(result)) {
+				if ((keys.length == 1 && keys[0] == 'table-row') || isRectangularArray(result)) {
 					return 'table-row'
-				} else if (isObjectOfArray(result, keys)) {
+				} else if ((keys.length == 1 && keys[0] == 'table-col') || isObjectOfArray(result, keys)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'html') {
 					return 'html'
@@ -141,7 +141,7 @@
 					result.every((elt) => inferResultKind(elt) === 's3object')
 				) {
 					return 's3object-list'
-				} else if (isMarkdown(result)) {
+				} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
 					return 'markdown'
 				}
 			} catch (err) {}
@@ -154,24 +154,6 @@
 
 	function toJsonStr(result: any) {
 		return JSON.stringify(result ?? null, null, 4) ?? 'null'
-	}
-
-	function isMarkdown(text: string): boolean {
-		// Regular expressions for different Markdown patterns
-		const patterns = [
-			/^#{1,6}\s/, // headers
-			/\*\*(.*?)\*\*/g, // bold
-			/_(.*?)_/g, // italic
-			/\[(.*?)\]\((.*?)\)/g, // links
-			/^- .*/gm, // unordered list
-			/^\d+. .*/gm, // ordered list
-			/```[\s\S]*?```/g, // code block
-			/^\|.*\|.*(\r?\n|\r)\|\s*(:?-+:?\s*\|)+(:?-+:?\s*)/ // table
-			// ... add more patterns as needed
-		]
-
-		// Check if any of the patterns are found in the text
-		return patterns.some((pattern) => pattern.test(text))
 	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string }) {
@@ -192,6 +174,31 @@
 
 	$: isTableDisplay = isArrayWithObjects(result)
 	let richRender: boolean = true
+
+	type InputObject = { [key: string]: number[] }
+
+	function transform(input: InputObject): any[] {
+		const maxLength = Math.max(...Object.values(input).map((arr) => arr.length))
+		const result: Array<{
+			[key: string]: number | null
+		}> = []
+
+		for (let i = 0; i < maxLength; i++) {
+			const obj: { [key: string]: number | null } = {}
+
+			for (const key of Object.keys(input)) {
+				if (i < input[key].length) {
+					obj[key] = input[key][i]
+				} else {
+					obj[key] = null
+				}
+			}
+
+			result.push(obj)
+		}
+
+		return result
+	}
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
@@ -212,42 +219,30 @@
 							><ClipboardCopy size={16} /></button
 						>
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
-						<button
-							aria-label="Render as table"
-							on:click={() => {
-								richRender = !richRender
-							}}><Table2 size={16} class={richRender ? 'text-blue-500' : ''} /></button
-						>
+						{#if isTableDisplay}
+							<button
+								aria-label="Render as table"
+								on:click={() => {
+									richRender = !richRender
+								}}
+							>
+								<Table2 size={16} class={richRender ? 'text-blue-500' : ''} /></button
+							>
+						{/if}
 					</div>
 				{/if}</div
 			>
 		{/if}
-		{#if !forceJson && resultKind == 'table-col'}<div
-				class="grid grid-flow-col-dense border rounded-md"
-			>
-				{#each Object.keys(result) as col}
-					<div class="flex flex-col max-h-40 min-w-full">
-						<div
-							class="px-12 text-left uppercase border-b bg-surface-secondary overflow-hidden rounded-t-md"
-						>
-							{col}
-						</div>
-						{#if Array.isArray(result[col])}
-							{#each result[col] as item}
-								<div class="px-12 text-left text-xs whitespace-nowrap overflow-auto pb-2">
-									{typeof item === 'string' ? item : JSON.stringify(item)}
-								</div>
-							{/each}
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{:else if !forceJson && resultKind == 'table-row'}<div
-				class="grid grid-flow-col-dense border border-gray-200"
-			>
+		{#if !forceJson && resultKind == 'table-col'}
+			{@const data = 'table-col' in result ? result['table-col'] : result}
+
+			<AutoDataTable objects={transform(data)} />
+		{:else if !forceJson && resultKind == 'table-row'}
+			{@const data = 'table-row' in result ? result['table-row'] : result}
+			<div class="grid grid-flow-col-dense border border-gray-200">
 				<TableCustom>
 					<tbody slot="body">
-						{#each asListOfList(result) as row}
+						{#each Array.isArray(asListOfList(data)) ? asListOfList(data) : [] as row}
 							<tr>
 								{#each row as v}
 									<td class="!text-xs">{truncate(JSON.stringify(v), 200) ?? ''}</td>
@@ -379,7 +374,7 @@
 			</div>
 		{:else if !forceJson && resultKind == 'markdown'}
 			<div class="prose dark:prose-invert">
-				<Markdown md={result} />
+				<Markdown md={result?.md ?? result?.markdown} />
 			</div>
 		{:else if !forceJson && isTableDisplay && richRender}
 			<AutoDataTable objects={result} />
