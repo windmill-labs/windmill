@@ -15,10 +15,8 @@
 	let fileUploadProgress: number | undefined = undefined
 	let fileUploadCancelled: boolean = false
 	let fileUploadCancelInProgress: boolean = false
-	let fileUploadErrorMsg: string | undefined = undefined
 
 	async function uploadFileToS3() {
-		fileUploadErrorMsg = undefined
 		if (localFileToUpload === undefined) {
 			return
 		}
@@ -90,7 +88,6 @@
 		fileUploadProgress = undefined
 		fileUploadCancelled = false
 		fileUploadCancelInProgress = false
-		fileUploadErrorMsg = undefined
 	}
 </script>
 
