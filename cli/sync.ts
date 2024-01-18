@@ -376,6 +376,7 @@ async function compareDynFSElement(
       if (typeof o == "object" && Array.isArray(o?.["lock"])) {
         o["lock"] = o["lock"].join("\n");
       }
+      return o;
     } else {
       return yamlParse(v);
     }
