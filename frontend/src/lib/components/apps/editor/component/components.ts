@@ -58,12 +58,7 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type {
-	AppInputSpec,
-	EvalV2AppInput,
-	ResultAppInput,
-	StaticAppInput
-} from '../../inputType'
+import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -404,7 +399,8 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: '/apps/get/foo'
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
 			},
 			newTab: {
 				tooltip: 'Open the url in a new tab',
@@ -419,7 +415,8 @@ const onSuccessClick = {
 				value: [] as Array<{ id: string; index: number }>,
 				fieldType: 'array',
 				subFieldType: 'tab-select',
-				tooltip: 'Set the tabs id and index to go to on success'
+				tooltip: 'Set the tabs id and index to go to on success',
+				onDemandOnly: true
 			}
 		},
 		sendToast: {
@@ -428,7 +425,8 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there'
+				placeholder: 'Hello there',
+				onDemandOnly: true
 			}
 		},
 		openModal: {
@@ -489,7 +487,8 @@ const onErrorClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: '/apps/get/foo'
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
 			},
 			newTab: {
 				tooltip: 'Open the url in a new tab',
@@ -513,7 +512,8 @@ const onErrorClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there'
+				placeholder: 'Hello there',
+				onDemandOnly: true
 			},
 			appendError: {
 				tooltip: 'Append the error message to the toast',
@@ -3051,10 +3051,12 @@ This is a paragraph.
 							},
 							*/
 							pathTemplate: {
-								type: 'eval',
+								type: 'evalv2',
 								expr: `\`\${file.name}\``,
 								fieldType: 'template',
-							}
+								connections: [],
+								onDemandOnly: true
+							} as EvalV2AppInput
 						}
 					}
 				} as const
