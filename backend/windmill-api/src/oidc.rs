@@ -25,7 +25,7 @@ impl AdditionalClaims for JobClaim {}
 
 use crate::db::DB;
 use axum::extract::Path;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Extension;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ pub fn workspaced_service() -> Router {
 
 #[cfg(feature = "enterprise")]
 pub fn workspaced_service() -> Router {
-    Router::new().route("/token/:audience", get(gen_token))
+    Router::new().route("/token/:audience", post(gen_token))
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -150,11 +150,12 @@ pub fn get_provider_metadata(base_url: String) -> anyhow::Result<CoreProviderMet
         CoreClaimName::new("exp".to_string()),
         CoreClaimName::new("iat".to_string()),
         CoreClaimName::new("iss".to_string()),
-        CoreClaimName::new("name".to_string()),
-        CoreClaimName::new("given_name".to_string()),
-        CoreClaimName::new("family_name".to_string()),
-        CoreClaimName::new("picture".to_string()),
-        CoreClaimName::new("locale".to_string()),
+        CoreClaimName::new("job_id".to_string()),
+        CoreClaimName::new("path".to_string()),
+        CoreClaimName::new("flow_path".to_string()),
+        CoreClaimName::new("groups".to_string()),
+        CoreClaimName::new("username".to_string()),
+        CoreClaimName::new("workspace".to_string()),
     ]));
     return Ok(provider_metadata);
 }
@@ -210,7 +211,7 @@ pub async fn gen_token(
     tx.commit().await?;
 
     let job = job.ok_or_else(|| anyhow::anyhow!("Queued job {} not found", job_id))?;
-    let issue_url = crate::BASE_URL.read().await.clone();
+    let issue_url = format!("{}/api/oidc/", crate::BASE_URL.read().await.clone());
     let flow_path = if let Some(uuid) = job.parent_job {
         sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
             .fetch_optional(&db)
@@ -241,14 +242,22 @@ pub async fn gen_token(
             vec![Audience::new(audience)],
             // The ID token expiration is usually much shorter than that of the access or refresh
             // tokens issued to clients.
-            Utc::now() + Duration::seconds(300),
+            Utc::now() + Duration::hours(48),
             // The issue time is usually the current time.
             Utc::now(),
             // Set the standard claims defined by the OpenID Connect Core spec.
             StandardClaims::new(
                 // Stable subject identifiers are recommended in place of e-mail addresses or other
                 // potentially unstable identifiers. This is the only required claim.
-                SubjectIdentifier::new("windmill".to_string()),
+                SubjectIdentifier::new(format!(
+                    "{}::{}::{}::{}",
+                    email,
+                    job.script_path
+                        .clone()
+                        .unwrap_or_else(|| "no_path".to_string()),
+                    flow_path.clone().unwrap_or_else(|| "no_flow".to_string()),
+                    w_id
+                )),
             )
             // Optional: specify the user's e-mail address. This should only be provided if the
             // client has been granted the 'profile' or 'email' scopes.

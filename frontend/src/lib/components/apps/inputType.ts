@@ -74,6 +74,7 @@ export type EvalInputV2 = {
 	type: 'evalv2'
 	expr: string
 	connections: InputConnectionEval[]
+	onDemandOnly?: boolean
 }
 
 export type RowInput = {
@@ -162,6 +163,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		convertTo?: ReadFileAs
 	}
 	noStatic?: boolean
+	onDemandOnly?: boolean
 }
 
 export type StaticOptions = {
@@ -216,6 +218,8 @@ export type UserAppInput = Extract<AppInput, { type: 'user' }>
 export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
 export type EvalV2AppInput = Extract<AppInput, { type: 'evalv2' }>
+export type StaticAppInputOnDemand = Extract<StaticAppInput, { onDemandOnly: true }>
+
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
 
 export type RichAppInput =

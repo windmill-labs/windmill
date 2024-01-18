@@ -36,6 +36,7 @@
 	export let shouldFormatExpression: boolean = false
 	export let fixedOverflowWidgets: boolean = true
 	export let loading: boolean = false
+	export let acceptSelf: boolean = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -168,6 +169,7 @@
 			<EvalInputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'evalv2'}
 			<EvalV2InputEditor
+				{acceptSelf}
 				field={key}
 				bind:this={evalV2editor}
 				{id}

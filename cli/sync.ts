@@ -1,4 +1,4 @@
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { fetchVersion, requireLogin, resolveWorkspace } from "./context.ts";
 import {
   colors,
   Command,
@@ -32,7 +32,7 @@ import {
 } from "./types.ts";
 import { downloadZip } from "./pull.ts";
 
-import { handleScriptMetadata } from "./script.ts";
+import { handleScriptMetadata, removeExtensionToPath } from "./script.ts";
 
 import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
@@ -370,20 +370,35 @@ async function compareDynFSElement(
 
   const changes: Change[] = [];
 
+  function parseYaml(k: string, v: string) {
+    if (k.endsWith(".script.yaml")) {
+      const o: any = yamlParse(v);
+      if (typeof o == "object" && Array.isArray(o?.["lock"])) {
+        o["lock"] = o["lock"].join("\n");
+      }
+      return o;
+    } else {
+      return yamlParse(v);
+    }
+  }
   for (const [k, v] of Object.entries(m1)) {
     if (m2[k] === undefined) {
       changes.push({ name: "added", path: k, content: v });
     } else if (
       m2[k] != v &&
       (!k.endsWith(".json") || !deepEqual(JSON.parse(v), JSON.parse(m2[k]))) &&
-      (!k.endsWith(".yaml") || !deepEqual(yamlParse(v), yamlParse(m2[k])))
+      (!k.endsWith(".yaml") || !deepEqual(parseYaml(k, v), parseYaml(k, m2[k])))
     ) {
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
 
   for (const [k] of Object.entries(m2)) {
-    if (m1[k] === undefined) {
+    if (
+      m1[k] === undefined &&
+      !k?.endsWith(".script.yaml") &&
+      !k?.endsWith(".script.json")
+    ) {
       changes.push({ name: "deleted", path: k });
     }
   }
@@ -706,6 +721,19 @@ async function push(
     opts
   );
 
+  const version = await fetchVersion(workspace.remote);
+
+  log.info(colors.gray("Remote version: " + version));
+
+  const reducedVersion = version
+    .split(" v")[1]
+    .split("-")[0]
+    .split(".")
+    .map((v) => parseInt(v));
+  const lockfileUseArray =
+    reducedVersion[1] < 246 ||
+    reducedVersion[1] == 246 ||
+    reducedVersion[2] < 5;
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
@@ -722,6 +750,7 @@ async function push(
       return;
     }
     log.info(colors.gray(`Applying changes to files ...`));
+
     const alreadySynced: string[] = [];
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -737,7 +766,9 @@ async function push(
           await handleScriptMetadata(
             change.path,
             workspace.workspaceId,
-            alreadySynced
+            alreadySynced,
+            opts.message,
+            lockfileUseArray
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -749,7 +780,8 @@ async function push(
             change.path,
             workspace.workspaceId,
             alreadySynced,
-            opts.message
+            opts.message,
+            lockfileUseArray
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -787,7 +819,8 @@ async function push(
             change.path,
             workspace.workspaceId,
             alreadySynced,
-            opts.message
+            opts.message,
+            lockfileUseArray
           )
         ) {
           continue;
@@ -810,9 +843,6 @@ async function push(
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
-        if (!change.path.includes(".json") && !change.path.includes(".yaml")) {
-          continue;
-        }
         log.info(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`);
         const typ = getTypeStrFromPath(change.path);
         const workspaceId = workspace.workspaceId;
@@ -820,7 +850,7 @@ async function push(
           case "script": {
             const script = await ScriptService.getScriptByPath({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".script.json"),
+              path: removeExtensionToPath(change.path),
             });
             await ScriptService.deleteScriptByHash({
               workspace: workspaceId,

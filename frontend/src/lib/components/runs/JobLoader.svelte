@@ -275,6 +275,14 @@
 			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 	}
 
+	function onVisibilityChange() {
+		if (document.hidden) {
+			sync = false
+		} else {
+			sync = true
+		}
+	}
+
 	onMount(() => {
 		mounted = true
 		loadPaths()
@@ -283,17 +291,12 @@
 
 		intervalId = setInterval(syncer, refreshRate)
 
-		document.addEventListener('visibilitychange', () => {
-			if (document.hidden) {
-				sync = false
-			} else {
-				sync = true
-			}
-		})
+		document.addEventListener('visibilitychange', onVisibilityChange)
 
 		window.addEventListener('popstate', updateFiltersFromURL)
 		return () => {
 			window.removeEventListener('popstate', updateFiltersFromURL)
+			window.removeEventListener('visibilitychange', onVisibilityChange)
 		}
 	})
 

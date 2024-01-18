@@ -3148,7 +3148,7 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
             is_template: None,
             kind: None,
             parent_hash: None,
-            lock: vec![],
+            lock: None,
             summary: "".to_string(),
             tag: None,
             schema: std::collections::HashMap::new(),

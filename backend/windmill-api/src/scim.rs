@@ -353,6 +353,19 @@ pub async fn update_group(
                 .execute(&mut *tx)
                 .await?;
 
+            let id = if let Some(name) = body.displayName.clone() {
+                sqlx::query!(
+                    "UPDATE instance_group SET name = $1 where name = $2",
+                    convert_name(&name.clone()),
+                    id
+                )
+                .execute(&mut *tx)
+                .await?;
+                convert_name(&name)
+            } else {
+                id
+            };
+
             if let Some(members) = body.members.clone() {
                 for m in members {
                     sqlx::query!(

@@ -1117,7 +1117,7 @@ async fn edit_error_handler(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         w_id,
         "error_handler",
-        "The group the error handler acts on belhalf of",
+        "The group the error handler acts on behalf of",
         serde_json::json!({username_to_permissioned_as(&authed.username): true})
     )
     .execute(&mut *tx)
@@ -1813,7 +1813,7 @@ struct ScriptMetadata {
     description: String,
     schema: Option<Schema>,
     is_template: bool,
-    lock: Vec<String>,
+    lock: Option<String>,
     kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     envs: Option<Vec<String>>,
@@ -2021,19 +2021,13 @@ async fn tarball_workspace(
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
                 .await?;
 
-            let lock = script
-                .lock
-                .unwrap_or_else(|| "".to_string())
-                .lines()
-                .map(|x| x.to_string())
-                .collect();
             let metadata = ScriptMetadata {
                 summary: script.summary,
                 description: script.description,
                 schema: script.schema,
                 is_template: script.is_template,
                 kind: script.kind.to_string(),
-                lock,
+                lock: script.lock,
                 envs: script.envs,
                 concurrent_limit: script.concurrent_limit,
                 concurrency_time_window_s: script.concurrency_time_window_s,

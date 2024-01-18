@@ -95,16 +95,7 @@ export async function requireLogin(
   }
 }
 
-export async function tryResolveVersion(
-  opts: GlobalOptions
-): Promise<number | undefined> {
-  if ((opts as any).__cache_version) {
-    return (opts as any).__cache_version;
-  }
-
-  const workspaceRes = await tryResolveWorkspace(opts);
-  if (workspaceRes.isError) return undefined;
-
+export async function fetchVersion(baseUrl: string): Promise<string> {
   const requestHeaders: HeadersInit = new Headers();
 
   const extraHeaders = getHeaders();
@@ -115,10 +106,22 @@ export async function tryResolveVersion(
   }
 
   const response = await fetch(
-    new URL(new URL(workspaceRes.value.remote).origin + "/api/version"),
+    new URL(new URL(baseUrl).origin + "/api/version"),
     { headers: requestHeaders, method: "GET" }
   );
-  const version = await response.text();
+  return await response.text();
+}
+export async function tryResolveVersion(
+  opts: GlobalOptions
+): Promise<number | undefined> {
+  if ((opts as any).__cache_version) {
+    return (opts as any).__cache_version;
+  }
+
+  const workspaceRes = await tryResolveWorkspace(opts);
+  if (workspaceRes.isError) return undefined;
+  const version = await fetchVersion(workspaceRes.value.remote);
+
   try {
     return Number.parseInt(
       version.split("-", 1)[0].replaceAll(".", "").replace("v", "")

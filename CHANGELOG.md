@@ -1,6 +1,123 @@
 # Changelog
 
 
+## [1.246.15](https://github.com/windmill-labs/windmill/compare/v1.246.14...v1.246.15) (2024-01-18)
+
+
+### Bug Fixes
+
+* improve error message format for logs ([582339c](https://github.com/windmill-labs/windmill/commit/582339c83ef32a81c3b02d88a47fab3fd18ce2fe))
+
+## [1.246.14](https://github.com/windmill-labs/windmill/compare/v1.246.13...v1.246.14) (2024-01-18)
+
+
+### Bug Fixes
+
+* fix OIDC issuer ([8b302b4](https://github.com/windmill-labs/windmill/commit/8b302b4dc564c6336deca26d36c270c70a0efd98))
+
+## [1.246.13](https://github.com/windmill-labs/windmill/compare/v1.246.12...v1.246.13) (2024-01-18)
+
+
+### Bug Fixes
+
+* cli sync improvement ([58cad70](https://github.com/windmill-labs/windmill/commit/58cad70363310eb107a3e4c8c7b9428630e5deb3))
+
+## [1.246.12](https://github.com/windmill-labs/windmill/compare/v1.246.11...v1.246.12) (2024-01-18)
+
+
+### Bug Fixes
+
+* cli sync improvement ([c8f269b](https://github.com/windmill-labs/windmill/commit/c8f269b870adac9628b197f4ab3516ccdbd590d3))
+
+## [1.246.11](https://github.com/windmill-labs/windmill/compare/v1.246.10...v1.246.11) (2024-01-18)
+
+
+### Bug Fixes
+
+* improve cli script deletion ([20c422c](https://github.com/windmill-labs/windmill/commit/20c422c5467b4188a7618bc4c7c303c70346a5a9))
+
+## [1.246.10](https://github.com/windmill-labs/windmill/compare/v1.246.9...v1.246.10) (2024-01-18)
+
+
+### Bug Fixes
+
+* make cli backcompatible with respect to lockfile ([eb000f1](https://github.com/windmill-labs/windmill/commit/eb000f1fbc697869aab46b3be430c8d56b7a7e8c))
+* make some eval onDemandOnly ([36905da](https://github.com/windmill-labs/windmill/commit/36905daef60d78725d5b78d70e314281ed297565))
+
+## [1.246.9](https://github.com/windmill-labs/windmill/compare/v1.246.8...v1.246.9) (2024-01-17)
+
+
+### Bug Fixes
+
+* avoid too long diffs in cli ([828cdd4](https://github.com/windmill-labs/windmill/commit/828cdd45f08a12071a028052b19503a441f047b1))
+
+## [1.246.8](https://github.com/windmill-labs/windmill/compare/v1.246.7...v1.246.8) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([d00de26](https://github.com/windmill-labs/windmill/commit/d00de2640abfe6265f12ee4f237c9ee5ba3e00db))
+
+## [1.246.7](https://github.com/windmill-labs/windmill/compare/v1.246.6...v1.246.7) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([8a6ea49](https://github.com/windmill-labs/windmill/commit/8a6ea496022ad70c658121e9694b634177dcc578))
+
+## [1.246.6](https://github.com/windmill-labs/windmill/compare/v1.246.5...v1.246.6) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve lockfile handling for cli ([0e9b649](https://github.com/windmill-labs/windmill/commit/0e9b649d03f79cdf6d5bece5dc0ae8072e22f5b0))
+
+## [1.246.5](https://github.com/windmill-labs/windmill/compare/v1.246.4...v1.246.5) (2024-01-17)
+
+
+### Bug Fixes
+
+* improve app push for cli ([e6de809](https://github.com/windmill-labs/windmill/commit/e6de809ff29a9df54af5fef3f425072e24de49ec))
+* lock file in metadata is now a string ([#3027](https://github.com/windmill-labs/windmill/issues/3027)) ([8752dcb](https://github.com/windmill-labs/windmill/commit/8752dcbb191279b44a2b86ee0ed45ab040465b96))
+
+## [1.246.4](https://github.com/windmill-labs/windmill/compare/v1.246.3...v1.246.4) (2024-01-17)
+
+
+### Bug Fixes
+
+* **frontend:** Fix deno logo + add missing onDestroy ([#3025](https://github.com/windmill-labs/windmill/issues/3025)) ([b9de44c](https://github.com/windmill-labs/windmill/commit/b9de44c2b7daf964834af1d3598dbf40971e4a4f))
+* make DisplayResult more resilient ([b42c84d](https://github.com/windmill-labs/windmill/commit/b42c84df40e234436e7fcf30a64317e654bed3ed))
+* wmill app push &lt;path_to_app_file&gt; ([#3024](https://github.com/windmill-labs/windmill/issues/3024)) ([803962a](https://github.com/windmill-labs/windmill/commit/803962a943001ff5f2a58bf36f955cc16e92d2b1))
+
+## [1.246.3](https://github.com/windmill-labs/windmill/compare/v1.246.2...v1.246.3) (2024-01-17)
+
+
+### Bug Fixes
+
+* oidc token generation endpoint GET -&gt; POST ([1f3e374](https://github.com/windmill-labs/windmill/commit/1f3e374b85581da463fda8727d9379d6711b7da8))
+
+## [1.246.2](https://github.com/windmill-labs/windmill/compare/v1.246.1...v1.246.2) (2024-01-17)
+
+
+### Bug Fixes
+
+* oidc token generation endpoint GET -&gt; POST ([3119830](https://github.com/windmill-labs/windmill/commit/3119830062e9d4e30438950e208a2dde4eb12759))
+
+## [1.246.1](https://github.com/windmill-labs/windmill/compare/v1.246.0...v1.246.1) (2024-01-17)
+
+
+### Bug Fixes
+
+* expose getIdToken in python-client ([4604ccd](https://github.com/windmill-labs/windmill/commit/4604ccde7dd656627605b8c55256cc3628235cab))
+* expose getIdToken in typescript-client ([6568c9f](https://github.com/windmill-labs/windmill/commit/6568c9f93aa477c142bde6d989e4eec3a2440687))
+
+## [1.246.0](https://github.com/windmill-labs/windmill/compare/v1.245.1...v1.246.0) (2024-01-17)
+
+
+### Features
+
+* OIDC support ([#3017](https://github.com/windmill-labs/windmill/issues/3017)) ([640ebcb](https://github.com/windmill-labs/windmill/commit/640ebcb146eae371abfa637a4f55fe1919aab013))
+
 ## [1.245.1](https://github.com/windmill-labs/windmill/compare/v1.245.0...v1.245.1) (2024-01-16)
 
 

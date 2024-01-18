@@ -125,22 +125,20 @@
 		} else {
 			await runnableComponent?.runComponent()
 		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, { result: outputs.result.peak(), loading: false })
-		}
 	}
 	let loading = false
 
 	let css = initCss($app.css?.buttoncomponent, customCss)
 </script>
 
-{#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
+{#each Object.entries(components['buttoncomponent'].initialData.configuration) as [key, initialConfig] (key)}
 	<ResolveConfig
 		{id}
 		{extraKey}
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+		{initialConfig}
 	/>
 {/each}
 
@@ -172,6 +170,16 @@
 	{render}
 	{outputs}
 	{extraKey}
+	onSuccess={(r) => {
+		let inputOutput = { result: r, loading: false }
+		if (rowContext && rowInputs) {
+			rowInputs.set(id, inputOutput)
+		}
+		if (iterContext && listInputs) {
+			listInputs.set(id, inputOutput)
+		}
+		console.log('success', r)
+	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
