@@ -67,18 +67,26 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
-  await handleFile(filePath, workspace.workspaceId, []);
+  await handleFile(filePath, workspace.workspaceId, [], undefined, false);
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
 export async function handleScriptMetadata(
   path: string,
   workspace: string,
-  alreadySynced: string[]
+  alreadySynced: string[],
+  message: string | undefined,
+  lockfileUseArray: boolean
 ): Promise<boolean> {
   if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
-    return handleFile(contentPath, workspace, alreadySynced);
+    return handleFile(
+      contentPath,
+      workspace,
+      alreadySynced,
+      message,
+      lockfileUseArray
+    );
   } else {
     return false;
   }
@@ -98,8 +106,12 @@ async function parseMetadataFile(
     try {
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
+      let payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
+      if (Array.isArray(payload?.["lock"])) {
+        payload = payload["lock"].join("\n");
+      }
       return {
-        payload: yamlParse(await Deno.readTextFile(metadataFilePath)),
+        payload,
         isJson: false,
       };
     } catch {
@@ -124,7 +136,8 @@ export async function handleFile(
   path: string,
   workspace: string,
   alreadySynced: string[],
-  message?: string
+  message: string | undefined,
+  lockfileUseArray: boolean
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -169,11 +182,10 @@ export async function handleFile(
             (typed.is_template ?? false) === (remote.is_template ?? false) &&
             typed.kind == remote.kind &&
             !remote.archived &&
-            (remote?.lock ?? "").trim() ==
-              (Array.isArray(typed.lock)
-                ? typed.lock.join("\n")
-                : typed?.lock ?? ""
-              ).trim() &&
+            (Array.isArray(remote?.lock)
+              ? remote?.lock?.join("\n")
+              : remote?.lock ?? ""
+            ).trim() == (typed?.lock ?? "").trim() &&
             deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
@@ -202,7 +214,7 @@ export async function handleFile(
           summary: typed?.summary ?? "",
           is_template: typed?.is_template,
           kind: typed?.kind,
-          lock: typed?.lock,
+          lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: remote.hash,
           schema: typed?.schema,
           tag: typed?.tag,
@@ -229,7 +241,7 @@ export async function handleFile(
           summary: typed?.summary ?? "",
           is_template: typed?.is_template,
           kind: typed?.kind,
-          lock: typed?.lock,
+          lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: undefined,
           schema: typed?.schema,
           tag: typed?.tag,
