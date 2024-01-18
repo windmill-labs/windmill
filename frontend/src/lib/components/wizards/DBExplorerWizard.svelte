@@ -8,6 +8,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { ColumnIdentity, type ColumnDef } from '../apps/components/display/dbtable/utils'
+	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 
 	export let value: ColumnDef | undefined
 
@@ -119,8 +120,12 @@
 </script>
 
 <Popup
-	floatingConfig={{ strategy: 'fixed', placement: 'left-start' }}
-	containerClasses="border rounded-lg shadow-lg bg-surface p-4 h-[512px] max-h-[512px] overflow-y-auto"
+	floatingConfig={{
+		strategy: 'fixed',
+		placement: 'left-start',
+		middleware: [offset(8), flip(), shift()]
+	}}
+	containerClasses="border rounded-lg shadow-lg bg-surface p-4  max-h-[512px] overflow-y-auto"
 >
 	<svelte:fragment slot="button">
 		<slot name="trigger" />
