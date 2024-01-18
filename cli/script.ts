@@ -363,6 +363,31 @@ export function filePathExtensionFromContentType(
   }
 }
 
+export const listValidExtensions = [
+  ".py",
+  ".bun.ts",
+  ".fetch.ts",
+  ".ts",
+  ".go",
+  ".sh",
+  ".my.sql",
+  ".bq.sql",
+  "ms.sql",
+  ".pg.sql",
+  ".sql",
+  ".gql",
+  ".ps1",
+];
+
+export function removeExtensionToPath(path: string): string {
+  for (const ext of listValidExtensions) {
+    if (path.endsWith(ext)) {
+      return path.substring(0, path.length - ext.length);
+    }
+  }
+  throw new Error("Invalid extension: " + path);
+}
+
 export function inferContentTypeFromFilePath(
   contentPath: string
 ): ScriptLanguage {
