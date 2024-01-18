@@ -4,8 +4,8 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Label from '../Label.svelte'
 	import Tooltip from '../Tooltip.svelte'
-
 	import Button from '../common/button/Button.svelte'
+	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 
 	type Column = {
 		minWidth: number
@@ -83,7 +83,11 @@
 </script>
 
 <Popup
-	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
+	floatingConfig={{
+		strategy: 'fixed',
+		placement: 'left-end',
+		middleware: [offset(8), flip(), shift()]
+	}}
 	containerClasses="border rounded-lg shadow-lg bg-surface p-4"
 >
 	<svelte:fragment slot="button">
