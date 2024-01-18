@@ -149,7 +149,6 @@
 	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
-		console.log('toJsonStr', result)
 		return JSON.stringify(result ?? null, null, 4) ?? 'null'
 	}
 
