@@ -519,7 +519,7 @@
 
 				<Skeleton loading={!job} layout={[[5]]} />
 				{#if job}
-					<div class="flex flex-row border rounded-md p-2 mt-2 overflow-auto">
+					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
 						{#if viewTab == 'logs'}
 							<div class="w-full">
 								<LogViewer
