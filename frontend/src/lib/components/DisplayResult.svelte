@@ -378,7 +378,9 @@
 				{/each}
 			</div>
 		{:else if !forceJson && resultKind == 'markdown'}
-			<Markdown md={result} />
+			<div class="prose dark:prose-invert">
+				<Markdown md={result} />
+			</div>
 		{:else if !forceJson && isTableDisplay && richRender}
 			<AutoDataTable objects={result} />
 		{:else if largeObject}
