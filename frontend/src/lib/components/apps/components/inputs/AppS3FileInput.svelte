@@ -16,7 +16,6 @@
 	import { HelpersService, type UploadFilePart } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -82,7 +81,14 @@
 			return
 		}
 
-		const path = (await inputValue?.computeExpr({ file: fileToUpload })) ?? fileToUploadKey
+		let pathTemplate = resolvedConfig?.type?.configuration?.s3?.pathTemplate as any
+
+		const path =
+			typeof pathTemplate == 'function'
+				? (await pathTemplate?.({
+						file: fileToUpload
+				  })) ?? fileToUploadKey
+				: fileToUploadKey
 
 		$fileUploads = $fileUploads.filter((fileUpload) => fileUpload.name !== fileToUpload.name)
 
@@ -196,8 +202,6 @@
 		}
 	}
 
-	let inputValue: InputValue | undefined = undefined
-
 	async function deleteFile(fileKey: string) {
 		await HelpersService.deleteS3File({
 			workspace: $workspaceStore!,
@@ -245,25 +249,27 @@
 	/>
 {/each}
 
-{#each Object.keys(components['s3fileinputcomponent'].initialData.configuration) as key (key)}
+{#each Object.entries(components['s3fileinputcomponent'].initialData.configuration) as [key, value] (key)}
 	<ResolveConfig
 		{id}
 		{extraKey}
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+		initialConfig={value}
 	/>
 {/each}
 
-{#if configuration.type?.['configuration']?.s3.pathTemplate}
+<!-- {#if configuration.type?.['configuration']?.s3.pathTemplate}
 	<InputValue
 		input={configuration.type?.['configuration']?.s3.pathTemplate}
 		{id}
 		field="pathTemplate"
 		value=""
 		bind:this={inputValue}
+		onDemandOnly
 	/>
-{/if}
+{/if} -->
 
 {#if render}
 	<div class="w-full h-full p-2 flex">

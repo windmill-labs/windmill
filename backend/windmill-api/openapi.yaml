@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.246.4
+  version: 1.246.8
   title: Windmill API
 
   contact:
@@ -7625,9 +7625,7 @@ components:
         is_template:
           type: boolean
         lock:
-          type: array
-          items:
-            type: string
+          type: string
         language:
           type: string
           enum:
@@ -9379,7 +9377,7 @@ components:
     RawScriptForDependencies:
       type: object
       properties:
-        content:
+        raw_code:
           type: string
         path:
           type: string
@@ -9402,6 +9400,6 @@ components:
               bun,
             ]
       required:
-        - content
+        - raw_code
         - path
         - language

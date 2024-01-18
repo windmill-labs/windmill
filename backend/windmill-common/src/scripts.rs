@@ -240,7 +240,9 @@ pub struct NewScript {
     pub content: String,
     pub schema: Option<Schema>,
     pub is_template: Option<bool>,
-    pub lock: Option<Vec<String>>,
+    #[serde(default = "Option::default")]
+    #[serde(deserialize_with = "lock_deserialize")]
+    pub lock: Option<String>,
     pub language: ScriptLang,
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
@@ -256,6 +258,52 @@ pub struct NewScript {
     pub delete_after_use: Option<bool>,
     pub restart_unless_cancelled: Option<bool>,
     pub deployment_message: Option<String>,
+}
+
+fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    struct StringOrArrayVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for StringOrArrayVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("either a string or an array of strings")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut split_lock: Vec<String> = vec![];
+            loop {
+                if let Ok(Some(elem)) = seq.next_element::<String>() {
+                    split_lock.push(elem);
+                } else {
+                    break;
+                }
+            }
+            let lock = split_lock.join("\n");
+            return Ok(Some(lock));
+        }
+    }
+    deserializer.deserialize_any(StringOrArrayVisitor)
 }
 
 #[derive(Deserialize)]
