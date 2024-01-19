@@ -77,6 +77,10 @@ lazy_static::lazy_static! {
         .user_agent("windmill/beta")
         .build().unwrap();
 
+    pub static ref HTTP_CLIENT_WORKER: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build().unwrap();
+
     // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
     static ref QUEUE_PUSH_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_push_count",
