@@ -1304,7 +1304,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
             let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
-            sqlx::query!(
+            if let Err(e) = sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2 WHERE worker = $3",
                 jobs_executed,
                 tags.as_slice(),
@@ -1312,7 +1312,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             )
             .execute(db)
             .await
-            .expect("update worker ping");
+            {
+                tracing::error!("failed to update worker ping, exiting: {}", e);
+                killpill_tx.send(()).unwrap_or_default();
+            }
 
             last_ping = Instant::now();
         }

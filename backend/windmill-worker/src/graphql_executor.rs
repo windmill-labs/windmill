@@ -109,7 +109,7 @@ pub async fn do_graphql(
     let result = serde_json::from_slice::<GraphqlResponse>(
         &result_f
             .await
-            .map_err(|e| Error::ExecutionErr("15 timeout for http request".to_string()))??,
+            .map_err(|_| Error::ExecutionErr("15 timeout for http request".to_string()))??,
     )
     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
