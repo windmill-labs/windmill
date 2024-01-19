@@ -27,7 +27,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import ArgInputFileUpload from './common/fileUpload/ArgInputFileUpload.svelte'
+	import FileUpload from './common/fileUpload/FileUpload.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -478,9 +478,10 @@
 					.toLowerCase() == 's3object'}
 				<div class="flex flex-col w-full gap-1">
 					<Toggle
+						class="flex justify-end"
 						bind:checked={s3FileUploadRawMode}
 						size="xs"
-						options={{ right: 'Raw S3 object input' }}
+						options={{ left: 'Raw S3 object input' }}
 					/>
 					{#if s3FileUploadRawMode}
 						<JsonEditor
@@ -504,7 +505,20 @@
 							Choose an object from the catalog
 						</Button>
 					{:else}
-						<ArgInputFileUpload bind:uploadedFile={value} />
+						<FileUpload
+							allowMultiple={false}
+							randomFileKey={true}
+							on:addition={(evt) => {
+								value = {
+									s3: evt.detail?.path ?? ''
+								}
+							}}
+							on:deletion={(evt) => {
+								value = {
+									s3: ''
+								}
+							}}
+						/>
 					{/if}
 				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
