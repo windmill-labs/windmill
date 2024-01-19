@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.248.0](https://github.com/windmill-labs/windmill/compare/v1.247.0...v1.248.0) (2024-01-19)
+
+
+### Features
+
+* improve SCIM support for groups ([77f7fb2](https://github.com/windmill-labs/windmill/commit/77f7fb2dd35c337a3a79fcf9038c73cf3939f85f))
+
+
+### Bug Fixes
+
+* fix rename apps from home menu ([91ea031](https://github.com/windmill-labs/windmill/commit/91ea031f281af8776e94890e80101197f9c71e46))
+
 ## [1.247.0](https://github.com/windmill-labs/windmill/compare/v1.246.15...v1.247.0) (2024-01-19)
 
 
