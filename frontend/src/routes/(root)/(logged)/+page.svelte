@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppService, FlowService, Script, type OpenFlow, WorkspaceService } from '$lib/gen'
+	import { AppService, FlowService, Script, type OpenFlow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -22,8 +22,6 @@
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
-	import { emptyString } from '$lib/utils'
-	import { goto } from '$app/navigation'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -78,19 +76,6 @@
 		})
 		appViewer.openDrawer?.()
 	}
-
-	async function redirectOperators() {
-		if ($workspaceStore && $userStore?.operator) {
-			let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
-				workspace: $workspaceStore!
-			})
-			if (!emptyString(defaultApp.default_app_path)) {
-				goto(`/apps/get/${defaultApp.default_app_path}`)
-			}
-		}
-	}
-
-	$: redirectOperators()
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">

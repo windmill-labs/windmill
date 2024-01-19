@@ -4,7 +4,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
-	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		usersWorkspaceStore,
+		userWorkspaces,
+		workspaceStore,
+		userStore
+	} from '$lib/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -15,6 +21,7 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { Cog, Crown } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { emptyString } from '$lib/utils'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -92,6 +99,25 @@
 	loadWorkspaces()
 
 	let loading = false
+
+	async function speakFriendAndEnterWorkspace(workspaceId: string) {
+		workspaceStore.set(undefined)
+		workspaceStore.set(workspaceId)
+		loading = true
+		if ($userStore?.operator) {
+			let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
+				workspace: $workspaceStore!
+			})
+			if (!emptyString(defaultApp.default_app_path)) {
+				goto(`/apps/get/${defaultApp.default_app_path}`)
+			} else {
+				await goto(rd ?? '/')
+			}
+		} else {
+			await goto(rd ?? '/')
+		}
+		loading = false
+	}
 </script>
 
 {#if $superadmin}
@@ -142,11 +168,7 @@
 					class="block w-full mx-auto py-1 px-2 rounded-md border
 				shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
 					on:click={async () => {
-						workspaceStore.set(undefined)
-						workspaceStore.set(workspace.id)
-						loading = true
-						await goto(rd ?? '/')
-						loading = false
+						speakFriendAndEnterWorkspace(workspace.id)
 					}}
 					><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 					<span class="font-mono">{workspace.username}</span>
