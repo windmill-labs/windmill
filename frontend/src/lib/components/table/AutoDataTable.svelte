@@ -29,7 +29,7 @@
 	let search: string = ''
 
 	let nextId = 1
-	const structuredObjects = objects.map((obj) => {
+	$: structuredObjects = objects.map((obj) => {
 		return {
 			_id: nextId++,
 			rowData: { ...obj }
@@ -372,17 +372,18 @@
 												{value}
 											</a>
 										{:else}
+											{@const txt = typeof value == 'object' ? JSON.stringify(value) : value}
 											<Popover
 												placement="bottom"
 												notClickable
-												disablePopup={typeof value === 'string' && value.length < 50}
+												disablePopup={typeof value === 'string' && value.length < 100}
 											>
 												<div
 													class="max-w-80 text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
 												>
-													{value}
+													{txt.length > 100 ? txt.slice(0, 100) + '...' : txt}
 												</div>
-												<svelte:fragment slot="text">{value}</svelte:fragment>
+												<svelte:fragment slot="text">{txt}</svelte:fragment>
 											</Popover>
 										{/if}
 									</Cell>
