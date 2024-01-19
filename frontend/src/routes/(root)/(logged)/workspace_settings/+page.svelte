@@ -455,8 +455,9 @@
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
 				</Tab>
-				<!-- invisible default app tab as it does not do anything right now -->
-				<!-- it is still accessible by going to /workspace_settings?tab=default_app -->
+				<Tab size="xs" value="default_app">
+					<div class="flex gap-2 items-center my-1"> Default App </div>
+				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
