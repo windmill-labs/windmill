@@ -5035,6 +5035,8 @@ paths:
                   completed:
                     type: boolean
                   result: {}
+                  success:
+                    type: boolean
                   started:
                     type: boolean
                 required:

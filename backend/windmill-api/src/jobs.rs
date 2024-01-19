@@ -3130,6 +3130,12 @@ pub struct RawResult<'a> {
     pub result: &'a JsonRawValue,
 }
 
+#[derive(FromRow)]
+pub struct RawResultWithSuccess<'a> {
+    pub result: &'a JsonRawValue,
+    pub success: bool,
+}
+
 impl<'a> IntoResponse for RawResult<'a> {
     fn into_response(self) -> Response {
         Json(self.result).into_response()
@@ -3170,6 +3176,7 @@ async fn get_completed_job_result(
 #[derive(Serialize)]
 struct CompletedJobResult<'c> {
     started: Option<bool>,
+    success: Option<bool>,
     completed: bool,
     result: Option<&'c JsonRawValue>,
 }
@@ -3184,17 +3191,19 @@ async fn get_completed_job_result_maybe(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
-    let result_o =
-        sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
-            .bind(id)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?;
+    let result_o = sqlx::query(
+        "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?;
 
     if let Some(result) = result_o {
-        let res = RawResult::from_row(&result)?;
+        let res = RawResultWithSuccess::from_row(&result)?;
         Ok(Json(CompletedJobResult {
             started: Some(true),
+            success: Some(res.success),
             completed: true,
             result: Some(res.result),
         })
@@ -3208,15 +3217,21 @@ async fn get_completed_job_result_maybe(
         .fetch_optional(&db)
         .await?
         .unwrap_or(false);
-        Ok(
-            Json(CompletedJobResult { started: Some(started), completed: false, result: None })
-                .into_response(),
-        )
+        Ok(Json(CompletedJobResult {
+            started: Some(started),
+            completed: false,
+            success: None,
+            result: None,
+        })
+        .into_response())
     } else {
-        Ok(
-            Json(CompletedJobResult { started: None, completed: false, result: None })
-                .into_response(),
-        )
+        Ok(Json(CompletedJobResult {
+            started: None,
+            completed: false,
+            success: None,
+            result: None,
+        })
+        .into_response())
     }
 }
 

@@ -7,7 +7,8 @@
 	import type { SupportedLanguage } from '$lib/common'
 
 	export let isLoading = false
-	export let job: { completed: boolean; result: any; id: string } | undefined = undefined
+	export let job: { completed: boolean; result: any; id: string; success?: boolean } | undefined =
+		undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
 	export let isEditor = false
@@ -177,7 +178,7 @@
 					if (currentId === id || allowConcurentRequests) {
 						job = { ...maybe_job, id }
 						await tick()
-						if (typeof job?.result == 'object' && 'error' in (job?.result ?? {})) {
+						if (!job?.success && typeof job?.result == 'object' && 'error' in (job?.result ?? {})) {
 							callbacks?.error()
 							dispatch('doneError', {
 								id,
