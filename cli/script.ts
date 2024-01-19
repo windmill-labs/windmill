@@ -859,8 +859,6 @@ async function generateMetadata(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const language = inferContentTypeFromFilePath(scriptPath);
-
   // read script metadata file
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
@@ -877,7 +875,8 @@ async function generateMetadata(
     string,
     any
   >;
-
+  
+  const language = inferContentTypeFromFilePath(scriptPath);
   if (!opts.lockOnly) {
     await updateScriptSchema(scriptContent, language, metadataParsedContent);
   }
@@ -997,7 +996,7 @@ const command = new Command()
     "generate-metadata",
     "re-generate the metadata file updating the lock and the script schema"
   )
-  .arguments("<path:string>")
+  .arguments("<path_to_script_file:string>")
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
   .action(generateMetadata as any);
