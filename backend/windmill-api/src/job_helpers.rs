@@ -794,7 +794,7 @@ async fn multipart_upload_s3_file(
                     .unwrap_or_default()
                     .as_millis(),
                 rand::random::<u16>(),
-                query.file_extension.unwrap_or("file".to_string())
+                query.file_extension.clone().unwrap_or("file".to_string())
             )
             .to_string()
         }
