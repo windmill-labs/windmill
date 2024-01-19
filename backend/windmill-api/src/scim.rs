@@ -200,24 +200,30 @@ pub async fn create_user(
 pub async fn get_groups(
     Extension(db): Extension<DB>,
     Query(query): Query<ScimQuery>,
-) -> Result<JsonScim<serde_json::Value>> {
+) -> Result<Json<Vec<serde_json::Value>>> {
     let sqlb = SqlBuilder::select_from("instance_group")
-        .fields(&["name"])
+        .fields(&[
+            "name",
+            "external_id",
+            "scim_display_name",
+            "array_remove(array_agg(email_to_igroup.email), null) as emails",
+        ])
+        .right()
+        .join("email_to_igroup")
+        .on("instance_group.name = email_to_igroup.igroup")
+        .group_by("name, external_id")
         .limit(query.count.unwrap_or(100000))
         .offset(query.startIndex.map(|x| x - 1).unwrap_or(0))
         .clone();
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let users = sqlx::query_scalar(&sql)
+    let groups = sqlx::query_as::<_, Group>(&sql)
         .fetch_all(&db)
         .await?
         .into_iter()
-        .map(|x: String| User { id: x.clone(), userName: x, active: true })
+        .map(|x| group_response(x).0)
         .collect();
-    Ok(resource_response(
-        "urn:ietf:params:scim:api:messages:2.0:ListResponse",
-        users,
-    ))
+    Ok(Json(groups))
 }
 
 // {
@@ -231,17 +237,19 @@ pub async fn get_groups(
 // }
 
 #[cfg(feature = "enterprise")]
-#[derive(Serialize)]
-struct Group {
+#[derive(Serialize, sqlx::FromRow)]
+pub struct Group {
     name: String,
     emails: Option<Vec<String>>,
+    external_id: Option<String>,
+    scim_display_name: Option<String>,
 }
 #[cfg(feature = "enterprise")]
 fn group_response(group: Group) -> JsonScim<serde_json::Value> {
     let json = json!({
         "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
-        "displayName": group.name,
-        "id": convert_name(&group.name),
+        "displayName": group.scim_display_name.unwrap_or_default(),
+        "id": group.external_id.unwrap_or_else(|| convert_name(&group.name)),
         "members": group.emails.unwrap_or_default().into_iter().map(|x| json!({"value": x, "display": x})).collect::<Vec<serde_json::Value>>(),
         "meta": {
             "resourceType": "Group"
@@ -258,7 +266,7 @@ pub async fn get_group(
 ) -> Result<JsonScim<serde_json::Value>> {
     let group= sqlx::query_as!(
         Group,
-        "SELECT name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
+        "SELECT name, external_id, scim_display_name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE external_id = $1 group by name, external_id",
         id
     )
     .fetch_optional(&db)
@@ -292,26 +300,41 @@ pub async fn create_group(
     Extension(db): Extension<DB>,
     Json(body): Json<CreateGroup>,
 ) -> Result<JsonScim<serde_json::Value>> {
+    use uuid::Uuid;
+
     tracing::info!("SCIM creating group: {:?}", body);
     let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
+    let id = Uuid::new_v4().to_string();
+    let scim_display_name = Some(body.displayName.clone());
+    let name = convert_name(&body.displayName.clone());
     sqlx::query!(
-        "INSERT INTO instance_group (name) VALUES ($1) ON CONFLICT DO NOTHING",
-        convert_name(&body.displayName)
+        "INSERT INTO instance_group (name, scim_display_name, external_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        name,
+        body.displayName,
+        id,
     )
     .execute(&mut *tx)
     .await?;
+    tracing::info!(
+        "SCIM created group: {} with external_id: {} (display name: {})",
+        name,
+        id,
+        body.displayName
+    );
     for member in &body.members {
         sqlx::query!(
             "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             convert_name(&member.display),
-            body.displayName,
+            name,
         )
         .execute(&mut *tx)
         .await?;
     }
     tx.commit().await?;
     Ok(group_response(Group {
-        name: body.displayName.clone(),
+        external_id: Some(id),
+        name,
+        scim_display_name,
         emails: Some(
             body.members
                 .clone()
@@ -349,45 +372,50 @@ pub async fn update_group(
     if body.schemas.len() == 1 {
         let schema = body.schemas.get(0).unwrap();
         if schema == "urn:ietf:params:scim:schemas:core:2.0:Group" {
-            sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", id)
+            let group= sqlx::query_as!(
+                Group,
+                "SELECT name, external_id, scim_display_name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE external_id = $1 GROUP BY name",
+                id
+            )
+            .fetch_optional(&db)
+            .await?;
+            let mut group = not_found_if_none(group, "Group", id.clone())?;
+
+            sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", group.name)
                 .execute(&mut *tx)
                 .await?;
 
-            let id = if let Some(name) = body.displayName.clone() {
+            let new_name = if let Some(name) = body.displayName.clone() {
+                let new_name = convert_name(name.as_str());
                 sqlx::query!(
-                    "UPDATE instance_group SET name = $1 where name = $2",
-                    convert_name(&name.clone()),
+                    "UPDATE instance_group SET scim_display_name = $1,  name = $2 where external_id = $3",
+                    name,
+                    new_name,
                     id
                 )
                 .execute(&mut *tx)
                 .await?;
-                convert_name(&name)
+                group.scim_display_name = Some(name);
+                new_name
             } else {
-                id
+                group.name.clone()
             };
 
             if let Some(members) = body.members.clone() {
+                let mut emails = vec![];
                 for m in members {
+                    emails.push(m.display.clone());
                     sqlx::query!(
                         "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                         m.display,
-                        id
+                        new_name,
                     )
                     .execute(&mut *tx)
                     .await?;
                 }
                 tx.commit().await?;
-                Ok(group_response(Group {
-                    name: body.displayName.unwrap_or_default(),
-                    emails: Some(
-                        body.members
-                            .unwrap_or_default()
-                            .clone()
-                            .into_iter()
-                            .map(|x| x.display.clone())
-                            .collect(),
-                    ),
-                }))
+                group.emails = Some(emails);
+                Ok(group_response(group))
             } else {
                 Err(Error::BadRequest("expected members".to_string()))
             }
@@ -402,10 +430,15 @@ pub async fn update_group(
 #[cfg(feature = "enterprise")]
 pub async fn delete_group(Extension(db): Extension<DB>, Path(id): Path<String>) -> Result<()> {
     tracing::info!("SCIM delete group: {:?}", id);
-    sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", id)
+    let group = sqlx::query_scalar!("SELECT name FROM instance_group WHERE external_id = $1", id)
+        .fetch_optional(&db)
+        .await?;
+    let group = not_found_if_none(group, "Group", id.clone())?;
+
+    sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", group)
         .execute(&db)
         .await?;
-    sqlx::query!("DELETE FROM instance_group WHERE name = $1", id)
+    sqlx::query!("DELETE FROM instance_group WHERE name = $1", group)
         .execute(&db)
         .await?;
     Ok(())
