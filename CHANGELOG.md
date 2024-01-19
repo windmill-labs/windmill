@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.247.0](https://github.com/windmill-labs/windmill/compare/v1.246.15...v1.247.0) (2024-01-19)
+
+
+### Features
+
+* **frontend:** Rich table display ([#3028](https://github.com/windmill-labs/windmill/issues/3028)) ([54cad28](https://github.com/windmill-labs/windmill/commit/54cad2886b7e5ca26c6da9547376b43daac9e881))
+
+
+### Bug Fixes
+
+* add ability to rename group from scim ([9fefdcc](https://github.com/windmill-labs/windmill/commit/9fefdccc132c4a61ab0a72a86c4dc9bbb23a811e))
+* **frontend:** fix hidden wizards ([#3045](https://github.com/windmill-labs/windmill/issues/3045)) ([b64eb3d](https://github.com/windmill-labs/windmill/commit/b64eb3d8b10ba6ca453715dbf8d18b8ad7e3db17))
+* improve onDemandOnly runnables ([a0d7ea2](https://github.com/windmill-labs/windmill/commit/a0d7ea22b4cd29f47ec308c9c6e2c2d8ab0ed38f))
+
 ## [1.246.15](https://github.com/windmill-labs/windmill/compare/v1.246.14...v1.246.15) (2024-01-18)
 
 
