@@ -772,7 +772,7 @@ async fn update_app(
                 require_owner_of_path(&authed, path)?;
 
                 let exists = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
+                    "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
                     npath,
                     w_id
                 )
@@ -811,10 +811,11 @@ async fn update_app(
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+        tracing::error!("update_app sql: {}", sql);
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {
-        "".to_string()
+        path.to_owned()
     };
     let v_id = if let Some(nvalue) = &ns.value {
         let app_id = sqlx::query_scalar!(
@@ -869,9 +870,9 @@ async fn update_app(
     )
     .await?;
 
-    let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
-        PushIsolationLevel::Transaction(tx);
     if let Some(v_id) = v_id {
+        let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
+            PushIsolationLevel::Transaction(tx);
         let mut args: HashMap<String, serde_json::Value> = HashMap::new();
         if let Some(dm) = ns.deployment_message {
             args.insert("deployment_message".to_string(), json!(dm));
@@ -904,6 +905,8 @@ async fn update_app(
         .await?;
         tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
         new_tx.commit().await?;
+    } else {
+        tx.commit().await?;
     }
 
     webhook.send_message(
