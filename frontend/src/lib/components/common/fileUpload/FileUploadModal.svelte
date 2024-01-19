@@ -1,22 +1,31 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
+	import { classNames, emptyString } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import { FileUp, Loader2, X } from 'lucide-svelte'
+	import { X } from 'lucide-svelte'
+	import FileUpload from './FileUpload.svelte'
 
 	export let title: string
 	export let open: boolean = false
-	export let progressPct: number | undefined = undefined
-	export let errorMsg: string | undefined = undefined
 
 	export let fileKey: string | undefined = undefined
-	export let fileToUpload: File | undefined = undefined
 
+	let s3Folder: string = ''
 	const dispatch = createEventDispatcher()
 
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 100 })
+	}
+
+	function cleanFilePath(rawFolder: string, fileName: string) {
+		if (emptyString(rawFolder)) {
+			return fileName
+		}
+		if (!rawFolder.endsWith('/')) {
+			rawFolder = `${rawFolder}/`
+		}
+		return `${rawFolder}${fileName}`
 	}
 </script>
 
@@ -49,8 +58,8 @@
 								{title}
 							</h3>
 							<Button
-								on:click={() => dispatch('close')}
-								title="Close - This will cancel any upload in progress"
+								on:click={() => dispatch('close', fileKey)}
+								title="Close"
 								color="light"
 								size="sm"
 								iconOnly={true}
@@ -58,63 +67,27 @@
 							/>
 						</div>
 						<div class="flex items-center gap-2">
-							<span>Key: </span>
+							<span>Folder: </span>
 							<input
 								type="text"
-								placeholder="folder/nested/file.txt"
-								bind:value={fileKey}
+								placeholder="folder/nested/"
+								bind:value={s3Folder}
 								class="text-2xl grow"
 							/>
 						</div>
 
 						<div class="w-full h-full">
-							<input
-								type="file"
-								title={fileToUpload ? `${fileToUpload.name}` : 'No file chosen'}
-								on:change={({ currentTarget }) => {
-									if (
-										currentTarget.files === undefined ||
-										currentTarget.files === null ||
-										currentTarget.files.length === 0
-									) {
-										fileToUpload = undefined
-									} else {
-										fileToUpload = currentTarget.files[0]
-										if (fileKey === undefined || fileKey === '') {
-											fileKey = fileToUpload.name
-										}
-									}
+							<FileUpload
+								allowMultiple={true}
+								pathTransformer={(file) => cleanFilePath(s3Folder, file.file.name)}
+								on:addition={(evt) => {
+									fileKey = evt.detail?.path
 								}}
-								accept="*"
-								multiple={false}
+								on:deletion={(evt) => {
+									fileKey = undefined
+								}}
 							/>
 						</div>
-
-						<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-							<div class="h-full bg-blue-400" style="width: {progressPct ?? 0}%" />
-						</div>
-
-						{#if errorMsg !== undefined}
-							<div class="text-red-500 dark:text-red-400 text-sm">
-								{errorMsg}
-							</div>
-						{/if}
-					</div>
-					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						<Button
-							disabled={progressPct !== undefined}
-							on:click={() => dispatch('confirmed')}
-							color="blue"
-							size="sm"
-							startIcon={progressPct !== undefined
-								? { icon: Loader2, classes: 'animate-spin' }
-								: { icon: FileUp }}
-						>
-							<span>Upload</span>
-						</Button>
-						<Button on:click={() => dispatch('canceled')} color="light" size="sm">
-							<span>Cancel</span>
-						</Button>
 					</div>
 				</div>
 			</div>
