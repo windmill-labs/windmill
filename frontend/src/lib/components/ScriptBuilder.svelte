@@ -200,7 +200,8 @@
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
 					delete_after_use: script.delete_after_use,
-					timeout: script.timeout
+					timeout: script.timeout,
+					concurrency_key: script.concurrency_key
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -281,7 +282,8 @@
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
 						delete_after_use: script.delete_after_use,
-						timeout: script.timeout
+						timeout: script.timeout,
+						concurrency_key: script.concurrency_key
 					}
 				})
 			}
@@ -576,7 +578,7 @@
 												type="text"
 												autofocus
 												bind:value={script.concurrency_key}
-												placeholder="custom-concurrency-key"
+												placeholder={`$workspace/script/${script.path}`}
 											/>
 										</Label>
 									</div>

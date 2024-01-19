@@ -7192,6 +7192,38 @@ paths:
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
 
+  /concurrency_groups/list:
+    get:
+      summary: List all concurrency groups
+      operationId: listConcurrencyGroups
+      tags:
+        - concurrencyGroups
+      responses:
+        "200":
+          description: all concurrency groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConcurrencyGroup"
+  /concurrency_groups/{concurrency_id}:
+    delete:
+      summary: Delete concurrency group
+      operationId: deleteConcurrencyGroup
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/ConcurrencyId"
+      responses:
+        "200":
+          description: concurrency group removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -7526,6 +7558,12 @@ components:
       in: query
       schema:
         type: boolean
+    ConcurrencyId:
+      name: concurrency_id
+      in: path
+      required: true
+      schema:
+        type: string
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
@@ -9435,3 +9473,16 @@ components:
         - raw_code
         - path
         - language
+
+    ConcurrencyGroup:
+      type: object
+      properties:
+        concurrency_id:
+          type: string
+        job_uuids:
+          type: array
+          items:
+            type: string
+      required:
+        - concurrency_id
+        - job_uuids

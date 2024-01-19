@@ -64,6 +64,7 @@ pub mod job_metrics;
 pub mod jobs;
 pub mod oauth2;
 
+mod concurrency_groups;
 mod oidc;
 mod openai;
 mod raw_apps;
@@ -247,6 +248,7 @@ pub async fn run_server(
                     "/scim",
                     scim::global_service().route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
+                .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest(
                     "/w/:workspace_id/apps_u",

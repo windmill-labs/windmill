@@ -1786,7 +1786,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String {
     if queued_job.is_flow() {
         // custom concurrency keys are not yet supported for flows
-        queued_job.full_path()
+        queued_job.full_path_with_workspace()
     } else {
         let concurrency_key = sqlx::query_scalar!(
             "SELECT concurrency_key FROM script WHERE hash = $1",
@@ -1795,15 +1795,17 @@ async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String 
         .fetch_one(db)
         .await;
         match concurrency_key {
-            Ok(Some(custom_concurrency_key)) => custom_concurrency_key,
-            Ok(None) => queued_job.full_path(),
+            Ok(Some(custom_concurrency_key)) => {
+                custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str())
+            }
+            Ok(None) => queued_job.full_path_with_workspace(),
             _ => {
                 tracing::warn!(
                     "Unable to retrieve concurrency key for script {:?} | {:?}",
                     queued_job.script_path,
                     queued_job.script_hash
                 );
-                queued_job.full_path()
+                queued_job.full_path_with_workspace()
             }
         }
     }
