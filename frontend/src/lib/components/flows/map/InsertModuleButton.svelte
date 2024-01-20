@@ -78,7 +78,7 @@
 					tabindex="-1"
 				>
 					<CheckCircle2 size={14} />
-					Approval
+					Approval/Prompt
 				</button>
 				<button
 					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
