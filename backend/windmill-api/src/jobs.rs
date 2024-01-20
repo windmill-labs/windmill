@@ -975,7 +975,7 @@ pub async fn resume_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    conditionally_require_authed_user(authed, flow_status)?;
+    conditionally_require_authed_user(authed.clone(), flow_status)?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -991,12 +991,22 @@ pub async fn resume_suspended_job(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
+    let approver = if authed.as_ref().is_none()
+        || (approver
+            .approver
+            .clone()
+            .is_some_and(|x| x != "".to_string()))
+    {
+        approver.approver
+    } else {
+        authed.map(|x| x.username)
+    };
     insert_resume_job(
         resume_id,
         job_id,
         &parent_flow_info,
         value,
-        approver.approver,
+        approver,
         &mut tx,
     )
     .await?;
