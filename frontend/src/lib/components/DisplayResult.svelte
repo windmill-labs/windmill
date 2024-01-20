@@ -204,15 +204,14 @@
 <div class="inline-highlight relative grow min-h-[200px]">
 	{#if result != undefined && length != undefined && largeObject != undefined}
 		{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind)}
-			<div class="top-0 flex flex-row w-full justify-between items-center"
+			<div class="top-1 absolute flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
-				>
-				<slot name="copilot-fix" />
-			</div>
-		{/if}
-		{#if typeof result == 'object' && Object.keys(result).length > 0}
-			<div class="top-0 mb-2 w-full min-w-[400px] text-sm relative"
+				><slot name="copilot-fix" />
+			</div><div
+				class="py-3"
+			/>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+				class="top-1 mb-2 w-full min-w-[400px] text-sm absolute"
 				>{#if !disableExpand}
 					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2 z-10">
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
@@ -231,11 +230,8 @@
 						{/if}
 					</div>
 				{/if}</div
-			>
-		{/if}
-		{#if !forceJson && resultKind == 'table-col'}
+			>{/if}{#if !forceJson && resultKind == 'table-col'}
 			{@const data = 'table-col' in result ? result['table-col'] : result}
-
 			<AutoDataTable objects={transform(data)} />
 		{:else if !forceJson && resultKind == 'table-row'}
 			{@const data = 'table-row' in result ? result['table-row'] : result}
@@ -329,7 +325,7 @@
 				<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
 				<slot />
 			</div>
-		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
+		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
 				<Button
 					color="green"
 					variant="border"
