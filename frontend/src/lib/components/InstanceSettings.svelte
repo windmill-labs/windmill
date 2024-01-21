@@ -173,7 +173,7 @@
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
 						<div class="text-secondary pb-4 text-xs"
-							>Setting SMTP unlock sending emails upon adding new users to the workspace or the
+							>Setting SMTP unlocks sending emails upon adding new users to the workspace or the
 							instance.</div
 						>
 					{:else if category == 'Telemetry'}
