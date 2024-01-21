@@ -350,22 +350,3 @@
 		</Alert>
 	{/if}
 </RunnableWrapper>
-
-<style>
-	/* Define classes for different text sizes */
-	.text-size-normal {
-		font-size: 16px; /* Adjust as needed */
-	}
-	.text-size-compact {
-		font-size: 14px; /* Adjust as needed */
-	}
-	.text-size-comfortable {
-		font-size: 18px; /* Adjust as needed */
-	}
-
-	.ag-row .ag-cell {
-		display: flex;
-		justify-content: center; /* Horizontal alignment */
-		align-items: center; /* Vertical alignment */
-	}
-</style>
