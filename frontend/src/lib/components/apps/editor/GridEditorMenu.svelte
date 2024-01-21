@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 
+	export let id: string
 	let componentCallbacks: ComponentCallbacks | undefined = undefined
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
@@ -54,6 +55,7 @@
 			{
 				label: 'Delete',
 				onClick: () => {
+					$selectedComponent = [id]
 					const btn = document.getElementById('delete-component')
 					btn?.click()
 				},

@@ -137,7 +137,7 @@
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>
-					<GridEditorMenu>
+					<GridEditorMenu id={dataItem.id}>
 						<Component
 							render={true}
 							component={dataItem.data}
