@@ -17,6 +17,7 @@ import {
 } from "./deps.ts";
 import { deepEqual } from "./utils.ts";
 import {
+  ScriptMetadata,
   defaultScriptMetadata,
   scriptBootstrapCode,
 } from "./bootstrap/script_bootstrap.ts";
@@ -67,7 +68,7 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
-  await handleFile(filePath, workspace.workspaceId, [], undefined, false);
+  await handleFile(filePath, workspace.workspaceId, [], undefined, false, opts);
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
@@ -85,7 +86,8 @@ export async function handleScriptMetadata(
       workspace,
       alreadySynced,
       message,
-      lockfileUseArray
+      lockfileUseArray,
+      undefined
     );
   } else {
     return false;
@@ -93,7 +95,8 @@ export async function handleScriptMetadata(
 }
 
 async function parseMetadataFile(
-  scriptPath: string
+  scriptPath: string,
+  generateMetadataIfMissing: (GlobalOptions & { path: string }) | undefined
 ): Promise<{ isJson: boolean; payload: any } | undefined> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
@@ -106,7 +109,7 @@ async function parseMetadataFile(
     try {
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
-      let payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
+      const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
       if (Array.isArray(payload?.["lock"])) {
         payload["lock"] = payload["lock"].join("\n");
       }
@@ -116,14 +119,39 @@ async function parseMetadataFile(
       };
     } catch {
       // no metadata file at all. Create it
+      log.info(
+        colors.blue(`Creating script metadata file for ${metadataFilePath}`)
+      );
       metadataFilePath = scriptPath + ".script.yaml";
-      const scriptInitialMetadata = defaultScriptMetadata();
+      let scriptInitialMetadata = defaultScriptMetadata();
       const scriptInitialMetadataYaml = yamlStringify(
         scriptInitialMetadata as Record<string, any>
       );
       Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
         createNew: true,
       });
+
+      if (generateMetadataIfMissing) {
+        log.info(
+          colors.blue(`Generating lockfile and schema for ${metadataFilePath}`)
+        );
+        try {
+          await generateMetadata(
+            generateMetadataIfMissing,
+            generateMetadataIfMissing.path
+          );
+
+          scriptInitialMetadata = yamlParse(
+            await Deno.readTextFile(metadataFilePath)
+          ) as ScriptMetadata;
+        } catch (e) {
+          log.info(
+            colors.yellow(
+              `Failed to generate lockfile and schema for ${metadataFilePath}: ${e}`
+            )
+          );
+        }
+      }
       return {
         payload: scriptInitialMetadata,
         isJson: false,
@@ -137,7 +165,8 @@ export async function handleFile(
   workspace: string,
   alreadySynced: string[],
   message: string | undefined,
-  lockfileUseArray: boolean
+  lockfileUseArray: boolean,
+  opts: GlobalOptions | undefined
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -158,7 +187,9 @@ export async function handleFile(
     const remotePath = path
       .substring(0, path.indexOf("."))
       .replaceAll("\\", "/");
-    const typed = (await parseMetadataFile(remotePath))?.payload;
+    const typed = (
+      await parseMetadataFile(remotePath, opts ? { ...opts, path } : undefined)
+    )?.payload;
     const language = inferContentTypeFromFilePath(path);
 
     let remote = undefined;
@@ -309,7 +340,9 @@ export async function findContentFile(filePath: string) {
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error("No content path given and no content file found.");
+    throw new Error(
+      `No content path given and no content file found for ${filePath}.`
+    );
   }
   return validCandidates[0];
 }
@@ -430,7 +463,8 @@ export function inferContentTypeFromFilePath(
 export function inferSchema(
   language: ScriptLanguage,
   content: string,
-  currentSchema: any
+  currentSchema: any,
+  path: string
 ) {
   let inferedSchema: any;
   if (language === "python3") {
@@ -487,9 +521,12 @@ export function inferSchema(
     throw new Error("Invalid language: " + language);
   }
   if (inferedSchema.type == "Invalid") {
-    throw new Error(
-      `Script invalid, it cannot be parsed to infer schema. Error was: ${inferedSchema.error}`
+    log.info(
+      colors.yellow(
+        `Script ${path} invalid, it cannot be parsed to infer schema.`
+      )
     );
+    return defaultScriptMetadata().schema;
   }
 
   currentSchema.required = [];
@@ -605,6 +642,7 @@ function argSigToJsonSchemaType(
   if (oldS.type != newS.type) {
     for (const prop of Object.getOwnPropertyNames(newS)) {
       if (prop != "description") {
+        // @ts-ignore: fix
         delete oldS[prop];
       }
     }
@@ -849,7 +887,7 @@ async function bootstrap(
 }
 
 async function generateMetadata(
-  opts: GlobalOptions & { lockOnly: boolean; schemaOnly: boolean },
+  opts: GlobalOptions & { lockOnly?: boolean; schemaOnly?: boolean },
   scriptPath: string
 ) {
   if (!validatePath(scriptPath)) {
@@ -865,7 +903,7 @@ async function generateMetadata(
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
     .replaceAll("\\", "/");
-  const metadataWithType = await parseMetadataFile(remotePath);
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
   if (metadataWithType === undefined) {
     throw new Error("Script metadata file does not exist at this path");
   }
@@ -879,7 +917,12 @@ async function generateMetadata(
   >;
 
   if (!opts.lockOnly) {
-    await updateScriptSchema(scriptContent, language, metadataParsedContent);
+    await updateScriptSchema(
+      scriptContent,
+      language,
+      metadataParsedContent,
+      scriptPath
+    );
   }
 
   if (!opts.schemaOnly) {
@@ -898,20 +941,22 @@ async function generateMetadata(
     metaPath = remotePath + ".script.json";
     newMetadataContent = JSON.stringify(metadataParsedContent);
   }
-  Deno.writeTextFile(metaPath, newMetadataContent);
+  await Deno.writeTextFile(metaPath, newMetadataContent);
 }
 
 async function updateScriptSchema(
   scriptContent: string,
   language: ScriptLanguage,
-  metadataContent: Record<string, any>
+  metadataContent: Record<string, any>,
+  path: string
 ): Promise<void> {
   // infer schema from script content and update it inplace
   await instantiateWasm();
   const newSchema = inferSchema(
     language,
     scriptContent,
-    metadataContent.schema
+    metadataContent.schema,
+    path
   );
   metadataContent.schema = newSchema;
 }
