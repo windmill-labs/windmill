@@ -9645,6 +9645,7 @@ dependencies = [
  "windmill-git-sync",
  "windmill-parser",
  "windmill-parser-py-imports",
+ "windmill-parser-ts",
  "windmill-queue",
 ]
 
