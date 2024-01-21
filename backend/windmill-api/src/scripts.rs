@@ -47,6 +47,7 @@ use windmill_common::{
     },
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_parser_ts::remove_pinned_imports;
 use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
@@ -113,6 +114,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
         .route("/raw/p/*path", get(raw_script_by_path))
+        .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
@@ -871,6 +873,24 @@ async fn raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    raw_script_by_path_internal(path, user_db, authed, w_id, false).await
+}
+
+async fn raw_script_by_path_unpinned(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    raw_script_by_path_internal(path, user_db, authed, w_id, true).await
+}
+
+async fn raw_script_by_path_internal(
+    path: StripPath,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    w_id: String,
+    unpin: bool,
+) -> Result<String> {
     let path = path.to_path();
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
@@ -904,7 +924,12 @@ async fn raw_script_by_path(
     tx.commit().await?;
 
     let content = not_found_if_none(content_o, "Script", path)?;
-    Ok(content)
+
+    if unpin {
+        return Ok(remove_pinned_imports(&content)?);
+    } else {
+        return Ok(content);
+    }
 }
 
 async fn exists_script_by_path(
