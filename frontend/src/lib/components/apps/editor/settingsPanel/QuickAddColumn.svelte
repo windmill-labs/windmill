@@ -20,7 +20,7 @@
 		if (observableOutputs) {
 			observableOutputs?.['result']?.subscribe(
 				{
-					id: 'alloutputs-quickadd-' + id + '-result',
+					id: 'quickadd-' + id + '-result',
 					next: (value) => {
 						result = value
 					}
