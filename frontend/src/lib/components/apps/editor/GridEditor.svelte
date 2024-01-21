@@ -19,6 +19,7 @@
 	import { BG_PREFIX } from '../utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import GridEditorMenu from './GridEditorMenu.svelte'
 
 	export let policy: Policy
 
@@ -94,71 +95,73 @@
 	</div>
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div
-		style={$app.css?.['app']?.['grid']?.style}
-		class={twMerge(
-			'p-2 overflow-visible z-50',
-			$app.css?.['app']?.['grid']?.class ?? '',
-			'wm-app-grid !static h-full w-full'
-		)}
-		on:pointerdown={() => {
-			$selectedComponent = undefined
-			$focusedGrid = undefined
-		}}
-		bind:clientWidth={$parentWidth}
-	>
+	<GridEditorMenu>
 		<div
+			style={$app.css?.['app']?.['grid']?.style}
 			class={twMerge(
-				!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
-				'subgrid  overflow-visible  z-100',
-				'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1 '
+				'p-2 overflow-visible z-50',
+				$app.css?.['app']?.['grid']?.class ?? '',
+				'wm-app-grid !static h-full w-full'
 			)}
-			style={`transform: scale(${$scale / 100});`}
+			on:pointerdown={() => {
+				$selectedComponent = undefined
+				$focusedGrid = undefined
+			}}
+			bind:clientWidth={$parentWidth}
 		>
-			<Grid
-				allIdsInPath={$allIdsInPath}
-				selectedIds={$selectedComponent}
-				items={$app.grid}
-				on:redraw={(e) => {
-					push(history, $app)
-					$app.grid = e.detail
-				}}
-				let:dataItem
-				rowHeight={36}
-				cols={columnConfiguration}
-				gap={[4, 2]}
+			<div
+				class={twMerge(
+					!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
+					'subgrid  overflow-visible  z-100',
+					'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1 '
+				)}
+				style={`transform: scale(${$scale / 100});`}
 			>
-				<ComponentWrapper
-					id={dataItem.id}
-					type={dataItem.data.type}
-					class={classNames(
-						'h-full w-full center-center outline outline-surface-secondary',
-						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
-					)}
+				<Grid
+					allIdsInPath={$allIdsInPath}
+					selectedIds={$selectedComponent}
+					items={$app.grid}
+					on:redraw={(e) => {
+						push(history, $app)
+						$app.grid = e.detail
+					}}
+					let:dataItem
+					rowHeight={36}
+					cols={columnConfiguration}
+					gap={[4, 2]}
 				>
-					<Component
-						render={true}
-						component={dataItem.data}
-						selected={Boolean($selectedComponent?.includes(dataItem.id))}
-						locked={isFixed(dataItem)}
-						on:lock={() => {
-							const gridItem = findGridItem($app, dataItem.id)
-							if (gridItem) {
-								toggleFixed(gridItem)
-							}
-							$app = $app
-						}}
-						on:expand={() => {
-							push(history, $app)
-							$selectedComponent = [dataItem.id]
-							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							$app = $app
-						}}
-					/>
-				</ComponentWrapper>
-			</Grid>
+					<ComponentWrapper
+						id={dataItem.id}
+						type={dataItem.data.type}
+						class={classNames(
+							'h-full w-full center-center outline outline-surface-secondary',
+							Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
+						)}
+					>
+						<Component
+							render={true}
+							component={dataItem.data}
+							selected={Boolean($selectedComponent?.includes(dataItem.id))}
+							locked={isFixed(dataItem)}
+							on:lock={() => {
+								const gridItem = findGridItem($app, dataItem.id)
+								if (gridItem) {
+									toggleFixed(gridItem)
+								}
+								$app = $app
+							}}
+							on:expand={() => {
+								push(history, $app)
+								$selectedComponent = [dataItem.id]
+								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
+							}}
+						/>
+					</ComponentWrapper>
+				</Grid>
+			</div>
 		</div>
-	</div>
+	</GridEditorMenu>
 </div>
 
 {#if $app.hiddenInlineScripts}
