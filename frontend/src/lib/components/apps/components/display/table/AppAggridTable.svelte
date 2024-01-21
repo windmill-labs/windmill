@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GridApi, createGrid } from 'ag-grid-community'
+	import { GridApi, createGrid, type IRowNode } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -242,7 +242,8 @@
 				defaultColDef: {
 					flex: resolvedConfig.flex ? 1 : 0,
 					editable: resolvedConfig?.allEditable,
-					onCellValueChanged
+					onCellValueChanged,
+					cellClass: rowHeightClass(resolvedConfig.compactness)
 				},
 				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
@@ -253,6 +254,34 @@
 		} catch (e) {
 			console.error(e)
 			sendUserToast("Couldn't update the grid:" + e, true)
+		}
+	}
+
+	$: if (resolvedConfig.compactness && api) {
+		const rowHeights = {
+			normal: 40,
+			compact: 30,
+			comfortable: 50
+		}
+
+		for (let i = 0; i < api?.getDisplayedRowCount(); i++) {
+			const node = api?.getRowNode(i.toString()) as IRowNode<any>
+			node?.setRowHeight(rowHeights[resolvedConfig.compactness] ?? rowHeights['normal'])
+
+			api?.onRowHeightChanged()
+		}
+	}
+
+	function rowHeightClass(compactness) {
+		switch (compactness) {
+			case 'normal':
+				return 'text-size-normal'
+			case 'compact':
+				return 'text-size-compact'
+			case 'comfortable':
+				return 'text-size-comfortable'
+			default:
+				return 'text-size-normal'
 		}
 	}
 </script>
@@ -326,3 +355,22 @@
 		</Alert>
 	{/if}
 </RunnableWrapper>
+
+<style>
+	/* Define classes for different text sizes */
+	.text-size-normal {
+		font-size: 16px; /* Adjust as needed */
+	}
+	.text-size-compact {
+		font-size: 14px; /* Adjust as needed */
+	}
+	.text-size-comfortable {
+		font-size: 18px; /* Adjust as needed */
+	}
+
+	.ag-row .ag-cell {
+		display: flex;
+		justify-content: center; /* Horizontal alignment */
+		align-items: center; /* Vertical alignment */
+	}
+</style>
