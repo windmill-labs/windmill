@@ -33,6 +33,7 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import InsertRowRunnable from './InsertRowRunnable.svelte'
 	import DeleteRow from './DeleteRow.svelte'
+	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -392,6 +393,8 @@
 	table={resolvedConfig?.type?.configuration?.postgresql?.table ?? ''}
 	resource={resolvedConfig?.type?.configuration?.postgresql?.resource ?? ''}
 />
+
+<InitializeComponent {id} />
 
 <RunnableWrapper
 	allowConcurentRequests
