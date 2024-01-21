@@ -1,3 +1,5 @@
+import Gitignore from "npm:gitignore-fs";
+
 // windmill
 export { setClient } from "https://deno.land/x/windmill@v1.226.1/mod.ts";
 export * from "https://deno.land/x/windmill@v1.226.1/windmill-api/index.ts";
@@ -40,7 +42,7 @@ export * as cbor from "https://deno.land/x/cbor@v1.4.1/index.js";
 export { default as Murmurhash3 } from "https://deno.land/x/murmurhash@v1.0.0/mod.ts";
 export { default as microdiff } from "https://deno.land/x/microdiff@v1.3.1/index.ts";
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
-export { default as gitignore_parser } from "npm:gitignore-parser";
+export * as ignore from "npm:ignore";
 export { default as JSZip } from "npm:jszip@3.7.1";
 export * as log from "https://deno.land/std@0.186.0/log/mod.ts";
 export {
