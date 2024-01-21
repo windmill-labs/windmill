@@ -440,6 +440,11 @@ export const isWhitelisted = (p: string) => {
 export async function ignoreF() {
   try {
     const ignoreContent = await Deno.readTextFile(".wmillignore");
+    const condensed = ignoreContent
+      .split("\n")
+      .filter((l) => l != "" && !l.startsWith("#"))
+      .join(", ");
+    log.info(colors.gray(`Using .wmillignore file (${condensed})`));
     const ign = ignore.default().add(ignoreContent);
     // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
     return (p: string, isDirectory: boolean) => {
@@ -781,7 +786,8 @@ async function push(
             workspace.workspaceId,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            opts
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -820,7 +826,8 @@ async function push(
             workspace.workspaceId,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            opts
           )
         ) {
           continue;
