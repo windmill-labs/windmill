@@ -279,7 +279,7 @@
 										clientName = ''
 									}}
 								>
-									Add custom SSO client {!$enterpriseLicense ? '(require ee)' : ''}
+									Add custom SSO client {!$enterpriseLicense ? '(requires ee)' : ''}
 								</Button>
 							</div>
 							<h4 class="py-4">OAuth</h4>
@@ -329,7 +329,7 @@
 							<div class="flex gap-2">
 								<select name="oauth_name" id="oauth_name" bind:value={oauth_name}>
 									<option value={undefined}>Select an OAuth client</option>
-									<option value="custom">Fully Custom (require ee)</option>
+									<option value="custom">Fully Custom (requires ee)</option>
 									{#each windmillBuiltins as name}
 										<option value={name}>{capitalize(name)}</option>
 									{/each}
@@ -355,7 +355,7 @@
 									}}
 								>
 									Add OAuth client {oauth_name == 'custom' && !$enterpriseLicense
-										? '(require ee)'
+										? '(requires ee)'
 										: ''}
 								</Button>
 							</div>
