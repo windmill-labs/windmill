@@ -13,6 +13,7 @@
 			color?: string
 			icon: any
 			shortcut?: string
+			disabled?: boolean
 		}[]
 	}
 
@@ -32,11 +33,9 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div on:click={closeContextMenu}>
+<div on:click={closeContextMenu} on:contextmenu={handleRightClick} class="h-full w-full">
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div on:contextmenu={handleRightClick}>
-		<slot />
-	</div>
+	<slot />
 
 	{#if contextMenuVisible}
 		<Portal>
@@ -47,14 +46,19 @@
 						{#each contextMenu.menuItems as item}
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<div
+							<button
 								class={twMerge(
-									'flex items-center p-2 hover:bg-surface-hover cursor-pointer transition-all round',
+									'flex items-center p-2 hover:bg-surface-hover cursor-pointer transition-all rounded-md  w-full',
 									item.color === 'red' && 'text-red-500',
 									item.color === 'green' && 'text-green-500',
-									item.color === 'blue' && 'text-blue-500'
+									item.color === 'blue' && 'text-blue-500',
+									item.disabled && 'opacity-50 cursor-not-allowed'
 								)}
-								on:click={item.onClick}
+								on:click={() => {
+									item.onClick()
+									closeContextMenu()
+								}}
+								disabled={item.disabled}
 							>
 								<!-- svelte-ignore missing-declaration -->
 								<svelte:component this={item.icon} class="w-4 h-4" />
@@ -65,7 +69,7 @@
 										{item.shortcut}
 									</span>
 								{/if}
-							</div>
+							</button>
 						{/each}
 					</div>
 				</div>

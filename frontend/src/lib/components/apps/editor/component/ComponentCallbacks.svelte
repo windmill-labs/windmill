@@ -142,7 +142,7 @@
 		copyGridItemsToClipboard(copiedGridItems)
 	}
 
-	function copyGridItemsToClipboard(items: GridItem[]) {
+	async function copyGridItemsToClipboard(items: GridItem[]) {
 		let allSubgrids = {}
 		for (let item of items) {
 			let subgrids = getAllSubgridsAndComponentIds($app, item.data)[0]
@@ -150,12 +150,15 @@
 				allSubgrids[key] = $app.subgrids?.[key]
 			}
 		}
-		let success = copyToClipboard(
+		let success = await copyToClipboard(
 			JSON.stringify({ type: ITEM_TYPE, items, subgrids: allSubgrids }),
 			false
 		)
+
 		if (!success) {
 			sendUserToast('Could not copy to clipboard. Are you in an unsecure context?', true)
+		} else {
+			sendUserToast('Copied to clipboard')
 		}
 	}
 

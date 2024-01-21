@@ -4,8 +4,13 @@
 	import { ArrowLeft, ArrowRight, Copy, Scissors, Trash } from 'lucide-svelte'
 	import ContextMenu from '$lib/components/ContextMenu.svelte'
 	import ComponentCallbacks from './component/ComponentCallbacks.svelte'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 
 	let componentCallbacks: ComponentCallbacks | undefined = undefined
+
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 <ComponentCallbacks bind:this={componentCallbacks} />
@@ -18,7 +23,8 @@
 					componentCallbacks?.handleCut(new KeyboardEvent('keydown'))
 				},
 				icon: Scissors,
-				shortcut: `${getModifierKey()} + X`
+				shortcut: `${getModifierKey()} + X`,
+				disabled: $movingcomponents?.includes($selectedComponent?.[0] ?? '')
 			},
 			{
 				label: 'Copy',
@@ -47,7 +53,10 @@
 
 			{
 				label: 'Delete',
-				onClick: () => {},
+				onClick: () => {
+					const btn = document.getElementById('delete-component')
+					btn?.click()
+				},
 				icon: Trash,
 				shortcut: `${getModifierKey()} + Del`,
 				color: 'red'

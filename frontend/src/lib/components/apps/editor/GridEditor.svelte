@@ -95,49 +95,49 @@
 	</div>
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<GridEditorMenu>
+	<div
+		style={$app.css?.['app']?.['grid']?.style}
+		class={twMerge(
+			'p-2 overflow-visible z-50',
+			$app.css?.['app']?.['grid']?.class ?? '',
+			'wm-app-grid !static h-full w-full'
+		)}
+		on:pointerdown={() => {
+			$selectedComponent = undefined
+			$focusedGrid = undefined
+		}}
+		bind:clientWidth={$parentWidth}
+	>
 		<div
-			style={$app.css?.['app']?.['grid']?.style}
 			class={twMerge(
-				'p-2 overflow-visible z-50',
-				$app.css?.['app']?.['grid']?.class ?? '',
-				'wm-app-grid !static h-full w-full'
+				!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
+				'subgrid  overflow-visible  z-100',
+				'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1 '
 			)}
-			on:pointerdown={() => {
-				$selectedComponent = undefined
-				$focusedGrid = undefined
-			}}
-			bind:clientWidth={$parentWidth}
+			style={`transform: scale(${$scale / 100});`}
 		>
-			<div
-				class={twMerge(
-					!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
-					'subgrid  overflow-visible  z-100',
-					'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1 '
-				)}
-				style={`transform: scale(${$scale / 100});`}
+			<Grid
+				allIdsInPath={$allIdsInPath}
+				selectedIds={$selectedComponent}
+				items={$app.grid}
+				on:redraw={(e) => {
+					push(history, $app)
+					$app.grid = e.detail
+				}}
+				let:dataItem
+				rowHeight={36}
+				cols={columnConfiguration}
+				gap={[4, 2]}
 			>
-				<Grid
-					allIdsInPath={$allIdsInPath}
-					selectedIds={$selectedComponent}
-					items={$app.grid}
-					on:redraw={(e) => {
-						push(history, $app)
-						$app.grid = e.detail
-					}}
-					let:dataItem
-					rowHeight={36}
-					cols={columnConfiguration}
-					gap={[4, 2]}
+				<ComponentWrapper
+					id={dataItem.id}
+					type={dataItem.data.type}
+					class={classNames(
+						'h-full w-full center-center outline outline-surface-secondary',
+						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
+					)}
 				>
-					<ComponentWrapper
-						id={dataItem.id}
-						type={dataItem.data.type}
-						class={classNames(
-							'h-full w-full center-center outline outline-surface-secondary',
-							Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
-						)}
-					>
+					<GridEditorMenu>
 						<Component
 							render={true}
 							component={dataItem.data}
@@ -157,11 +157,11 @@
 								$app = $app
 							}}
 						/>
-					</ComponentWrapper>
-				</Grid>
-			</div>
+					</GridEditorMenu>
+				</ComponentWrapper>
+			</Grid>
 		</div>
-	</GridEditorMenu>
+	</div>
 </div>
 
 {#if $app.hiddenInlineScripts}
