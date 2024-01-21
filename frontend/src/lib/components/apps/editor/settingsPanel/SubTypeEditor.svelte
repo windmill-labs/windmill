@@ -5,6 +5,7 @@
 	export let value: any
 	export let componentInput: StaticInput<any>
 	export let subFieldType: InputType | undefined
+	export let id: string | undefined
 
 	let fakeComponentInput: StaticInput<any> = {
 		...componentInput,
@@ -15,4 +16,9 @@
 	$: fakeComponentInput && (value = fakeComponentInput.value)
 </script>
 
-<StaticInputEditor fieldType={subFieldType} bind:componentInput={fakeComponentInput} on:remove />
+<StaticInputEditor
+	{id}
+	fieldType={subFieldType}
+	bind:componentInput={fakeComponentInput}
+	on:remove
+/>

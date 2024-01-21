@@ -225,6 +225,7 @@
 						<div class="flex flex-col w-full gap-2 mt-2">
 							{#if componentSettings.item.data.componentInput.type === 'static'}
 								<StaticInputEditor
+									id={component.id}
 									fieldType={componentInput?.fieldType}
 									subFieldType={componentInput?.subFieldType}
 									format={componentInput?.format}
