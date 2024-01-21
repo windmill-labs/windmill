@@ -157,6 +157,7 @@
 		{:else if componentInput?.type === 'static'}
 			<div class={'w-full flex flex-row-reverse'}>
 				<StaticInputEditor
+					{id}
 					{fieldType}
 					{subFieldType}
 					{selectOptions}
