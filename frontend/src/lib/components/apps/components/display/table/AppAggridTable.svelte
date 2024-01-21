@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GridApi, createGrid, type IRowNode } from 'ag-grid-community'
+	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -229,6 +229,13 @@
 			onSelectionChanged(api)
 		}
 	}
+
+	const rowHeights = {
+		normal: 40,
+		compact: 30,
+		comfortable: 50
+	}
+
 	function updateOptions() {
 		try {
 			api?.updateGridOptions({
@@ -249,6 +256,9 @@
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 					? resolvedConfig.rowMultiselectWithClick
 					: undefined,
+				rowHeight: resolvedConfig.compactness
+					? rowHeights[resolvedConfig.compactness]
+					: rowHeights['normal'],
 				...(resolvedConfig?.extraConfig ?? {})
 			})
 		} catch (e) {
@@ -257,22 +267,7 @@
 		}
 	}
 
-	$: if (resolvedConfig.compactness && api) {
-		const rowHeights = {
-			normal: 40,
-			compact: 30,
-			comfortable: 50
-		}
-
-		for (let i = 0; i < api?.getDisplayedRowCount(); i++) {
-			const node = api?.getRowNode(i.toString()) as IRowNode<any>
-			node?.setRowHeight(rowHeights[resolvedConfig.compactness] ?? rowHeights['normal'])
-
-			api?.onRowHeightChanged()
-		}
-	}
-
-	function rowHeightClass(compactness) {
+	function rowHeightClass(compactness: string | undefined) {
 		switch (compactness) {
 			case 'normal':
 				return 'text-size-normal'
