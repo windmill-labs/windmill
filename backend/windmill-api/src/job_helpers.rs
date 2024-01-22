@@ -883,6 +883,7 @@ async fn multipart_upload_s3_file(
                 .create_multipart_upload()
                 .bucket(&bucket)
                 .key(&file_key)
+                .expires()
                 .send()
                 .await
                 .map_err(|err| {
