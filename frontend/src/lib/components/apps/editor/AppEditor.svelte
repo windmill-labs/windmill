@@ -223,9 +223,14 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
+				} else if (item?.data.type === 'steppercomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex:
+							($worldStore.outputsById?.[befSelected]?.currentStepIndex?.peak() as number) ?? 0
+					}
 				} else if (
 					item?.data.type === 'tabscomponent' ||
-					item?.data.type === 'steppercomponent' ||
 					item?.data.type === 'conditionalwrapper'
 				) {
 					$focusedGrid = {

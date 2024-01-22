@@ -56,7 +56,8 @@ pub async fn test_email(
     require_super_admin(&db, &authed.email).await?;
     let smtp = test_email.smtp;
     let to = test_email.to;
-    let client = SmtpClientBuilder::new(smtp.host, smtp.port).implicit_tls(smtp.tls_implicit);
+    let client = SmtpClientBuilder::new(smtp.host, smtp.port)
+        .implicit_tls(smtp.tls_implicit.unwrap_or(false));
     let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
         if !username.is_empty() {
             client.credentials((username, password))
