@@ -124,7 +124,7 @@ export function moveItem(active, items, cols) {
 	// console.log(JSON.stringify(item), JSON.stringify(active), JSON.stringify(cols), 3, cols)
 
 	// Create matrix from the items expect the active
-	let matrix = makeMatrixFromItemsIgnore(items, [item.id], getRowsCount(items, cols), cols)
+	let matrix = makeMatrixFromItemsIgnore(items, [active.id], getRowsCount(items, cols), cols)
 	// Getting the ids of items under active Array<String>
 	const closeBlocks = findCloseBlocks(matrix, item)
 	// Getting the objects of items under active Array<Object>
