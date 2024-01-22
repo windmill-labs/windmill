@@ -260,6 +260,7 @@ pub struct NewScript {
     pub delete_after_use: Option<bool>,
     pub restart_unless_cancelled: Option<bool>,
     pub deployment_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
 }
 

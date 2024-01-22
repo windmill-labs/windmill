@@ -8,6 +8,7 @@
 	import {
 		cleanValueProperties,
 		emptySchema,
+		emptyString,
 		encodeState,
 		getModifierKey,
 		orderedJsonStringify
@@ -201,7 +202,7 @@
 					restart_unless_cancelled: script.restart_unless_cancelled,
 					delete_after_use: script.delete_after_use,
 					timeout: script.timeout,
-					concurrency_key: script.concurrency_key
+					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -283,7 +284,9 @@
 						restart_unless_cancelled: script.restart_unless_cancelled,
 						delete_after_use: script.delete_after_use,
 						timeout: script.timeout,
-						concurrency_key: script.concurrency_key
+						concurrency_key: emptyString(script.concurrency_key)
+							? undefined
+							: script.concurrency_key
 					}
 				})
 			}
