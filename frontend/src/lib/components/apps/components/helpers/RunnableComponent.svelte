@@ -134,7 +134,7 @@
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
 		if (refreshEnabled && $initialized.initialized) {
-			console.debug(`Refreshing ${id} because ${_src} (enabled)`)
+			// console.debug(`Refreshing ${id} because ${_src} (enabled)`)
 			setDebouncedExecute()
 		}
 	}

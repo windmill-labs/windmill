@@ -133,7 +133,9 @@
 			css = currentAppStore.theme.css
 		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme.path) {
 			let loadedCss = await getTheme(workspace, currentAppStore.theme.path)
-			css = loadedCss.value
+			if (loadedCss) {
+				css = loadedCss.value
+			}
 		}
 	}
 

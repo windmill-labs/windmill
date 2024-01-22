@@ -4,7 +4,7 @@ import {
   Command,
   Confirm,
   ensureDir,
-  gitignore_parser,
+  ignore,
   JSZip,
   path,
   ScriptService,
@@ -439,15 +439,20 @@ export const isWhitelisted = (p: string) => {
 };
 export async function ignoreF() {
   try {
-    const ignore: {
-      accepts(file: string): boolean;
-      denies(file: string): boolean;
-    } = gitignore_parser.compile(await Deno.readTextFile(".wmillignore"));
-
+    const ignoreContent = await Deno.readTextFile(".wmillignore");
+    const condensed = ignoreContent
+      .split("\n")
+      .filter((l) => l != "" && !l.startsWith("#"))
+      .join(", ");
+    log.info(colors.gray(`Using .wmillignore file (${condensed})`));
+    const ign = ignore.default().add(ignoreContent);
+    // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
     return (p: string, isDirectory: boolean) => {
+      p = path.relative(Deno.cwd(), p);
+
       return (
         !isWhitelisted(p) &&
-        (isNotWmillFile(p, isDirectory) || (!isDirectory && ignore.denies(p)))
+        (isNotWmillFile(p, isDirectory) || (!isDirectory && ign.ignores(p)))
       );
     };
   } catch {
@@ -781,7 +786,8 @@ async function push(
             workspace.workspaceId,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            opts
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -820,7 +826,8 @@ async function push(
             workspace.workspaceId,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            opts
           )
         ) {
           continue;

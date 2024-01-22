@@ -20,7 +20,7 @@
 				object[k] = undefined
 				output?.subscribe(
 					{
-						id: 'alloutputs' + suffix + componentId + '-' + k,
+						id: 'alloutputs-' + suffix + componentId + '-' + k,
 						next: (value) => {
 							if (!hasContent) {
 								hasContent = true
