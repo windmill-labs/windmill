@@ -376,7 +376,6 @@ export function insertNewGridItem(
 
 	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
-
 	return id
 }
 
