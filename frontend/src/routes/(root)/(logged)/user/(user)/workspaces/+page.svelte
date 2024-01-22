@@ -22,6 +22,7 @@
 	import { Cog, Crown } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
+	import { getUserExt } from '$lib/user'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -101,9 +102,10 @@
 	let loading = false
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
+		loading = true
 		workspaceStore.set(undefined)
 		workspaceStore.set(workspaceId)
-		loading = true
+		$userStore = await getUserExt($workspaceStore!)
 		if ($userStore?.operator) {
 			let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 				workspace: $workspaceStore!

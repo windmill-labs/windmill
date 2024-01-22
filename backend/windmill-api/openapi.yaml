@@ -1196,6 +1196,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/WorkspaceGitSync"
+                  default_app:
+                    type: string
                 required:
                   - code_completion_enabled
 

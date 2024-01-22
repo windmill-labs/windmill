@@ -1538,6 +1538,8 @@ paths:
                       required: &ref_17
                         - script_path
                         - git_repo_resource_path
+                  default_app:
+                    type: string
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:

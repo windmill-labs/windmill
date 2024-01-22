@@ -279,6 +279,7 @@
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
+		workspaceDefaultAppPath = settings.default_app
 		s3ResourceInitialPath =
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
@@ -953,12 +954,19 @@ git push</code
 				>
 			</div>
 		{:else if tab == 'default_app'}
-			<PageHeader title="Workspace default app" primary={false} />
+			<PageHeader
+				title="Workspace default app"
+				tooltip="Operators will be redirected to this app automatically upon login into this workspace"
+				primary={false}
+			/>
 			{#if !$enterpriseLicense}
 				<Alert type="info" title="Windmill EE only feature">
 					Default app can only be set on Windmill Enterprise Edition.
 				</Alert>
 			{/if}
+			<Alert type="info" title="Windmill EE only feature">
+				Make sure the default app is shared with all operators before turning this feature on.
+			</Alert>
 			<div class="mt-5 flex gap-1">
 				{#key workspaceDefaultAppPath}
 					<ScriptPicker

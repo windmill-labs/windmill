@@ -10,7 +10,7 @@
 	import { onMount } from 'svelte'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, parseQueryParams } from '$lib/utils'
+	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -116,7 +116,14 @@
 
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
-				goto(rd ?? '/')
+				let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
+					workspace: $workspaceStore!
+				})
+				if (!emptyString(defaultApp.default_app_path)) {
+					goto(`/apps/get/${defaultApp.default_app_path}`)
+				} else {
+					goto(rd ?? '/')
+				}
 			} else if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
