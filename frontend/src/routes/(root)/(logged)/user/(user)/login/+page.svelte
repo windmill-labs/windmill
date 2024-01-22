@@ -116,11 +116,16 @@
 
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
-				let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
-					workspace: $workspaceStore!
-				})
-				if (!emptyString(defaultApp.default_app_path)) {
-					goto(`/apps/get/${defaultApp.default_app_path}`)
+
+				if ($userStore?.operator) {
+					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
+						workspace: $workspaceStore!
+					})
+					if (!emptyString(defaultApp.default_app_path)) {
+						goto(`/apps/get/${defaultApp.default_app_path}`)
+					} else {
+						goto(rd ?? '/')
+					}
 				} else {
 					goto(rd ?? '/')
 				}
