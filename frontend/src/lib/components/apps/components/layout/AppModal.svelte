@@ -88,7 +88,6 @@
 
 <InitializeComponent {id} />
 
-{open}
 {#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
