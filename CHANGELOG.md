@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.251.0](https://github.com/windmill-labs/windmill/compare/v1.250.0...v1.251.0) (2024-01-22)
+
+
+### Features
+
+* Download button for s3 files ([#3059](https://github.com/windmill-labs/windmill/issues/3059)) ([376038d](https://github.com/windmill-labs/windmill/commit/376038d70b04fe012566872bee6a4cc4b46db0c7))
+
 ## [1.250.0](https://github.com/windmill-labs/windmill/compare/v1.249.0...v1.250.0) (2024-01-22)
 
 
