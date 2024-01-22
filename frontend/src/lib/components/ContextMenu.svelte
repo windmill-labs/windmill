@@ -1,4 +1,9 @@
+<script context="module" lang="ts">
+	const openedContextMenus = new Set() as Set<() => void>
+</script>
+
 <script lang="ts">
+	import { clickOutside } from '$lib/utils'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
 
@@ -20,6 +25,15 @@
 	function handleRightClick(event: MouseEvent) {
 		event.preventDefault()
 		contextMenuVisible = true
+
+		openedContextMenus.forEach((close) => close())
+
+		openedContextMenus.clear()
+
+		openedContextMenus.add(() => {
+			contextMenuVisible = false
+		})
+
 		menuX = event.clientX
 		menuY = event.clientY
 	}
@@ -29,7 +43,15 @@
 	}
 
 	export let contextMenu: ContextMenu = { menuItems: [] }
+
+	function handleClickOutside(event: MouseEvent) {
+		if (contextMenuVisible) {
+			closeContextMenu()
+		}
+	}
 </script>
+
+<svelte:window on:click={handleClickOutside} />
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -41,7 +63,7 @@
 		<Portal>
 			<div style="position: fixed; top: {menuY}px; left: {menuX}px; z-index:6000;">
 				<div class="rounded-md bg-surface border shadow-md divide-y w-64">
-					<div class="p-1">
+					<div class="p-1" use:clickOutside={false}>
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						{#each contextMenu.menuItems as item}
 							<!-- svelte-ignore a11y-no-static-element-interactions -->

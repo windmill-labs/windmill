@@ -139,10 +139,13 @@
 			.map((x) => findGridItem($app, x))
 			.filter((x) => x != undefined) as GridItem[]
 
-		copyGridItemsToClipboard(copiedGridItems)
+		copyGridItemsToClipboard(copiedGridItems, 'copy')
 	}
 
-	async function copyGridItemsToClipboard(items: GridItem[]) {
+	async function copyGridItemsToClipboard(
+		items: GridItem[],
+		type: 'copy' | 'cut' | undefined = undefined
+	) {
 		let allSubgrids = {}
 		for (let item of items) {
 			let subgrids = getAllSubgridsAndComponentIds($app, item.data)[0]
@@ -157,8 +160,9 @@
 
 		if (!success) {
 			sendUserToast('Could not copy to clipboard. Are you in an unsecure context?', true)
-		} else {
-			sendUserToast('Copied to clipboard')
+		} else if (type) {
+			const text = type == 'copy' ? 'Copied' : 'Cut'
+			sendUserToast(`${text} ${items.length} component${items.length > 1 ? 's' : ''}`)
 		}
 	}
 
@@ -172,7 +176,7 @@
 		let gridItems = $selectedComponent
 			.map((x) => findGridItem($app, x))
 			.filter((x) => x != undefined) as GridItem[]
-		copyGridItemsToClipboard(gridItems)
+		copyGridItemsToClipboard(gridItems, 'cut')
 
 		if (!gridItems) {
 			return
