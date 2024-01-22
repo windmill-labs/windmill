@@ -79,7 +79,6 @@
 				fileKey: string
 				contentPreview: string | undefined
 				contentType: string | undefined
-				downloadUrl: string | undefined
 		  }
 		| undefined = undefined
 
@@ -194,8 +193,7 @@
 			filePreview = {
 				fileKey: fileKey,
 				contentPreview: filePreviewContent,
-				contentType: filePreviewRaw.content_type,
-				downloadUrl: filePreviewRaw.download_url
+				contentType: filePreviewRaw.content_type
 			}
 		}
 		filePreviewLoading = false
@@ -258,6 +256,18 @@
 		filePreview = undefined
 		reloadContent()
 		drawer.openDrawer?.()
+	}
+
+	export async function downloadS3File(fileKey: string | undefined) {
+		if (fileKey === undefined) {
+			return
+		}
+		const downloadUrl = await HelpersService.generateDownloadUrl({
+			workspace: $workspaceStore!,
+			fileKey: fileKey
+		})
+		console.log('download URL ', downloadUrl.download_url)
+		window.open(downloadUrl.download_url, '_blank')
 	}
 
 	async function reloadContent() {
@@ -454,7 +464,9 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={filePreview.downloadUrl}
+											on:click={() => {
+												downloadS3File(fileMetadata?.fileKey)
+											}}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
 										/>
