@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.250.0](https://github.com/windmill-labs/windmill/compare/v1.249.0...v1.250.0) (2024-01-22)
+
+
+### Features
+
+* deprecate .wmillignore in favor of wmill.yaml/includes ([b8defbc](https://github.com/windmill-labs/windmill/commit/b8defbcfc68181397ae50daba6616df26e4383fd))
+
+
+### Bug Fixes
+
+* fix initialization callback of AppDbexplorer ([1fcdad7](https://github.com/windmill-labs/windmill/commit/1fcdad7f7b284d0a66db57df0582c89a146ef653))
+
 ## [1.249.0](https://github.com/windmill-labs/windmill/compare/v1.248.0...v1.249.0) (2024-01-21)
 
 
