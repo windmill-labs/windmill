@@ -399,7 +399,7 @@ checksum = "beec3f8fb8f710b7be84ccd1716e17f38f2868168355cab5f2f168ae988e767e"
 dependencies = [
  "base64 0.21.7",
  "bytes",
- "http",
+ "http 0.2.11",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -578,9 +578,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "aws-config"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e64b72d4bdbb41a73d27709c65a25b6e4bfc8321bf70fa3a8b19ce7d4eb81b0"
+checksum = "91bb1df3e5f0e47475498570cdd10ab0370bc1d7af3151aa0161d5f5876b6908"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -598,7 +598,7 @@ dependencies = [
  "bytes",
  "fastrand 2.0.1",
  "hex",
- "http",
+ "http 0.2.11",
  "hyper",
  "ring 0.17.7",
  "time",
@@ -609,9 +609,9 @@ dependencies = [
 
 [[package]]
 name = "aws-credential-types"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a7cb3510b95492bd9014b60e2e3bee3e48bc516e220316f8e6b60df18b47331"
+checksum = "d67c6836a1009b23e3f4cd1457c83e0aa49a490d9c3033b53c3f7b8cf2facc0f"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
@@ -621,15 +621,15 @@ dependencies = [
 
 [[package]]
 name = "aws-http"
-version = "0.60.2"
+version = "0.60.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a95d41abe4e941399fdb4bc2f54713eac3c839d98151875948bb24e66ab658f2"
+checksum = "a081f0c4576f7549dd255987d2d23920eccaa90cdd21d6440f91e0d7537f0e0d"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "http-body",
  "pin-project-lite",
  "tracing",
@@ -637,9 +637,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233cca219c6705d525ace011d6f9bc51aaf32fce5b4c41661d2d7ff22d9b4d49"
+checksum = "ab7bf4b9b083e6dc86e2bb4fb09a4daca97e12cc0bc174a6f51fe624c23aa87f"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -651,7 +651,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "fastrand 2.0.1",
- "http",
+ "http 0.2.11",
  "percent-encoding",
  "tracing",
  "uuid 1.7.0",
@@ -678,7 +678,7 @@ dependencies = [
  "aws-smithy-xml",
  "aws-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "http-body",
  "once_cell",
  "percent-encoding",
@@ -689,9 +689,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee41005e0f3a19ae749c7953d9e1f1ef8d2183f76f64966e346fa41c1ba0ed44"
+checksum = "865b1b85249196e4868a48a4b6683d60e19b82371b869297bc9982bc9f47de4b"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -704,7 +704,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "once_cell",
  "regex-lite",
  "tracing",
@@ -712,9 +712,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa08168f8a27505e7b90f922c32a489feb1f2133878981a15138bebc849ac09c"
+checksum = "beadaf5c48f5d923329ec87b7db6eea5e4ce2af4cc9f96d9f85d520f34573f40"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -727,7 +727,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "once_cell",
  "regex-lite",
  "tracing",
@@ -735,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29102eff04d50ef70f11a48823db33e33c6cc5f027bfb6ff4864efbd5f1f66f3"
+checksum = "262a6d40c8e11eea633ba541a39745cebfcee9c1683020cee63413048b5c6188"
 dependencies = [
  "aws-credential-types",
  "aws-http",
@@ -751,7 +751,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-smithy-xml",
  "aws-types",
- "http",
+ "http 0.2.11",
  "once_cell",
  "regex-lite",
  "tracing",
@@ -759,9 +759,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b92384b39aedb258aa734fe0e7b2ffcd13f33e68227251a72cd2635e0acc8f1a"
+checksum = "511879249616f30e30fd2fa81edb4833784f65dd5d56053b7de2e2bcb583dda7"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-eventstream",
@@ -773,7 +773,8 @@ dependencies = [
  "form_urlencoded",
  "hex",
  "hmac",
- "http",
+ "http 0.2.11",
+ "http 1.0.0",
  "once_cell",
  "p256 0.11.1",
  "percent-encoding",
@@ -808,7 +809,7 @@ dependencies = [
  "crc32c",
  "crc32fast",
  "hex",
- "http",
+ "http 0.2.11",
  "http-body",
  "md-5 0.10.6",
  "pin-project-lite",
@@ -840,7 +841,7 @@ dependencies = [
  "bytes",
  "bytes-utils",
  "futures-core",
- "http",
+ "http 0.2.11",
  "http-body",
  "once_cell",
  "percent-encoding",
@@ -881,7 +882,7 @@ dependencies = [
  "bytes",
  "fastrand 2.0.1",
  "h2",
- "http",
+ "http 0.2.11",
  "http-body",
  "hyper",
  "hyper-rustls",
@@ -902,7 +903,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-types",
  "bytes",
- "http",
+ "http 0.2.11",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -919,7 +920,7 @@ dependencies = [
  "bytes",
  "bytes-utils",
  "futures-core",
- "http",
+ "http 0.2.11",
  "http-body",
  "itoa",
  "num-integer",
@@ -943,15 +944,15 @@ dependencies = [
 
 [[package]]
 name = "aws-types"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8549aa62c5b7db5c57ab915200ee214b4f5d8f19b29a4a8fa0b3ad3bca1380e3"
+checksum = "ee2739d97d47f47cdf0d27982019a405dcc736df25925d1a75049f1faa79df88"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-async",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
- "http",
+ "http 0.2.11",
  "rustc_version 0.4.0",
  "tracing",
 ]
@@ -968,7 +969,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "headers",
- "http",
+ "http 0.2.11",
  "http-body",
  "hyper",
  "itoa",
@@ -998,7 +999,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
- "http",
+ "http 0.2.11",
  "http-body",
  "mime",
  "rustversion",
@@ -2170,7 +2171,7 @@ dependencies = [
  "deno_core",
  "deno_tls",
  "dyn-clone",
- "http",
+ "http 0.2.11",
  "reqwest",
  "serde",
  "tokio",
@@ -3402,7 +3403,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http",
+ "http 0.2.11",
  "indexmap 2.1.0",
  "slab",
  "tokio",
@@ -3471,7 +3472,7 @@ dependencies = [
  "base64 0.21.7",
  "bytes",
  "headers-core",
- "http",
+ "http 0.2.11",
  "httpdate",
  "mime",
  "sha1",
@@ -3483,7 +3484,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
- "http",
+ "http 0.2.11",
 ]
 
 [[package]]
@@ -3563,13 +3564,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "http"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b32afd38673a8016f7c9ae69e5af41a58f81b1d31689040f2f1959594ce194ea"
+dependencies = [
+ "bytes",
+ "fnv",
+ "itoa",
+]
+
+[[package]]
 name = "http-body"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ceab25649e9960c0311ea418d17bee82c0dcec1bd053b5f9a66e265a693bed2"
 dependencies = [
  "bytes",
- "http",
+ "http 0.2.11",
  "pin-project-lite",
 ]
 
@@ -3589,7 +3601,7 @@ dependencies = [
  "async-channel 1.9.0",
  "base64 0.13.1",
  "futures-lite 1.13.0",
- "http",
+ "http 0.2.11",
  "infer",
  "pin-project-lite",
  "rand 0.7.3",
@@ -3629,7 +3641,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http",
+ "http 0.2.11",
  "http-body",
  "httparse",
  "httpdate",
@@ -3649,7 +3661,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
 dependencies = [
  "futures-util",
- "http",
+ "http 0.2.11",
  "hyper",
  "log",
  "rustls 0.21.10",
@@ -4675,7 +4687,7 @@ dependencies = [
  "base64 0.13.1",
  "chrono",
  "getrandom 0.2.12",
- "http",
+ "http 0.2.11",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -4780,7 +4792,7 @@ dependencies = [
  "dyn-clone",
  "ed25519-dalek",
  "hmac",
- "http",
+ "http 0.2.11",
  "itertools 0.10.5",
  "log",
  "oauth2",
@@ -5865,7 +5877,7 @@ source = "git+https://github.com/oxidecomputer/progenitor?rev=3d96016ae8d422e905
 dependencies = [
  "getopts",
  "heck",
- "http",
+ "http 0.2.11",
  "indexmap 1.9.3",
  "openapiv3",
  "proc-macro2",
@@ -6309,7 +6321,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http",
+ "http 0.2.11",
  "http-body",
  "hyper",
  "hyper-rustls",
@@ -8759,7 +8771,7 @@ dependencies = [
  "axum-core",
  "cookie",
  "futures-util",
- "http",
+ "http 0.2.11",
  "parking_lot",
  "pin-project-lite",
  "tower-layer",
@@ -8776,7 +8788,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http",
+ "http 0.2.11",
  "http-body",
  "http-range-header",
  "pin-project-lite",
@@ -9541,7 +9553,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9577,7 +9589,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9651,7 +9663,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9669,7 +9681,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9682,7 +9694,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9716,7 +9728,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "rsmq_async",
  "serde",
@@ -9730,7 +9742,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9738,7 +9750,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9749,7 +9761,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9761,7 +9773,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9772,7 +9784,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.0",
@@ -9783,7 +9795,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9800,7 +9812,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9811,7 +9823,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9829,7 +9841,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9847,7 +9859,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9880,7 +9892,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.250.0"
+version = "1.251.0"
 dependencies = [
  "anyhow",
  "async-recursion",
