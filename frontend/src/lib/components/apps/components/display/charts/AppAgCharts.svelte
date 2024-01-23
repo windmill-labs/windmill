@@ -216,6 +216,8 @@
 
 	let AgChartsInstance: any | undefined = undefined
 
+	$: license && loadLibrary()
+
 	async function loadLibrary() {
 		if (ee) {
 			const enterprise = await import('ag-charts-enterprise')

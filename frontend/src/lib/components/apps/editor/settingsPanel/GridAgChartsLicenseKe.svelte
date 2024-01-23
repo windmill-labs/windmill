@@ -1,30 +1,15 @@
 <script lang="ts">
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-
 	export let license: string
 
-	let valid = false
-	$: license && checkLicenseKey(license)
-
-	async function checkLicenseKey(key: string) {
-		try {
-			const { AgCharts } = await import('ag-charts-enterprise')
-
-			// @ts-ignore
-			valid = AgCharts.licenseKey
-		} catch (e) {
-			console.error(e)
-		}
-	}
+	let initial = license
 </script>
 
 <div class="p-2">
 	<span class="text-xs font-semibold">AgCharts EE License Key</span>
 	<input type="text" bind:value={license} placeholder="AgCharts Enterprise" />
-
-	{#if valid}
-		<Badge color="green">Valid</Badge>
-	{:else}
-		<Badge color="red">Invalid</Badge>
+	{#if initial != license}
+		<div class="text-yellow-500 text-xs"
+			>Please reload the page to see the effect of the new license key</div
+		>
 	{/if}
 </div>
