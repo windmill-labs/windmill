@@ -2,7 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
-	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
+	import { copyToClipboard, emptyString, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { ClipboardCopy, Download, Expand, PanelRightOpen, Table2 } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
@@ -10,6 +10,8 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -199,6 +201,18 @@
 
 		return result
 	}
+
+	async function downloadS3File(fileKey: string | undefined) {
+		if (emptyString(fileKey)) {
+			return
+		}
+		const downloadUrl = await HelpersService.generateDownloadUrl({
+			workspace: $workspaceStore!,
+			fileKey: fileKey!
+		})
+		console.log('download URL ', downloadUrl.download_url)
+		window.open(downloadUrl.download_url, '_blank')
+	}
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
@@ -350,6 +364,13 @@
 				<button
 					class="text-secondary underline text-2xs whitespace-nowrap"
 					on:click={() => {
+						downloadS3File(result?.s3)
+					}}
+					><span class="flex items-center gap-1"><Download size={12} />download</span>
+				</button>
+				<button
+					class="text-secondary underline text-2xs whitespace-nowrap"
+					on:click={() => {
 						s3FileViewer?.open?.(result)
 					}}
 					><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
@@ -359,6 +380,13 @@
 			<div class="absolute top-1 h-full w-full">
 				{#each result as s3object}
 					<Highlight class="" language={json} code={toJsonStr(s3object).replace(/\\n/g, '\n')} />
+					<button
+						class="text-secondary underline text-2xs whitespace-nowrap"
+						on:click={() => {
+							downloadS3File(result?.s3)
+						}}
+						><span class="flex items-center gap-1"><Download size={12} />download</span>
+					</button>
 					<button
 						class="text-secondary text-2xs whitespace-nowrap"
 						on:click={() => {

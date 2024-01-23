@@ -13,7 +13,7 @@ from typing import Dict, Any, Union, Literal
 
 import httpx
 
-from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings
+from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
 
 _client: "Windmill | None" = None
 
@@ -368,20 +368,76 @@ class Windmill:
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
                 json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
             ).json()
-            endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
-            boto3_settings = Boto3ConnectionSettings(
-                {
-                    "endpoint_url": "{}{}".format(endpoint_url_prefix, s3_resource["endPoint"]),
-                    "region_name": s3_resource["region"],
-                    "use_ssl": s3_resource["useSSL"],
-                    "aws_access_key_id": s3_resource["accessKey"],
-                    "aws_secret_access_key": s3_resource["secretKey"],
-                    # no need for path_style here as boto3 is clever enough to determine which one to use
-                }
-            )
-            return boto3_settings
+            return self.__boto3_connection_settings(s3_resource)
         except JSONDecodeError as e:
-            raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
+            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
+
+    def load_s3_file(self, s3object: S3Object, s3_resource_path: str = ""):
+        """
+        Load a file from the workspace s3 bucket and returns the bytes stream.
+
+        '''python
+        from wmill import S3Object
+
+        s3_obj = S3Object(s3="/path/to/my_file.txt")
+        my_obj = client.load_s3_file(s3_obj)
+        file_content = my_obj["Body"].read().decode("utf-8")
+        '''
+        """
+        try:
+            s3_resource = self.post(
+                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
+                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+            ).json()
+        except JSONDecodeError as e:
+            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
+
+        import boto3
+
+        args = self.__boto3_connection_settings(s3_resource)
+        s3client = boto3.client("s3", **args)
+        bucket = s3_resource["bucket"]
+        return s3client.get_object(bucket, Key=s3object["s3"])
+
+    def write_s3_file(self, s3object: S3Object, file_content: bytes, s3_resource_path: str = ""):
+        """
+        Write a file to the workspace S3 bucket
+
+        '''python
+        from wmill import S3Object
+
+        s3_obj = S3Object(s3="/path/to/my_file.txt")
+        file_content = b'Hello Windmill!'
+        client.write_s3_file(s3_obj, file_content)
+        '''
+        """
+        try:
+            s3_resource = self.post(
+                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
+                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+            ).json()
+        except JSONDecodeError as e:
+            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
+
+        import boto3
+
+        args = self.__boto3_connection_settings(s3_resource)
+        s3client = boto3.client("s3", **args)
+        bucket = s3_resource["bucket"]
+        s3client.put_object(bucket, Key=s3object["s3"], Body=file_content)
+
+    def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
+        endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
+        return Boto3ConnectionSettings(
+            {
+                "endpoint_url": "{}{}".format(endpoint_url_prefix, s3_resource["endPoint"]),
+                "region_name": s3_resource["region"],
+                "use_ssl": s3_resource["useSSL"],
+                "aws_access_key_id": s3_resource["accessKey"],
+                "aws_secret_access_key": s3_resource["secretKey"],
+                # no need for path_style here as boto3 is clever enough to determine which one to use
+            }
+        )
 
     def whoami(self) -> dict:
         return self.get("/users/whoami").json()
@@ -581,6 +637,7 @@ def get_id_token(audience: str) -> str:
     Get a JWT token for the given audience for OIDC purposes to login into third parties like AWS, Vault, GCP, etc.
     """
     return _client.get_id_token(audience)
+
 
 @init_global_client
 def get_job_status(job_id: str) -> JobStatus:

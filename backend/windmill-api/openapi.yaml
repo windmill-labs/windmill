@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.250.0
+  version: 1.251.1
   title: Windmill API
 
   contact:
@@ -7009,6 +7009,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/generate_download_url:
+    get:
+      summary: Generate a unique URL to download the file
+      operationId: generateDownloadUrl
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Download URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  download_url:
+                    type: string
+                required:
+                  - download_url
+
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
       summary: Permanently delete file from S3
@@ -9281,8 +9307,6 @@ components:
         content_type:
           type: string
           enum: ["RawText", "Csv", "Parquet", "Unknown"]
-        download_url:
-          type: string
       required:
         - content_type
 
