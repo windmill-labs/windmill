@@ -286,6 +286,28 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
 
 lazy_static::lazy_static! {
     static ref RE_SNK_CASE: Regex = Regex::new(r"_(\d)").unwrap();
+     static ref IMPORTS_VERSION: Regex = Regex::new(r"^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@(?:[^\/]+))?(.*)$").unwrap();
+
+}
+
+pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
+    let imports = parse_expr_for_imports(code)?;
+    let mut content = code.to_string();
+    for import in imports {
+        let to_c = IMPORTS_VERSION.captures(&import);
+        if let Some(to) = to_c.and_then(|x| {
+            x.get(1).map(|y| {
+                format!(
+                    "{}{}",
+                    y.as_str(),
+                    x.get(2).map(|z| z.as_str()).unwrap_or("")
+                )
+            })
+        }) {
+            content = content.replace(&import, &to);
+        }
+    }
+    Ok(content)
 }
 
 fn to_snake_case(s: &str) -> String {

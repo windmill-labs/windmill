@@ -2040,7 +2040,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         NextStatus::AllFlowJobs { iterator, branchall, .. } => FlowStatusModule::InProgress {
             job: flow_job.id,
             iterator,
-            flow_jobs: Some(uuids),
+            flow_jobs: Some(uuids.clone()),
             branch_chosen: None,
             branchall,
             id: status_module.id(),
@@ -2108,7 +2108,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     };
 
     tx.commit().await?;
-    tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed");
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
 
     if continue_on_same_worker {
         if !is_one_uuid {

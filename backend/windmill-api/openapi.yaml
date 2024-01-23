@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.248.0
+  version: 1.251.1
   title: Windmill API
 
   contact:
@@ -5083,6 +5083,8 @@ paths:
                   completed:
                     type: boolean
                   result: {}
+                  success:
+                    type: boolean
                   started:
                     type: boolean
                 required:
@@ -7055,6 +7057,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/generate_download_url:
+    get:
+      summary: Generate a unique URL to download the file
+      operationId: generateDownloadUrl
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Download URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  download_url:
+                    type: string
+                required:
+                  - download_url
+
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
       summary: Permanently delete file from S3
@@ -7211,6 +7239,38 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
+
+  /concurrency_groups/list:
+    get:
+      summary: List all concurrency groups
+      operationId: listConcurrencyGroups
+      tags:
+        - concurrencyGroups
+      responses:
+        "200":
+          description: all concurrency groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConcurrencyGroup"
+  /concurrency_groups/{concurrency_id}:
+    delete:
+      summary: Delete concurrency group
+      operationId: deleteConcurrencyGroup
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/ConcurrencyId"
+      responses:
+        "200":
+          description: concurrency group removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
 
 components:
   securitySchemes:
@@ -7546,6 +7606,12 @@ components:
       in: query
       schema:
         type: boolean
+    ConcurrencyId:
+      name: concurrency_id
+      in: path
+      required: true
+      schema:
+        type: string
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
@@ -7726,6 +7792,8 @@ components:
         delete_after_use:
           type: boolean
         deployment_message:
+          type: string
+        concurrency_key:
           type: string
       required:
         - path
@@ -9327,8 +9395,6 @@ components:
         content_type:
           type: string
           enum: ["RawText", "Csv", "Parquet", "Unknown"]
-        download_url:
-          type: string
       required:
         - content_type
 
@@ -9455,3 +9521,16 @@ components:
         - raw_code
         - path
         - language
+
+    ConcurrencyGroup:
+      type: object
+      properties:
+        concurrency_id:
+          type: string
+        job_uuids:
+          type: array
+          items:
+            type: string
+      required:
+        - concurrency_id
+        - job_uuids

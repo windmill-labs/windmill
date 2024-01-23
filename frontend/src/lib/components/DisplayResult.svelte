@@ -2,7 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
-	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
+	import { copyToClipboard, emptyString, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { ClipboardCopy, Download, Expand, PanelRightOpen, Table2 } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
@@ -10,6 +10,8 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -199,20 +201,31 @@
 
 		return result
 	}
+
+	async function downloadS3File(fileKey: string | undefined) {
+		if (emptyString(fileKey)) {
+			return
+		}
+		const downloadUrl = await HelpersService.generateDownloadUrl({
+			workspace: $workspaceStore!,
+			fileKey: fileKey!
+		})
+		console.log('download URL ', downloadUrl.download_url)
+		window.open(downloadUrl.download_url, '_blank')
+	}
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
 	{#if result != undefined && length != undefined && largeObject != undefined}
 		{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind)}
-			<div class="top-0 flex flex-row w-full justify-between items-center"
+			<div class="top-1 absolute flex flex-row w-full justify-between items-center"
 				><div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
-				>
-				<slot name="copilot-fix" />
-			</div>
-		{/if}
-		{#if typeof result == 'object' && Object.keys(result).length > 0}
-			<div class="top-0 mb-2 w-full min-w-[400px] text-sm relative"
+				><slot name="copilot-fix" />
+			</div><div
+				class="py-3"
+			/>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+				class="top-1 mb-2 w-full min-w-[400px] text-sm absolute"
 				>{#if !disableExpand}
 					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2 z-10">
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
@@ -231,11 +244,8 @@
 						{/if}
 					</div>
 				{/if}</div
-			>
-		{/if}
-		{#if !forceJson && resultKind == 'table-col'}
+			>{/if}{#if !forceJson && resultKind == 'table-col'}
 			{@const data = 'table-col' in result ? result['table-col'] : result}
-
 			<AutoDataTable objects={transform(data)} />
 		{:else if !forceJson && resultKind == 'table-row'}
 			{@const data = 'table-row' in result ? result['table-row'] : result}
@@ -329,7 +339,7 @@
 				<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
 				<slot />
 			</div>
-		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
+		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
 				<Button
 					color="green"
 					variant="border"
@@ -354,6 +364,13 @@
 				<button
 					class="text-secondary underline text-2xs whitespace-nowrap"
 					on:click={() => {
+						downloadS3File(result?.s3)
+					}}
+					><span class="flex items-center gap-1"><Download size={12} />download</span>
+				</button>
+				<button
+					class="text-secondary underline text-2xs whitespace-nowrap"
+					on:click={() => {
 						s3FileViewer?.open?.(result)
 					}}
 					><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
@@ -363,6 +380,13 @@
 			<div class="absolute top-1 h-full w-full">
 				{#each result as s3object}
 					<Highlight class="" language={json} code={toJsonStr(s3object).replace(/\\n/g, '\n')} />
+					<button
+						class="text-secondary underline text-2xs whitespace-nowrap"
+						on:click={() => {
+							downloadS3File(result?.s3)
+						}}
+						><span class="flex items-center gap-1"><Download size={12} />download</span>
+					</button>
 					<button
 						class="text-secondary text-2xs whitespace-nowrap"
 						on:click={() => {

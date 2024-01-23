@@ -13,7 +13,7 @@
 
 <div class="w-full">
 	<div class="flex flex-row justify-between items-center mb-2">
-		<h2 class="text-base font-semibold flex flex-row gap-1">
+		<h2 class="text-base font-semibold flex flex-row items-center gap-1">
 			{#if collapsable}
 				<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
 					{#if collapsed}

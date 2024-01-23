@@ -934,7 +934,7 @@
 					<pre class="overflow-auto max-h-screen"
 						><code
 							>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
-echo 'u/' > .wmillignore
+echo 'includes: ["f/**"]' > wmill.yaml
 wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
 git add -A
 git commit -m 'Initial commit'

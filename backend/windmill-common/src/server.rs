@@ -9,7 +9,7 @@ pub struct Smtp {
     pub password: Option<String>,
     pub port: u16,
     pub from: String,
-    pub tls_implicit: bool,
+    pub tls_implicit: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -40,7 +40,7 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
             host,
             username,
             password,
-            tls_implicit: config.smtp_tls_implicit.unwrap_or(false),
+            tls_implicit: config.smtp_tls_implicit,
             port: config.smtp_port.unwrap_or(587),
             from: config
                 .smtp_from
@@ -61,8 +61,7 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
                 password,
                 tls_implicit: std::env::var("SMTP_TLS_IMPLICIT")
                     .ok()
-                    .and_then(|p| p.parse().ok())
-                    .unwrap_or(false),
+                    .and_then(|p| p.parse().ok()),
                 port: std::env::var("SMTP_PORT")
                     .ok()
                     .and_then(|p| p.parse().ok())

@@ -9541,7 +9541,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -9577,7 +9577,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9602,7 +9602,7 @@ dependencies = [
  "hf-hub",
  "hmac",
  "hyper",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -9645,12 +9645,13 @@ dependencies = [
  "windmill-git-sync",
  "windmill-parser",
  "windmill-parser-py-imports",
+ "windmill-parser-ts",
  "windmill-queue",
 ]
 
 [[package]]
 name = "windmill-api-client"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9668,7 +9669,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "chrono",
  "serde",
@@ -9681,7 +9682,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9693,7 +9694,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "magic-crypt",
  "prometheus",
@@ -9715,7 +9716,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "rsmq_async",
  "serde",
@@ -9729,7 +9730,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -9737,7 +9738,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9748,11 +9749,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -9760,7 +9761,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9771,10 +9772,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -9782,11 +9783,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "phf 0.11.2",
  "regex",
@@ -9799,7 +9800,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9810,7 +9811,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9828,7 +9829,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9846,19 +9847,19 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "async-recursion",
  "axum",
- "bigdecimal 0.4.2",
+ "bigdecimal 0.3.1",
  "chrono",
  "chrono-tz",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "lazy_static",
  "prometheus",
  "regex",
@@ -9879,7 +9880,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.248.0"
+version = "1.251.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9901,7 +9902,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.12.0",
+ "itertools 0.9.0",
  "jsonwebtoken",
  "lazy_static",
  "mysql_async",

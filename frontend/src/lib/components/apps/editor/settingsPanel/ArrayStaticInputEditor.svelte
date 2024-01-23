@@ -13,6 +13,7 @@
 	export let componentInput: StaticInput<any[]>
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
+	export let id: string | undefined
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -253,6 +254,7 @@
 					<div class="flex flex-row gap-2 items-center relative my-1 w-full">
 						<div class="grow min-w-0">
 							<SubTypeEditor
+								{id}
 								subFieldType={raw ? 'object' : subFieldType}
 								bind:componentInput
 								bind:value={item.value}
@@ -292,6 +294,7 @@
 		</Button>
 		{#if subFieldType === 'table-column' || subFieldType == 'ag-grid'}
 			<QuickAddColumn
+				{id}
 				columns={componentInput.value?.map((item) => item.field)}
 				on:add={({ detail }) => {
 					if (!componentInput.value) componentInput.value = []
@@ -315,40 +318,4 @@
 			/>
 		{/if}
 	{/if}
-	<!-- {#if subFieldType === 'db-explorer'}
-		<SynchronizeColumns
-			columns={componentInput.value?.map((item) => item.field)}
-			on:add={({ detail }) => {
-				if (!Array.isArray(detail)) {
-					return
-				}
-
-				if (detail.length === 0) {
-					return
-				}
-
-				componentInput.value = []
-				items = []
-
-				detail.forEach((col) => {
-					if (!componentInput.value) componentInput.value = []
-					if (subFieldType === 'table-column') {
-						componentInput.value.push({ field: col, headerName: col, type: 'text' })
-					} else if (subFieldType === 'ag-grid') {
-						componentInput.value.push({ field: col, headerName: col, flex: 1 })
-					} else if (subFieldType === 'db-explorer') {
-						componentInput.value.push({ field: col, headerName: col, flex: 1 })
-					}
-					componentInput = componentInput
-
-					if (componentInput.value) {
-						items.push({
-							value: componentInput.value[componentInput.value.length - 1],
-							id: generateRandomString()
-						})
-					}
-				})
-			}}
-		/>
-	{/if} -->
 </div>

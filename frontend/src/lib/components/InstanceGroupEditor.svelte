@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { GroupService, UserService, type InstanceGroup } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import AutoComplete from 'simple-svelte-autocomplete'
+	import { GroupService, type InstanceGroup } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import { Button } from './common'
@@ -11,23 +9,18 @@
 
 	export let name: string
 
+	let email = ''
 	let instance_group: InstanceGroup | undefined
 	let members: { member_email: string }[] | undefined = undefined
-	let usernames: string[] | undefined = []
-	let username: string = ''
 
 	const dispatch = createEventDispatcher()
-
-	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
-	}
 
 	$: {
 		load()
 	}
 
 	async function load() {
-		return Promise.all([loadInstanceGroup(), loadUsernames()])
+		return Promise.all([loadInstanceGroup()])
 	}
 
 	async function loadInstanceGroup(): Promise<void> {
@@ -67,7 +60,7 @@
 		</div>
 		<h2>Members ({members?.length ?? 0})</h2>
 		<div class="flex items-start">
-			<AutoComplete noInputStyles items={usernames} bind:selectedItem={username} />
+			<input type="text" placeholder="john@acme.com" bind:value={email} />
 			<Button
 				variant="contained"
 				color="blue"
@@ -76,7 +69,7 @@
 				on:click={async () => {
 					await GroupService.addUserToInstanceGroup({
 						name,
-						requestBody: { email: username }
+						requestBody: { email: email }
 					})
 					dispatch('update')
 					sendUserToast('User added')

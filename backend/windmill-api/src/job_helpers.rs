@@ -29,6 +29,7 @@ use polars::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
+use windmill_common::error::JsonResult;
 use windmill_common::{
     db::UserDB,
     error,
@@ -76,6 +77,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/load_file_preview",
             get(load_file_preview).layer(cors.clone()),
+        )
+        .route(
+            "/generate_download_url",
+            get(generate_download_url).layer(cors.clone()),
         )
         .route(
             "/delete_s3_file",
@@ -450,7 +455,6 @@ struct LoadFilePreviewResponse {
     pub content: Option<String>,
     pub content_type: WindmillContentType,
     pub msg: Option<String>,
-    pub download_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -543,19 +547,6 @@ async fn load_file_preview(
             )
         };
 
-    // URL expires 30 minutes after its generation
-    let presigned_config = PresigningConfig::expires_in(Duration::from_secs(60 * 30))
-        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
-    let download_url = s3_client
-        .get_object()
-        .bucket(&s3_bucket)
-        .key(&file_key)
-        .presigned(presigned_config)
-        .await
-        .map_err(|err| error::Error::InternalErr(err.to_string()))?
-        .uri()
-        .to_string();
-
     let file_chunk_length = if s3_object_content_length.is_some() {
         cmp::min(
             query.read_bytes_length,
@@ -645,18 +636,59 @@ async fn load_file_preview(
             content_type: content_type,
             content: Some(content),
             msg: None,
-            download_url: Some(download_url),
         },
 
         Err(err) => LoadFilePreviewResponse {
             content_type: content_type,
             content: None,
             msg: Some(err.to_string()),
-            download_url: Some(download_url),
         },
     };
 
     return Ok(Json(response));
+}
+
+#[derive(Deserialize)]
+struct GenerateDownloadUrlQuery {
+    pub file_key: String,
+}
+
+#[derive(Serialize)]
+struct GenerateDownloadUrlResponse {
+    pub download_url: String,
+}
+
+async fn generate_download_url(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Query(query): Query<GenerateDownloadUrlQuery>,
+) -> JsonResult<GenerateDownloadUrlResponse> {
+    let file_key = query.file_key.clone();
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+
+    let s3_client = build_s3_client(&s3_resource);
+    let s3_bucket = s3_resource.bucket.clone();
+
+    // URL expires 5 minutes after its generation
+    let presigned_config = PresigningConfig::expires_in(Duration::from_secs(60 * 5))
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+    let download_url = s3_client
+        .get_object()
+        .bucket(&s3_bucket)
+        .key(&file_key)
+        .presigned(presigned_config)
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?
+        .uri()
+        .to_string();
+
+    return Ok(Json(GenerateDownloadUrlResponse { download_url }));
 }
 
 #[derive(Deserialize)]
@@ -794,7 +826,7 @@ async fn multipart_upload_s3_file(
                     .unwrap_or_default()
                     .as_millis(),
                 rand::random::<u16>(),
-                query.file_extension.unwrap_or("file".to_string())
+                query.file_extension.clone().unwrap_or("file".to_string())
             )
             .to_string()
         }

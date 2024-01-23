@@ -265,6 +265,13 @@ export async function main(approver?: string) {
   return wmill.getResumeUrls(approver)
 }`
 
+export const PYTHON_INIT_CODE_APPROVAL = `import wmill
+
+def main():
+  urls = wmill.get_resume_urls()
+  return urls
+`
+
 export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
@@ -355,6 +362,8 @@ export function initialCode(
 	} else if (language === 'python3') {
 		if (kind === 'trigger') {
 			return PYTHON_INIT_CODE_TRIGGER
+		} else if (kind === 'approval') {
+			return PYTHON_INIT_CODE_APPROVAL
 		} else if (subkind === 'flow') {
 			return PYTHON_INIT_CODE_CLEAR
 		} else if (kind === 'failure') {

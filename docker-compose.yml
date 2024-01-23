@@ -80,7 +80,7 @@ services:
       db:
         condition: service_healthy
 
-  ## This worker is specialized for reports or scrapping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  ## This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
   #   pull_policy: always
