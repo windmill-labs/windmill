@@ -956,7 +956,7 @@ git push</code
 		{:else if tab == 'default_app'}
 			<PageHeader
 				title="Workspace default app"
-				tooltip="Operators will be redirected to this app automatically upon login into this workspace"
+				tooltip="Users who are operators in this workspace will be redirected to this app automatically when login into this workspace."
 				primary={false}
 			/>
 			{#if !$enterpriseLicense}
@@ -964,8 +964,9 @@ git push</code
 					Default app can only be set on Windmill Enterprise Edition.
 				</Alert>
 			{/if}
-			<Alert type="info" title="Windmill EE only feature">
-				Make sure the default app is shared with all operators before turning this feature on.
+			<Alert type="info" title="Default app must be accessible to all operators">
+				Make sure the default app is shared with all the operators of this workspace before turning
+				this feature on.
 			</Alert>
 			<div class="mt-5 flex gap-1">
 				{#key workspaceDefaultAppPath}

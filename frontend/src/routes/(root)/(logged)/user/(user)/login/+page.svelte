@@ -115,7 +115,8 @@
 			const allWorkspaces = $usersWorkspaceStore?.workspaces.filter((x) => x.id != 'admins')
 
 			if (allWorkspaces?.length == 1) {
-				$workspaceStore = allWorkspaces[0].id
+				workspaceStore.set(allWorkspaces[0].id)
+				$userStore = await getUserExt($workspaceStore!)
 
 				if ($userStore?.operator) {
 					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
