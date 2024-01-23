@@ -6,8 +6,8 @@ import {
   OidcService,
 } from "./index";
 import { OpenAPI } from "./index";
-import type { DenoS3LightClientSettings } from "./index";
-import { S3Object } from "./s3Types";
+// import type { DenoS3LightClientSettings } from "./index";
+import { DenoS3LightClientSettings } from "./s3Types";
 
 export {
   AdminService,
@@ -24,7 +24,6 @@ export {
   UserService,
   WorkspaceService,
 } from "./index";
-import { S3Client } from 'https://deno.land/x/s3_lite_client@0.2.0/mod.ts';
 
 export type Sql = string;
 export type Email = string;
@@ -294,24 +293,24 @@ export async function denoS3LightClientSettings(
   return settings;
 }
 
-export async function loadS3File(
-  s3object: S3Object,
-  s3ResourcePath: string | undefined
-): Promise<Response> {
-  const settings = await denoS3LightClientSettings(s3ResourcePath);
-  const s3 = new S3Client(settings);
-  return await s3.getObject(s3object.s3);
-}
+// export async function loadS3File(
+//   s3object: S3Object,
+//   s3ResourcePath: string | undefined
+// ): Promise<Response> {
+//   const settings = await denoS3LightClientSettings(s3ResourcePath);
+//   const s3 = new S3Client(settings);
+//   return await s3.getObject(s3object.s3);
+// }
 
-export async function writeS3File(
-  s3object: S3Object,
-  fileContent: ReadableStream<Uint8Array> | Uint8Array | string,
-  s3ResourcePath: string | undefined
-): Promise<Response> {
-  const settings = await denoS3LightClientSettings(s3ResourcePath);
-  const s3 = new S3Client(settings);
-  return await s3.putObject(s3object.s3, fileContent);
-}
+// export async function writeS3File(
+//   s3object: S3Object,
+//   fileContent: ReadableStream<Uint8Array> | Uint8Array | string,
+//   s3ResourcePath: string | undefined
+// ): Promise<Response> {
+//   const settings = await denoS3LightClientSettings(s3ResourcePath);
+//   const s3 = new S3Client(settings);
+//   return await s3.putObject(s3object.s3, fileContent);
+// }
 
 /**
  * Get URLs needed for resuming a flow after this step
