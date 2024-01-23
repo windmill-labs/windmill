@@ -94,9 +94,7 @@
 													key={`condition-${selectedNode.id}-${index}`}
 													customTitle={`${index > 0 ? 'Otherwise ' : ''}Goes to branch ${
 														index + 1
-													} (First node: ${
-														nodes?.find((node) => node.id == subNode.id)?.label
-													}) if:`}
+													} (First node: ${nodes?.findIndex((node) => node.id == subNode.id)}) if:`}
 													bind:componentInput={subNode.condition}
 													id={selectedNode.id}
 													userInputEnabled={false}
