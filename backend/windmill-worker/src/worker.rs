@@ -68,10 +68,7 @@ use async_recursion::async_recursion;
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
-use crate::global_cache::{
-    cache_global, copy_all_piptars_from_bucket, copy_cache_to_tmp_cache,
-    copy_denogo_cache_from_bucket_as_tar, copy_tmp_cache_to_cache,
-};
+use crate::global_cache::{copy_all_piptars_from_bucket, untar_all_piptars};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -306,7 +303,6 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok());
 
-    pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
 
     pub static ref WORKER_EXECUTION_COUNT: Arc<RwLock<HashMap<String, IntCounter>>> = Arc::new(RwLock::new(HashMap::new()));
     pub static ref WORKER_EXECUTION_DURATION_COUNTER: Arc<RwLock<HashMap<String, prometheus::Counter>>> = Arc::new(RwLock::new(HashMap::new()));
@@ -855,18 +851,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         ws.inc();
     }
 
-    let (_copy_to_bucket_tx, mut copy_to_bucket_rx) = mpsc::channel::<()>(2);
-
-    #[cfg(feature = "enterprise")]
-    let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
-
-    #[cfg(feature = "enterprise")]
-    let mut last_sync = Instant::now()
-        + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
-
-    #[cfg(feature = "enterprise")]
-    let mut handles = Vec::with_capacity(2);
-
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
@@ -874,15 +858,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 tracing::warn!("S3 cache not available in the pro plan");
             } else if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
                 let bucket = s.to_string();
-                let worker_name2 = worker_name.clone();
 
-                //piptars can be fetched in background
-                handles.push(tokio::task::spawn(async move {
-                    tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
-                    copy_all_piptars_from_bucket(&bucket).await;
-                }));
-                //denogocache.tar need to be fetched in foreground, block workers until they fetched it
-                copy_denogo_cache_from_bucket_as_tar(s).await;
+                copy_all_piptars_from_bucket(&bucket).await;
+                if let Err(e) = untar_all_piptars().await {
+                    tracing::error!("Failed to untar pip tarballs: {:?}", e);
+                }
             }
         }
     }
@@ -1298,9 +1278,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             );
         }
 
-        #[cfg(feature = "enterprise")]
-        let copy_tx = _copy_to_bucket_tx.clone();
-
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
             let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
@@ -1328,60 +1305,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");
         }
 
-        #[cfg(feature = "enterprise")]
-        if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
-            if matches!(get_license_plan().await, LicensePlan::Pro) {
-                tracing::warn!("S3 cache not available in the pro plan");
-            } else if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL
-                && (copy_cache_from_bucket_handle.is_none()
-                    || copy_cache_from_bucket_handle
-                        .as_ref()
-                        .unwrap()
-                        .is_finished())
-            {
-                last_sync = Instant::now();
-
-                if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
-                    tracing::debug!("CAN PULL LOCK START");
-                    let _lock = CAN_PULL.write().await;
-
-                    tracing::info!("Started syncing cache");
-                    // if num_workers > 1 {
-                    //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                    // }
-                    if let Err(e) = copy_cache_to_tmp_cache().await {
-                        tracing::error!("failed to copy cache to tmp cache: {}", e);
-                    } else {
-                        copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
-                            if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                                if let Err(e) = cache_global(s, copy_tx).await {
-                                    tracing::error!("failed to sync cache: {}", e);
-                                }
-                            }
-                        }));
-                    }
-                    tracing::info!("Ended syncing cache sync part");
-                }
-            }
-        }
-
-        // // The barrier is to avoid the sync to bucket syncing partial folders
-        // #[cfg(feature = "enterprise")]
-        // if num_workers > 1 && S3_CACHE_BUCKET.is_some()  {
-        //     let read_barrier = sync_barrier.read().await;
-        //     if let Some(b) = read_barrier.as_ref() {
-        //         tracing::debug!("worker #{i_worker} waiting for barrier");
-        //         b.wait().await;
-        //         tracing::debug!("worker #{i_worker} done waiting for barrier");
-        //         drop(read_barrier);
-        //         // wait for barrier to be reset
-        //         let _ = CAN_PULL.read().await;
-        //         tracing::debug!("worker #{i_worker} done waiting for lock");
-        //     } else {
-        //         tracing::debug!("worker #{i_worker} no barrier");
-        //     };
-        // }
-
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
             #[cfg(feature = "benchmark")]
@@ -1392,35 +1315,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tokio::select! {
                 biased;
                 _ = killpill_rx.recv() => {
-                    #[cfg(feature = "enterprise")]
-                    if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
-                        if !copy_cache_from_bucket_handle.is_finished() {
-                            copy_cache_from_bucket_handle.abort();
-                        }
-                    }
-                    #[cfg(feature = "enterprise")]
-                    for handle in &handles {
-                        if !handle.is_finished() {
-                            handle.abort();
-                        }
-                    }
                     println!("received killpill for worker {}", i_worker);
                     job_completed_tx.0.send(SendResult::Kill).await.unwrap();
                     break
-                },
-                _ = copy_to_bucket_rx.recv() => {
-                    tracing::debug!("can_pull lock start");
-                    let _lock = CAN_PULL.write().await;
-                    // if num_workers > 1 {
-                    //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                    // }
-                    //Arc::new(tokio::sync::Barrier::new(num_workers as usize + 1));
-                    #[cfg(feature = "enterprise")]
-                    if let Err(e) = copy_tmp_cache_to_cache().await {
-                        tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
-                    }
-                    tracing::debug!("can_pull lock end");
-                    Ok(None)
                 },
                 Some(job_id) = same_worker_rx.recv() => {
                     sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
