@@ -1948,6 +1948,7 @@ where
 async fn tarball_workspace(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(ArchiveQueryParams {
         archive_type,

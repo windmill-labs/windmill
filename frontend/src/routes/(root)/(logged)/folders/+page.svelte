@@ -84,7 +84,7 @@
 				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 			>
 				<svelte:fragment slot="button">
-					<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder name</Button>
+					<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder</Button>
 				</svelte:fragment>
 				<div class="flex flex-col gap-2">
 					<input
