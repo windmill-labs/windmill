@@ -448,17 +448,23 @@ export async function ignoreF(): Promise<
 
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
-  if (wmillconf?.includes) {
-    if (!Array.isArray(wmillconf.includes)) {
+  if (wmillconf?.includes || wmillconf?.excludes) {
+    if (wmillconf?.excludes && !Array.isArray(wmillconf.includes)) {
       throw new Error("wmill.yaml/includes must be an array");
     }
-    if (wmillconf.includes.length > 0) {
-      whitelist = {
-        approve(file: string): boolean {
-          return wmillconf.includes!.some((i) => minimatch(file, i));
-        },
-      };
+    if (wmillconf?.excludes && !Array.isArray(wmillconf.excludes)) {
+      throw new Error("wmill.yaml/excludes must be an array");
     }
+    whitelist = {
+      approve(file: string): boolean {
+        return (
+          (!wmillconf.includes ||
+            wmillconf.includes?.some((i) => minimatch(file, i))) &&
+          (!wmillconf?.excludes ||
+            wmillconf.excludes!.every((i) => !minimatch(file, i)))
+        );
+      },
+    };
   }
   let ign:
     | {
