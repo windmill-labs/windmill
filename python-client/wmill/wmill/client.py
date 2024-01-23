@@ -399,7 +399,13 @@ class Windmill:
         bucket = s3_resource["bucket"]
         return s3client.get_object(bucket, Key=s3object["s3"])
 
-    def write_s3_file(self, s3object: S3Object | None, file_content: bytes, s3_resource_path: str = "") -> S3Object:
+    def write_s3_file(
+        self,
+        s3object: S3Object | None,
+        file_content: bytes,
+        file_expiration: dt.datetime | None,
+        s3_resource_path: str = "",
+    ) -> S3Object:
         """
         Write a file to the workspace S3 bucket
 
@@ -421,6 +427,7 @@ class Windmill:
                     "is_final": True,
                     "cancel_upload": False,
                     "s3_resource_path": s3_resource_path if s3_resource_path != "" else None,
+                    "file_expiration": file_expiration.isoformat() if file_expiration else None,
                 },
             ).json()
         except Exception as e:

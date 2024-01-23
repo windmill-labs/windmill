@@ -362,7 +362,6 @@ export async function loadS3File(
 export async function writeS3File(
   s3object: S3Object | undefined,
   fileContent: string | ReadableStream<Uint8Array>,
-  contentType: string | undefined,
   fileExpiration: Date | undefined,
   s3ResourcePath: string | undefined
 ): Promise<S3Object> {
