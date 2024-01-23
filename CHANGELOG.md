@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.251.1](https://github.com/windmill-labs/windmill/compare/v1.251.0...v1.251.1) (2024-01-23)
+
+
+### Bug Fixes
+
+* improve npm typescript client ([5b98b00](https://github.com/windmill-labs/windmill/commit/5b98b005cda2615b332d904dc3d4a6a7898ae46e))
+
 ## [1.251.0](https://github.com/windmill-labs/windmill/compare/v1.250.0...v1.251.0) (2024-01-22)
 
 
