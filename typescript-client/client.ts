@@ -1,3 +1,4 @@
+import { Readable } from "stream";
 import {
   ResourceService,
   VariableService,
@@ -7,7 +8,8 @@ import {
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
-import { DenoS3LightClientSettings } from "./s3Types";
+import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
+import { S3Client, GetObjectCommand, PutObjectCommand, GetObjectRequest, PutObjectRequest } from "@aws-sdk/client-s3";
 
 export {
   AdminService,
@@ -293,24 +295,85 @@ export async function denoS3LightClientSettings(
   return settings;
 }
 
-// export async function loadS3File(
-//   s3object: S3Object,
-//   s3ResourcePath: string | undefined
-// ): Promise<Response> {
-//   const settings = await denoS3LightClientSettings(s3ResourcePath);
-//   const s3 = new S3Client(settings);
-//   return await s3.getObject(s3object.s3);
-// }
+async function buildS3Client(s3ResourcePath: string | undefined): Promise<[string, S3Client]> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  const s3Resource = await HelpersService.s3ResourceInfo({
+    workspace: workspace,
+    requestBody: {
+      s3_resource_path: s3ResourcePath,
+    },
+  });
 
-// export async function writeS3File(
-//   s3object: S3Object,
-//   fileContent: ReadableStream<Uint8Array> | Uint8Array | string,
-//   s3ResourcePath: string | undefined
-// ): Promise<Response> {
-//   const settings = await denoS3LightClientSettings(s3ResourcePath);
-//   const s3 = new S3Client(settings);
-//   return await s3.putObject(s3object.s3, fileContent);
-// }
+  let finalEndpoint = s3Resource.endpoint
+  if (!s3Resource.endpoint.startsWith("http://") && !s3Resource.endpoint.startsWith("https://")) {
+    if (s3Resource.useSSL) {
+      finalEndpoint = `https://${s3Resource.endpoint}`
+    } else {
+      finalEndpoint = `http://${s3Resource.endpoint}`
+    }
+  }
+
+  return [s3Resource.bucket, new S3Client({
+    region: s3Resource.region,
+    credentials: {
+      accessKeyId: s3Resource.accessKey,
+      secretAccessKey: s3Resource.secretKey,
+    },
+    endpoint: finalEndpoint,
+    tls: s3Resource.useSSL,
+    forcePathStyle: s3Resource.pathStyle,
+  })]
+}
+
+/**
+ * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * ```typescript
+ * import { Readable } from "stream";
+ * 
+ * const s3object = await loadS3File(s3Object) as Readable
+ * const fileContentAsUtf8Str = (await s3object.toArray()).toString()
+ * console.log(fileContentAsUtf8Str)
+ * ```
+ */
+export async function loadS3File(
+  s3object: S3Object,
+  s3ResourcePath: string | undefined
+): Promise<Readable|ReadableStream|Blob|undefined> {
+  const [bucket, s3Client] = await buildS3Client(s3ResourcePath)
+  const getCommand = new GetObjectCommand({
+    Bucket: bucket,
+    Key: s3object.s3
+  } as GetObjectRequest);
+  const getResult = await s3Client.send(getCommand)
+  return getResult.Body
+}
+
+/**
+ * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * ```typescript
+ * const s3object = await writeS3File(s3Object, "Hello Windmill!")
+ * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
+ * console.log(fileContentAsUtf8Str)
+ * ```
+ */
+export async function writeS3File(
+  s3object: S3Object,
+  fileContent: string | Uint8Array | Blob,
+  contentType: string | undefined,
+  s3ResourcePath: string | undefined
+): Promise<void> {
+  const [bucket, s3Client] = await buildS3Client(s3ResourcePath)
+  const putCommand = new PutObjectCommand({
+    Bucket: bucket,
+    Key: s3object.s3,
+    Body: fileContent,
+    ContentType: contentType,
+  } as PutObjectRequest);
+  await s3Client.send(putCommand)
+}
 
 /**
  * Get URLs needed for resuming a flow after this step
