@@ -8,6 +8,7 @@
 	import {
 		cleanValueProperties,
 		emptySchema,
+		emptyString,
 		encodeState,
 		getModifierKey,
 		orderedJsonStringify
@@ -200,7 +201,8 @@
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
 					delete_after_use: script.delete_after_use,
-					timeout: script.timeout
+					timeout: script.timeout,
+					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key
 				}
 			})
 			savedScript = cloneDeep(script) as NewScriptWithDraft
@@ -281,7 +283,10 @@
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
 						delete_after_use: script.delete_after_use,
-						timeout: script.timeout
+						timeout: script.timeout,
+						concurrency_key: emptyString(script.concurrency_key)
+							? undefined
+							: script.concurrency_key
 					}
 				})
 			}
@@ -559,6 +564,7 @@
 													on:click={() => {
 														script.concurrent_limit = undefined
 														script.concurrency_time_window_s = undefined
+														script.concurrency_key = undefined
 													}}
 													variant="border">Remove Limits</Button
 												>
@@ -568,6 +574,14 @@
 											<SecondsInput
 												disabled={!$enterpriseLicense}
 												bind:seconds={script.concurrency_time_window_s}
+											/>
+										</Label>
+										<Label label="Custom concurrency key">
+											<input
+												type="text"
+												autofocus
+												bind:value={script.concurrency_key}
+												placeholder={`$workspace/script/${script.path}`}
 											/>
 										</Label>
 									</div>
