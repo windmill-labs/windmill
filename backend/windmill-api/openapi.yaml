@@ -7116,6 +7116,9 @@ paths:
                   type: boolean
                 s3_resource_path:
                   type: string
+                file_expiration:
+                  type: string
+                  format: date-time
               required:
                 - part_content
                 - parts

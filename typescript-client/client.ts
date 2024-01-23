@@ -305,24 +305,24 @@ async function buildS3Client(s3ResourcePath: string | undefined): Promise<[strin
     },
   });
 
-  let finalEndpoint = s3Resource.endpoint
-  if (!s3Resource.endpoint.startsWith("http://") && !s3Resource.endpoint.startsWith("https://")) {
+  let finalEndpoint: string | undefined = s3Resource.endPoint
+  if (!s3Resource.endPoint.startsWith("http://") && !s3Resource.endPoint.startsWith("https://")) {
     if (s3Resource.useSSL) {
-      finalEndpoint = `https://${s3Resource.endpoint}`
+      finalEndpoint = `https://${s3Resource.endPoint}`
     } else {
-      finalEndpoint = `http://${s3Resource.endpoint}`
+      finalEndpoint = `http://${s3Resource.endPoint}`
     }
   }
 
   return [s3Resource.bucket, new S3Client({
-    region: s3Resource.region,
+    region: s3Resource.region as string,
     credentials: {
-      accessKeyId: s3Resource.accessKey,
-      secretAccessKey: s3Resource.secretKey,
+      accessKeyId: s3Resource.accessKey as string,
+      secretAccessKey: s3Resource.secretKey as string, 
     },
     endpoint: finalEndpoint,
-    tls: s3Resource.useSSL,
-    forcePathStyle: s3Resource.pathStyle,
+    tls: s3Resource.useSSL as boolean,
+    forcePathStyle: s3Resource.pathStyle as boolean,
   })]
 }
 
@@ -360,15 +360,72 @@ export async function loadS3File(
  * ```
  */
 export async function writeS3File(
-  s3object: S3Object,
-  fileContent: string | Uint8Array | Blob,
+  s3object: S3Object | undefined,
+  fileContent: string | ReadableStream<Uint8Array>,
   contentType: string | undefined,
+  fileExpiration: Date | undefined,
   s3ResourcePath: string | undefined
 ): Promise<void> {
+  let fileContentStream: ReadableStream<Uint8Array>
+  if (typeof fileContent === 'string') {
+    fileContentStream = new Blob([fileContent as string], {
+      type: 'text/plain'
+    }).stream();
+  } else {
+    fileContentStream = fileContent as ReadableStream<Uint8Array>
+  }
+
+  let path = s3object?.s3
+  let upload_id: string | undefined = undefined
+  let parts: any[] = []
+  const reader = fileContentStream.getReader()
+  let { value: chunk, done: readerDone } = await reader.read()
+  if (chunk === undefined || readerDone) {
+    throw Error('Error reading stream, no data read');
+  }
+
+  while (true) {
+    let { value: chunk_2, done: readerDone } = await reader.read()
+    if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
+      // AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
+      chunk = new Uint8Array([...chunk, ...chunk_2])
+      continue
+    }
+    try {
+      let response: any = await HelpersService.multipartFileUpload({
+        workspace: getWorkspace(),
+        requestBody: {
+          file_key: path,
+          file_extension: undefined,
+          part_content: Array.from(chunk),
+          upload_id: upload_id,
+          parts: parts,
+          is_final: readerDone,
+          cancel_upload: false,
+          s3_resource_path: s3ResourcePath,
+          file_expiration: fileExpiration?.toString(),
+        }
+      })
+      path = response.file_key
+      upload_id = response.upload_id
+      parts = response.parts
+
+      if (response.is_done) {
+        break
+      }
+      if (chunk_2 === undefined) {
+        throw Error('File upload is not finished, yet there is no more data to stream. This is unexpected');
+      }
+      chunk = chunk_2
+    } catch (e) {
+      throw Error(`Unexpected error uploading data to S3 ${e}`);
+    }
+  }
+
   const [bucket, s3Client] = await buildS3Client(s3ResourcePath)
   const putCommand = new PutObjectCommand({
     Bucket: bucket,
-    Key: s3object.s3,
+    Key: s3object?.s3,
     Body: fileContent,
     ContentType: contentType,
   } as PutObjectRequest);

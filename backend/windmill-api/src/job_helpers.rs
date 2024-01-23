@@ -3,6 +3,7 @@ use std::{cmp, time::Duration};
 
 use crate::{db::DB, resources::get_resource_value_interpolated_internal, users::Tokened};
 use anyhow::Context;
+use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::{
     presigning::PresigningConfig,
     primitives::ByteStream,
@@ -785,6 +786,7 @@ struct UploadFileQuery {
     pub cancel_upload: bool, // whether the upload should be cancelled. upload_id should be set. subsequent calls with this upload_id will fail
 
     pub s3_resource_path: Option<String>, // custom S3 resource to use for this upload. It None, the workspace S3 resource will be used
+    pub file_expiration: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -879,10 +881,14 @@ async fn multipart_upload_s3_file(
             (upload_id, parts.len() + 1)
         }
         UploadFileQuery { upload_id: None, ref parts, .. } if parts.len() == 0 => {
-            let multipart_upload_res = s3_client
+            let mut upload_builder = s3_client
                 .create_multipart_upload()
                 .bucket(&bucket)
-                .key(&file_key)
+                .key(&file_key);
+            if let Some(file_expiration) = query.file_expiration {
+                upload_builder = upload_builder.expires(DateTime::from_secs(file_expiration.timestamp()));
+            }
+            let multipart_upload_res = upload_builder
                 .send()
                 .await
                 .map_err(|err| {
