@@ -80,7 +80,7 @@ services:
     image: verdaccio/verdaccio
     environment:
       - VERDACCIO_PROTOCOL=http
-      - VERDACCIO_PUBLIC_URL=http://localhost:4873
+      - VERDACCIO_PUBLIC_URL=http://npm_registry:4873
     ports:
       - 4873:4873
     healthcheck:

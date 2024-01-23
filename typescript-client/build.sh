@@ -6,7 +6,7 @@ rm -rf "${script_dirpath}/src"
 
 npx --yes openapi-typescript-codegen --input "${script_dirpath}/../backend/windmill-api/openapi.yaml" \
  --output "${script_dirpath}/src" --useOptions \
- # && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/core/request.ts
+ && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/core/request.ts
 
 cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"

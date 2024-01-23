@@ -399,7 +399,7 @@ class Windmill:
         bucket = s3_resource["bucket"]
         return s3client.get_object(bucket, Key=s3object["s3"])
 
-    def write_s3_file(self, s3object: S3Object | None, file_content: bytes, s3_resource_path: str = ""):
+    def write_s3_file(self, s3object: S3Object | None, file_content: bytes, s3_resource_path: str = "") -> S3Object:
         """
         Write a file to the workspace S3 bucket
 
@@ -412,15 +412,7 @@ class Windmill:
         '''
         """
         try:
-            s3_resource = self.post(
-                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
-            ).json()
-        except JSONDecodeError as e:
-            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
-
-        try:
-            self.post(
+            result = self.post(
                 f"/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
                 json={
                     "file_key": s3object,
@@ -430,9 +422,10 @@ class Windmill:
                     "cancel_upload": False,
                     "s3_resource_path": s3_resource_path if s3_resource_path != "" else None,
                 },
-            )
+            ).json()
         except Exception as e:
             raise Exception("Could not write file to S3") from e
+        return S3Object(s3=result["file_key"])
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"

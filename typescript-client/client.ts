@@ -365,7 +365,7 @@ export async function writeS3File(
   contentType: string | undefined,
   fileExpiration: Date | undefined,
   s3ResourcePath: string | undefined
-): Promise<void> {
+): Promise<S3Object> {
   let fileContentStream: ReadableStream<Uint8Array>
   if (typeof fileContent === 'string') {
     fileContentStream = new Blob([fileContent as string], {
@@ -421,15 +421,9 @@ export async function writeS3File(
       throw Error(`Unexpected error uploading data to S3 ${e}`);
     }
   }
-
-  const [bucket, s3Client] = await buildS3Client(s3ResourcePath)
-  const putCommand = new PutObjectCommand({
-    Bucket: bucket,
-    Key: s3object?.s3,
-    Body: fileContent,
-    ContentType: contentType,
-  } as PutObjectRequest);
-  await s3Client.send(putCommand)
+  return {
+    s3: path as string
+  }
 }
 
 /**
