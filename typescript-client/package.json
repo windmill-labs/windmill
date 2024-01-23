@@ -15,5 +15,8 @@
     "LICENSE",
     "README.md",
     "package.json"
-  ]
+  ],
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.496.0"
+  }
 }

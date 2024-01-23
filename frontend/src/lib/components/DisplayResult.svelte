@@ -2,7 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
-	import { copyToClipboard, emptyString, roughSizeOfObject, truncate } from '$lib/utils'
+	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { ClipboardCopy, Download, Expand, PanelRightOpen, Table2 } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
@@ -10,8 +10,8 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
-	import { HelpersService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import Toggle from './Toggle.svelte'
+	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -43,6 +43,7 @@
 
 	let forceJson = false
 	let enableHtml = false
+	let s3FileDisplayRawMode = false
 
 	function isRectangularArray(obj: any) {
 		if (!Array.isArray(obj) || obj.length == 0) {
@@ -201,18 +202,6 @@
 
 		return result
 	}
-
-	async function downloadS3File(fileKey: string | undefined) {
-		if (emptyString(fileKey)) {
-			return
-		}
-		const downloadUrl = await HelpersService.generateDownloadUrl({
-			workspace: $workspaceStore!,
-			fileKey: fileKey!
-		})
-		console.log('download URL ', downloadUrl.download_url)
-		window.open(downloadUrl.download_url, '_blank')
-	}
 </script>
 
 <div class="inline-highlight relative grow min-h-[200px]">
@@ -360,41 +349,57 @@
 			</div>
 		{:else if !forceJson && resultKind == 's3object'}
 			<div class="absolute top-1 h-full w-full">
-				<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
-				<button
-					class="text-secondary underline text-2xs whitespace-nowrap"
-					on:click={() => {
-						downloadS3File(result?.s3)
-					}}
-					><span class="flex items-center gap-1"><Download size={12} />download</span>
-				</button>
-				<button
-					class="text-secondary underline text-2xs whitespace-nowrap"
-					on:click={() => {
-						s3FileViewer?.open?.(result)
-					}}
-					><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
-				</button>
+				<div class="flex flex-col gap-2">
+					<Toggle
+						class="flex"
+						bind:checked={s3FileDisplayRawMode}
+						size="xs"
+						options={{ right: 'Raw S3 object input' }}
+					/>
+					{#if s3FileDisplayRawMode}
+						<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
+						<button
+							class="text-secondary underline text-2xs whitespace-nowrap"
+							on:click={() => {
+								s3FileViewer?.open?.(result)
+							}}
+							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
+						</button>
+					{:else}
+						<FileDownload s3object={result} />
+					{/if}
+				</div>
 			</div>
 		{:else if !forceJson && resultKind == 's3object-list'}
 			<div class="absolute top-1 h-full w-full">
-				{#each result as s3object}
-					<Highlight class="" language={json} code={toJsonStr(s3object).replace(/\\n/g, '\n')} />
-					<button
-						class="text-secondary underline text-2xs whitespace-nowrap"
-						on:click={() => {
-							downloadS3File(result?.s3)
-						}}
-						><span class="flex items-center gap-1"><Download size={12} />download</span>
-					</button>
-					<button
-						class="text-secondary text-2xs whitespace-nowrap"
-						on:click={() => {
-							s3FileViewer?.open?.(s3object)
-						}}
-						><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
-					</button>
-				{/each}
+				<div class="flex flex-col gap-2">
+					<Toggle
+						class="flex"
+						bind:checked={s3FileDisplayRawMode}
+						size="xs"
+						options={{ right: 'Raw S3 object input' }}
+					/>
+					{#each result as s3object}
+						{#if s3FileDisplayRawMode}
+							<Highlight
+								class=""
+								language={json}
+								code={toJsonStr(s3object).replace(/\\n/g, '\n')}
+							/>
+							<button
+								class="text-secondary text-2xs whitespace-nowrap"
+								on:click={() => {
+									s3FileViewer?.open?.(s3object)
+								}}
+								><span class="flex items-center gap-1"
+									><PanelRightOpen size={12} />open preview</span
+								>
+							</button>
+						{:else}
+							<FileDownload {s3object} />
+						{/if}
+					{/each}
+				</div>
 			</div>
 		{:else if !forceJson && resultKind == 'markdown'}
 			<div class="prose dark:prose-invert">
