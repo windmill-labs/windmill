@@ -100,6 +100,8 @@ pub async fn do_snowflake(
     let token = encode(&Header::new(Algorithm::RS256), &claims, &private_key)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
+    tracing::debug!("Snowflake token: {}", token)
+
     let mut bindings = serde_json::Map::new();
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
