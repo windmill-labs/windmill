@@ -40,7 +40,7 @@ export * as cbor from "https://deno.land/x/cbor@v1.4.1/index.js";
 export { default as Murmurhash3 } from "https://deno.land/x/murmurhash@v1.0.0/mod.ts";
 export { default as microdiff } from "https://deno.land/x/microdiff@v1.3.1/index.ts";
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
-export { default as gitignore_parser } from "npm:gitignore-parser";
+export { minimatch } from "npm:minimatch";
 export { default as JSZip } from "npm:jszip@3.7.1";
 export * as log from "https://deno.land/std@0.186.0/log/mod.ts";
 export {
@@ -48,3 +48,5 @@ export {
   parse as yamlParse,
 } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 export { open } from "https://deno.land/x/open@v0.0.5/index.ts";
+export { encodeHex } from "https://deno.land/std@0.207.0/encoding/hex.ts";
+export { default as gitignore_parser } from "npm:gitignore-parser";

@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.246.15
+  version: 1.249.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -7800,6 +7800,8 @@ paths:
                   completed:
                     type: boolean
                   result: {}
+                  success:
+                    type: boolean
                   started:
                     type: boolean
                 required:
@@ -10429,10 +10431,36 @@ paths:
                       - Csv
                       - Parquet
                       - Unknown
-                  download_url:
-                    type: string
                 required: &ref_175
                   - content_type
+  /w/{workspace}/job_helpers/generate_download_url:
+    get:
+      summary: Generate a unique URL to download the file
+      operationId: generateDownloadUrl
+      tags:
+        - helpers
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Download URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  download_url:
+                    type: string
+                required:
+                  - download_url
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
       summary: Permanently delete file from S3

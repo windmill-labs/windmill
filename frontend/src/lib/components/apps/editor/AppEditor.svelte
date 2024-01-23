@@ -223,9 +223,14 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
+				} else if (item?.data.type === 'steppercomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex:
+							($worldStore.outputsById?.[befSelected]?.currentStepIndex?.peak() as number) ?? 0
+					}
 				} else if (
 					item?.data.type === 'tabscomponent' ||
-					item?.data.type === 'steppercomponent' ||
 					item?.data.type === 'conditionalwrapper'
 				) {
 					$focusedGrid = {
@@ -412,7 +417,9 @@
 				css = currentAppStore.theme.css
 			} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
 				let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
-				css = loadedCss.value
+				if (loadedCss) {
+					css = loadedCss.value
+				}
 			}
 			lastTheme = JSON.stringify(currentAppStore.theme)
 		}
