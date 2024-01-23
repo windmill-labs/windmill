@@ -13,5 +13,4 @@ packages:
     proxy: npmjs
 listen:
   - http://localhost:4873
-  - http://npm_registry:4873
 log: { type: stdout, format: pretty, level: http }
