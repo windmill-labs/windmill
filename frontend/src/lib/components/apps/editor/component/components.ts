@@ -639,6 +639,13 @@ const aggridcomponentconst = {
 				fieldType: 'object',
 				value: {},
 				tooltip: 'any configuration that can be passed to ag-grid top level'
+			},
+			compactness: {
+				type: 'static',
+				fieldType: 'select',
+				value: 'normal',
+				selectOptions: ['normal', 'compact', 'comfortable'],
+				tooltip: 'Change the row height'
 			}
 		},
 		componentInput: {
