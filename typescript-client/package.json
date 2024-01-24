@@ -1,7 +1,7 @@
 {
   "name": "windmill-client",
   "description": "Windmill SDK client for browsers and Node.js",
-  "version": "1.251.1",
+  "version": "1.251.59",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {
@@ -15,8 +15,5 @@
     "LICENSE",
     "README.md",
     "package.json"
-  ],
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.496.0"
-  }
+  ]
 }

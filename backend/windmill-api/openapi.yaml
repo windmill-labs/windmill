@@ -1751,7 +1751,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/variables/create:
     post:
       summary: create variable
@@ -7195,6 +7194,52 @@ paths:
                   - upload_id
                   - parts
                   - is_done
+
+  /w/{workspace}/job_helpers/multipart_download_s3_file:
+    post:
+      summary: Download file to S3 bucket
+      operationId: multipartFileDownload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Query args for a multipart file upload to S3
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_key:
+                  type: string
+                part_number:
+                  type: integer
+                file_size:
+                  type: integer
+                s3_resource_path:
+                  type: string
+              required:
+                - file_key
+                - part_number
+      responses:
+        "200":
+          description: Chunk of the downloaded file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_size:
+                    type: integer
+                  part_content:
+                    type: array
+                    items:
+                      type: integer
+                  next_part_number:
+                    type: integer
+                required:
+                  - part_content
 
   /w/{workspace}/job_metrics/get/{id}:
     post:

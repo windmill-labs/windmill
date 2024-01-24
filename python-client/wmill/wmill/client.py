@@ -372,7 +372,7 @@ class Windmill:
         except JSONDecodeError as e:
             raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str = ""):
+    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
@@ -384,27 +384,38 @@ class Windmill:
         file_content = my_obj["Body"].read().decode("utf-8")
         '''
         """
-        try:
-            s3_resource = self.post(
-                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
-            ).json()
-        except JSONDecodeError as e:
-            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
 
-        import boto3
+        part_number = 0
+        file_total_size = None
+        file_content: list[int] = []
+        while True:
+            if part_number is None:
+                break
+            try:
+                part_response = self.post(
+                    f"/w/{self.workspace}/job_helpers/multipart_download_s3_file",
+                    json={
+                        "file_key": s3object.s3,
+                        "part_number": part_number,
+                        "file_size": file_total_size,
+                        "s3_resource_path": s3_resource_path,
+                    },
+                ).json()
+            except JSONDecodeError as e:
+                raise Exception("Could not generate download S3 file part") from e
 
-        args = self.__boto3_connection_settings(s3_resource)
-        s3client = boto3.client("s3", **args)
-        bucket = s3_resource["bucket"]
-        return s3client.get_object(bucket, Key=s3object["s3"])
+            if len(part_response["part_content"]) > 0:
+                file_content = file_content + part_response["part_content"]
+            part_number = part_response["next_part_number"]
+            file_total_size = part_response["file_size"]
+        return bytes(file_content)
 
     def write_s3_file(
         self,
         s3object: S3Object | None,
         file_content: bytes,
         file_expiration: dt.datetime | None,
-        s3_resource_path: str = "",
+        s3_resource_path: str | None,
     ) -> S3Object:
         """
         Write a file to the workspace S3 bucket
@@ -421,7 +432,7 @@ class Windmill:
             result = self.post(
                 f"/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
                 json={
-                    "file_key": s3object,
+                    "file_key": s3object.s3 if s3object is not None else None,
                     "part_content": file_content,
                     "parts": [],
                     "is_final": True,
@@ -682,6 +693,29 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
     initiate an S3 connection using boto3
     """
     return _client.get_boto3_connection_settings(s3_resource_path)
+
+
+@init_global_client
+def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
+    """
+    Load the content of a file stored in S3
+    """
+    return _client.load_s3_file(s3object, s3_resource_path if s3_resource_path != "" else None)
+
+
+@init_global_client
+def write_s3_file(
+    s3object: S3Object | None,
+    file_content: bytes,
+    file_expiration: dt.datetime | None,
+    s3_resource_path: str = "",
+) -> S3Object:
+    """
+    Upload a file to S3
+    """
+    return _client.write_s3_file(
+        s3object, file_content, file_expiration, s3_resource_path if s3_resource_path != "" else None
+    )
 
 
 @init_global_client

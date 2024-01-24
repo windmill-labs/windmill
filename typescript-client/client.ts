@@ -9,7 +9,6 @@ import {
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
 import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
-import { S3Client, GetObjectCommand, PutObjectCommand, GetObjectRequest, PutObjectRequest } from "@aws-sdk/client-s3";
 
 export {
   AdminService,
@@ -295,59 +294,81 @@ export async function denoS3LightClientSettings(
   return settings;
 }
 
-async function buildS3Client(s3ResourcePath: string | undefined): Promise<[string, S3Client]> {
-  !clientSet && setClient();
-  const workspace = getWorkspace();
-  const s3Resource = await HelpersService.s3ResourceInfo({
-    workspace: workspace,
-    requestBody: {
-      s3_resource_path: s3ResourcePath,
-    },
-  });
-
-  let finalEndpoint: string | undefined = s3Resource.endPoint
-  if (!s3Resource.endPoint.startsWith("http://") && !s3Resource.endPoint.startsWith("https://")) {
-    if (s3Resource.useSSL) {
-      finalEndpoint = `https://${s3Resource.endPoint}`
-    } else {
-      finalEndpoint = `http://${s3Resource.endPoint}`
-    }
-  }
-
-  return [s3Resource.bucket, new S3Client({
-    region: s3Resource.region as string,
-    credentials: {
-      accessKeyId: s3Resource.accessKey as string,
-      secretAccessKey: s3Resource.secretKey as string, 
-    },
-    endpoint: finalEndpoint,
-    tls: s3Resource.useSSL as boolean,
-    forcePathStyle: s3Resource.pathStyle as boolean,
-  })]
-}
-
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
  * 
  * ```typescript
- * import { Readable } from "stream";
- * 
- * const s3object = await loadS3File(s3Object) as Readable
- * const fileContentAsUtf8Str = (await s3object.toArray()).toString()
- * console.log(fileContentAsUtf8Str)
+ * let fileContentStream = await wmill.loadS3File(inputFile)
+ * // if the file is a raw text file, it can be decoded and printed directly:
+ * const text = new TextDecoder().decode(fileContentStream)
+ * console.log(text);
  * ```
  */
 export async function loadS3File(
   s3object: S3Object,
   s3ResourcePath: string | undefined
-): Promise<Readable|ReadableStream|Blob|undefined> {
-  const [bucket, s3Client] = await buildS3Client(s3ResourcePath)
-  const getCommand = new GetObjectCommand({
-    Bucket: bucket,
-    Key: s3object.s3
-  } as GetObjectRequest);
-  const getResult = await s3Client.send(getCommand)
-  return getResult.Body
+): Promise<Uint8Array|undefined> {
+  !clientSet && setClient();
+
+  let part_number: number | undefined = 0
+  let file_total_size: number|undefined = undefined
+
+  let fetch = async function(controller: any) {
+    // console.log("fetching part", part_number)
+    if (part_number === undefined || part_number === null) {
+      // console.log("finished, closing")
+      controller.close()
+      return
+    }
+    let part_response = await HelpersService.multipartFileDownload({
+      workspace: getWorkspace(),
+      requestBody: {
+        file_key: s3object.s3,
+        part_number: part_number,
+        file_size: file_total_size,
+        s3_resource_path: s3ResourcePath,
+      }
+    })
+    
+    if (part_response.part_content.length > 0) {
+      // console.log("enqueueing part", part_number, part_response.part_content.length)
+      let chunk = new Uint8Array(part_response.part_content.length)
+      part_response.part_content.forEach((value: number, index: number) => {
+        chunk[index] = value
+      })
+      controller.enqueue(chunk)
+    }
+    part_number = part_response.next_part_number
+    file_total_size = part_response.file_size
+  }
+
+  let fileContentStream = new ReadableStream({
+    async pull(controller) {
+      await fetch(controller)
+    }
+  })
+
+  // For now we read all the stream in here. In the future return the stream and let the users consume it as they wish
+  const reader = fileContentStream.getReader()
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const {value: chunk, done} = await reader.read();
+    if (done) {
+      break;
+    }
+    chunks.push(chunk);
+  }
+  let fileContentLength = 0;
+  chunks.forEach(item => {
+    fileContentLength += item.length;
+  });
+  let fileContent = new Uint8Array(fileContentLength);
+  let offset = 0;
+  chunks.forEach(chunk => {
+    fileContent.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return fileContent
 }
 
 /**
@@ -365,6 +386,7 @@ export async function writeS3File(
   fileExpiration: Date | undefined,
   s3ResourcePath: string | undefined
 ): Promise<S3Object> {
+  !clientSet && setClient();
   let fileContentStream: ReadableStream<Uint8Array>
   if (typeof fileContent === 'string') {
     fileContentStream = new Blob([fileContent as string], {

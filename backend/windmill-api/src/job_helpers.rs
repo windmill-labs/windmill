@@ -92,6 +92,10 @@ pub fn workspaced_service() -> Router {
             "/multipart_upload_s3_file",
             post(multipart_upload_s3_file).layer(cors.clone()),
         )
+        .route(
+            "/multipart_download_s3_file",
+            post(multipart_download_s3_file).layer(cors.clone()),
+        )
 }
 
 #[derive(Deserialize)]
@@ -774,6 +778,92 @@ async fn move_s3_file(
 }
 
 #[derive(Deserialize)]
+struct DownloadFileQuery {
+    pub file_key: String,
+
+    pub part_number: i64, // part number of the file to download. A file part are approx 5MB
+    pub file_size: Option<i64>, // leave empty for the first call, it will be returned in the response and ideally sent back in the next call
+
+    pub s3_resource_path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DownloadFileResponse {
+    pub file_size: Option<i64>,
+    pub part_content: Vec<u8>,
+    pub next_part_number: Option<i64>, // is None when this is the last part being returned
+}
+
+async fn multipart_download_s3_file(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(query): Json<DownloadFileQuery>,
+) -> error::JsonResult<DownloadFileResponse> {
+    let s3_resource_opt = match query.s3_resource_path.clone() {
+        Some(s3_resource_path) => {
+            get_s3_resource(
+                &authed,
+                &db,
+                Some(user_db),
+                &token,
+                &w_id,
+                s3_resource_path.as_str(),
+            )
+            .await?
+        }
+        None => get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?,
+    };
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let bucket = s3_resource.bucket.clone();
+    let file_key = query.file_key.clone();
+    let s3_client = build_s3_client(&s3_resource);
+
+    let file_size = match query.file_size {
+        Some(fs) => Some(fs),
+        None => {
+            let s3_object_metadata = s3_client
+                .head_object()
+                .bucket(&bucket)
+                .key(&file_key)
+                .send()
+                .await
+                .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+            s3_object_metadata.content_length()
+        }
+    };
+
+    let chunk_size_bytes: i64 = 5 * 1024 * 1024;
+    let from_byte = query.part_number * chunk_size_bytes;
+    let (length, next_part_number) =
+        if file_size.is_some() && file_size.unwrap() - from_byte <= chunk_size_bytes {
+            (file_size.unwrap() - from_byte, None)
+        } else {
+            (chunk_size_bytes, Some(query.part_number + 1))
+        };
+
+    let payload =
+        read_object_chunk(&s3_client, bucket.as_str(), &file_key, from_byte, length).await?;
+    tracing::warn!(
+        "Reading chunk {} with length {} - payload size: {}",
+        from_byte,
+        length,
+        payload.len()
+    );
+
+    return Ok(Json(DownloadFileResponse {
+        file_size: file_size,
+        part_content: payload,
+        next_part_number: next_part_number,
+    }));
+}
+
+#[derive(Deserialize)]
 struct UploadFileQuery {
     pub file_key: Option<String>, // if none, the file will be placed in windmill_uploads/ with a random name.
     pub file_extension: Option<String>, // preferred extension for the file in case a random name has to be generated
@@ -1068,16 +1158,16 @@ fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
     return CloudOptions::default().with_aws(s3_configs);
 }
 
-async fn read_s3_text_object_head(
+async fn read_object_chunk(
     s3_client: &aws_sdk_s3::Client,
     s3_bucket: &str,
     file_key: &str,
-    from_char: i64,
+    from_byte: i64,
     length: i64,
-) -> error::Result<String> {
+) -> error::Result<Vec<u8>> {
     let s3_object = s3_client
         .get_object()
-        .range(format!("bytes={}-{}", from_char, length).to_string())
+        .range(format!("bytes={}-{}", from_byte, from_byte + length).to_string())
         .bucket(s3_bucket)
         .key(file_key)
         .send()
@@ -1101,7 +1191,17 @@ async fn read_s3_text_object_head(
         })?
         .into_bytes()
         .to_vec();
+    return Ok(payload);
+}
 
+async fn read_s3_text_object_head(
+    s3_client: &aws_sdk_s3::Client,
+    s3_bucket: &str,
+    file_key: &str,
+    from_byte: i64,
+    length: i64,
+) -> error::Result<String> {
+    let payload = read_object_chunk(s3_client, s3_bucket, file_key, from_byte, length).await?;
     let file_header_str = String::from_utf8(payload).map_err(|err| {
         tracing::warn!(
             "Encoding of file {} unsupported. Error was: {:?}",
