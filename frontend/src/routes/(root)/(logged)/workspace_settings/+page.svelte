@@ -68,6 +68,7 @@
 		jobId: string | undefined
 		status: 'running' | 'success' | 'failure' | undefined
 	}[]
+	let workspaceDefaultAppPath: string | undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -228,6 +229,26 @@
 		}
 	}
 
+	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
+		if (emptyString(appPath)) {
+			await WorkspaceService.editWorkspaceDefaultApp({
+				workspace: $workspaceStore!,
+				requestBody: {
+					default_app_path: undefined
+				}
+			})
+			sendUserToast('Workspace default app reset')
+		} else {
+			await WorkspaceService.editWorkspaceDefaultApp({
+				workspace: $workspaceStore!,
+				requestBody: {
+					default_app_path: appPath
+				}
+			})
+			sendUserToast('Workspace default app set')
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -258,6 +279,7 @@
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
+		workspaceDefaultAppPath = settings.default_app
 		s3ResourceInitialPath =
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
@@ -433,6 +455,9 @@
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
+				</Tab>
+				<Tab size="xs" value="default_app">
+					<div class="flex gap-2 items-center my-1"> Default App </div>
 				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
@@ -929,6 +954,32 @@ git push</code
 						console.log('Saving git sync settings', gitSyncSettings)
 					}}>Save Git sync settings</Button
 				>
+			</div>
+		{:else if tab == 'default_app'}
+			<PageHeader
+				title="Workspace default app"
+				tooltip="Users who are operators in this workspace will be redirected to this app automatically when login into this workspace."
+				primary={false}
+			/>
+			{#if !$enterpriseLicense}
+				<Alert type="info" title="Windmill EE only feature">
+					Default app can only be set on Windmill Enterprise Edition.
+				</Alert>
+			{/if}
+			<Alert type="info" title="Default app must be accessible to all operators">
+				Make sure the default app is shared with all the operators of this workspace before turning
+				this feature on.
+			</Alert>
+			<div class="mt-5 flex gap-1">
+				{#key workspaceDefaultAppPath}
+					<ScriptPicker
+						initialPath={workspaceDefaultAppPath}
+						itemKind="app"
+						on:select={(ev) => {
+							editWorkspaceDefaultApp(ev?.detail?.path)
+						}}
+					/>
+				{/key}
 			</div>
 		{/if}
 	{:else}
