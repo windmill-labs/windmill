@@ -15,6 +15,7 @@
 		HelpCircle,
 		Home,
 		LogOut,
+		Newspaper,
 		Play,
 		ServerCog,
 		Settings,
@@ -31,6 +32,8 @@
 	import { goto } from '$app/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { onMount } from 'svelte'
+	import { type Changelog, changelogs } from './changelogs'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -130,6 +133,27 @@
 		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
 	]
 
+	let hasNewChangelogs = false
+	let recentChangelogs: Changelog[] = []
+	let lastOpened = localStorage.getItem('changelogsLastOpened')
+
+	onMount(() => {
+		if (lastOpened) {
+			// @ts-ignore
+			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
+			hasNewChangelogs =
+				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
+		} else {
+			recentChangelogs = changelogs.slice(-3)
+		}
+	})
+
+	function openChangelogs() {
+		const today = new Date().toISOString().split('T')[0]
+		localStorage.setItem('changelogsLastOpened', today)
+		hasNewChangelogs = false
+	}
+
 	const thirdMenuLinks = [
 		{
 			label: 'Help',
@@ -145,6 +169,11 @@
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
 					icon: Github
+				},
+				{
+					label: 'Changelog',
+					href: 'https://www.windmill.dev/changelog/',
+					icon: Newspaper
 				}
 			]
 		}
@@ -224,14 +253,33 @@
 				{#if menuLink.subItems}
 					<Menu>
 						<div slot="trigger">
-							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class="relative"
+								on:click={() => {
+									if (menuLink.label === 'Help') {
+										openChangelogs()
+									}
+								}}
+							>
+								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+								{#if menuLink.label === 'Help' && hasNewChangelogs}
+									<span class="absolute top-1 right-1 flex h-2 w-2">
+										<span
+											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+										/>
+										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500" />
+									</span>
+								{/if}
+							</div>
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
 								<div class="py-1" role="none">
 									<a
 										href={subItem.href}
-										class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+										class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary relative"
 										role="menuitem"
 										tabindex="-1"
 										target="_blank"
@@ -247,6 +295,27 @@
 								</div>
 							</MenuItem>
 						{/each}
+						{#if recentChangelogs.length > 0}
+							<div class="w-full h-1 border-t" />
+							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
+							{#each recentChangelogs as changelog}
+								<MenuItem>
+									<div class="py-1" role="none">
+										<a
+											href={changelog.href}
+											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary relative"
+											role="menuitem"
+											tabindex="-1"
+											target="_blank"
+										>
+											<div class="flex flex-row items-center gap-2">
+												{changelog.label}
+											</div>
+										</a>
+									</div>
+								</MenuItem>
+							{/each}
+						{/if}
 					</Menu>
 				{/if}
 			{/each}
