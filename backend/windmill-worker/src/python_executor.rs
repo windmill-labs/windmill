@@ -130,7 +130,7 @@ pub async fn pip_compile(
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
     if let Some(url) = pip_extra_index_url.as_ref() {
-        args.extend(["--extra-index-url", url]);
+        args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
     }
     if let Some(url) = PIP_INDEX_URL.as_ref() {
         args.extend(["--index-url", url]);
