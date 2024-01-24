@@ -2,6 +2,7 @@ import { yamlParse } from "./deps.ts";
 
 export interface WmillConfiguration {
   includes?: string[];
+  excludes?: string[];
 }
 export async function readConfigFile(): Promise<WmillConfiguration> {
   try {

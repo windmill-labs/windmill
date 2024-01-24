@@ -126,14 +126,13 @@
 							}
 						}}
 						options={{ right: 'global cache to s3' }}
+						size="sm"
 						disabled={!$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 					/>
 					<Tooltip
 						><p
 							>global cache to s3 is an enterprise feature that enable workers to do fast cold start
-							and share a single cache backed by s3 to ensure that even with a high number of
-							workers, dependencies for python/deno/bun/go are only downloaded for the first time
-							only once by the whole fleet.
+							and share a single cache backed by s3 for pip dependencies.
 						</p>require S3_CACHE_BUCKET to be set and has NO effect otherwise (even if this setting
 						is on)</Tooltip
 					>

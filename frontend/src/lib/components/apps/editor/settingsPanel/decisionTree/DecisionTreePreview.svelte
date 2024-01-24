@@ -73,7 +73,7 @@
 						canDelete: false,
 						label: 'Start'
 					},
-					cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, nodes[0], [])
+					cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, undefined, [], false)
 				}
 			}
 		}
@@ -174,7 +174,7 @@
 	function nodeCallbackHandler(
 		event: string,
 		detail: string,
-		graphNode: DecisionTreeNode,
+		graphNode: DecisionTreeNode | undefined,
 		parentIds: string[],
 		branchInsert: boolean = false
 	) {
@@ -187,21 +187,23 @@
 				break
 			case 'nodeInsert': {
 				addSubGrid()
-
 				if (branchInsert) {
-					if (parentIds.length === 1) {
+					if (parentIds.length === 1 && graphNode) {
+						console.log('A', parentIds)
 						nodes = insertNode(nodes, parentIds[0], graphNode)
 					} else {
+						console.log('B', parentIds)
 						// find parent with multiple next
 						const parentWithMultipleNext = nodes.find((node) => {
 							return node.next.length > 1 && parentIds.includes(node.id)
 						})
 
 						if (!parentWithMultipleNext) {
+							deleteSubgrid(nodes.length - 1)
 							return nodes
 						}
 
-						nodes = insertNode(nodes, parentWithMultipleNext.id, graphNode)
+						nodes = insertNode(nodes, parentWithMultipleNext.id, graphNode!)
 					}
 				} else {
 					nodes = addNode(nodes, graphNode)
@@ -211,7 +213,7 @@
 			}
 
 			case 'delete': {
-				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode.id)
+				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
 				if (graphhNodeIndex > -1) {
 					deleteSubgrid(graphhNodeIndex)
 				}
@@ -220,7 +222,7 @@
 			}
 			case 'addBranch': {
 				addSubGrid()
-				nodes = addNewBranch(nodes, graphNode)
+				nodes = addNewBranch(nodes, graphNode!)
 				break
 			}
 			case 'removeBranch': {
@@ -260,8 +262,9 @@
 									label:
 										collapseNode === graphNode.id ? 'Default branch' : `Branch ${branchCount++}`
 								},
-								cb: (e: string, detail: any) =>
+								cb: (e: string, detail: any) => {
 									nodeCallbackHandler(e, detail, graphNode, parentIds, true)
+								}
 							}
 						},
 						parentIds: [parentIds[0]]
@@ -280,12 +283,12 @@
 								component: DecisionTreeGraphNode,
 								props: {
 									node: graphNode,
-									canDelete:
-										graphNode.next.length === 1 && getParents(nodes, graphNode.id).length === 1,
+									canDelete: !(graphNode.next.length > 1 && parentIds.length > 1),
 									canAddBranch: !cannotAddBranch,
 									index
 								},
-								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+								cb: (e: string, detail: any) =>
+									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
 							}
 						},
 						parentIds: [
@@ -338,11 +341,14 @@
 								component: DecisionTreeGraphNode,
 								props: {
 									node: graphNode,
-									canDelete: !cannotAddBranch,
+									canDelete:
+										!cannotAddBranch &&
+										(graphNode.next.length == 1 || !parentIds.includes('start')),
 									canAddBranch: !cannotAddBranch,
 									index
 								},
-								cb: (e: string, detail: any) => nodeCallbackHandler(e, detail, graphNode, parentIds)
+								cb: (e: string, detail: any) =>
+									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
 							}
 						},
 						parentIds: parentIds
