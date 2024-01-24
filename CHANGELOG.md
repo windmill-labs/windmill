@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.1](https://github.com/windmill-labs/windmill/compare/v1.253.0...v1.253.1) (2024-01-24)
+
+
+### Bug Fixes
+
+* **scim:** improve get_user for scim ([a66208f](https://github.com/windmill-labs/windmill/commit/a66208f326cb1be9ede6408beb4b6357d7a8bd57))
+
 ## [1.253.0](https://github.com/windmill-labs/windmill/compare/v1.252.0...v1.253.0) (2024-01-24)
 
 
