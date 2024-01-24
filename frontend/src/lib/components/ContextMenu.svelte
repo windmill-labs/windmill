@@ -1,48 +1,63 @@
 <script context="module" lang="ts">
-	const openedContextMenus = new Set() as Set<() => void>
+	import { writable } from 'svelte/store'
+
+	interface ContextMenuRegistry {
+		id: string
+		close: () => void
+	}
+
+	// Using a Svelte store for global state management
+	const openedContextMenus = writable<Set<ContextMenuRegistry>>(new Set())
 </script>
 
 <script lang="ts">
 	import { clickOutside } from '$lib/utils'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
+	import type { SvelteComponent } from 'svelte'
+
+	export let id: string
 
 	let contextMenuVisible = false
 	let menuX = 0
 	let menuY = 0
 
-	type ContextMenu = {
-		menuItems: {
-			label: string
-			onClick: () => void
-			color?: string
-			icon: any
-			shortcut?: string
-			disabled?: boolean
-		}[]
+	interface MenuItem {
+		label: string
+		onClick: () => void
+		color?: string
+		icon: typeof SvelteComponent
+		shortcut?: string
+		disabled?: boolean
 	}
+
+	interface ContextMenu {
+		menuItems: MenuItem[]
+	}
+
+	export let contextMenu: ContextMenu = { menuItems: [] }
 
 	function handleRightClick(event: MouseEvent) {
 		event.preventDefault()
 		contextMenuVisible = true
-
-		openedContextMenus.forEach((close) => close())
-
-		openedContextMenus.clear()
-
-		openedContextMenus.add(() => {
-			contextMenuVisible = false
-		})
-
 		menuX = event.clientX
 		menuY = event.clientY
+
+		openedContextMenus.update((menus) => {
+			menus.forEach((menu) => menu.id !== id && menu.close())
+			menus.clear()
+			menus.add({ id, close: () => (contextMenuVisible = false) })
+			return menus
+		})
 	}
 
 	function closeContextMenu() {
 		contextMenuVisible = false
+		openedContextMenus.update((menus) => {
+			menus.clear()
+			return menus
+		})
 	}
-
-	export let contextMenu: ContextMenu = { menuItems: [] }
 
 	function handleClickOutside(event: MouseEvent) {
 		if (contextMenuVisible) {

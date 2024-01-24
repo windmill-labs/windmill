@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getModifierKey } from '$lib/utils'
 
-	import { ArrowLeft, ArrowRight, Copy, Scissors, Trash } from 'lucide-svelte'
+	import { Copy, Scissors, Trash } from 'lucide-svelte'
 	import ContextMenu from '$lib/components/ContextMenu.svelte'
 	import ComponentCallbacks from './component/ComponentCallbacks.svelte'
 	import { getContext } from 'svelte'
@@ -35,22 +35,6 @@
 				icon: Copy,
 				shortcut: `${getModifierKey()} + C`
 			},
-			{
-				label: 'Next',
-				onClick: () => {
-					componentCallbacks?.right(new KeyboardEvent('keydown'))
-				},
-				shortcut: `Right arrow`,
-				icon: ArrowRight
-			},
-			{
-				label: 'Previous',
-				onClick: () => {
-					componentCallbacks?.left(new KeyboardEvent('keydown'))
-				},
-				shortcut: `Left arrow`,
-				icon: ArrowLeft
-			},
 
 			{
 				label: 'Delete',
@@ -65,6 +49,7 @@
 			}
 		]
 	}}
+	{id}
 >
 	<slot />
 </ContextMenu>
