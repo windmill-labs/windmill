@@ -291,7 +291,8 @@ lazy_static::lazy_static! {
 }
 
 pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
-    let imports = parse_expr_for_imports(code)?;
+    let mut imports = parse_expr_for_imports(code)?;
+    imports.sort_by_key(|f| 0 - (f.len() as i32));
     let mut content = code.to_string();
     for import in imports {
         let to_c = IMPORTS_VERSION.captures(&import);

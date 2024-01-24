@@ -190,12 +190,12 @@ async fn gen_bunfig(job_dir: &str) -> Result<()> {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
             if url.is_empty() {
-                ("https://registry.npmjs.org".to_string(), None)
+                ("https://registry.npmjs.org/".to_string(), None)
             } else {
                 parse_npm_config(s)
             }
         } else {
-            ("https://registry.npmjs.org".to_string(), None)
+            ("https://registry.npmjs.org/".to_string(), None)
         };
         let registry_toml_string = if let Some(token) = token_opt {
             format!("{{ url = \"{url}\", token = \"{token}\" }}")

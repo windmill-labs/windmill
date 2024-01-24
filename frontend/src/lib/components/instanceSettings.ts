@@ -127,7 +127,7 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Add private NPM registry',
 			key: 'npm_config_registry',
 			fieldType: 'text',
-			placeholder: 'https://yourregistry',
+			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
 			storage: 'setting',
 			ee_only: ''
 		},
