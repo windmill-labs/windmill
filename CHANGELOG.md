@@ -1,6 +1,28 @@
 # Changelog
 
 
+## [1.252.0](https://github.com/windmill-labs/windmill/compare/v1.251.1...v1.252.0) (2024-01-24)
+
+
+### Features
+
+* **cli:** add support for excludes in yaml.conf ([21bf011](https://github.com/windmill-labs/windmill/commit/21bf0115fc3e9af96262594eb76d664a3c531498))
+* Custom concurrency key for scripts ([#3046](https://github.com/windmill-labs/windmill/issues/3046)) ([f189224](https://github.com/windmill-labs/windmill/commit/f189224b8d0b17fe7a5d78795ac4129f31919538))
+* exporting tarball/sync doesn't require admin perms anymore ([c2fb24d](https://github.com/windmill-labs/windmill/commit/c2fb24d4803b9654c248f84861e86b99b559b6eb))
+* **frontend:** add support for range area ([#3068](https://github.com/windmill-labs/windmill/issues/3068)) ([0dd54f9](https://github.com/windmill-labs/windmill/commit/0dd54f93bb652af17173697682a6080a513b7f5f))
+* **frontend:** Ag Grid compactness ([#3052](https://github.com/windmill-labs/windmill/issues/3052)) ([1ffb4c5](https://github.com/windmill-labs/windmill/commit/1ffb4c5abebc418f41a969a983a03a2ebc521ea6))
+* **frontend:** Changelog updates ([#3067](https://github.com/windmill-labs/windmill/issues/3067)) ([c14b880](https://github.com/windmill-labs/windmill/commit/c14b880a7c93424ff13cf0fe8d6e9499af6e56ac))
+* **frontend:** display a warning with a documentation link on how to… ([#3012](https://github.com/windmill-labs/windmill/issues/3012)) ([c73bdad](https://github.com/windmill-labs/windmill/commit/c73bdad08c556b656c7fdcd509f097de675126c4))
+* Set a default app for each workspace ([#3014](https://github.com/windmill-labs/windmill/issues/3014)) ([3225420](https://github.com/windmill-labs/windmill/commit/32254203d81d4353fbfb7f6cd7b72f1e237dc45c))
+
+
+### Bug Fixes
+
+* fix add resource with keys as objects ([0c88abc](https://github.com/windmill-labs/windmill/commit/0c88abccf0ebbeccd3bfb0b6a066feb78cc8ecf3))
+* improve decision tree ([e6b8f73](https://github.com/windmill-labs/windmill/commit/e6b8f73c9cc8d94b58388726c5a31832871c398e))
+* no-emit-index-url on lockfiles ([450267a](https://github.com/windmill-labs/windmill/commit/450267a84e428a7b5b107aa50ddb51a0f0a7f187))
+* remove first part of account_identifier for snowflake ([e365693](https://github.com/windmill-labs/windmill/commit/e365693497e7055ee891748621ee3472efc6047a))
+
 ## [1.251.1](https://github.com/windmill-labs/windmill/compare/v1.251.0...v1.251.1) (2024-01-23)
 
 
