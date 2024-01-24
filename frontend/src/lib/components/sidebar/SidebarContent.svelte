@@ -32,7 +32,6 @@
 	import { goto } from '$app/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { onMount } from 'svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -138,14 +137,14 @@
 			description:
 				'The Ag Charts component integrates the Ag Charts library, enabling the visualization of data through various chart types. This component is designed to offer a flexible and powerful way to display data graphically within the application.',
 			href: 'https://www.windmill.dev/changelog/ag-charts',
-			date: '2024-01-23'
+			date: '2024-01-25'
 		},
 		{
 			label: 'Database Studio',
 			description:
 				"Introducing the Database Studio, a web-based database management tool that leverages Ag Grid for table display and interaction. This component enhances the user's ability to interact with database content in a dynamic and intuitive way.",
 			href: 'https://www.windmill.dev/changelog/database-studio',
-			date: '2024-01-23'
+			date: '2024-01-25'
 		},
 		{
 			label: 'Rich results render',
@@ -155,21 +154,18 @@
 		}
 	]
 
-	let newChangelogs: {
-		label: string
-		description: string
-		href: string
-		date: string
-	}[] = []
+	function findMostRecentDate(changelogs) {
+		return changelogs.reduce((latest, log) => {
+			const logDate = new Date(log.date)
+			return logDate > latest ? logDate : latest
+		}, new Date(0))
+	}
 
-	onMount(() => {
-		newChangelogs = changelogs.filter((c) => {
-			const lastVisit = localStorage.getItem('lastVisit')
-			return lastVisit ? new Date(c.date) > new Date(lastVisit) : true
-		})
+	const mostRecentDate = findMostRecentDate(changelogs)
 
-		localStorage.setItem('lastVisit', new Date().toISOString())
-	})
+	const recentChangelogs = changelogs.filter(
+		(c) => new Date(c.date).getTime() === mostRecentDate.getTime()
+	)
 
 	const thirdMenuLinks = [
 		{
@@ -282,16 +278,6 @@
 										tabindex="-1"
 										target="_blank"
 									>
-										{#if newChangelogs.length > 0 && subItem.label === 'Changelog'}
-											<div class="absolute top-3 right-4 w-3 h-3 rounded-full bg-primary">
-												<span class="relative flex h-3 w-3">
-													<span
-														class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"
-													/>
-													<span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
-												</span>
-											</div>
-										{/if}
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
@@ -303,10 +289,10 @@
 								</div>
 							</MenuItem>
 						{/each}
-						{#if newChangelogs.length > 0}
+						{#if recentChangelogs.length > 0}
 							<div class="w-full h-1 border-t" />
 							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
-							{#each newChangelogs as changelog}
+							{#each recentChangelogs as changelog}
 								<MenuItem>
 									<div class="py-1" role="none">
 										<a
