@@ -14,7 +14,6 @@
 	import { clickOutside } from '$lib/utils'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
-	import type { SvelteComponent } from 'svelte'
 
 	export let id: string
 
@@ -26,7 +25,7 @@
 		label: string
 		onClick: () => void
 		color?: string
-		icon: typeof SvelteComponent
+		icon: any
 		shortcut?: string
 		disabled?: boolean
 	}
