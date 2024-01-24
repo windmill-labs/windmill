@@ -33,6 +33,7 @@
 	export let noInitialize = false
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
+	export let noDefault = false
 
 	const {
 		app,
@@ -68,7 +69,7 @@
 		result: undefined as string | undefined
 	})
 
-	let value: string | undefined = outputs?.result.peak()
+	let value: string | undefined = noDefault ? undefined : outputs?.result.peak()
 
 	$: resolvedConfig.items && handleItems()
 

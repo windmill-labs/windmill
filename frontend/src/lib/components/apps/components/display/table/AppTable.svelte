@@ -585,6 +585,7 @@
 															{:else if actionButton.type == 'selectcomponent'}
 																<div class="w-40">
 																	<AppSelect
+																		noDefault
 																		noInitialize
 																		extraKey={'idx' + rowIndex}
 																		{render}
@@ -631,6 +632,7 @@
 														{:else if actionButton.type == 'selectcomponent'}
 															<div class="w-40">
 																<AppSelect
+																	noDefault
 																	noInitialize
 																	--font-size="10px"
 																	extraKey={'idx' + rowIndex}
