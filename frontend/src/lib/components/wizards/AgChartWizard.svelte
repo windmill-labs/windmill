@@ -13,7 +13,7 @@
 	type Dataset = {
 		value: RichConfiguration
 		name: string
-		type: 'bar' | 'scatter' | 'line' | 'area' | 'range-bar'
+		type: 'bar' | 'scatter' | 'line' | 'area' | 'range-bar' | 'range-area'
 	}
 
 	let component: GridItem | undefined = undefined
@@ -59,7 +59,7 @@
 				inputSpecsConfiguration={value.value?.['configuration']}
 				labels={value.value?.['labels']}
 				tooltip={value.value?.['tooltip']}
-				disabledOptions={isEE ? [] : ['range-bar']}
+				disabledOptions={isEE ? [] : ['range-bar', 'range-area']}
 			/>
 
 			<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>

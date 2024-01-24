@@ -30,6 +30,12 @@
 	const { app, worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	const rowHeights = {
+		normal: 40,
+		compact: 30,
+		comfortable: 50
+	}
+
 	let css = initCss($app.css?.aggridcomponent, customCss)
 
 	let result: any[] | undefined = undefined
@@ -154,6 +160,9 @@
 							editable: resolvedConfig?.allEditable,
 							onCellValueChanged
 						},
+						rowHeight: resolvedConfig.compactness
+							? rowHeights[resolvedConfig.compactness]
+							: rowHeights['normal'],
 						rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 						rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 							? resolvedConfig.rowMultiselectWithClick
@@ -229,6 +238,7 @@
 			onSelectionChanged(api)
 		}
 	}
+
 	function updateOptions() {
 		try {
 			api?.updateGridOptions({
@@ -248,6 +258,9 @@
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 					? resolvedConfig.rowMultiselectWithClick
 					: undefined,
+				rowHeight: resolvedConfig.compactness
+					? rowHeights[resolvedConfig.compactness]
+					: rowHeights['normal'],
 				...(resolvedConfig?.extraConfig ?? {})
 			})
 		} catch (e) {
