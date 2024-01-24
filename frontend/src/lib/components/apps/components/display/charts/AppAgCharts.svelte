@@ -32,7 +32,7 @@
 	type Dataset = {
 		value: RichConfiguration
 		name: string
-		type: 'bar' | 'line' | 'scatter' | 'area' | 'range-bar'
+		type: 'bar' | 'line' | 'scatter' | 'area' | 'range-bar' | 'range-area'
 	}
 
 	let resolvedDatasets: Dataset[]
@@ -75,7 +75,10 @@
 					continue
 				}
 
-				if (resolvedDatasetsValues[j].type === 'range-bar') {
+				if (
+					resolvedDatasetsValues[j].type === 'range-bar' ||
+					resolvedDatasetsValues[j].type === 'range-area'
+				) {
 					o[`y-${j}-low`] = resolvedDatasetsValues[j].value[i]?.[0]
 					o[`y-${j}-high`] = resolvedDatasetsValues[j].value[i]?.[1]
 				} else {
@@ -92,7 +95,7 @@
 			series:
 				(resolvedDatasets?.map((d, index) => {
 					const type = resolvedDatasetsValues[index].type
-					if (type === 'range-bar') {
+					if (type === 'range-bar' || type === 'range-area') {
 						return {
 							type: type,
 							xKey: 'x',
@@ -130,7 +133,8 @@
 						scatter: 'Scatter',
 						line: 'Line',
 						area: 'Area',
-						['range-bar']: 'Range Bar'
+						['range-bar']: 'Range Bar',
+						['range-area']: 'Range Area'
 					},
 					configuration: {
 						bar: {
@@ -166,6 +170,18 @@
 							}
 						},
 						['range-bar']: {
+							value: {
+								type: 'static',
+								fieldType: 'array',
+								subFieldType: 'number-tuple',
+								value: [
+									[10, 15],
+									[20, 25],
+									[18, 27]
+								]
+							}
+						},
+						['range-area']: {
 							value: {
 								type: 'static',
 								fieldType: 'array',
@@ -215,6 +231,8 @@
 	}
 
 	let AgChartsInstance: any | undefined = undefined
+
+	$: license && loadLibrary()
 
 	async function loadLibrary() {
 		if (ee) {

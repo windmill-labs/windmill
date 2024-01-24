@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, type Resource } from '$lib/gen'
-	import { canWrite, emptyString, isOwner } from '$lib/utils'
+	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
+	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { Alert, Button, Drawer, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -16,6 +16,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
 	import { Save } from 'lucide-svelte'
+	import Markdown from 'svelte-exmarkdown'
 
 	let path = ''
 	let initialPath = ''
@@ -31,6 +32,7 @@
 	let loadingSchema = false
 	let linkedVars: string[] = []
 	let drawer: Drawer
+	let resourceTypeInfo: ResourceType | undefined = undefined
 
 	let rawCode: string | undefined = undefined
 
@@ -80,6 +82,7 @@
 					path: selectedResourceType
 				})
 
+				resourceTypeInfo = resourceType
 				if (resourceType.schema) {
 					resourceSchema = resourceType.schema as Schema
 				}
@@ -150,6 +153,12 @@
 						kind="resource"
 					/>
 				</div>
+				{#if !emptyString(resourceTypeInfo?.description)}
+					<h3 class="mt-4 mb-2">{resourceTypeInfo?.name} description</h3>
+					<div class="text-sm">
+						<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
+					</div>
+				{/if}
 				<div class="flex w-full justify-between max-w-lg items-center mt-4">
 					<Toggle
 						on:change={(e) => switchTab(e.detail)}

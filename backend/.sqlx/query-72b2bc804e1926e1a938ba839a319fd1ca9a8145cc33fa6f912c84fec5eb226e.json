@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE instance_group SET name = $1 where name = $2",
+  "query": "UPDATE workspace_settings SET default_app = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "a28a83edc40e32815cb465338b53c8e892ac4fac6d78bc825cd0b0b1099f4e07"
+  "hash": "72b2bc804e1926e1a938ba839a319fd1ca9a8145cc33fa6f912c84fec5eb226e"
 }

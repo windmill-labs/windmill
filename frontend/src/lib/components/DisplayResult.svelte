@@ -8,6 +8,7 @@
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
+	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import Toggle from './Toggle.svelte'
@@ -313,8 +314,8 @@
 				<pre>{result?.['result']}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
-			<div
-				><a
+			<div>
+				<a
 					download={result.filename ?? result.file?.filename ?? 'windmill.file'}
 					href="data:application/octet-stream;base64,{contentOrRootString(result.file)}">Download</a
 				>
@@ -422,11 +423,27 @@
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
 							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}>Download</a
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 					>
+						Download {filename ? '' : 'as JSON'}
+					</a>
+				</div>
+
+				<div class="my-4">
+					<Alert size="xs" title="Large file detected" type="warning">
+						We recommend using persistent storage for large data files.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
+							target="_blank"
+							rel="noreferrer"
+							class="hover:underline"
+						>
+							See docs for setting up an object storage service integration using s3 or any other s3
+							compatible services
+						</a>
+					</Alert>
 				</div>
 			{/if}
-			<div class="mb-21">JSON is too large to be displayed in full</div>
 			{#if result && result != 'WINDMILL_TOO_BIG'}
 				<ObjectViewer json={result} />
 			{/if}
