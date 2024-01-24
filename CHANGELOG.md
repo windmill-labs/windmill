@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.253.0](https://github.com/windmill-labs/windmill/compare/v1.252.0...v1.253.0) (2024-01-24)
+
+
+### Features
+
+* **frontend:** app editor right click menu ([#3050](https://github.com/windmill-labs/windmill/issues/3050)) ([2b8c0bb](https://github.com/windmill-labs/windmill/commit/2b8c0bbaeae22e2231edb7b8560f58003312353f))
+
+
+### Bug Fixes
+
+* bun default registry and performance improvements ([801106e](https://github.com/windmill-labs/windmill/commit/801106e9b8878e5fd1acd805497ed81f0bf5c99c))
+
 ## [1.252.0](https://github.com/windmill-labs/windmill/compare/v1.251.1...v1.252.0) (2024-01-24)
 
 
