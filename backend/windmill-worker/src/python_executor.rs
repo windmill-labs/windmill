@@ -133,7 +133,7 @@ pub async fn pip_compile(
         args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
     }
     if let Some(url) = PIP_INDEX_URL.as_ref() {
-        args.extend(["--index-url", url]);
+        args.extend(["--index-url", url, "--no-emit-index-url"]);
     }
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);

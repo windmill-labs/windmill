@@ -143,7 +143,7 @@ pub async fn get_users(
     Extension(db): Extension<DB>,
     Query(query): Query<ScimQuery>,
 ) -> Result<JsonScim<serde_json::Value>> {
-    let mut sqlb = SqlBuilder::select_from("usr")
+    let mut sqlb = SqlBuilder::select_from("password")
         .fields(&["email"])
         .limit(query.count.unwrap_or(100000))
         .offset(query.startIndex.map(|x| x - 1).unwrap_or(0))
