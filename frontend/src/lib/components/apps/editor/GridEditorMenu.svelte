@@ -6,12 +6,17 @@
 	import ComponentCallbacks from './component/ComponentCallbacks.svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
+	import DeleteComponent from './settingsPanel/DeleteComponent.svelte'
+	import { findComponentSettings } from './appUtils'
 
 	export let id: string
 	let componentCallbacks: ComponentCallbacks | undefined = undefined
 
-	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
+
+	let deleteComponent: DeleteComponent | undefined = undefined
+	$: componentSettings = $selectedComponent?.map((sc) => findComponentSettings($app, sc))
 </script>
 
 <ComponentCallbacks bind:this={componentCallbacks} />
@@ -39,9 +44,7 @@
 			{
 				label: 'Delete',
 				onClick: () => {
-					$selectedComponent = [id]
-					const btn = document.getElementById('delete-component')
-					btn?.click()
+					deleteComponent?.removeGridElement()
 				},
 				icon: Trash,
 				shortcut: `${getModifierKey()} + Del`,
@@ -53,3 +56,5 @@
 >
 	<slot />
 </ContextMenu>
+
+<DeleteComponent {componentSettings} bind:this={deleteComponent} />

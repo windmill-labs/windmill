@@ -425,13 +425,7 @@
 		{#if duplicateMoveAllowed}
 			<PanelSection title="Copy/Move">
 				<div slot="action">
-					<Button
-						size="xs"
-						color="red"
-						variant="border"
-						on:click={removeGridElement}
-						id="delete-component"
-					>
+					<Button size="xs" color="red" variant="border" on:click={removeGridElement}>
 						Delete&nbsp;&nbsp;
 						{#if isMac()}
 							<Kbd kbdClass="center-center">
