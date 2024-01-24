@@ -19,6 +19,7 @@
 	import { BG_PREFIX } from '../utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import GridEditorMenu from './GridEditorMenu.svelte'
 
 	export let policy: Policy
 
@@ -136,25 +137,27 @@
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>
-					<Component
-						render={true}
-						component={dataItem.data}
-						selected={Boolean($selectedComponent?.includes(dataItem.id))}
-						locked={isFixed(dataItem)}
-						on:lock={() => {
-							const gridItem = findGridItem($app, dataItem.id)
-							if (gridItem) {
-								toggleFixed(gridItem)
-							}
-							$app = $app
-						}}
-						on:expand={() => {
-							push(history, $app)
-							$selectedComponent = [dataItem.id]
-							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							$app = $app
-						}}
-					/>
+					<GridEditorMenu id={dataItem.id}>
+						<Component
+							render={true}
+							component={dataItem.data}
+							selected={Boolean($selectedComponent?.includes(dataItem.id))}
+							locked={isFixed(dataItem)}
+							on:lock={() => {
+								const gridItem = findGridItem($app, dataItem.id)
+								if (gridItem) {
+									toggleFixed(gridItem)
+								}
+								$app = $app
+							}}
+							on:expand={() => {
+								push(history, $app)
+								$selectedComponent = [dataItem.id]
+								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
+							}}
+						/>
+					</GridEditorMenu>
 				</ComponentWrapper>
 			</Grid>
 		</div>
