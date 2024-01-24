@@ -425,7 +425,7 @@
 				</div>
 
 				<div class="my-4">
-					<Alert size="xs" title="Size Limit Exceeded" type="error">
+					<Alert size="xs" title="Large file detected" type="warning">
 						We recommend using persistent storage for large data files. See
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
