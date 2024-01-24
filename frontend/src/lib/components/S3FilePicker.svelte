@@ -11,7 +11,7 @@
 		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService, type UploadFilePart } from '$lib/gen'
+	import { HelpersService } from '$lib/gen'
 	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -30,11 +30,6 @@
 	let fileMoveInProgress = false
 
 	let uploadModalOpen = false
-	let fileToUpload: File | undefined = undefined
-	let fileToUploadKey: string | undefined = undefined
-	let fileUploadProgress: number | undefined = undefined
-	let fileUploadCancelled: boolean = false
-	let fileUploadErrorMsg: string | undefined = undefined
 
 	let workspaceSettingsInitialized = true
 
@@ -84,7 +79,6 @@
 				fileKey: string
 				contentPreview: string | undefined
 				contentType: string | undefined
-				downloadUrl: string | undefined
 		  }
 		| undefined = undefined
 
@@ -199,8 +193,7 @@
 			filePreview = {
 				fileKey: fileKey,
 				contentPreview: filePreviewContent,
-				contentType: filePreviewRaw.content_type,
-				downloadUrl: filePreviewRaw.download_url
+				contentType: filePreviewRaw.content_type
 			}
 		}
 		filePreviewLoading = false
@@ -251,81 +244,6 @@
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
-	async function uploadFileToS3() {
-		fileUploadErrorMsg = undefined
-		if (fileToUpload === undefined || fileToUploadKey === undefined) {
-			return
-		}
-		if (allFilesByKey[fileToUploadKey] !== undefined) {
-			fileUploadErrorMsg =
-				'A file with this name already exists in the S3 bucket. If you want to replace it, delete it first.'
-			return
-		}
-
-		let upload_id: string | undefined = undefined
-		let parts: UploadFilePart[] = []
-
-		let reader = fileToUpload?.stream().getReader()
-		let { value: chunk, done: readerDone } = await reader.read()
-		if (chunk === undefined || readerDone) {
-			sendUserToast('Error reading file, no data read', true)
-			return
-		}
-
-		fileUploadProgress = 0
-		while (true) {
-			let { value: chunk_2, done: readerDone } = await reader.read()
-			if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
-				// AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
-				chunk = new Uint8Array([...chunk, ...chunk_2])
-				continue
-			}
-			fileUploadProgress += (chunk.length * 100) / fileToUpload.size
-			let response = await HelpersService.multipartFileUpload({
-				workspace: $workspaceStore!,
-				requestBody: {
-					file_key: fileToUploadKey,
-					part_content: Array.from(chunk),
-					upload_id: upload_id,
-					parts: parts,
-					is_final: readerDone,
-					cancel_upload: fileUploadCancelled
-				}
-			})
-			upload_id = response.upload_id
-			parts = response.parts
-			if (response.is_done) {
-				if (fileUploadCancelled) {
-					sendUserToast('File upload cancelled!')
-				} else {
-					sendUserToast('File upload finished!')
-				}
-				break
-			}
-			if (chunk_2 === undefined) {
-				sendUserToast(
-					'File upload is not finished, yet there is no more data to stream. This is unexpected',
-					true
-				)
-				return
-			}
-			chunk = chunk_2
-		}
-		uploadModalOpen = false
-
-		if (!fileUploadCancelled) {
-			selectedFileKey = { s3: fileToUploadKey }
-			await loadFiles()
-			await loadFileMetadataPlusPreviewAsync(selectedFileKey['s3'])
-		}
-
-		fileToUpload = undefined
-		fileToUploadKey = undefined
-		fileUploadProgress = undefined
-		fileUploadCancelled = false
-		fileUploadErrorMsg = undefined
-	}
-
 	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
@@ -338,6 +256,18 @@
 		filePreview = undefined
 		reloadContent()
 		drawer.openDrawer?.()
+	}
+
+	export async function downloadS3File(fileKey: string | undefined) {
+		if (fileKey === undefined) {
+			return
+		}
+		const downloadUrl = await HelpersService.generateDownloadUrl({
+			workspace: $workspaceStore!,
+			fileKey: fileKey
+		})
+		console.log('download URL ', downloadUrl.download_url)
+		window.open(downloadUrl.download_url, '_blank')
 	}
 
 	async function reloadContent() {
@@ -534,7 +464,9 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={filePreview.downloadUrl}
+											on:click={() => {
+												downloadS3File(fileMetadata?.fileKey)
+											}}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
 										/>
@@ -701,24 +633,12 @@
 <FileUploadModal
 	open={uploadModalOpen}
 	title="Upload file to S3 bucket"
-	bind:fileToUpload
-	bind:fileKey={fileToUploadKey}
-	on:canceled={() => {
-		if (fileUploadProgress !== undefined) {
-			fileUploadCancelled = true
-			fileUploadErrorMsg = 'Cancelling in progress, it might take a few seconds...'
-		} else {
-			fileUploadErrorMsg = undefined
-			uploadModalOpen = false
+	on:close={async (evt) => {
+		uploadModalOpen = false
+		if (evt.detail !== undefined && evt.detail !== null) {
+			selectedFileKey = { s3: evt.detail }
+			loadFiles()
+			loadFileMetadataPlusPreviewAsync(evt.detail)
 		}
 	}}
-	on:confirmed={() => {
-		uploadFileToS3()
-	}}
-	on:close={() => {
-		fileUploadCancelled = true
-		uploadModalOpen = false
-	}}
-	bind:progressPct={fileUploadProgress}
-	bind:errorMsg={fileUploadErrorMsg}
 />

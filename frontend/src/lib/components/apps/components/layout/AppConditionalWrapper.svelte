@@ -20,10 +20,11 @@
 
 	const outputs = initOutput($worldStore, id, {
 		conditions: [] as boolean[],
-		selectedConditionIndex: 0
+		selectedTabIndex: 0
 	})
 
 	function onFocus() {
+		console.log('onFocus', id, selectedConditionIndex)
 		$focusedGrid = {
 			parentComponentId: id,
 			subGridIndex: selectedConditionIndex
@@ -51,7 +52,7 @@
 		}
 
 		selectedConditionIndex = index
-		outputs.selectedConditionIndex.set(index)
+		outputs.selectedTabIndex.set(index)
 	}
 
 	$: resolvedConditions && handleResolvedConditions()
@@ -93,7 +94,7 @@
 				style={css?.container?.style}
 				subGridId={`${id}-${i}`}
 				containerHeight={componentContainerHeight}
-				on:focus={() => {
+				on:focus={(e) => {
 					if (!$connectingInput.opened) {
 						$selectedComponent = [id]
 					}

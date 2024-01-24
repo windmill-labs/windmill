@@ -1,3 +1,4 @@
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{cmp, time::Duration};
 
 use crate::{db::DB, resources::get_resource_value_interpolated_internal, users::Tokened};
@@ -28,6 +29,7 @@ use polars::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
+use windmill_common::error::JsonResult;
 use windmill_common::{
     db::UserDB,
     error,
@@ -75,6 +77,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/load_file_preview",
             get(load_file_preview).layer(cors.clone()),
+        )
+        .route(
+            "/generate_download_url",
+            get(generate_download_url).layer(cors.clone()),
         )
         .route(
             "/delete_s3_file",
@@ -449,7 +455,6 @@ struct LoadFilePreviewResponse {
     pub content: Option<String>,
     pub content_type: WindmillContentType,
     pub msg: Option<String>,
-    pub download_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -542,19 +547,6 @@ async fn load_file_preview(
             )
         };
 
-    // URL expires 30 minutes after its generation
-    let presigned_config = PresigningConfig::expires_in(Duration::from_secs(60 * 30))
-        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
-    let download_url = s3_client
-        .get_object()
-        .bucket(&s3_bucket)
-        .key(&file_key)
-        .presigned(presigned_config)
-        .await
-        .map_err(|err| error::Error::InternalErr(err.to_string()))?
-        .uri()
-        .to_string();
-
     let file_chunk_length = if s3_object_content_length.is_some() {
         cmp::min(
             query.read_bytes_length,
@@ -644,18 +636,59 @@ async fn load_file_preview(
             content_type: content_type,
             content: Some(content),
             msg: None,
-            download_url: Some(download_url),
         },
 
         Err(err) => LoadFilePreviewResponse {
             content_type: content_type,
             content: None,
             msg: Some(err.to_string()),
-            download_url: Some(download_url),
         },
     };
 
     return Ok(Json(response));
+}
+
+#[derive(Deserialize)]
+struct GenerateDownloadUrlQuery {
+    pub file_key: String,
+}
+
+#[derive(Serialize)]
+struct GenerateDownloadUrlResponse {
+    pub download_url: String,
+}
+
+async fn generate_download_url(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Query(query): Query<GenerateDownloadUrlQuery>,
+) -> JsonResult<GenerateDownloadUrlResponse> {
+    let file_key = query.file_key.clone();
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+
+    let s3_client = build_s3_client(&s3_resource);
+    let s3_bucket = s3_resource.bucket.clone();
+
+    // URL expires 5 minutes after its generation
+    let presigned_config = PresigningConfig::expires_in(Duration::from_secs(60 * 5))
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+    let download_url = s3_client
+        .get_object()
+        .bucket(&s3_bucket)
+        .key(&file_key)
+        .presigned(presigned_config)
+        .await
+        .map_err(|err| error::Error::InternalErr(err.to_string()))?
+        .uri()
+        .to_string();
+
+    return Ok(Json(GenerateDownloadUrlResponse { download_url }));
 }
 
 #[derive(Deserialize)]
@@ -741,7 +774,8 @@ async fn move_s3_file(
 
 #[derive(Deserialize)]
 struct UploadFileQuery {
-    pub file_key: String,
+    pub file_key: Option<String>, // if none, the file will be placed in windmill_uploads/ with a random name.
+    pub file_extension: Option<String>, // preferred extension for the file in case a random name has to be generated
     pub part_content: Vec<u8>,
     pub upload_id: Option<String>, // should be None for the first call to initiate the upload
 
@@ -764,6 +798,7 @@ struct UploadFileResponse {
     pub upload_id: String,
     pub parts: Vec<UploadFilePart>, // parts already uploaded, with their part_number and the tag associated
     pub is_done: bool, // whether the transfer is finished, either b/c it got cancelled or because the last chunk was uploaded
+    pub file_key: String,
 }
 
 async fn multipart_upload_s3_file(
@@ -779,7 +814,23 @@ async fn multipart_upload_s3_file(
         query.parts.len(),
         query.is_final
     );
-    let file_key = query.file_key.clone();
+    let file_key = match query.file_key.clone() {
+        Some(fk) => fk,
+        None => {
+            // for now, we place all files into `windmill_uploads` folder with a random name
+            // TODO: make the folder configurable via the workspace settings
+            format!(
+                "windmill_uploads/upload_{}_{}.{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis(),
+                rand::random::<u16>(),
+                query.file_extension.clone().unwrap_or("file".to_string())
+            )
+            .to_string()
+        }
+    };
 
     let s3_resource_opt = match query.s3_resource_path.clone() {
         Some(s3_resource_path) => {
@@ -816,9 +867,10 @@ async fn multipart_upload_s3_file(
                 error::Error::InternalErr(err.to_string())
             })?;
         return Ok(Json(UploadFileResponse {
-            upload_id: upload_id,
+            upload_id,
             parts: vec![], // empty parts as the transfer has been cancelled
             is_done: true,
+            file_key,
         }));
     }
 
@@ -885,7 +937,7 @@ async fn multipart_upload_s3_file(
         let _complete_multipart_upload_res = s3_client
             .complete_multipart_upload()
             .bucket(&s3_resource.bucket)
-            .key(&query.file_key)
+            .key(&file_key)
             .upload_id(&upload_id)
             .multipart_upload(
                 CompletedMultipartUpload::builder()
@@ -901,9 +953,10 @@ async fn multipart_upload_s3_file(
     }
 
     return Ok(Json(UploadFileResponse {
-        upload_id: upload_id,
+        upload_id,
         parts: new_parts,
         is_done: query.is_final,
+        file_key,
     }));
 }
 

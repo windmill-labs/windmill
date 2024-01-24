@@ -11,30 +11,34 @@ function createBooleanRC(): RichConfiguration {
 	}
 }
 
-export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode) {
+export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode | undefined) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,
-		next: sourceNode.next,
+		next: sourceNode ? sourceNode.next : [{ id: nodes[0].id }],
 		allowed: createBooleanRC()
 	}
 
-	nodes.push(newNode)
+	if (sourceNode) {
+		let index = nodes.findIndex((n) => n.id === sourceNode.id)
+		nodes = [...nodes.slice(0, index), newNode, ...nodes.slice(index)]
 
-	nodes = nodes.map((node) => {
-		if (node.id === sourceNode.id) {
-			node.next = [
-				{
-					id: newNode.id,
-					condition: createBooleanRC()
-				}
-			]
-		}
-		return node
-	})
-
+		nodes = nodes.map((node) => {
+			if (node.id === sourceNode.id) {
+				node.next = [
+					{
+						id: newNode.id,
+						condition: createBooleanRC()
+					}
+				]
+			}
+			return node
+		})
+	} else {
+		nodes = [newNode, ...nodes]
+	}
 	return nodes
 }
 
@@ -45,6 +49,7 @@ export function insertNode(
 ) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
+	console.log('insertNode', parentId, sourceNode)
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,
@@ -57,7 +62,8 @@ export function insertNode(
 		allowed: createBooleanRC()
 	}
 
-	nodes.push(newNode)
+	let index = nodes.findIndex((n) => n.id === sourceNode.id)
+	nodes = [...nodes.slice(0, index), newNode, ...nodes.slice(index)]
 
 	nodes = nodes.map((node) => {
 		if (node.id === parentId) {
@@ -85,28 +91,30 @@ export function removeNode(
 		return nodes
 	}
 
-	const parentNode = nodes.find((n) => n.next.some((next) => next.id === nodeToRemove.id))
+	const parentNodes = nodes.filter((n) => n.next.some((next) => next.id === nodeToRemove.id))
 
-	if (!parentNode) {
+	if (parentNodes.length == 0) {
 		// Case when there is no parent node
 		if (nodeToRemove.next.length === 1) {
 			return nodes.filter((n) => n.id !== nodeToRemove.id)
 		}
 	} else {
-		if (parentNode.next.length === 1) {
-			// Parent has only one next node
-			parentNode.next = nodeToRemove.next
-		} else if (parentNode.next.length > 1) {
-			// Parent has multiple next nodes
-			parentNode.next = parentNode.next
-				.filter((next) => next.id !== nodeToRemove.id)
-				.concat(nodeToRemove.next)
+		parentNodes.forEach((parentNode, index) => {
+			if (parentNode.next.length === 1) {
+				// Parent has only one next node
+				parentNode.next = nodeToRemove.next
+			} else if (parentNode.next.length > 1) {
+				// Parent has multiple next nodes
+				parentNode.next = parentNode.next
+					.filter((next) => next.id !== nodeToRemove.id)
+					.concat(nodeToRemove.next)
 
-			// Remove duplicates
-			parentNode.next = parentNode.next.filter(
-				(next, index, self) => self.findIndex((t) => t.id === next.id) === index
-			)
-		}
+				// Remove duplicates
+				parentNode.next = parentNode.next.filter(
+					(next, index, self) => self.findIndex((t) => t.id === next.id) === index
+				)
+			}
+		})
 
 		nodes = nodes.filter((n) => n.id !== nodeToRemove.id)
 	}

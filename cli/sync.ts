@@ -4,7 +4,7 @@ import {
   Command,
   Confirm,
   ensureDir,
-  gitignore_parser,
+  minimatch,
   JSZip,
   path,
   ScriptService,
@@ -21,6 +21,7 @@ import {
   yamlParse,
   ScheduleService,
   SEP,
+  gitignore_parser,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -36,6 +37,8 @@ import { handleScriptMetadata, removeExtensionToPath } from "./script.ts";
 
 import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
+import { read } from "https://deno.land/x/cbor@v1.4.1/decode.js";
+import { readConfigFile } from "./conf.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -437,23 +440,65 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 export const isWhitelisted = (p: string) => {
   return p == "." + SEP || p == "" || p == "u" || p == "f" || p == "g";
 };
-export async function ignoreF() {
-  try {
-    const ignore: {
-      accepts(file: string): boolean;
-      denies(file: string): boolean;
-    } = gitignore_parser.compile(await Deno.readTextFile(".wmillignore"));
 
-    return (p: string, isDirectory: boolean) => {
-      return (
-        !isWhitelisted(p) &&
-        (isNotWmillFile(p, isDirectory) || (!isDirectory && ignore.denies(p)))
-      );
+export async function ignoreF(): Promise<
+  (p: string, isDirectory: boolean) => boolean
+> {
+  const wmillconf = await readConfigFile();
+
+  let whitelist: { approve(file: string): boolean } | undefined = undefined;
+
+  if (wmillconf?.includes || wmillconf?.excludes) {
+    if (wmillconf?.excludes && !Array.isArray(wmillconf.includes)) {
+      throw new Error("wmill.yaml/includes must be an array");
+    }
+    if (wmillconf?.excludes && !Array.isArray(wmillconf.excludes)) {
+      throw new Error("wmill.yaml/excludes must be an array");
+    }
+    whitelist = {
+      approve(file: string): boolean {
+        return (
+          (!wmillconf.includes ||
+            wmillconf.includes?.some((i) => minimatch(file, i))) &&
+          (!wmillconf?.excludes ||
+            wmillconf.excludes!.every((i) => !minimatch(file, i)))
+        );
+      },
     };
-  } catch {
-    return (p: string, isDirectory: boolean) =>
-      !isWhitelisted(p) && isNotWmillFile(p, isDirectory);
   }
+  let ign:
+    | {
+        denies(file: string): boolean;
+      }
+    | undefined = undefined;
+  try {
+    const ignoreContent = await Deno.readTextFile(".wmillignore");
+    const condensed = ignoreContent
+      .split("\n")
+      .filter((l) => l != "" && !l.startsWith("#"))
+      .join(", ");
+    log.info(
+      colors.gray(
+        `(Deprecated, use wmill.conf/includes instead) Using .wmillignore file (${condensed})`
+      )
+    );
+    ign = gitignore_parser.compile(ignoreContent);
+  } catch {}
+
+  if (ign && whitelist) {
+    throw new Error("Cannot have both .wmillignore and wmill.yaml/includes");
+  }
+
+  // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
+  return (p: string, isDirectory: boolean) => {
+    return (
+      !isWhitelisted(p) &&
+      (isNotWmillFile(p, isDirectory) ||
+        (!isDirectory &&
+          ((whitelist != undefined && !whitelist.approve(p)) ||
+            (ign != undefined && ign.denies(p)))))
+    );
+  };
 }
 
 async function pull(
@@ -765,7 +810,7 @@ async function push(
         if (
           await handleScriptMetadata(
             change.path,
-            workspace.workspaceId,
+            workspace,
             alreadySynced,
             opts.message,
             lockfileUseArray
@@ -778,10 +823,11 @@ async function push(
         } else if (
           await handleFile(
             change.path,
-            workspace.workspaceId,
+            workspace,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            opts
           )
         ) {
           if (!opts.raw && stateExists) {
@@ -817,10 +863,11 @@ async function push(
         } else if (
           await handleFile(
             change.path,
-            workspace.workspaceId,
+            workspace,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            opts
           )
         ) {
           continue;

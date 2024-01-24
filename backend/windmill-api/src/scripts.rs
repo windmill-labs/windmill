@@ -47,6 +47,7 @@ use windmill_common::{
     },
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_parser_ts::remove_pinned_imports;
 use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
@@ -86,6 +87,8 @@ pub struct ScriptWDraft {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_key: Option<String>,
 }
 
 pub fn global_service() -> Router {
@@ -113,6 +116,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
         .route("/raw/p/*path", get(raw_script_by_path))
+        .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
@@ -473,8 +477,8 @@ async fn create_script(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)",
+         delete_after_use, timeout, concurrency_key) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)",
         &w_id,
         &hash.0,
         ns.path,
@@ -501,6 +505,7 @@ async fn create_script(
         ns.restart_unless_cancelled,
         ns.delete_after_use,
         ns.timeout,
+        ns.concurrency_key,
     )
     .execute(&mut tx)
     .await?;
@@ -718,7 +723,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -871,6 +876,24 @@ async fn raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    raw_script_by_path_internal(path, user_db, authed, w_id, false).await
+}
+
+async fn raw_script_by_path_unpinned(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    raw_script_by_path_internal(path, user_db, authed, w_id, true).await
+}
+
+async fn raw_script_by_path_internal(
+    path: StripPath,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    w_id: String,
+    unpin: bool,
+) -> Result<String> {
     let path = path.to_path();
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
@@ -904,7 +927,12 @@ async fn raw_script_by_path(
     tx.commit().await?;
 
     let content = not_found_if_none(content_o, "Script", path)?;
-    Ok(content)
+
+    if unpin {
+        return Ok(remove_pinned_imports(&content)?);
+    } else {
+        return Ok(content);
+    }
 }
 
 async fn exists_script_by_path(

@@ -11,6 +11,8 @@ services:
       - db_data:/var/lib/postgresql/data
     expose:
       - 5432
+    ports:
+      - 5432:5432
     environment:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: windmill
@@ -78,7 +80,7 @@ services:
       db:
         condition: service_healthy
 
-  ## This worker is specialized for reports or scrapping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  ## This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
   #   pull_policy: always

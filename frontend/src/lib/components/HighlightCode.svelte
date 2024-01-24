@@ -9,6 +9,9 @@
 	import sql from 'svelte-highlight/languages/sql'
 	import powershell from 'svelte-highlight/languages/powershell'
 	import type { Script } from '$lib/gen'
+	import { Button } from './common'
+	import { copyToClipboard } from '$lib/utils'
+	import { ClipboardCopy } from 'lucide-svelte'
 
 	export let code: string = ''
 	export let language: Script.language | 'frontend' | undefined
@@ -51,16 +54,26 @@
 	$: lang = getLang(language)
 </script>
 
-{#if code?.length < 5000}
-	{#if !lines}
-		<Highlight class="nowrap {$$props.class}" language={lang} {code} />
-	{:else}
-		<Highlight class="nowrap {$$props.class}" language={lang} {code} let:highlighted>
-			<LineNumbers {highlighted} />
-		</Highlight>
-	{/if}
-{:else}
-	<pre class="overflow-auto max-h-screen {$$props.class}"
-		><code class="language-{language}">{code}</code></pre
+<div class="relative overflow-x-auto">
+	<Button
+		class="absolute top-2 right-2"
+		on:click={() => copyToClipboard(code)}
+		color="light"
+		size="xs"
 	>
-{/if}
+		<ClipboardCopy size={12} />
+	</Button>
+	{#if code?.length < 5000}
+		{#if !lines}
+			<Highlight class="nowrap {$$props.class}" language={lang} {code} />
+		{:else}
+			<Highlight class="nowrap {$$props.class}" language={lang} {code} let:highlighted>
+				<LineNumbers {highlighted} />
+			</Highlight>
+		{/if}
+	{:else}
+		<pre class="overflow-auto max-h-screen {$$props.class}"
+			><code class="language-{language}">{code}</code></pre
+		>
+	{/if}
+</div>

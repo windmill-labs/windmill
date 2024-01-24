@@ -8,6 +8,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Plus } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	let newGroupName: string = ''
 	let instanceGroups: InstanceGroup[] | undefined = undefined
@@ -81,6 +82,7 @@
 					<th>Name</th>
 					<th>Summary</th>
 					<th>Members</th>
+					<th />
 				</tr>
 				<tbody slot="body">
 					{#each instanceGroups as { name, summary, emails }}
@@ -99,6 +101,17 @@
 								{summary ? summary.slice(0, 50) + (summary.length > 50 ? '...' : '') : '-'}
 							</td>
 							<td>{emails?.length ?? 0} members</td>
+							<td
+								><Button
+									color="red"
+									variant="border"
+									on:click={async () => {
+										await GroupService.deleteInstanceGroup({ name })
+										sendUserToast(`Instance group ${name} deleted`)
+										loadInstanceGroups()
+									}}>Delete</Button
+								></td
+							>
 						</tr>
 					{/each}
 				</tbody>

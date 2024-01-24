@@ -2,6 +2,7 @@
 	import { mergeSchema } from '$lib/common'
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
@@ -12,6 +13,7 @@
 
 	let default_payload: object = {}
 	let enum_payload: object = {}
+	let resumeUrl: string | undefined = undefined
 
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
 
@@ -28,24 +30,58 @@
 		})
 		default_payload = job_result?.default_args ?? {}
 		enum_payload = job_result?.enums ?? {}
+		resumeUrl = job_result?.['resume']
 	}
 </script>
 
 <div class="w-full h-full mt-2 text-sm text-tertiary">
 	<p>Waiting to be resumed</p>
 	<div>
-		{#if isOwner}
+		{#if isOwner || resumeUrl}
 			<div class="flex flex-row gap-2 mt-2">
 				<div>
 					<Button
 						color="green"
 						variant="border"
-						on:click={async () =>
-							await JobService.resumeSuspendedFlowAsOwner({
-								workspace: workspaceId ?? $workspaceStore ?? '',
-								id: job?.id ?? '',
-								requestBody: default_payload
-							})}
+						on:click={async () => {
+							if (resumeUrl) {
+								let split = resumeUrl.split('/')
+								let signatureUrl = split.pop() ?? ''
+								const regex = /([^?]+)(?:\?[^=]+=(\w+))?/
+
+								const matches = signatureUrl.match(regex)
+
+								const signature = matches?.[1]
+								if (!signature) {
+									sendUserToast(`Could not parse signature: ${signatureUrl}`, true)
+									return
+								}
+								const approver = matches?.[2] || undefined
+
+								let resumeId = -1
+								let parsedResumeId = split.pop() ?? ''
+								try {
+									resumeId = new Number(parsedResumeId).valueOf()
+								} catch (e) {
+									console.error(`Could not parse resume id: ${parsedResumeId}`)
+								}
+								let jobId = split.pop() ?? ''
+								await JobService.resumeSuspendedJobPost({
+									workspace: workspaceId ?? $workspaceStore ?? '',
+									id: jobId,
+									requestBody: default_payload,
+									resumeId,
+									signature,
+									approver
+								})
+							} else {
+								await JobService.resumeSuspendedFlowAsOwner({
+									workspace: workspaceId ?? $workspaceStore ?? '',
+									id: job?.id ?? '',
+									requestBody: default_payload
+								})
+							}
+						}}
 						>Resume <Tooltip
 							>Since you are an owner of this flow, you can send resume events without necessarily
 							knowing the resume id sent by the approval step</Tooltip
@@ -70,7 +106,7 @@
 			</div>
 		{:else}
 			You cannot resume the flow yourself without receiving the resume secret since you are not an
-			owner of {job.script_path}
+			owner of {job.script_path} and the approval step did not contain the resume url at key `resume`
 		{/if}
 	</div>
 </div>

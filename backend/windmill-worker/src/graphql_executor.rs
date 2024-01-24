@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
+use futures::TryStreamExt;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
-use windmill_common::error::Error;
 use windmill_common::jobs::QueuedJob;
+use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
 use windmill_queue::HTTP_CLIENT;
 
@@ -86,10 +87,31 @@ pub async fn do_graphql(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let result = response
-        .json::<GraphqlResponse>()
-        .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let result_stream = response.bytes_stream();
+
+    let mut i = 0;
+    let is_cloud_hosted = *CLOUD_HOSTED;
+    let result_f = result_stream
+        .map_err(|x| Error::ExecutionErr(x.to_string()))
+        .try_fold(Vec::new(), |mut acc, x| async move {
+            i += x.len();
+            if (is_cloud_hosted && i > 2_000_000) || (i > 500_000_000) {
+                return Err(Error::ExecutionErr(format!(
+                    "Response too large: {i} bytes"
+                )));
+            }
+            acc.extend_from_slice(&x);
+            Ok(acc)
+        });
+
+    let result_f = tokio::time::timeout(std::time::Duration::from_secs(15), result_f);
+
+    let result = serde_json::from_slice::<GraphqlResponse>(
+        &result_f
+            .await
+            .map_err(|_| Error::ExecutionErr("15 timeout for http request".to_string()))??,
+    )
+    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
     if let Some(errors) = result.errors {
         return Err(Error::ExecutionErr(

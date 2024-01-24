@@ -7,29 +7,26 @@
 	import { isObject } from '$lib/utils'
 
 	export let columns: string[] = []
+	export let id: string | undefined
 
 	let remainingColumns: string[] = []
 
-	const { worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
 	let result = []
 
 	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>> | undefined) {
 		if (observableOutputs) {
-			Object.entries(observableOutputs).forEach(([k, output]) => {
-				output?.subscribe(
-					{
-						id: 'alloutputs-quickadd' + $selectedComponent?.[0] + '-' + k,
-						next: (value) => {
-							if (k === 'result') {
-								result = value
-							}
-						}
-					},
-					result
-				)
-			})
+			observableOutputs?.['result']?.subscribe(
+				{
+					id: 'quickadd-' + id + '-result',
+					next: (value) => {
+						result = value
+					}
+				},
+				result
+			)
 		}
 	}
 
@@ -46,8 +43,7 @@
 		}
 	}
 
-	$: $selectedComponent?.[0] &&
-		subscribeToAllOutputs($worldStore?.outputsById?.[$selectedComponent?.[0]])
+	$: id && subscribeToAllOutputs($worldStore?.outputsById?.[id])
 	$: updateRemainingColumns(result, columns)
 </script>
 

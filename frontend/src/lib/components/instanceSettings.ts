@@ -40,7 +40,7 @@ export const settings: Record<string, Setting[]> = {
 					  value.includes('://') &&
 					  !value?.endsWith('/') &&
 					  !value?.endsWith(' ')
-					: true
+					: false
 		},
 		{
 			label: 'Request Size Limit In MB',

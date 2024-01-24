@@ -1,6 +1,76 @@
 # Changelog
 
 
+## [1.251.1](https://github.com/windmill-labs/windmill/compare/v1.251.0...v1.251.1) (2024-01-23)
+
+
+### Bug Fixes
+
+* improve npm typescript client ([5b98b00](https://github.com/windmill-labs/windmill/commit/5b98b005cda2615b332d904dc3d4a6a7898ae46e))
+
+## [1.251.0](https://github.com/windmill-labs/windmill/compare/v1.250.0...v1.251.0) (2024-01-22)
+
+
+### Features
+
+* Download button for s3 files ([#3059](https://github.com/windmill-labs/windmill/issues/3059)) ([376038d](https://github.com/windmill-labs/windmill/commit/376038d70b04fe012566872bee6a4cc4b46db0c7))
+
+## [1.250.0](https://github.com/windmill-labs/windmill/compare/v1.249.0...v1.250.0) (2024-01-22)
+
+
+### Features
+
+* deprecate .wmillignore in favor of wmill.yaml/includes ([b8defbc](https://github.com/windmill-labs/windmill/commit/b8defbcfc68181397ae50daba6616df26e4383fd))
+
+
+### Bug Fixes
+
+* fix initialization callback of AppDbexplorer ([1fcdad7](https://github.com/windmill-labs/windmill/commit/1fcdad7f7b284d0a66db57df0582c89a146ef653))
+
+## [1.249.0](https://github.com/windmill-labs/windmill/compare/v1.248.0...v1.249.0) (2024-01-21)
+
+
+### Features
+
+* File path is option when uploading a file to S3 ([#3029](https://github.com/windmill-labs/windmill/issues/3029)) ([bbf897a](https://github.com/windmill-labs/windmill/commit/bbf897a718f403de0e9809914acd18b4b79fd605))
+* improve cli to generate proper metadata and schema by default ([d1eed4e](https://github.com/windmill-labs/windmill/commit/d1eed4e09d09b4ec2a3aa27608dc2a70fc0a4d0a))
+* improve handling of pinned versions for bun ([ab010ce](https://github.com/windmill-labs/windmill/commit/ab010ce4f3a0628d4699f558bd463e657a8f1a97))
+* non owner can resume flows if resume url is in message ([ac87e2f](https://github.com/windmill-labs/windmill/commit/ac87e2f85b55742fd1472b3ba18cc1e523b56b98))
+
+
+### Bug Fixes
+
+* **frontend:** Fix display for array of objects ([#3051](https://github.com/windmill-labs/windmill/issues/3051)) ([773e2d3](https://github.com/windmill-labs/windmill/commit/773e2d3103d23b5eb31a47565d577461adf239df))
+* improve approval/prompt helpers ([0d7d2ef](https://github.com/windmill-labs/windmill/commit/0d7d2efde8b6bb00ba8d14ce341fe230d79fe9f2))
+* more explicit CLI error ([#3049](https://github.com/windmill-labs/windmill/issues/3049)) ([c4f0b67](https://github.com/windmill-labs/windmill/commit/c4f0b67fb65b705f7fecae93991880925f7b3c80))
+* use hash on objects instead of shallow equal comparison to improve trigger reliability of apps ([d1cfe7c](https://github.com/windmill-labs/windmill/commit/d1cfe7c202cfa34bdc46997a50c278c9f8ff4fb0))
+
+## [1.248.0](https://github.com/windmill-labs/windmill/compare/v1.247.0...v1.248.0) (2024-01-19)
+
+
+### Features
+
+* improve SCIM support for groups ([77f7fb2](https://github.com/windmill-labs/windmill/commit/77f7fb2dd35c337a3a79fcf9038c73cf3939f85f))
+
+
+### Bug Fixes
+
+* fix rename apps from home menu ([91ea031](https://github.com/windmill-labs/windmill/commit/91ea031f281af8776e94890e80101197f9c71e46))
+
+## [1.247.0](https://github.com/windmill-labs/windmill/compare/v1.246.15...v1.247.0) (2024-01-19)
+
+
+### Features
+
+* **frontend:** Rich table display ([#3028](https://github.com/windmill-labs/windmill/issues/3028)) ([54cad28](https://github.com/windmill-labs/windmill/commit/54cad2886b7e5ca26c6da9547376b43daac9e881))
+
+
+### Bug Fixes
+
+* add ability to rename group from scim ([9fefdcc](https://github.com/windmill-labs/windmill/commit/9fefdccc132c4a61ab0a72a86c4dc9bbb23a811e))
+* **frontend:** fix hidden wizards ([#3045](https://github.com/windmill-labs/windmill/issues/3045)) ([b64eb3d](https://github.com/windmill-labs/windmill/commit/b64eb3d8b10ba6ca453715dbf8d18b8ad7e3db17))
+* improve onDemandOnly runnables ([a0d7ea2](https://github.com/windmill-labs/windmill/commit/a0d7ea22b4cd29f47ec308c9c6e2c2d8ab0ed38f))
+
 ## [1.246.15](https://github.com/windmill-labs/windmill/compare/v1.246.14...v1.246.15) (2024-01-18)
 
 

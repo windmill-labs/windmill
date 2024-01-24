@@ -68,8 +68,15 @@
 		<div slot="header" class="grow">
 			<input bind:value={mod.summary} placeholder={'Summary'} />
 		</div>
-		<Alert type="info" title="For loops" tooltip="For loops" documentationLink="https://www.windmill.dev/docs/flows/flow_loops" class="m-2">
-			Add steps inside the loop and specify an iterator expression that defines the sequence over which your subsequent steps will iterate.
+		<Alert
+			type="info"
+			title="For loops"
+			tooltip="For loops"
+			documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+			class="m-2"
+		>
+			Add steps inside the loop and specify an iterator expression that defines the sequence over
+			which your subsequent steps will iterate.
 		</Alert>
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
@@ -77,7 +84,8 @@
 					<div class="flex flex-row gap-8 mt-2 mb-6">
 						<div>
 							<div class="mb-2 text-sm font-bold"
-								>Skip failures <Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+								>Skip failures <Tooltip
+									documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
 									the error will be collected as the result of the iteration. Regardless of this
 									setting, if an error handler is defined, it will process the error.</Tooltip
@@ -100,7 +108,11 @@
 							/>
 						</div>
 						<div>
-							<div class="mb-2 text-sm font-bold">Parallelism <Tooltip>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip> </div>
+							<div class="mb-2 text-sm font-bold"
+								>Parallelism <Tooltip
+									>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
+								>
+							</div>
 							<input
 								type="number"
 								disabled={!mod.value.parallel}
@@ -152,7 +164,7 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop/Break</Tab>
-					<Tab value="suspend">Suspend/Approval</Tab>
+					<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 					<Tab value="sleep">Sleep</Tab>
 					<Tab value="mock">Mock</Tab>
 					<Tab value="lifetime">Lifetime</Tab>

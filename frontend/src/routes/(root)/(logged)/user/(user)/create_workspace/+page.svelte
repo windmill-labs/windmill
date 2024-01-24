@@ -115,6 +115,7 @@
 			} else {
 				uname = x.email.split('@')[0]
 			}
+			uname = uname.replace(/\./gi, '')
 			username = uname.toLowerCase()
 		})
 

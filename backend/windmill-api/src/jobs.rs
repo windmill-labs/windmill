@@ -975,7 +975,7 @@ pub async fn resume_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    conditionally_require_authed_user(authed, flow_status)?;
+    conditionally_require_authed_user(authed.clone(), flow_status)?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -991,12 +991,22 @@ pub async fn resume_suspended_job(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
+    let approver = if authed.as_ref().is_none()
+        || (approver
+            .approver
+            .clone()
+            .is_some_and(|x| x != "".to_string()))
+    {
+        approver.approver
+    } else {
+        authed.map(|x| x.username)
+    };
     insert_resume_job(
         resume_id,
         job_id,
         &parent_flow_info,
         value,
-        approver.approver,
+        approver,
         &mut tx,
     )
     .await?;
@@ -3130,6 +3140,12 @@ pub struct RawResult<'a> {
     pub result: &'a JsonRawValue,
 }
 
+#[derive(FromRow)]
+pub struct RawResultWithSuccess<'a> {
+    pub result: &'a JsonRawValue,
+    pub success: bool,
+}
+
 impl<'a> IntoResponse for RawResult<'a> {
     fn into_response(self) -> Response {
         Json(self.result).into_response()
@@ -3170,6 +3186,7 @@ async fn get_completed_job_result(
 #[derive(Serialize)]
 struct CompletedJobResult<'c> {
     started: Option<bool>,
+    success: Option<bool>,
     completed: bool,
     result: Option<&'c JsonRawValue>,
 }
@@ -3184,17 +3201,19 @@ async fn get_completed_job_result_maybe(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
-    let result_o =
-        sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
-            .bind(id)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?;
+    let result_o = sqlx::query(
+        "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?;
 
     if let Some(result) = result_o {
-        let res = RawResult::from_row(&result)?;
+        let res = RawResultWithSuccess::from_row(&result)?;
         Ok(Json(CompletedJobResult {
             started: Some(true),
+            success: Some(res.success),
             completed: true,
             result: Some(res.result),
         })
@@ -3208,15 +3227,21 @@ async fn get_completed_job_result_maybe(
         .fetch_optional(&db)
         .await?
         .unwrap_or(false);
-        Ok(
-            Json(CompletedJobResult { started: Some(started), completed: false, result: None })
-                .into_response(),
-        )
+        Ok(Json(CompletedJobResult {
+            started: Some(started),
+            completed: false,
+            success: None,
+            result: None,
+        })
+        .into_response())
     } else {
-        Ok(
-            Json(CompletedJobResult { started: None, completed: false, result: None })
-                .into_response(),
-        )
+        Ok(Json(CompletedJobResult {
+            started: None,
+            completed: false,
+            success: None,
+            result: None,
+        })
+        .into_response())
     }
 }
 

@@ -5,6 +5,7 @@ use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
 use uuid::Uuid;
+use windmill_parser_ts::remove_pinned_imports;
 use windmill_queue::CanceledBy;
 
 #[cfg(feature = "enterprise")]
@@ -19,10 +20,7 @@ use crate::{
     DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
-use tokio::{
-    fs::{remove_dir_all, File},
-    process::Command,
-};
+use tokio::{fs::File, process::Command};
 
 use tokio::io::AsyncReadExt;
 
@@ -81,6 +79,7 @@ pub async fn gen_lockfile(
                 .replace("BASE_INTERNAL_URL", base_internal_url)
                 .replace("TOKEN", token)
                 .replace("CURRENT_PATH", script_path)
+                .replace("RAW_GET_ENDPOINT", "raw")
         ),
     )
     .await?;
@@ -307,9 +306,6 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let has_custom_config_registry =
-        NPM_CONFIG_REGISTRY.read().await.is_some() || BUNFIG_INSTALL_SCOPES.read().await.is_some();
-
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -347,14 +343,10 @@ pub async fn handle_bun_job(
                 common_bun_proc_envs.clone(),
             )
             .await?;
-            if !has_trusted_deps && !has_custom_config_registry && !nodejs_mode {
-                remove_dir_all(format!("{}/node_modules", job_dir)).await?;
-            }
         }
     } else {
         // TODO: remove once bun implement a reasonable set of trusted deps
         let trusted_deps = get_trusted_deps(inner_content);
-        let empty_trusted_deps = trusted_deps.len() == 0;
 
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
@@ -376,15 +368,10 @@ pub async fn handle_bun_job(
         )
         .await?;
         // }
-
-        if empty_trusted_deps && !has_custom_config_registry && !nodejs_mode {
-            let node_modules_path = format!("{}/node_modules", job_dir);
-            let node_modules_exists = tokio::fs::metadata(&node_modules_path).await.is_ok();
-            if node_modules_exists {
-                remove_dir_all(&node_modules_path).await?;
-            }
-        }
     }
+
+    let main_code = remove_pinned_imports(inner_content)?;
+    let _ = write_file(job_dir, "main.ts", &main_code).await?;
 
     if nodejs_mode {
         logs.push_str("\n\n--- NODE CODE EXECUTION ---\n");
@@ -469,7 +456,8 @@ run().catch(async (e) => {{
         .replace("W_ID", &job.workspace_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
         .replace("TOKEN", &client.get_token().await)
-        .replace("CURRENT_PATH", job.script_path());
+        .replace("CURRENT_PATH", job.script_path())
+        .replace("RAW_GET_ENDPOINT", "raw_unpinned");
     let write_loader_f = async move {
         if nodejs_mode {
             write_file(
@@ -775,9 +763,6 @@ pub async fn start_worker(
                 common_bun_proc_envs.clone(),
             )
             .await?;
-            if !has_trusted_deps {
-                remove_dir_all(format!("{}/node_modules", job_dir)).await?;
-            }
             tracing::info!("dedicated worker requirements installed: {reqs}");
         }
     } else if !*DISABLE_NSJAIL {
@@ -800,6 +785,9 @@ pub async fn start_worker(
         )
         .await?;
     }
+
+    let main_code = remove_pinned_imports(inner_content)?;
+    let _ = write_file(job_dir, "main.ts", &main_code).await?;
 
     {
         // let mut start = Instant::now();
@@ -875,6 +863,7 @@ plugin(p)
                 .replace("BASE_INTERNAL_URL", base_internal_url)
                 .replace("TOKEN", token)
                 .replace("CURRENT_PATH", script_path)
+                .replace("RAW_GET_ENDPOINT", "raw_unpinned")
         ),
     )
     .await?;

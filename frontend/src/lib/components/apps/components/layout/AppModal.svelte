@@ -50,6 +50,7 @@
 	}
 
 	function closeDrawer(): void {
+		console.log('Close drawer')
 		open = false
 	}
 
@@ -58,14 +59,23 @@
 		configuration
 	)
 
+	let unclickableOutside = false
+	function unclosableModal() {
+		unclickableOutside = true
+		setTimeout(() => {
+			unclickableOutside = false
+		}, 1000)
+	}
 	$componentControl[id] = {
 		openModal: () => {
+			unclosableModal()
 			open = true
 		},
 		closeModal: () => {
 			open = false
 		},
 		open: () => {
+			unclosableModal()
 			open = true
 		},
 		close: () => {
@@ -147,8 +157,8 @@
 			style={css?.popup?.style}
 			class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
 			use:clickOutside={false}
-			on:click_outside={() => {
-				if ($mode !== 'dnd') {
+			on:click_outside={(e) => {
+				if ($mode !== 'dnd' && !unclickableOutside) {
 					closeDrawer()
 				}
 			}}

@@ -156,20 +156,22 @@
 				return x
 			})
 		}
-		if (!deepEqual(nvalue, value)) {
-			if (
-				typeof nvalue == 'string' ||
-				typeof nvalue == 'number' ||
-				typeof nvalue == 'boolean' ||
-				typeof nvalue == 'bigint'
-			) {
-				if (nvalue != lastExpr) {
+		if (!onDemandOnly) {
+			if (!deepEqual(nvalue, value)) {
+				if (
+					typeof nvalue == 'string' ||
+					typeof nvalue == 'number' ||
+					typeof nvalue == 'boolean' ||
+					typeof nvalue == 'bigint'
+				) {
+					if (nvalue != lastExpr) {
+						lastExpr = nvalue
+						value = nvalue as T
+					}
+				} else {
 					lastExpr = nvalue
-					value = nvalue as T
+					value = nvalue
 				}
-			} else {
-				lastExpr = nvalue
-				value = nvalue
 			}
 		}
 	}

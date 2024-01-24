@@ -68,6 +68,7 @@
 		jobId: string | undefined
 		status: 'running' | 'success' | 'failure' | undefined
 	}[]
+	let workspaceDefaultAppPath: string | undefined = undefined
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -228,6 +229,26 @@
 		}
 	}
 
+	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
+		if (emptyString(appPath)) {
+			await WorkspaceService.editWorkspaceDefaultApp({
+				workspace: $workspaceStore!,
+				requestBody: {
+					default_app_path: undefined
+				}
+			})
+			sendUserToast('Workspace default app reset')
+		} else {
+			await WorkspaceService.editWorkspaceDefaultApp({
+				workspace: $workspaceStore!,
+				requestBody: {
+					default_app_path: appPath
+				}
+			})
+			sendUserToast('Workspace default app set')
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -258,6 +279,7 @@
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
+		workspaceDefaultAppPath = settings.default_app
 		s3ResourceInitialPath =
 			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
 				? settings.large_file_storage?.s3_resource_path?.replace('$res:', '')
@@ -433,6 +455,9 @@
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
 					<div class="flex gap-2 items-center my-1"> S3 Storage </div>
+				</Tab>
+				<Tab size="xs" value="default_app">
+					<div class="flex gap-2 items-center my-1"> Default App </div>
 				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
@@ -789,74 +814,76 @@
 				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
 
-			{#each gitSyncSettings as gitSyncSettingsElmt, idx}
-				<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
-					<h6>Repository #{idx + 1}</h6>
-					<Button
-						color="light"
-						size="xs"
-						startIcon={{ icon: XCircle }}
-						iconOnly={true}
-						on:click={() => {
-							gitSyncSettings.splice(idx, 1)
-							gitSyncSettings = [...gitSyncSettings]
-						}}
-					/>
-				</div>
-				<div class="flex mt-5 mb-1 gap-1">
-					{#key gitSyncSettingsElmt}
-						<ResourcePicker
-							resourceType="git_repository"
-							initialValue={gitSyncSettingsElmt.git_repo_resource_path}
-							on:change={(ev) => {
-								gitSyncSettingsElmt.git_repo_resource_path = ev.detail
-							}}
-						/>
+			{#if Array.isArray(gitSyncSettings)}
+				{#each gitSyncSettings as gitSyncSettingsElmt, idx}
+					<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
+						<h6>Repository #{idx + 1}</h6>
 						<Button
-							disabled={emptyString(gitSyncSettingsElmt.script_path)}
-							btnClasses="w-32 text-center"
-							color="dark"
-							on:click={() => runGitSyncTestJob(idx)}
-							size="xs">Test connection</Button
-						>
-					{/key}
-				</div>
-				<div class="flex mb-5 text-normal text-2xs gap-1">
-					{#if gitSyncSettings.filter((settings) => settings.git_repo_resource_path === gitSyncSettingsElmt.git_repo_resource_path).length > 1}
-						<span class="text-red-700">Using the same resource twice is not allowed.</span>
-					{/if}
-					{#if gitSyncTestJobs[idx].status !== undefined}
-						{#if gitSyncTestJobs[idx].status === 'running'}
-							<RotateCw size={14} />
-						{:else if gitSyncTestJobs[idx].status === 'success'}
-							<CheckCircle2 size={14} class="text-green-600" />
-						{:else}
-							<XCircle size={14} class="text-red-700" />
-						{/if}
-						Git sync resource checked via Windmill job
-						<a
-							target="_blank"
-							href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
-						>
-							{gitSyncTestJobs[idx].jobId}
-						</a>WARNING: Only read permissions are verified.
-					{/if}
-				</div>
-
-				<div class="flex mt-5 mb-1 gap-1">
-					{#if gitSyncSettings}
-						<Toggle
-							disabled={emptyString(gitSyncSettingsElmt?.git_repo_resource_path)}
-							bind:checked={gitSyncSettingsElmt.use_individual_branch}
-							options={{
-								right: 'Create one branch per deployed script/flow/app',
-								rightTooltip:
-									"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+							color="light"
+							size="xs"
+							startIcon={{ icon: XCircle }}
+							iconOnly={true}
+							on:click={() => {
+								gitSyncSettings.splice(idx, 1)
+								gitSyncSettings = [...gitSyncSettings]
 							}}
 						/>
-					{/if}
-				</div>
-			{/each}
+					</div>
+					<div class="flex mt-5 mb-1 gap-1">
+						{#key gitSyncSettingsElmt}
+							<ResourcePicker
+								resourceType="git_repository"
+								initialValue={gitSyncSettingsElmt.git_repo_resource_path}
+								on:change={(ev) => {
+									gitSyncSettingsElmt.git_repo_resource_path = ev.detail
+								}}
+							/>
+							<Button
+								disabled={emptyString(gitSyncSettingsElmt.script_path)}
+								btnClasses="w-32 text-center"
+								color="dark"
+								on:click={() => runGitSyncTestJob(idx)}
+								size="xs">Test connection</Button
+							>
+						{/key}
+					</div>
+					<div class="flex mb-5 text-normal text-2xs gap-1">
+						{#if gitSyncSettings.filter((settings) => settings.git_repo_resource_path === gitSyncSettingsElmt.git_repo_resource_path).length > 1}
+							<span class="text-red-700">Using the same resource twice is not allowed.</span>
+						{/if}
+						{#if gitSyncTestJobs[idx].status !== undefined}
+							{#if gitSyncTestJobs[idx].status === 'running'}
+								<RotateCw size={14} />
+							{:else if gitSyncTestJobs[idx].status === 'success'}
+								<CheckCircle2 size={14} class="text-green-600" />
+							{:else}
+								<XCircle size={14} class="text-red-700" />
+							{/if}
+							Git sync resource checked via Windmill job
+							<a
+								target="_blank"
+								href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
+							>
+								{gitSyncTestJobs[idx].jobId}
+							</a>WARNING: Only read permissions are verified.
+						{/if}
+					</div>
+
+					<div class="flex mt-5 mb-1 gap-1">
+						{#if gitSyncSettings}
+							<Toggle
+								disabled={emptyString(gitSyncSettingsElmt?.git_repo_resource_path)}
+								bind:checked={gitSyncSettingsElmt.use_individual_branch}
+								options={{
+									right: 'Create one branch per deployed script/flow/app',
+									rightTooltip:
+										"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+								}}
+							/>
+						{/if}
+					</div>
+				{/each}
+			{/if}
 
 			<div class="flex mt-5 mb-5 gap-1">
 				<Button
@@ -909,7 +936,7 @@
 					<pre class="overflow-auto max-h-screen"
 						><code
 							>wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
-echo 'u/' > .wmillignore
+echo 'includes: ["f/**"]' > wmill.yaml
 wmill sync pull --raw --skip-variables --skip-secrets --skip-resources
 git add -A
 git commit -m 'Initial commit'
@@ -921,12 +948,38 @@ git push</code
 			<div class="flex mt-5 mb-5 gap-1">
 				<Button
 					color="blue"
-					disabled={gitSyncSettings.some((elmt) => emptyString(elmt.git_repo_resource_path))}
+					disabled={gitSyncSettings?.some((elmt) => emptyString(elmt.git_repo_resource_path))}
 					on:click={() => {
 						editWindmillGitSyncSettings()
 						console.log('Saving git sync settings', gitSyncSettings)
 					}}>Save Git sync settings</Button
 				>
+			</div>
+		{:else if tab == 'default_app'}
+			<PageHeader
+				title="Workspace default app"
+				tooltip="Users who are operators in this workspace will be redirected to this app automatically when login into this workspace."
+				primary={false}
+			/>
+			{#if !$enterpriseLicense}
+				<Alert type="info" title="Windmill EE only feature">
+					Default app can only be set on Windmill Enterprise Edition.
+				</Alert>
+			{/if}
+			<Alert type="info" title="Default app must be accessible to all operators">
+				Make sure the default app is shared with all the operators of this workspace before turning
+				this feature on.
+			</Alert>
+			<div class="mt-5 flex gap-1">
+				{#key workspaceDefaultAppPath}
+					<ScriptPicker
+						initialPath={workspaceDefaultAppPath}
+						itemKind="app"
+						on:select={(ev) => {
+							editWorkspaceDefaultApp(ev?.detail?.path)
+						}}
+					/>
+				{/key}
 			</div>
 		{/if}
 	{:else}

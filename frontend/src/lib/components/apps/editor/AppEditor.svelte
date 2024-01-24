@@ -223,9 +223,14 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
+				} else if (item?.data.type === 'steppercomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex:
+							($worldStore.outputsById?.[befSelected]?.currentStepIndex?.peak() as number) ?? 0
+					}
 				} else if (
 					item?.data.type === 'tabscomponent' ||
-					item?.data.type === 'steppercomponent' ||
 					item?.data.type === 'conditionalwrapper'
 				) {
 					$focusedGrid = {
@@ -412,7 +417,9 @@
 				css = currentAppStore.theme.css
 			} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
 				let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
-				css = loadedCss.value
+				if (loadedCss) {
+					css = loadedCss.value
+				}
 			}
 			lastTheme = JSON.stringify(currentAppStore.theme)
 		}
@@ -564,11 +571,10 @@
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									<div class="absolute bottom-2 left-4 z-50">
-										<div class="flex flex-row gap-2 text-xs items-center">
+									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
+										<div class="flex flex-row gap-2 text-xs items-center p-0.5">
 											<Button
 												color="light"
-												variant="border"
 												size="xs2"
 												disabled={$scale <= 30}
 												on:click={() => {
@@ -580,7 +586,6 @@
 											{$scale}%
 											<Button
 												color="light"
-												variant="border"
 												size="xs2"
 												disabled={$scale >= 100}
 												on:click={() => {
