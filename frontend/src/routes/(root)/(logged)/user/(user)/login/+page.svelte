@@ -118,7 +118,7 @@
 				workspaceStore.set(allWorkspaces[0].id)
 				$userStore = await getUserExt($workspaceStore!)
 
-				if ($userStore?.operator) {
+				if (!$userStore?.is_super_admin && $userStore?.operator) {
 					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 						workspace: $workspaceStore!
 					})
