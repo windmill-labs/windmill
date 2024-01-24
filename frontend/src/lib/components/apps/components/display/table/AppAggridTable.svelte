@@ -154,6 +154,9 @@
 							editable: resolvedConfig?.allEditable,
 							onCellValueChanged
 						},
+						rowHeight: resolvedConfig.compactness
+							? rowHeights[resolvedConfig.compactness]
+							: rowHeights['normal'],
 						rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 						rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 							? resolvedConfig.rowMultiselectWithClick
@@ -249,8 +252,7 @@
 				defaultColDef: {
 					flex: resolvedConfig.flex ? 1 : 0,
 					editable: resolvedConfig?.allEditable,
-					onCellValueChanged,
-					cellClass: rowHeightClass(resolvedConfig.compactness)
+					onCellValueChanged
 				},
 				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
@@ -264,19 +266,6 @@
 		} catch (e) {
 			console.error(e)
 			sendUserToast("Couldn't update the grid:" + e, true)
-		}
-	}
-
-	function rowHeightClass(compactness: string | undefined) {
-		switch (compactness) {
-			case 'normal':
-				return 'text-size-normal'
-			case 'compact':
-				return 'text-size-compact'
-			case 'comfortable':
-				return 'text-size-comfortable'
-			default:
-				return 'text-size-normal'
 		}
 	}
 </script>
