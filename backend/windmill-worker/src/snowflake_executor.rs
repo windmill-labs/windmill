@@ -73,8 +73,12 @@ pub async fn do_snowflake(
     )
     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let qualified_username =
-        format!("{}.{}", database.account_identifier, database.username).to_uppercase();
+    let qualified_username = format!(
+        "{}.{}",
+        database.account_identifier.split('.').next().unwrap_or(""), // get first part of account identifier
+        database.username
+    )
+    .to_uppercase();
 
     let public_key = pem::parse(database.public_key.as_bytes()).map_err(|e| {
         Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))

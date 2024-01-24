@@ -513,8 +513,8 @@
 					</div>
 				{/if}
 			{:else if !emptyString(resourceTypeInfo?.description)}
-				<h2 class="mt-4 mb-2">Resource type description</h2>
-				<div>
+				<h3 class="mt-6 mb-2">{resourceTypeInfo?.name} description</h3>
+				<div class="text-sm">
 					<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 				</div>
 			{/if}

@@ -16,6 +16,11 @@ pub fn global_service() -> Router {
         .route("/*id", delete(delete_concurrency_group))
 }
 
+#[cfg(not(feature = "enterprise"))]
+pub fn global_service() -> Router {
+    Router::new()
+}
+
 #[derive(Serialize)]
 pub struct ConcurrencyGroups {
     concurrency_id: String,
