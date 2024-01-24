@@ -847,7 +847,7 @@ paths:
         '200':
           description: status
           content:
-            'text/plain:':
+            text/plain:
               schema:
                 type: string
   /settings/test_license_key:
@@ -872,7 +872,7 @@ paths:
         '200':
           description: status
           content:
-            'text/plain:':
+            text/plain:
               schema:
                 type: string
   /settings/send_stats:
@@ -885,7 +885,7 @@ paths:
         '200':
           description: status
           content:
-            'text/plain:':
+            text/plain:
               schema:
                 type: string
   /users/email:
@@ -1538,6 +1538,8 @@ paths:
                       required: &ref_17
                         - script_path
                         - git_repo_resource_path
+                  default_app:
+                    type: string
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1904,6 +1906,55 @@ paths:
           content:
             application/json:
               schema: {}
+  /w/{workspace}/workspaces/edit_default_app:
+    post:
+      summary: edit default app for workspace
+      operationId: editWorkspaceDefaultApp
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: Workspace default app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_app_path:
+                  type: string
+      responses:
+        '200':
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+  /w/{workspace}/workspaces/default_app:
+    get:
+      summary: get default app for workspace
+      operationId: getWorkspaceDefaultApp
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      responses:
+        '200':
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  default_app_path:
+                    type: string
   /w/{workspace}/workspaces/get_large_file_storage_config:
     get:
       summary: get large file storage config

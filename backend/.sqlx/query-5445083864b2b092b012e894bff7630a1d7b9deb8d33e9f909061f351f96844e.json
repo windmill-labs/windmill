@@ -92,6 +92,11 @@
         "ordinal": 17,
         "name": "git_sync",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "default_app",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -116,6 +121,7 @@
       false,
       true,
       false,
+      true,
       true,
       true
     ]
