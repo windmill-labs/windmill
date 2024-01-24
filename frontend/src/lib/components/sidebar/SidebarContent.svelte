@@ -91,8 +91,6 @@
 		const response = await fetch(apiUrl)
 		const data = await response.json()
 
-		console.log('data', data)
-
 		if (!Array.isArray(data)) {
 			return []
 		}
@@ -134,13 +132,11 @@
 				return true
 			}
 
-			return storedChangelogEntry.version !== x.version
+			return storedChangelogEntry.date
 		})
 
 		return newEntries
 	}
-
-	let newChangelogs = []
 
 	async function fetchAndStoreChangelogs() {
 		// get lastVisit
@@ -164,12 +160,12 @@
 
 		localStorage.setItem('lastVisit', today.toISOString())
 
-		newChangelogs = newChangelogEntries
-
 		return newChangelogEntries
 	}
 
-	fetchAndStoreChangelogs()
+	$: newChangelogs = fetchAndStoreChangelogs()
+
+	$: console.log(newChangelogs)
 
 	localStorage.setItem('lastVisit', '2023-01-01T00:00:00.000Z')
 
