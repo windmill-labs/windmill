@@ -154,18 +154,7 @@
 		}
 	]
 
-	function findMostRecentDate(changelogs) {
-		return changelogs.reduce((latest, log) => {
-			const logDate = new Date(log.date)
-			return logDate > latest ? logDate : latest
-		}, new Date(0))
-	}
-
-	const mostRecentDate = findMostRecentDate(changelogs)
-
-	const recentChangelogs = changelogs.filter(
-		(c) => new Date(c.date).getTime() === mostRecentDate.getTime()
-	)
+	const recentChangelogs = changelogs.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
 
 	const thirdMenuLinks = [
 		{
