@@ -19,6 +19,7 @@
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
 	import { deepEqual } from 'fast-equals'
 	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
+	import sum from 'hash-sum'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -144,7 +145,7 @@
 		$state &&
 		debounce(debounceTemplate)
 
-	let lastExpr: any = undefined
+	let lastExprHash: any = undefined
 
 	const debounceEval = async (s?: string) => {
 		let args = s == 'exprChanged' ? { file: { name: 'example.png' } } : undefined
@@ -157,21 +158,10 @@
 			})
 		}
 		if (!onDemandOnly) {
-			if (!deepEqual(nvalue, value)) {
-				if (
-					typeof nvalue == 'string' ||
-					typeof nvalue == 'number' ||
-					typeof nvalue == 'boolean' ||
-					typeof nvalue == 'bigint'
-				) {
-					if (nvalue != lastExpr) {
-						lastExpr = nvalue
-						value = nvalue as T
-					}
-				} else {
-					lastExpr = nvalue
-					value = nvalue
-				}
+			let nhash = typeof nvalue != 'object' ? nvalue : sum(nvalue)
+			if (lastExprHash != nhash) {
+				value = nvalue
+				lastExprHash = nhash
 			}
 		}
 	}
