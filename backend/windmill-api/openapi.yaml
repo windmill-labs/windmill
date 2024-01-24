@@ -620,7 +620,7 @@ paths:
         "200":
           description: status
           content:
-            text/plain::
+            text/plain:
               schema:
                 type: string
 
@@ -646,7 +646,7 @@ paths:
         "200":
           description: status
           content:
-            text/plain::
+            text/plain:
               schema:
                 type: string
 
@@ -660,7 +660,7 @@ paths:
         "200":
           description: status
           content:
-            text/plain::
+            text/plain:
               schema:
                 type: string
 
@@ -1196,6 +1196,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/WorkspaceGitSync"
+                  default_app:
+                    type: string
                 required:
                   - code_completion_enabled
 
@@ -1544,6 +1546,52 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/edit_default_app:
+    post:
+      summary: edit default app for workspace
+      operationId: editWorkspaceDefaultApp
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace default app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_app_path:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/default_app:
+    get:
+      summary: get default app for workspace
+      operationId: getWorkspaceDefaultApp
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  default_app_path:
+                    type: string
 
   /w/{workspace}/workspaces/get_large_file_storage_config:
     get:
