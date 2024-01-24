@@ -157,7 +157,8 @@
 							scatter: 'Scatter',
 							line: 'Line',
 							area: 'Area',
-							['range-bar']: 'Range Bar'
+							['range-bar']: 'Range Bar',
+							['range-area']: 'Range Area'
 						},
 						configuration: {
 							bar: {
@@ -193,6 +194,18 @@
 								}
 							},
 							['range-bar']: {
+								value: {
+									type: 'static',
+									fieldType: 'array',
+									subFieldType: 'number-tuple',
+									value: [
+										[10, 15],
+										[20, 25],
+										[18, 27]
+									]
+								}
+							},
+							['range-area']: {
 								value: {
 									type: 'static',
 									fieldType: 'array',
