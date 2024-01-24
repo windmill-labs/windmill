@@ -32,6 +32,7 @@
 	import { goto } from '$app/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { onMount } from 'svelte'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -52,122 +53,6 @@
 		clearStores()
 		goto('/user/workspaces')
 	}
-
-	interface DatabaseStudio {
-		slug: string
-		version: string
-		title: string
-		tags: string[]
-		description: string
-	}
-
-	function parseSimpleYAML(yamlString: string): DatabaseStudio {
-		const result: Partial<DatabaseStudio> = {}
-		const lines = yamlString.split('\n')
-
-		for (const line of lines) {
-			if (line.trim() === '---' || line.trim() === '') {
-				continue
-			}
-
-			const [key, value] = line.split(':').map((part) => part.trim())
-
-			if (key === 'tags' || key === 'features') {
-				// Assuming the values are always in ['value1', 'value2'] format
-				result[key] = value
-					.slice(1, -1)
-					.split(',')
-					.map((tag) => tag.trim().replace(/^'(.+)'$/, '$1'))
-			} else {
-				result[key] = value
-			}
-		}
-
-		return result as DatabaseStudio
-	}
-
-	async function fetchMarkdownFiles() {
-		const apiUrl = `https://api.github.com/repos/windmill-labs/windmilldocs/contents/changelog?ref=main`
-		const response = await fetch(apiUrl)
-		const data = await response.json()
-
-		if (!Array.isArray(data)) {
-			return []
-		}
-
-		const directories = data.filter((x: { type: string }) => x.type === 'dir')
-
-		const promises = directories.map((x: { url: string }) => fetch(x.url))
-		const responses = await Promise.all(promises)
-		const datas = await Promise.all(responses.map((x) => x.json()))
-
-		const files = datas
-			.flat()
-			.filter((x) => x.name === 'index.md')
-			.map((x) => x.download_url)
-
-		const promises2 = files.map((x) => fetch(x))
-		const responses2 = await Promise.all(promises2)
-		const datas2 = await Promise.all(responses2.map((x) => x.text()))
-
-		const changelogs = datas2.map((x) => parseSimpleYAML(x))
-
-		console.log('changelogs', changelogs)
-
-		localStorage.setItem('changelogs', JSON.stringify(changelogs))
-
-		return changelogs
-	}
-
-	function getNewChangelogEntries(changelogs, storedChangelogs) {
-		if (!storedChangelogs) {
-			return changelogs
-		}
-
-		const newEntries = changelogs.filter((x) => {
-			const storedChangelog = JSON.parse(storedChangelogs)
-			const storedChangelogEntry = storedChangelog.find((y) => y.slug === x.slug)
-
-			if (!storedChangelogEntry) {
-				return true
-			}
-
-			return storedChangelogEntry.date
-		})
-
-		return newEntries
-	}
-
-	async function fetchAndStoreChangelogs() {
-		// get lastVisit
-		const lastVisit = localStorage.getItem('lastVisit')
-
-		console.log('lastVisit', lastVisit)
-
-		// only fetch once a day to avoid rate limit
-		const today = new Date()
-		const lastVisitDate = lastVisit ? new Date(lastVisit) : new Date(0)
-
-		if (today.getDate() === lastVisitDate.getDate()) {
-			console.log('no need to fetch changelogs')
-			return
-		}
-
-		const changelogs = await fetchMarkdownFiles()
-		const storedChangelogs = localStorage.getItem('changelogs')
-
-		const newChangelogEntries = getNewChangelogEntries(changelogs, storedChangelogs)
-
-		localStorage.setItem('lastVisit', today.toISOString())
-
-		return newChangelogEntries
-	}
-
-	$: newChangelogs = fetchAndStoreChangelogs()
-
-	$: console.log(newChangelogs)
-
-	localStorage.setItem('lastVisit', '2023-01-01T00:00:00.000Z')
 
 	$: secondaryMenuLinks = [
 		// {
@@ -247,6 +132,45 @@
 		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
 	]
 
+	const changelogs = [
+		{
+			label: 'Ag Charts',
+			description:
+				'The Ag Charts component integrates the Ag Charts library, enabling the visualization of data through various chart types. This component is designed to offer a flexible and powerful way to display data graphically within the application.',
+			href: 'https://www.windmill.dev/changelog/ag-charts',
+			date: '2024-01-23'
+		},
+		{
+			label: 'Database Studio',
+			description:
+				"Introducing the Database Studio, a web-based database management tool that leverages Ag Grid for table display and interaction. This component enhances the user's ability to interact with database content in a dynamic and intuitive way.",
+			href: 'https://www.windmill.dev/changelog/database-studio',
+			date: '2024-01-23'
+		},
+		{
+			label: 'Rich results render',
+			description: 'Added rich results render for arrays of objects and markdown.',
+			href: 'https://www.windmill.dev/changelog/rich-render',
+			date: '2024-01-23'
+		}
+	]
+
+	let newChangelogs: {
+		label: string
+		description: string
+		href: string
+		date: string
+	}[] = []
+
+	onMount(() => {
+		newChangelogs = changelogs.filter((c) => {
+			const lastVisit = localStorage.getItem('lastVisit')
+			return lastVisit ? new Date(c.date) > new Date(lastVisit) : true
+		})
+
+		localStorage.setItem('lastVisit', new Date().toISOString())
+	})
+
 	const thirdMenuLinks = [
 		{
 			label: 'Help',
@@ -306,7 +230,6 @@
 											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
 											on:click={subItem?.['action']}
 										>
-											{newChangelogs}
 											<div class="flex flex-row items-center gap-2">
 												{#if subItem.icon}
 													<svelte:component this={subItem.icon} size={16} />
@@ -360,12 +283,12 @@
 										target="_blank"
 									>
 										{#if newChangelogs.length > 0 && subItem.label === 'Changelog'}
-											<div class="absolute top-2 right-4 w-2 h-2 rounded-full bg-primary">
+											<div class="absolute top-3 right-4 w-3 h-3 rounded-full bg-primary">
 												<span class="relative flex h-3 w-3">
 													<span
-														class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"
+														class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"
 													/>
-													<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+													<span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
 												</span>
 											</div>
 										{/if}
@@ -380,6 +303,27 @@
 								</div>
 							</MenuItem>
 						{/each}
+						{#if newChangelogs.length > 0}
+							<div class="w-full h-1 border-t" />
+							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
+							{#each newChangelogs as changelog}
+								<MenuItem>
+									<div class="py-1" role="none">
+										<a
+											href={changelog.href}
+											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary relative"
+											role="menuitem"
+											tabindex="-1"
+											target="_blank"
+										>
+											<div class="flex flex-row items-center gap-2">
+												{changelog.label}
+											</div>
+										</a>
+									</div>
+								</MenuItem>
+							{/each}
+						{/if}
 					</Menu>
 				{/if}
 			{/each}
