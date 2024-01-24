@@ -32,6 +32,8 @@
 	import { goto } from '$app/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { onMount } from 'svelte'
+	import { type Changelog, changelogs } from './changelogs'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
@@ -131,30 +133,26 @@
 		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
 	]
 
-	const changelogs = [
-		{
-			label: 'Ag Charts',
-			description:
-				'The Ag Charts component integrates the Ag Charts library, enabling the visualization of data through various chart types. This component is designed to offer a flexible and powerful way to display data graphically within the application.',
-			href: 'https://www.windmill.dev/changelog/ag-charts',
-			date: '2024-01-25'
-		},
-		{
-			label: 'Database Studio',
-			description:
-				"Introducing the Database Studio, a web-based database management tool that leverages Ag Grid for table display and interaction. This component enhances the user's ability to interact with database content in a dynamic and intuitive way.",
-			href: 'https://www.windmill.dev/changelog/database-studio',
-			date: '2024-01-25'
-		},
-		{
-			label: 'Rich results render',
-			description: 'Added rich results render for arrays of objects and markdown.',
-			href: 'https://www.windmill.dev/changelog/rich-render',
-			date: '2024-01-23'
-		}
-	]
+	let hasNewChangelogs = false
+	let recentChangelogs: Changelog[] = []
+	let lastOpened = localStorage.getItem('changelogsLastOpened')
 
-	const recentChangelogs = changelogs.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
+	onMount(() => {
+		if (lastOpened) {
+			// @ts-ignore
+			recentChangelogs = changelogs.filter((changelog) => changelog.date > lastOpened)
+			hasNewChangelogs =
+				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
+		} else {
+			recentChangelogs = changelogs.slice(-3)
+		}
+	})
+
+	function openChangelogs() {
+		const today = new Date().toISOString().split('T')[0]
+		localStorage.setItem('changelogsLastOpened', today)
+		hasNewChangelogs = false
+	}
 
 	const thirdMenuLinks = [
 		{
@@ -255,7 +253,26 @@
 				{#if menuLink.subItems}
 					<Menu>
 						<div slot="trigger">
-							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class="relative"
+								on:click={() => {
+									if (menuLink.label === 'Help') {
+										openChangelogs()
+									}
+								}}
+							>
+								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+								{#if menuLink.label === 'Help' && hasNewChangelogs}
+									<span class="absolute top-1 right-1 flex h-2 w-2">
+										<span
+											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+										/>
+										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500" />
+									</span>
+								{/if}
+							</div>
 						</div>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
 							<MenuItem>
