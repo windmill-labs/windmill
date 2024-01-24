@@ -47,7 +47,7 @@
 		<div
 			class={classNames(
 				'w-full text-xs font-bold gap-1 truncate py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
-				'bg-surface border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-secondary',
+				'bg-surface hover:bg-tertiary focus:border-primary text-secondary',
 				$selectedComponent?.includes(component.id) ? 'outline outline-blue-500 bg-red-400' : ''
 			)}
 			on:click={() => {
