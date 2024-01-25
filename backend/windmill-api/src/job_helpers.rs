@@ -30,7 +30,7 @@ use polars::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
-use windmill_common::error::JsonResult;
+use windmill_common::error::{Error, JsonResult};
 use windmill_common::{
     db::UserDB,
     error,
@@ -1133,7 +1133,7 @@ async fn get_workspace_s3_resource<'c>(
         Some(stripped) => stripped,
         None => s3_lfs.s3_resource_path.as_str(),
     };
-    let s3_resource = get_s3_resource(
+    let s3_resource = match get_s3_resource(
         authed,
         db,
         effective_user_db,
@@ -1141,8 +1141,12 @@ async fn get_workspace_s3_resource<'c>(
         w_id,
         stripped_resource_path,
     )
-    .await;
-
+    .await
+    {
+        Ok(s3_resource) => Ok(s3_resource),
+        Err(Error::NotAuthorized(_)) if !s3_lfs.public_resource.unwrap_or(false) => Ok(None),
+        Err(err) => Err(err),
+    };
     return s3_resource.map(|res| (s3_lfs.public_resource, res));
 }
 

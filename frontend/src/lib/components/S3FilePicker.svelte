@@ -154,6 +154,7 @@
 			}
 		}
 		fileListLoading = false
+		fileInfoLoading = false
 	}
 
 	async function loadFileMetadataPlusPreviewAsync(fileKey: string | undefined) {
