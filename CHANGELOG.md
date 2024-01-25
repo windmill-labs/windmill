@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.5](https://github.com/windmill-labs/windmill/compare/v1.253.4...v1.253.5) (2024-01-25)
+
+
+### Bug Fixes
+
+* openapi definition ([09e08c3](https://github.com/windmill-labs/windmill/commit/09e08c3c94dfff12ac8df9750bea3fadfa455f40))
+
 ## [1.253.4](https://github.com/windmill-labs/windmill/compare/v1.253.3...v1.253.4) (2024-01-25)
 
 
