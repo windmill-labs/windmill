@@ -32,15 +32,8 @@ use polars::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tower_http::cors::{Any, CorsLayer};
-<<<<<<< Updated upstream
 use windmill_common::error::{Error, JsonResult};
-=======
-use windmill_common::error::JsonResult;
 use windmill_common::worker::to_raw_value;
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 use windmill_common::{
     db::UserDB,
     error,
@@ -563,7 +556,7 @@ async fn load_parquet_preview(
     Path((w_id, file_key)): Path<(String, String)>,
     Query(query): Query<LoadParquetQuery>,
 ) -> error::JsonResult<Box<RawValue>> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
