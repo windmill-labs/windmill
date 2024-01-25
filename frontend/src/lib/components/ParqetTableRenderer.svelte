@@ -20,7 +20,7 @@
 				const res = await HelpersService.loadParquetPreview({
 					workspace: $workspaceStore!,
 					path: s3resource,
-					offset: params.startRow,
+					// offset: params.startRow,
 					limit: params.endRow - params.startRow
 				})
 
@@ -35,6 +35,7 @@
 					})
 				})
 
+				console.log(res)
 				params.successCallback(data)
 			} catch (e) {
 				console.error(e)
