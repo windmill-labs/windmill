@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.3](https://github.com/windmill-labs/windmill/compare/v1.253.2...v1.253.3) (2024-01-25)
+
+
+### Bug Fixes
+
+* Better UI for S3 download and S3 TS SDK endpoints ([#3065](https://github.com/windmill-labs/windmill/issues/3065)) ([da6edee](https://github.com/windmill-labs/windmill/commit/da6edee4505318deef4557a82eb61356a5f1bfb4))
+
 ## [1.253.2](https://github.com/windmill-labs/windmill/compare/v1.253.1...v1.253.2) (2024-01-24)
 
 
