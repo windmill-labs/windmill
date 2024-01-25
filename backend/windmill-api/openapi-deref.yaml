@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.251.1
+  version: 1.253.4
   title: Windmill API
   contact:
     name: Windmill Team
@@ -10490,6 +10490,47 @@ paths:
                       - Unknown
                 required: &ref_176
                   - content_type
+  /w/{workspace}/job_helpers/load_parquet_preview/{path}:
+    get:
+      summary: Load a preview of a parquet file
+      operationId: loadParquetPreview
+      tags:
+        - helpers
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: path
+          in: path
+          required: true
+          schema: *ref_18
+        - name: offset
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: sort_col
+          in: query
+          schema:
+            type: string
+        - name: sort_desc
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Parquet Preview
+          content:
+            application/json:
+              schema: {}
   /w/{workspace}/job_helpers/generate_download_url:
     get:
       summary: Generate a unique URL to download the file

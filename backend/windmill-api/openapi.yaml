@@ -7082,7 +7082,7 @@ paths:
         - name: sort_desc
           in: query
           schema:
-            type: bool
+            type: boolean
         - name: search
           in: query
           schema:
