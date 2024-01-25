@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.2](https://github.com/windmill-labs/windmill/compare/v1.253.1...v1.253.2) (2024-01-24)
+
+
+### Bug Fixes
+
+* **app:** improve app reactivity ([737c4fb](https://github.com/windmill-labs/windmill/commit/737c4fb497ce4d04c8404b745dd00868724cfc51))
+
 ## [1.253.1](https://github.com/windmill-labs/windmill/compare/v1.253.0...v1.253.1) (2024-01-24)
 
 
