@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.7](https://github.com/windmill-labs/windmill/compare/v1.253.6...v1.253.7) (2024-01-25)
+
+
+### Bug Fixes
+
+* Improvement for Python write_s3_file ([#3079](https://github.com/windmill-labs/windmill/issues/3079)) ([082aa6a](https://github.com/windmill-labs/windmill/commit/082aa6a61d860354929efcccfcff695c5ccc8c1d))
+
 ## [1.253.6](https://github.com/windmill-labs/windmill/compare/v1.253.5...v1.253.6) (2024-01-25)
 
 
