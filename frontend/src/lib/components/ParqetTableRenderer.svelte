@@ -29,7 +29,7 @@
 				res.columns.forEach((c) => {
 					c.values.forEach((v, i) => {
 						if (data[i] == undefined) {
-							data.push({ __index: i })
+							data.push({ __index: params.startRow + i })
 						}
 						data[i][c.name] = v
 					})
