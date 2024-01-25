@@ -17,11 +17,17 @@
 		rowCount: 0,
 		getRows: async function (params) {
 			try {
+				const searchCol = params.filterModel ? Object.keys(params.filterModel)?.[0] : undefined
+				console.log(params.filterModel)
 				const res = await HelpersService.loadParquetPreview({
 					workspace: $workspaceStore!,
 					path: s3resource,
-					// offset: params.startRow,
-					limit: params.endRow - params.startRow
+					offset: params.startRow,
+					limit: params.endRow - params.startRow,
+					sortCol: params.sortModel?.[0]?.colId,
+					sortDesc: params.sortModel?.[0]?.sort == 'desc',
+					searchCol: searchCol,
+					searchTerm: searchCol ? params.filterModel?.[searchCol]?.filter : undefined
 				})
 
 				const data: any[] = []
@@ -35,7 +41,6 @@
 					})
 				})
 
-				console.log(res)
 				params.successCallback(data)
 			} catch (e) {
 				console.error(e)
@@ -63,8 +68,6 @@
 
 	$: eGui && mountGrid()
 
-	let firstRow = 0
-	let lastRow = 0
 	async function mountGrid() {
 		if (eGui) {
 			const res = await HelpersService.loadParquetPreview({
@@ -78,11 +81,16 @@
 				{
 					rowModelType: 'infinite',
 					datasource,
+					// @ts-ignore
 					columnDefs: res.columns.map((c) => {
 						return {
 							field: c.name,
 							sortable: true,
-							filter: true
+							filter: true,
+							filterParams: {
+								filterOptions: ['contains'],
+								maxNumConditions: 1
+							}
 						}
 					}),
 					pagination: false,
@@ -93,10 +101,6 @@
 					rowSelection: 'multiple',
 					rowMultiSelectWithClick: true,
 					suppressRowDeselection: true,
-					onViewportChanged: (e) => {
-						firstRow = e.firstRow
-						lastRow = e.lastRow
-					},
 
 					onSelectionChanged: (e) => {
 						onSelectionChanged(e.api)

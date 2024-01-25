@@ -17,7 +17,6 @@ use axum::{
 use hyper::http;
 use itertools::Itertools;
 use object_store::ClientConfigKey;
-use polars::chunked_array::ops::SortOptions;
 use polars::{
     io::{
         cloud::{AmazonS3ConfigKey, CloudOptions},
@@ -546,7 +545,8 @@ struct LoadParquetQuery {
     offset: Option<i64>,
     sort_col: Option<String>,
     sort_desc: Option<bool>,
-    search: Option<String>,
+    search_col: Option<String>,
+    search_term: Option<String>,
 }
 
 async fn load_parquet_preview(
@@ -570,7 +570,9 @@ async fn load_parquet_preview(
         query
             .sort_col
             .map(|v| (v.to_string(), query.sort_desc.unwrap_or(false))),
-        query.search,
+        query
+            .search_col
+            .map(|v| (v.to_string(), query.search_term.unwrap_or_default())),
     )
     .await
     .map(Json);
@@ -1353,12 +1355,12 @@ async fn read_s3_parquet_chunk(
     limit: Option<u32>,
     offset: Option<i64>,
     sort: Option<(String, bool)>,
-    _search: Option<String>,
+    search: Option<(String, String)>,
 ) -> error::Result<Box<RawValue>> {
     let s3_cloud_config = build_polars_s3_config(s3_resource_ref);
 
     let args: ScanArgsParquet = ScanArgsParquet {
-        n_rows: Some(1),
+        n_rows: None,
         cache: false,
         parallel: polars::io::parquet::ParallelStrategy::Auto,
         rechunk: false,
@@ -1397,12 +1399,12 @@ async fn read_s3_parquet_chunk(
                 } else {
                     df
                 };
-
-                // let df = if let Some(search) = search {
-                //     df.filter(col("*").str().contains(&search))
-                // } else {
-                //     df
-                // };
+                use polars::prelude::*;
+                let df = if let Some(search) = search {
+                    df.filter(col(&search.0).str().contains_literal(lit(search.1.clone())))
+                } else {
+                    df
+                };
                 let df = df
                     .collect()
                     .map_err(|err| error::Error::InternalErr(err.to_string()))?;
