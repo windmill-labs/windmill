@@ -6987,6 +6987,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
                 required:
                   - windmill_large_files
 
@@ -9408,6 +9410,8 @@ components:
           enum: ["S3Storage"]
         s3_resource_path:
           type: string
+        public_resource:
+          type: boolean
 
     WindmillLargeFile:
       type: object

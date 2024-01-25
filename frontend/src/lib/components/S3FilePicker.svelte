@@ -25,6 +25,8 @@
 	let deletionModalOpen = false
 	let fileDeletionInProgress = false
 
+	let fileListUnavailable = true
+
 	let moveModalOpen = false
 	let moveDestKey: string | undefined = undefined
 	let fileMoveInProgress = false
@@ -47,6 +49,7 @@
 
 	let drawer: Drawer
 
+	let fileInfoLoading: boolean = true
 	let fileListLoading: boolean = true
 	let allFilesByKey: Record<
 		string,
@@ -89,6 +92,16 @@
 			maxKeys: 1000, // fixed pages of 1000 files for now
 			marker: paginationMarker
 		})
+		if (
+			availableFiles.restricted_access === null ||
+			availableFiles.restricted_access === undefined ||
+			availableFiles.restricted_access === true
+		) {
+			fileListUnavailable = true
+			loadFileMetadataPlusPreviewAsync(selectedFileKey?.s3)
+			return
+		}
+		fileListUnavailable = false
 		allFilesByKey = {}
 		displayedFileKeys = []
 		for (let file_path of availableFiles.windmill_large_files) {
@@ -144,9 +157,11 @@
 	}
 
 	async function loadFileMetadataPlusPreviewAsync(fileKey: string | undefined) {
-		if (fileKey === undefined) {
+		if (fileKey === undefined || emptyString(fileKey)) {
+			fileInfoLoading = false
 			return
 		}
+		fileInfoLoading = true
 		let fileMetadataRaw = await HelpersService.loadFileMetadata({
 			workspace: $workspaceStore!,
 			fileKey: fileKey
@@ -197,6 +212,7 @@
 			}
 		}
 		filePreviewLoading = false
+		fileInfoLoading = false
 	}
 
 	async function deleteFileFromS3(fileKey: string | undefined) {
@@ -389,71 +405,90 @@
 				</Alert>
 			{/if}
 		{:else}
+			{#if fileListUnavailable}
+				<div class="mb-2">
+					<Alert type="info" title="Access to S3 bucket restricted">
+						You don't have access to the S3 bucket resource and your administrator has restricted
+						the access to it. You are not authorized to browse the bucket content. If you think this
+						is incorrect, please contact your workspace administrator.
+					</Alert>
+				</div>
+			{/if}
 			<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>
-				<div class="min-w-[30%] border-r">
-					{#if fileListLoading === false && displayedFileKeys.length === 0}
-						<div class="p-4 text-tertiary text-xs text-center italic">
-							No files in the workspace S3 bucket
-						</div>
-					{:else}
-						<VirtualList
-							width="100%"
-							height={listDivHeight}
-							itemCount={displayedFileKeys.length}
-							itemSize={42}
-						>
-							<div slot="item" let:index let:style {style} class="hover:bg-surface-hover border">
-								{@const file_info = allFilesByKey[displayedFileKeys[index]]}
-								<div
-									on:click={() => selectItem(index)}
-									class={`flex flex-row h-full font-semibold text-xs items-center justify-start ${
-										selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
-											? 'bg-surface-hover'
-											: ''
-									} `}
-								>
+				{#if !fileListUnavailable}
+					<div class="min-w-[30%] border-r">
+						{#if fileListLoading === false && displayedFileKeys.length === 0}
+							<div class="p-4 text-tertiary text-xs text-center italic">
+								No files in the workspace S3 bucket
+							</div>
+						{:else}
+							<VirtualList
+								width="100%"
+								height={listDivHeight}
+								itemCount={displayedFileKeys.length}
+								itemSize={42}
+							>
+								<div slot="item" let:index let:style {style} class="hover:bg-surface-hover border">
+									{@const file_info = allFilesByKey[displayedFileKeys[index]]}
 									<div
-										class={`flex flex-row w-full ml-${
-											2 + file_info.nestingLevel
-										} gap-2 h-full items-center`}
+										on:click={() => selectItem(index)}
+										class={`flex flex-row h-full font-semibold text-xs items-center justify-start ${
+											selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
+												? 'bg-surface-hover'
+												: ''
+										} `}
 									>
-										{#if file_info.type === 'folder'}
-											{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-													size={16}
-												/>{/if}
-											<div class="truncate text-ellipsis w-56">
-												{file_info.display_name}
-											</div>
-										{:else}
-											<FileIcon size={16} />
-											<div class="truncate text-ellipsis w-56">
-												{file_info.display_name}
-											</div>
-										{/if}
+										<div
+											class={`flex flex-row w-full ml-${
+												2 + file_info.nestingLevel
+											} gap-2 h-full items-center`}
+										>
+											{#if file_info.type === 'folder'}
+												{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+														size={16}
+													/>{/if}
+												<div class="truncate text-ellipsis w-56">
+													{file_info.display_name}
+												</div>
+											{:else}
+												<FileIcon size={16} />
+												<div class="truncate text-ellipsis w-56">
+													{file_info.display_name}
+												</div>
+											{/if}
+										</div>
 									</div>
 								</div>
-							</div>
-							<div slot="footer">
-								{#if !emptyString(paginationMarker)}
-									<button
-										class="text-secondary underline text-2xs whitespace-nowrap text-center w-full"
-										on:click={loadFiles}
-										>More files in bucket. Click here to load more...
-									</button>
-								{/if}
-								{#if fileListLoading === true}
-									<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
-										<Loader2 size={12} class="animate-spin mr-1" /> Loading content
-									</div>
-								{/if}
-							</div>
-						</VirtualList>
-					{/if}
-				</div>
+								<div slot="footer">
+									{#if !emptyString(paginationMarker)}
+										<button
+											class="text-secondary underline text-2xs whitespace-nowrap text-center w-full"
+											on:click={loadFiles}
+											>More files in bucket. Click here to load more...
+										</button>
+									{/if}
+									{#if fileListLoading === true}
+										<div
+											class="flex text-secondary mt-1 text-xs justify-center items-center w-full"
+										>
+											<Loader2 size={12} class="animate-spin mr-1" /> Loading content
+										</div>
+									{/if}
+								</div>
+							</VirtualList>
+						{/if}
+					</div>
+				{/if}
 				<div class="flex flex-col h-full w-full overflow-auto">
 					{#if fileMetadata === undefined}
 						<div class="p-4">
-							<Section label="Select a file for preview" />
+							{#if fileInfoLoading}
+								<Section label="Loading..." />
+							{:else if fileListUnavailable}
+								<Section label="No file to preview" />
+							{:else}
+								<Section label="Select a file to preview" />
+							{/if}
 						</div>
 					{:else}
 						<div class="p-4 gap-2">

@@ -1524,6 +1524,8 @@ paths:
                           - S3Storage
                       s3_resource_path:
                         type: string
+                      public_resource:
+                        type: boolean
                   git_sync:
                     type: array
                     items:
@@ -10387,6 +10389,8 @@ paths:
                           type: string
                       required: &ref_173
                         - s3
+                  restricted_access:
+                    type: boolean
                 required:
                   - windmill_large_files
   /w/{workspace}/job_helpers/load_file_metadata:
