@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.4](https://github.com/windmill-labs/windmill/compare/v1.253.3...v1.253.4) (2024-01-25)
+
+
+### Bug Fixes
+
+* add s3 parquet file renderer ([c3fb93c](https://github.com/windmill-labs/windmill/commit/c3fb93c0c6b48450c949d02103d3823b06af4fc9))
+
 ## [1.253.3](https://github.com/windmill-labs/windmill/compare/v1.253.2...v1.253.3) (2024-01-25)
 
 
