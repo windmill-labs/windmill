@@ -7,7 +7,6 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -41,7 +40,6 @@
 				console.error(e)
 				params.failCallback()
 			}
-			console.log('asking for ' + params.startRow + ' to ' + params.endRow, res)
 		}
 	}
 
