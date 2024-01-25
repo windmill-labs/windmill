@@ -18,7 +18,9 @@
 		getRows: async function (params) {
 			const res = await HelpersService.loadParquetPreview({
 				workspace: $workspaceStore!,
-				path: s3resource
+				path: s3resource,
+				offset: params.startRow,
+				limit: params.endRow - params.startRow
 			})
 
 			const data: any[] = []
