@@ -503,7 +503,8 @@ const onErrorClick = {
 				value: [] as Array<{ id: string; index: number }>,
 				fieldType: 'array',
 				subFieldType: 'tab-select',
-				tooltip: 'Set the tabs id and index to go to on error'
+				tooltip: 'Set the tabs id and index to go to on error',
+				onDemandOnly: true
 			}
 		},
 		sendErrorToast: {
