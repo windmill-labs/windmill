@@ -6,7 +6,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -18,7 +18,6 @@
 		getRows: async function (params) {
 			try {
 				const searchCol = params.filterModel ? Object.keys(params.filterModel)?.[0] : undefined
-				console.log(params.filterModel)
 				const res = await HelpersService.loadParquetPreview({
 					workspace: $workspaceStore!,
 					path: s3resource,
@@ -37,7 +36,11 @@
 						if (data[i] == undefined) {
 							data.push({ __index: params.startRow + i })
 						}
-						data[i][c.name] = v
+						if (!$enterpriseLicense && params.startRow + i > 3) {
+							data[i][c.name] = 'Require EE'
+						} else {
+							data[i][c.name] = v
+						}
 					})
 				})
 
