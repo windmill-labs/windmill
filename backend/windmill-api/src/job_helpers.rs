@@ -3,6 +3,7 @@ use std::{cmp, time::Duration};
 
 use crate::{db::DB, resources::get_resource_value_interpolated_internal, users::Tokened};
 use anyhow::Context;
+use aws_sdk_s3::primitives::DateTime;
 use aws_sdk_s3::{
     presigning::PresigningConfig,
     primitives::ByteStream,
@@ -29,7 +30,7 @@ use polars::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
-use windmill_common::error::JsonResult;
+use windmill_common::error::{Error, JsonResult};
 use windmill_common::{
     db::UserDB,
     error,
@@ -90,6 +91,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/multipart_upload_s3_file",
             post(multipart_upload_s3_file).layer(cors.clone()),
+        )
+        .route(
+            "/multipart_download_s3_file",
+            post(multipart_download_s3_file).layer(cors.clone()),
         )
 }
 
@@ -156,7 +161,11 @@ async fn duckdb_connection_settings_v2(
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?,
+        None => {
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?;
+            s3_resource_opt
+        }
     };
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
@@ -249,7 +258,11 @@ async fn polars_connection_settings_v2(
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?,
+        None => {
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?;
+            s3_resource_opt
+        }
     };
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
@@ -298,7 +311,11 @@ async fn s3_resource_info(
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?,
+        None => {
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?;
+            s3_resource_opt
+        }
     };
     let s3_resource = s3_resource_opt.ok_or(error::Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
@@ -317,7 +334,7 @@ async fn test_connection(
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
 ) -> error::JsonResult<()> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
     if s3_resource_opt.is_none() {
         return Err(error::Error::NotFound(
             "No datasets storage resource defined at the workspace level".to_string(),
@@ -349,6 +366,7 @@ struct ListStoredFilesQuery {
 
 #[derive(Serialize)]
 struct ListStoredDatasetsResponse {
+    pub restricted_access: Option<bool>,
     windmill_large_files: Vec<WindmillLargeFile>,
     pub next_marker: Option<String>,
 }
@@ -356,11 +374,20 @@ struct ListStoredDatasetsResponse {
 async fn list_stored_files(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<ListStoredFilesQuery>,
 ) -> error::JsonResult<ListStoredDatasetsResponse> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (public_resource, s3_resource_opt) =
+        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?;
+    if !public_resource.unwrap_or(false) && s3_resource_opt.is_none() {
+        return Ok(Json(ListStoredDatasetsResponse {
+            windmill_large_files: vec![],
+            next_marker: None,
+            restricted_access: Some(true),
+        }));
+    }
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -412,7 +439,8 @@ async fn list_stored_files(
 
     return Ok(Json(ListStoredDatasetsResponse {
         windmill_large_files: stored_datasets,
-        next_marker: next_marker,
+        next_marker,
+        restricted_access: Some(false),
     }));
 }
 
@@ -473,7 +501,7 @@ async fn load_file_metadata(
     Query(query): Query<LoadFileMetadataQuery>,
 ) -> error::JsonResult<LoadFileMetadataResponse> {
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -520,7 +548,7 @@ async fn load_file_preview(
     }
 
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -632,17 +660,11 @@ async fn load_file_preview(
     };
 
     let response: LoadFilePreviewResponse = match content_preview {
-        Ok(content) => LoadFilePreviewResponse {
-            content_type: content_type,
-            content: Some(content),
-            msg: None,
-        },
+        Ok(content) => LoadFilePreviewResponse { content_type, content: Some(content), msg: None },
 
-        Err(err) => LoadFilePreviewResponse {
-            content_type: content_type,
-            content: None,
-            msg: Some(err.to_string()),
-        },
+        Err(err) => {
+            LoadFilePreviewResponse { content_type, content: None, msg: Some(err.to_string()) }
+        }
     };
 
     return Ok(Json(response));
@@ -666,7 +688,7 @@ async fn generate_download_url(
     Query(query): Query<GenerateDownloadUrlQuery>,
 ) -> JsonResult<GenerateDownloadUrlResponse> {
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -704,7 +726,7 @@ async fn delete_s3_file(
     Query(query): Query<DeleteS3FileQuery>,
 ) -> error::JsonResult<()> {
     let file_key = query.file_key.clone();
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -738,7 +760,7 @@ async fn move_s3_file(
     Path(w_id): Path<String>,
     Query(query): Query<MoveS3FileQuery>,
 ) -> error::JsonResult<()> {
-    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+    let (_, s3_resource_opt) = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
         "No files storage resource defined at the workspace level".to_string(),
@@ -773,6 +795,96 @@ async fn move_s3_file(
 }
 
 #[derive(Deserialize)]
+struct DownloadFileQuery {
+    pub file_key: String,
+
+    pub part_number: i64, // part number of the file to download. A file part are approx 5MB
+    pub file_size: Option<i64>, // leave empty for the first call, it will be returned in the response and ideally sent back in the next call
+
+    pub s3_resource_path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DownloadFileResponse {
+    pub file_size: Option<i64>,
+    pub part_content: Vec<u8>,
+    pub next_part_number: Option<i64>, // is None when this is the last part being returned
+}
+
+async fn multipart_download_s3_file(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Tokened { token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(query): Json<DownloadFileQuery>,
+) -> error::JsonResult<DownloadFileResponse> {
+    let s3_resource_opt = match query.s3_resource_path.clone() {
+        Some(s3_resource_path) => {
+            get_s3_resource(
+                &authed,
+                &db,
+                Some(user_db),
+                &token,
+                &w_id,
+                s3_resource_path.as_str(),
+            )
+            .await?
+        }
+        None => {
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+            s3_resource_opt
+        }
+    };
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let bucket = s3_resource.bucket.clone();
+    let file_key = query.file_key.clone();
+    let s3_client = build_s3_client(&s3_resource);
+
+    let file_size = match query.file_size {
+        Some(fs) => Some(fs),
+        None => {
+            let s3_object_metadata = s3_client
+                .head_object()
+                .bucket(&bucket)
+                .key(&file_key)
+                .send()
+                .await
+                .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+            s3_object_metadata.content_length()
+        }
+    };
+
+    let chunk_size_bytes: i64 = 5 * 1024 * 1024;
+    let from_byte = query.part_number * chunk_size_bytes;
+    let (length, next_part_number) =
+        if file_size.is_some() && file_size.unwrap() - from_byte <= chunk_size_bytes {
+            (file_size.unwrap() - from_byte, None)
+        } else {
+            (chunk_size_bytes, Some(query.part_number + 1))
+        };
+
+    let payload =
+        read_object_chunk(&s3_client, bucket.as_str(), &file_key, from_byte, length).await?;
+    tracing::warn!(
+        "Reading chunk {} with length {} - payload size: {}",
+        from_byte,
+        length,
+        payload.len()
+    );
+
+    return Ok(Json(DownloadFileResponse {
+        file_size,
+        part_content: payload,
+        next_part_number,
+    }));
+}
+
+#[derive(Deserialize)]
 struct UploadFileQuery {
     pub file_key: Option<String>, // if none, the file will be placed in windmill_uploads/ with a random name.
     pub file_extension: Option<String>, // preferred extension for the file in case a random name has to be generated
@@ -785,6 +897,7 @@ struct UploadFileQuery {
     pub cancel_upload: bool, // whether the upload should be cancelled. upload_id should be set. subsequent calls with this upload_id will fail
 
     pub s3_resource_path: Option<String>, // custom S3 resource to use for this upload. It None, the workspace S3 resource will be used
+    pub file_expiration: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -844,7 +957,11 @@ async fn multipart_upload_s3_file(
             )
             .await?
         }
-        None => get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?,
+        None => {
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+            s3_resource_opt
+        }
     };
 
     let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
@@ -879,10 +996,14 @@ async fn multipart_upload_s3_file(
             (upload_id, parts.len() + 1)
         }
         UploadFileQuery { upload_id: None, ref parts, .. } if parts.len() == 0 => {
-            let multipart_upload_res = s3_client
+            let mut upload_builder = s3_client
                 .create_multipart_upload()
                 .bucket(&bucket)
-                .key(&file_key)
+                .key(&file_key);
+            if let Some(file_expiration) = query.file_expiration {
+                upload_builder = upload_builder.expires(DateTime::from_secs(file_expiration.timestamp()));
+            }
+            let multipart_upload_res = upload_builder
                 .send()
                 .await
                 .map_err(|err| {
@@ -971,7 +1092,7 @@ async fn get_workspace_s3_resource<'c>(
     user_db: Option<UserDB>,
     token: &str,
     w_id: &str,
-) -> error::Result<Option<S3Resource>> {
+) -> error::Result<(Option<bool>, Option<S3Resource>)> {
     let raw_lfs_opt = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -981,7 +1102,7 @@ async fn get_workspace_s3_resource<'c>(
     .flatten();
 
     if raw_lfs_opt.is_none() {
-        return Ok(None);
+        return Ok((None, None));
     }
 
     let large_file_storage = serde_json::from_value::<LargeFileStorage>(
@@ -1000,11 +1121,33 @@ async fn get_workspace_s3_resource<'c>(
         LargeFileStorage::S3Storage(s3_lfs) => s3_lfs,
     };
 
+    // if the resource is declared public, we replace user_db with None such that the resource info will be
+    // retrieved using `db` (and ACLs will be bypassed)
+    let effective_user_db = if user_db.is_some() && s3_lfs.public_resource.unwrap_or(false) {
+        None
+    } else {
+        user_db
+    };
+
     let stripped_resource_path = match s3_lfs.s3_resource_path.strip_prefix("$res:") {
         Some(stripped) => stripped,
         None => s3_lfs.s3_resource_path.as_str(),
     };
-    return get_s3_resource(authed, db, user_db, token, w_id, stripped_resource_path).await;
+    let s3_resource = match get_s3_resource(
+        authed,
+        db,
+        effective_user_db,
+        token,
+        w_id,
+        stripped_resource_path,
+    )
+    .await
+    {
+        Ok(s3_resource) => Ok(s3_resource),
+        Err(Error::NotAuthorized(_)) if !s3_lfs.public_resource.unwrap_or(false) => Ok(None),
+        Err(err) => Err(err),
+    };
+    return s3_resource.map(|res| (s3_lfs.public_resource, res));
 }
 
 async fn get_s3_resource<'c>(
@@ -1062,16 +1205,16 @@ fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
     return CloudOptions::default().with_aws(s3_configs);
 }
 
-async fn read_s3_text_object_head(
+async fn read_object_chunk(
     s3_client: &aws_sdk_s3::Client,
     s3_bucket: &str,
     file_key: &str,
-    from_char: i64,
+    from_byte: i64,
     length: i64,
-) -> error::Result<String> {
+) -> error::Result<Vec<u8>> {
     let s3_object = s3_client
         .get_object()
-        .range(format!("bytes={}-{}", from_char, length).to_string())
+        .range(format!("bytes={}-{}", from_byte, from_byte + length).to_string())
         .bucket(s3_bucket)
         .key(file_key)
         .send()
@@ -1095,7 +1238,17 @@ async fn read_s3_text_object_head(
         })?
         .into_bytes()
         .to_vec();
+    return Ok(payload);
+}
 
+async fn read_s3_text_object_head(
+    s3_client: &aws_sdk_s3::Client,
+    s3_bucket: &str,
+    file_key: &str,
+    from_byte: i64,
+    length: i64,
+) -> error::Result<String> {
+    let payload = read_object_chunk(s3_client, s3_bucket, file_key, from_byte, length).await?;
     let file_header_str = String::from_utf8(payload).map_err(|err| {
         tracing::warn!(
             "Encoding of file {} unsupported. Error was: {:?}",

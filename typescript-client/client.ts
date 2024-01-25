@@ -1,3 +1,4 @@
+import { Readable } from "stream";
 import {
   ResourceService,
   VariableService,
@@ -7,7 +8,7 @@ import {
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
-import { DenoS3LightClientSettings } from "./s3Types";
+import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
 
 export {
   AdminService,
@@ -293,24 +294,158 @@ export async function denoS3LightClientSettings(
   return settings;
 }
 
-// export async function loadS3File(
-//   s3object: S3Object,
-//   s3ResourcePath: string | undefined
-// ): Promise<Response> {
-//   const settings = await denoS3LightClientSettings(s3ResourcePath);
-//   const s3 = new S3Client(settings);
-//   return await s3.getObject(s3object.s3);
-// }
+/**
+ * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * ```typescript
+ * let fileContentStream = await wmill.loadS3File(inputFile)
+ * // if the file is a raw text file, it can be decoded and printed directly:
+ * const text = new TextDecoder().decode(fileContentStream)
+ * console.log(text);
+ * ```
+ */
+export async function loadS3File(
+  s3object: S3Object,
+  s3ResourcePath: string | undefined
+): Promise<Uint8Array|undefined> {
+  !clientSet && setClient();
 
-// export async function writeS3File(
-//   s3object: S3Object,
-//   fileContent: ReadableStream<Uint8Array> | Uint8Array | string,
-//   s3ResourcePath: string | undefined
-// ): Promise<Response> {
-//   const settings = await denoS3LightClientSettings(s3ResourcePath);
-//   const s3 = new S3Client(settings);
-//   return await s3.putObject(s3object.s3, fileContent);
-// }
+  let part_number: number | undefined = 0
+  let file_total_size: number|undefined = undefined
+
+  let fetch = async function(controller: any) {
+    // console.log("fetching part", part_number)
+    if (part_number === undefined || part_number === null) {
+      // console.log("finished, closing")
+      controller.close()
+      return
+    }
+    let part_response = await HelpersService.multipartFileDownload({
+      workspace: getWorkspace(),
+      requestBody: {
+        file_key: s3object.s3,
+        part_number: part_number,
+        file_size: file_total_size,
+        s3_resource_path: s3ResourcePath,
+      }
+    })
+    
+    if (part_response.part_content.length > 0) {
+      // console.log("enqueueing part", part_number, part_response.part_content.length)
+      let chunk = new Uint8Array(part_response.part_content.length)
+      part_response.part_content.forEach((value: number, index: number) => {
+        chunk[index] = value
+      })
+      controller.enqueue(chunk)
+    }
+    part_number = part_response.next_part_number
+    file_total_size = part_response.file_size
+  }
+
+  let fileContentStream = new ReadableStream({
+    async pull(controller) {
+      await fetch(controller)
+    }
+  })
+
+  // For now we read all the stream in here. In the future return the stream and let the users consume it as they wish
+  const reader = fileContentStream.getReader()
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const {value: chunk, done} = await reader.read();
+    if (done) {
+      break;
+    }
+    chunks.push(chunk);
+  }
+  let fileContentLength = 0;
+  chunks.forEach(item => {
+    fileContentLength += item.length;
+  });
+  let fileContent = new Uint8Array(fileContentLength);
+  let offset = 0;
+  chunks.forEach(chunk => {
+    fileContent.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return fileContent
+}
+
+/**
+ * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * ```typescript
+ * const s3object = await writeS3File(s3Object, "Hello Windmill!")
+ * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
+ * console.log(fileContentAsUtf8Str)
+ * ```
+ */
+export async function writeS3File(
+  s3object: S3Object | undefined,
+  fileContent: string | ReadableStream<Uint8Array>,
+  fileExpiration: Date | undefined,
+  s3ResourcePath: string | undefined
+): Promise<S3Object> {
+  !clientSet && setClient();
+  let fileContentStream: ReadableStream<Uint8Array>
+  if (typeof fileContent === 'string') {
+    fileContentStream = new Blob([fileContent as string], {
+      type: 'text/plain'
+    }).stream();
+  } else {
+    fileContentStream = fileContent as ReadableStream<Uint8Array>
+  }
+
+  let path = s3object?.s3
+  let upload_id: string | undefined = undefined
+  let parts: any[] = []
+  const reader = fileContentStream.getReader()
+  let { value: chunk, done: readerDone } = await reader.read()
+  if (chunk === undefined || readerDone) {
+    throw Error('Error reading stream, no data read');
+  }
+
+  while (true) {
+    let { value: chunk_2, done: readerDone } = await reader.read()
+    if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
+      // AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
+      chunk = new Uint8Array([...chunk, ...chunk_2])
+      continue
+    }
+    try {
+      let response: any = await HelpersService.multipartFileUpload({
+        workspace: getWorkspace(),
+        requestBody: {
+          file_key: path,
+          file_extension: undefined,
+          part_content: Array.from(chunk),
+          upload_id: upload_id,
+          parts: parts,
+          is_final: readerDone,
+          cancel_upload: false,
+          s3_resource_path: s3ResourcePath,
+          file_expiration: fileExpiration?.toString(),
+        }
+      })
+      path = response.file_key
+      upload_id = response.upload_id
+      parts = response.parts
+
+      if (response.is_done) {
+        break
+      }
+      if (chunk_2 === undefined) {
+        throw Error('File upload is not finished, yet there is no more data to stream. This is unexpected');
+      }
+      chunk = chunk_2
+    } catch (e) {
+      throw Error(`Unexpected error uploading data to S3 ${e}`);
+    }
+  }
+  return {
+    s3: path as string
+  }
+}
 
 /**
  * Get URLs needed for resuming a flow after this step
