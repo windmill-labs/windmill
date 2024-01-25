@@ -11,8 +11,17 @@
 	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+<<<<<<< Updated upstream
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
+=======
+	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -350,6 +359,7 @@
 			</div>
 		{:else if !forceJson && resultKind == 's3object'}
 			<div class="absolute top-1 h-full w-full">
+<<<<<<< Updated upstream
 				<div class="flex flex-col gap-2">
 					<Toggle
 						class="flex"
@@ -370,6 +380,29 @@
 						<FileDownload s3object={result} />
 					{/if}
 				</div>
+=======
+				<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
+				<button
+					class="text-secondary underline text-2xs whitespace-nowrap"
+					on:click={() => {
+						downloadS3File(result?.s3)
+					}}
+					><span class="flex items-center gap-1"><Download size={12} />download</span>
+				</button>
+				<button
+					class="text-secondary underline text-2xs whitespace-nowrap"
+					on:click={() => {
+						s3FileViewer?.open?.(result)
+					}}
+					><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
+				</button>
+				{#if typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')}
+					<ParqetTableRenderer s3resource={result?.s3} />
+				{/if}
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 			</div>
 		{:else if !forceJson && resultKind == 's3object-list'}
 			<div class="absolute top-1 h-full w-full">

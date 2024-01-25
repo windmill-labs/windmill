@@ -7058,6 +7058,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/load_parquet_preview/{path}:
+    get:
+      summary: Load a preview of a parquet file
+      operationId: loadParquetPreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: offset
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: sort_col
+          in: query
+          schema:
+            type: string
+        - name: sort_desc
+          in: query
+          schema:
+            type: bool
+        - name: search
+          in: query
+          schema:
+            type: string
+            
+      responses:
+        "200":
+          description: Parquet Preview
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/job_helpers/generate_download_url:
     get:
       summary: Generate a unique URL to download the file
