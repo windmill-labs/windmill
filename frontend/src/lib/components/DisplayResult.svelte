@@ -351,7 +351,12 @@
 				>
 			</div>
 		{:else if !forceJson && resultKind == 's3object'}
-			<div class="absolute top-1 h-full w-full">
+			<div
+				class="absolute top-1 h-full w-full {typeof result?.s3 == 'string' &&
+				result?.s3?.endsWith('.parquet')
+					? 'h-min-[600px]'
+					: ''}"
+			>
 				<div class="flex flex-col gap-2">
 					<Toggle
 						class="flex"
@@ -370,6 +375,13 @@
 						</button>
 					{:else}
 						<FileDownload s3object={result} />
+						<button
+							class="text-secondary underline text-2xs whitespace-nowrap"
+							on:click={() => {
+								s3FileViewer?.open?.(result)
+							}}
+							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
+						</button>
 					{/if}
 				</div>
 				{#if typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')}

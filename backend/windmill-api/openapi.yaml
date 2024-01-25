@@ -7083,7 +7083,11 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: search
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
           in: query
           schema:
             type: string
