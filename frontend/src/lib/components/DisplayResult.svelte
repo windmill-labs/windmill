@@ -11,8 +11,17 @@
 	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+<<<<<<< Updated upstream
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
+=======
+	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -370,6 +379,9 @@
 						<FileDownload s3object={result} />
 					{/if}
 				</div>
+				{#if typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')}
+					<ParqetTableRenderer s3resource={result?.s3} />
+				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 's3object-list'}
 			<div class="absolute top-1 h-full w-full">
