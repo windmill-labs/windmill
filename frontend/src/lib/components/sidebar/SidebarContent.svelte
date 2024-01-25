@@ -15,6 +15,7 @@
 		HelpCircle,
 		Home,
 		LogOut,
+		Newspaper,
 		Play,
 		ServerCog,
 		Settings,
@@ -51,6 +52,126 @@
 		clearStores()
 		goto('/user/workspaces')
 	}
+
+	interface DatabaseStudio {
+		slug: string
+		version: string
+		title: string
+		tags: string[]
+		description: string
+	}
+
+	function parseSimpleYAML(yamlString: string): DatabaseStudio {
+		const result: Partial<DatabaseStudio> = {}
+		const lines = yamlString.split('\n')
+
+		for (const line of lines) {
+			if (line.trim() === '---' || line.trim() === '') {
+				continue
+			}
+
+			const [key, value] = line.split(':').map((part) => part.trim())
+
+			if (key === 'tags' || key === 'features') {
+				// Assuming the values are always in ['value1', 'value2'] format
+				result[key] = value
+					.slice(1, -1)
+					.split(',')
+					.map((tag) => tag.trim().replace(/^'(.+)'$/, '$1'))
+			} else {
+				result[key] = value
+			}
+		}
+
+		return result as DatabaseStudio
+	}
+
+	async function fetchMarkdownFiles() {
+		const apiUrl = `https://api.github.com/repos/windmill-labs/windmilldocs/contents/changelog?ref=main`
+		const response = await fetch(apiUrl)
+		const data = await response.json()
+
+		console.log('data', data)
+
+		if (!Array.isArray(data)) {
+			return []
+		}
+
+		const directories = data.filter((x: { type: string }) => x.type === 'dir')
+
+		const promises = directories.map((x: { url: string }) => fetch(x.url))
+		const responses = await Promise.all(promises)
+		const datas = await Promise.all(responses.map((x) => x.json()))
+
+		const files = datas
+			.flat()
+			.filter((x) => x.name === 'index.md')
+			.map((x) => x.download_url)
+
+		const promises2 = files.map((x) => fetch(x))
+		const responses2 = await Promise.all(promises2)
+		const datas2 = await Promise.all(responses2.map((x) => x.text()))
+
+		const changelogs = datas2.map((x) => parseSimpleYAML(x))
+
+		console.log('changelogs', changelogs)
+
+		localStorage.setItem('changelogs', JSON.stringify(changelogs))
+
+		return changelogs
+	}
+
+	function getNewChangelogEntries(changelogs, storedChangelogs) {
+		if (!storedChangelogs) {
+			return changelogs
+		}
+
+		const newEntries = changelogs.filter((x) => {
+			const storedChangelog = JSON.parse(storedChangelogs)
+			const storedChangelogEntry = storedChangelog.find((y) => y.slug === x.slug)
+
+			if (!storedChangelogEntry) {
+				return true
+			}
+
+			return storedChangelogEntry.version !== x.version
+		})
+
+		return newEntries
+	}
+
+	let newChangelogs = []
+
+	async function fetchAndStoreChangelogs() {
+		// get lastVisit
+		const lastVisit = localStorage.getItem('lastVisit')
+
+		console.log('lastVisit', lastVisit)
+
+		// only fetch once a day to avoid rate limit
+		const today = new Date()
+		const lastVisitDate = lastVisit ? new Date(lastVisit) : new Date(0)
+
+		if (today.getDate() === lastVisitDate.getDate()) {
+			console.log('no need to fetch changelogs')
+			return
+		}
+
+		const changelogs = await fetchMarkdownFiles()
+		const storedChangelogs = localStorage.getItem('changelogs')
+
+		const newChangelogEntries = getNewChangelogEntries(changelogs, storedChangelogs)
+
+		localStorage.setItem('lastVisit', today.toISOString())
+
+		newChangelogs = newChangelogEntries
+
+		return newChangelogEntries
+	}
+
+	fetchAndStoreChangelogs()
+
+	localStorage.setItem('lastVisit', '2023-01-01T00:00:00.000Z')
 
 	$: secondaryMenuLinks = [
 		// {
@@ -145,6 +266,11 @@
 					label: 'Issues',
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
 					icon: Github
+				},
+				{
+					label: 'Changelog',
+					href: 'https://www.windmill.dev/changelog/',
+					icon: Newspaper
 				}
 			]
 		}
@@ -184,6 +310,7 @@
 											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
 											on:click={subItem?.['action']}
 										>
+											{newChangelogs}
 											<div class="flex flex-row items-center gap-2">
 												{#if subItem.icon}
 													<svelte:component this={subItem.icon} size={16} />
@@ -231,11 +358,21 @@
 								<div class="py-1" role="none">
 									<a
 										href={subItem.href}
-										class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+										class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary relative"
 										role="menuitem"
 										tabindex="-1"
 										target="_blank"
 									>
+										{#if newChangelogs.length > 0 && subItem.label === 'Changelog'}
+											<div class="absolute top-2 right-4 w-2 h-2 rounded-full bg-primary">
+												<span class="relative flex h-3 w-3">
+													<span
+														class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"
+													/>
+													<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+												</span>
+											</div>
+										{/if}
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
