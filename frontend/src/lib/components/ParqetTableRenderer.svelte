@@ -116,7 +116,7 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div class={twMerge('border shadow-sm divide-y flex flex-col h-full min-h-[600px]')}>
+<div class={twMerge('mt-4 border shadow-sm divide-y flex flex-col h-full min-h-[600px]')}>
 	<div class="ag-theme-alpine h-full" class:ag-theme-alpine-dark={darkMode}>
 		<div bind:this={eGui} style="height:100%" />
 	</div>

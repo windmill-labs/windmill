@@ -11,17 +11,10 @@
 	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
-<<<<<<< Updated upstream
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
-=======
-	import { HelpersService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+
 	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 
 	export let result: any
 	export let requireHtmlApproval = false
