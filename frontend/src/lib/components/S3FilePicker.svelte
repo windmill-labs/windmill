@@ -408,10 +408,18 @@
 			{#if fileListUnavailable}
 				<div class="mb-2">
 					<Alert type="info" title="Access to S3 bucket restricted">
-						You don't have access to the S3 bucket resource and your administrator has restricted
-						the access to it. You are not authorized to browse the bucket content. If you think this
-						is incorrect, please contact your workspace administrator.
-					</Alert>
+						<p>
+							You don't have access to the S3 bucket resource and your administrator has restricted
+							the access to it. You are not authorized to browse the bucket content. If you think
+							this is incorrect, please contact your workspace administrator.
+						</p>
+						<p>
+							More info in <a
+								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket"
+								target="_blank">Windmill's documentation</a
+							></p
+						></Alert
+					>
 				</div>
 			{/if}
 			<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>

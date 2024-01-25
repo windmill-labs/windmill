@@ -374,13 +374,14 @@ struct ListStoredDatasetsResponse {
 async fn list_stored_files(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<ListStoredFilesQuery>,
 ) -> error::JsonResult<ListStoredDatasetsResponse> {
     let (public_resource, s3_resource_opt) =
-        get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
-    if !public_resource.unwrap_or(false) {
+        get_workspace_s3_resource(&authed, &db, Some(user_db), &token, &w_id).await?;
+    if !public_resource.unwrap_or(false) && s3_resource_opt.is_none() {
         return Ok(Json(ListStoredDatasetsResponse {
             windmill_large_files: vec![],
             next_marker: None,
