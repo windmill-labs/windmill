@@ -43,6 +43,22 @@
 			lang: 'mssql',
 			argName: 'database'
 		},
+		s3: {
+			code: `
+import { S3Client } from "https://deno.land/x/s3_lite_client@0.6.1/mod.ts";		
+
+type S3 = object
+
+export async function main(s3: S3) {
+	const s3client = new S3Client(s3);
+	for await (const obj of s3client.listObjects({ prefix: "/" })) {
+		console.log(obj);
+	}
+}
+`,
+			lang: 'deno',
+			argName: 's3'
+		},
 		graphql: {
 			code: '{ __typename }',
 			lang: 'graphql',
@@ -78,6 +94,7 @@
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
 			requestBody: {
+				path: `testConnection: ${resourceType}`,
 				language: resourceScript.lang as Preview.language,
 				content: resourceScript.code,
 				args: {

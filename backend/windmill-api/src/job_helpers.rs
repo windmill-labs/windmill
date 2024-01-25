@@ -17,6 +17,7 @@ use axum::{
 use hyper::http;
 use itertools::Itertools;
 use object_store::ClientConfigKey;
+use polars::chunked_array::ops::SortOptions;
 use polars::{
     io::{
         cloud::{AmazonS3ConfigKey, CloudOptions},
@@ -29,8 +30,17 @@ use polars::{
     prelude::CsvReader,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use tower_http::cors::{Any, CorsLayer};
+<<<<<<< Updated upstream
 use windmill_common::error::{Error, JsonResult};
+=======
+use windmill_common::error::JsonResult;
+use windmill_common::worker::to_raw_value;
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 use windmill_common::{
     db::UserDB,
     error,
@@ -78,6 +88,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/load_file_preview",
             get(load_file_preview).layer(cors.clone()),
+        )
+        .route(
+            "/load_parquet_preview/*path",
+            get(load_parquet_preview).layer(cors.clone()),
         )
         .route(
             "/generate_download_url",
@@ -531,6 +545,42 @@ async fn load_file_metadata(
         version_id: s3_object_metadata.version_id().map(&str::to_string),
     };
     return Ok(Json(response));
+}
+
+#[derive(Deserialize)]
+struct LoadParquetQuery {
+    limit: Option<u32>,
+    offset: Option<i64>,
+    sort_col: Option<String>,
+    sort_desc: Option<bool>,
+    search: Option<String>,
+}
+
+async fn load_parquet_preview(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path((w_id, file_key)): Path<(String, String)>,
+    Query(query): Query<LoadParquetQuery>,
+) -> error::JsonResult<Box<RawValue>> {
+    let s3_resource_opt = get_workspace_s3_resource(&authed, &db, None, &token, &w_id).await?;
+
+    let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+
+    return read_s3_parquet_chunk(
+        &s3_resource,
+        &file_key,
+        query.limit,
+        query.offset,
+        query
+            .sort_col
+            .map(|v| (v.to_string(), query.sort_desc.unwrap_or(false))),
+        query.search,
+    )
+    .await
+    .map(Json);
 }
 
 async fn load_file_preview(
@@ -1304,6 +1354,72 @@ async fn read_s3_parquet_object_head(
     return polars_df_result;
 }
 
+async fn read_s3_parquet_chunk(
+    s3_resource_ref: &S3Resource,
+    file_key: &str,
+    limit: Option<u32>,
+    offset: Option<i64>,
+    sort: Option<(String, bool)>,
+    _search: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let s3_cloud_config = build_polars_s3_config(s3_resource_ref);
+
+    let args: ScanArgsParquet = ScanArgsParquet {
+        n_rows: Some(1),
+        cache: false,
+        parallel: polars::io::parquet::ParallelStrategy::Auto,
+        rechunk: false,
+        row_count: None,
+        low_memory: false,
+        use_statistics: false,
+        hive_partitioning: false,
+        cloud_options: Some(s3_cloud_config),
+    };
+
+    let file_key_clone = file_key.to_string();
+    let s3_bucket_clone = s3_resource_ref.bucket.to_string();
+    return tokio::task::spawn_blocking(move || {
+        let s3_file_key = format!("s3://{}/{}", s3_bucket_clone, file_key_clone);
+        let lzdf_result = LazyFrame::scan_parquet(s3_file_key, args);
+        match lzdf_result {
+            Err(err) => {
+                tracing::warn!("Error fetching parquet file from S3: {:?}", err);
+                return Err(error::Error::InternalErr(err.to_string()));
+            }
+            Ok(lzdf) => {
+                let df = lzdf
+                    .select(&[col("*")])
+                    .slice(offset.unwrap_or(0), limit.unwrap_or(100));
+
+                let df = if let Some(sort) = sort {
+                    df.sort(
+                        &sort.0,
+                        SortOptions {
+                            descending: sort.1,
+                            nulls_last: false,
+                            multithreaded: false,
+                            maintain_order: false,
+                        },
+                    )
+                } else {
+                    df
+                };
+
+                // let df = if let Some(search) = search {
+                //     df.filter(col("*").str().contains(&search))
+                // } else {
+                //     df
+                // };
+                let df = df
+                    .collect()
+                    .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+                return Ok(to_raw_value(&df));
+            }
+        }
+    })
+    .await
+    .map_err(|err| error::Error::InternalErr(err.to_string()))?;
+}
 async fn csv_file_preview_with_fallback(
     s3_client: &aws_sdk_s3::Client,
     s3_bucket: &str,
