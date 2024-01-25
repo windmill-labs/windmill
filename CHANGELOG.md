@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.253.6](https://github.com/windmill-labs/windmill/compare/v1.253.5...v1.253.6) (2024-01-25)
+
+
+### Bug Fixes
+
+* merge conflicts ([7d6039f](https://github.com/windmill-labs/windmill/commit/7d6039f9694bfef672c508dbc2699d33bedeae23))
+
 ## [1.253.5](https://github.com/windmill-labs/windmill/compare/v1.253.4...v1.253.5) (2024-01-25)
 
 
