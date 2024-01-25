@@ -127,7 +127,7 @@
 			{#if funcDesc.length === 0}
 				<Wand2
 					size={14}
-					class="absolute left-[65px] qhd:left-[75px] top-[18px] qhd:top-[20px] fill-current opacity-70"
+					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70"
 				/>
 			{/if}
 		</div>
