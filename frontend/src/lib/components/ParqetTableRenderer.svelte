@@ -7,6 +7,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -16,26 +17,30 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			const res = await HelpersService.loadParquetPreview({
-				workspace: $workspaceStore!,
-				path: s3resource,
-				offset: params.startRow,
-				limit: params.endRow - params.startRow
-			})
-
-			const data: any[] = []
-
-			res.columns.forEach((c) => {
-				c.values.forEach((v, i) => {
-					if (data[i] == undefined) {
-						data.push({ __index: i })
-					}
-					data[i][c.name] = v
+			try {
+				const res = await HelpersService.loadParquetPreview({
+					workspace: $workspaceStore!,
+					path: s3resource,
+					offset: params.startRow,
+					limit: params.endRow - params.startRow
 				})
-			})
 
-			params.successCallback(data)
+				const data: any[] = []
 
+				res.columns.forEach((c) => {
+					c.values.forEach((v, i) => {
+						if (data[i] == undefined) {
+							data.push({ __index: i })
+						}
+						data[i][c.name] = v
+					})
+				})
+
+				params.successCallback(data)
+			} catch (e) {
+				console.error(e)
+				params.failCallback()
+			}
 			console.log('asking for ' + params.startRow + ' to ' + params.endRow, res)
 		}
 	}
