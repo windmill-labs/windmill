@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ResourcePicker from './ResourcePicker.svelte'
+	import S3ObjectPicker from './S3ObjectPicker.svelte'
 
 	export let format: string
 	export let value: any
@@ -34,14 +35,18 @@
 </script>
 
 <div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
-	<ResourcePicker
-		{disablePortal}
-		on:change={(e) => {
-			path = e.detail
-			resourceToValue()
-		}}
-		bind:value={path}
-		resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
-		{showSchemaExplorer}
-	/>
+	{#if format === 'resource-s3_object'}
+		<S3ObjectPicker bind:value />
+	{:else}
+		<ResourcePicker
+			{disablePortal}
+			on:change={(e) => {
+				path = e.detail
+				resourceToValue()
+			}}
+			bind:value={path}
+			resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
+			{showSchemaExplorer}
+		/>
+	{/if}
 </div>

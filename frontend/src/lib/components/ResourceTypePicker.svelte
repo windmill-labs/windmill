@@ -5,7 +5,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { Button, ClearableInput } from './common'
-	import { filter } from 'lodash'
 
 	let resources: string[] = []
 
@@ -30,7 +29,7 @@
 	}
 	let search: string = ''
 
-	$: filteredResources = filter(resources, (r) => r.toLowerCase().includes(search.toLowerCase()))
+	$: filteredResources = resources.filter((r) => r.toLowerCase().includes(search.toLowerCase()))
 </script>
 
 <div class="mb-2">

@@ -22,7 +22,7 @@
 		boolean: 'Boolean',
 		object: 'Object',
 		array: 'Array',
-		S3: 'S3 Resource'
+		S3: 'S3 Object'
 	} as const
 
 	export type ArgType = (typeof ARG_TYPES)[number]
@@ -190,8 +190,8 @@
 				<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
 					{#each ARG_TYPES as argType}
 						{@const isSelected =
-							(argType === 'S3' && property.format === 'resource-s3') ||
-							(argType === property.selectedType && property.format !== 'resource-s3')}
+							(argType === 'S3' && property.format === 'resource-s3_object') ||
+							(argType === property.selectedType && property.format !== 'resource-s3_object')}
 						<Button
 							size="sm"
 							variant="border"
@@ -202,7 +202,7 @@
 
 								if (isS3) {
 									property.selectedType = 'object'
-									property.format = 'resource-s3'
+									property.format = 'resource-s3_object'
 								} else {
 									property.format = undefined
 									property.selectedType = argType
