@@ -5,7 +5,26 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 
-	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
+	export const ARG_TYPES = [
+		'integer',
+		'number',
+		'string',
+		'boolean',
+		'object',
+		'array',
+		'S3'
+	] as const
+
+	const argTypesLabels = {
+		integer: 'Integer',
+		number: 'Number',
+		string: 'String',
+		boolean: 'Boolean',
+		object: 'Object',
+		array: 'Array',
+		S3: 'S3 Object'
+	} as const
+
 	export type ArgType = (typeof ARG_TYPES)[number]
 
 	export function schemaToModal(
@@ -123,6 +142,14 @@
 
 	let title = ''
 	$: title = editing ? `Edit ${oldArgName} argument` : 'Add an argument'
+
+	function getResourceTypesFromFormat(format: string | undefined): string[] {
+		if (format?.startsWith('resource-')) {
+			return [format.split('-')[1]]
+		}
+
+		return []
+	}
 </script>
 
 <Drawer bind:this={drawer} placement="right">
@@ -162,15 +189,25 @@
 				<div class="mb-1 font-semibold text-secondary">Type<Required required={true} /></div>
 				<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
 					{#each ARG_TYPES as argType}
-						{@const isSelected = argType == property.selectedType}
+						{@const isSelected =
+							(argType === 'S3' && property.format === 'resource-s3_object') ||
+							(argType === property.selectedType && property.format !== 'resource-s3_object')}
 						<Button
 							size="sm"
 							variant="border"
 							color={isSelected ? 'blue' : 'light'}
 							btnClasses={isSelected ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
-								property.selectedType = argType
-								property.format = undefined
+								const isS3 = argType == 'S3'
+
+								if (isS3) {
+									property.selectedType = 'object'
+									property.format = 'resource-s3_object'
+								} else {
+									property.format = undefined
+									property.selectedType = argType
+								}
+
 								property.contentEncoding = undefined
 								property.enum_ = undefined
 								property.pattern = undefined
@@ -189,7 +226,7 @@
 							}}
 							id={`schema-modal-type-${argType}`}
 						>
-							{argType}
+							{argTypesLabels[argType]}
 						</Button>
 					{/each}
 					<Button
@@ -208,7 +245,7 @@
 			<div>
 				<div class="flex flex-row gap-x-4 items-center">
 					<ArgInput
-						resourceTypes={[]}
+						resourceTypes={getResourceTypesFromFormat(property.format)}
 						label="Default"
 						bind:value={property.default}
 						type={property.selectedType}
@@ -254,12 +291,12 @@
 						bind:currency={property.currency}
 						bind:currencyLocale={property.currencyLocale}
 					/>
-				{:else if property.selectedType == 'object'}
+				{:else if property.selectedType == 'object' && property.format !== 'resource-s3'}
 					<Tabs selected="custom-object">
 						<Tab value="custom-object">Custom Object</Tab>
 						<Tab value="resource">Resource</Tab>
 						<svelte:fragment slot="content">
-							<div class="overflow-auto pt-2">
+							<div class="pt-2">
 								<TabContent value="custom-object">
 									<SchemaEditor bind:schema={property.schema} />
 								</TabContent>
