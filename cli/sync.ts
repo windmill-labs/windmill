@@ -362,7 +362,8 @@ async function compareDynFSElement(
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
-  skips: Skips
+  skips: Skips,
+  ignoreMetadataDeletion: boolean
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
@@ -399,8 +400,8 @@ async function compareDynFSElement(
   for (const [k] of Object.entries(m2)) {
     if (
       m1[k] === undefined &&
-      !k?.endsWith(".script.yaml") &&
-      !k?.endsWith(".script.json")
+      (!ignoreMetadataDeletion ||
+        (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json")))
     ) {
       changes.push({ name: "deleted", path: k });
     }
@@ -545,7 +546,8 @@ async function pull(
     local,
     await ignoreF(),
     opts.json ?? false,
-    opts
+    opts,
+    false
   );
 
   log.info(
@@ -763,7 +765,8 @@ async function push(
     remote,
     await ignoreF(),
     opts.json ?? false,
-    opts
+    opts,
+    true
   );
 
   const version = await fetchVersion(workspace.remote);

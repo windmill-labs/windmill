@@ -846,7 +846,18 @@
 				<br />
 				Filtering out certain sensitive folders from the sync will be available soon.
 			</Alert>
-
+			{#if $enterpriseLicense}
+				<div class="flex mt-5 mb-5 gap-1">
+					<Button
+						color="blue"
+						disabled={gitSyncSettings?.some((elmt) => emptyString(elmt.git_repo_resource_path))}
+						on:click={() => {
+							editWindmillGitSyncSettings()
+							console.log('Saving git sync settings', gitSyncSettings)
+						}}>Save Git sync settings</Button
+					>
+				</div>
+			{/if}
 			{#if Array.isArray(gitSyncSettings)}
 				{#each gitSyncSettings as gitSyncSettingsElmt, idx}
 					<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
@@ -926,7 +937,7 @@
 						gitSyncSettings = [
 							...gitSyncSettings,
 							{
-								script_path: 'hub/7927/sync-script-to-git-repo-windmill',
+								script_path: 'hub/7929/sync-script-to-git-repo-windmill',
 								git_repo_resource_path: '',
 								use_individual_branch: false
 							}
@@ -939,6 +950,20 @@
 							}
 						]
 					}}>Add connection</Button
+				>
+				<Button
+					color="none"
+					variant="border"
+					on:click={() => {
+						gitSyncSettings = [...gitSyncSettings.slice(0, -1)]
+						gitSyncTestJobs = [
+							...gitSyncTestJobs,
+							{
+								jobId: undefined,
+								status: undefined
+							}
+						]
+					}}>Delete connection</Button
 				>
 			</div>
 
@@ -977,16 +1002,6 @@ git push</code
 						></pre
 					>
 				</div>
-			</div>
-			<div class="flex mt-5 mb-5 gap-1">
-				<Button
-					color="blue"
-					disabled={gitSyncSettings?.some((elmt) => emptyString(elmt.git_repo_resource_path))}
-					on:click={() => {
-						editWindmillGitSyncSettings()
-						console.log('Saving git sync settings', gitSyncSettings)
-					}}>Save Git sync settings</Button
-				>
 			</div>
 		{:else if tab == 'default_app'}
 			<PageHeader
