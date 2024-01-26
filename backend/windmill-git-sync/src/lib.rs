@@ -26,7 +26,7 @@ pub enum DeployedObject {
     Script { hash: ScriptHash, path: String, parent_path: Option<String> },
     Flow { path: String, parent_path: Option<String> },
     App { path: String, version: i64, parent_path: Option<String> },
-    Folder { path: String, parent_path: Option<String> },
+    Folder { path: String },
 }
 
 impl DeployedObject {
@@ -44,7 +44,7 @@ impl DeployedObject {
             DeployedObject::Script { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::Flow { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::App { parent_path, .. } => parent_path.to_owned(),
-            DeployedObject::Folder { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::Folder { .. } => None,
         }
     }
 }

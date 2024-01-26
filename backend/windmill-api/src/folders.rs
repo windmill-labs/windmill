@@ -32,6 +32,7 @@ use windmill_common::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -150,8 +151,10 @@ lazy_static! {
 async fn create_folder(
     authed: ApiAuthed,
     Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
@@ -201,6 +204,18 @@ async fn create_folder(
         extra_perms,
     )
     .execute(&mut *tx)
+    .await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}/folder.meta.*", ng.name) },
+        Some(format!("Folder '{}' created", ng.name)),
+        rsmq,
+        true,
+    )
     .await?;
 
     audit_log(
@@ -450,7 +465,9 @@ async fn get_folder_usage(
 
 async fn delete_folder(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
@@ -476,6 +493,18 @@ async fn delete_folder(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}/folder.meta.*", name) },
+        Some(format!("Folder '{}' deleted", name)),
+        rsmq,
+        true,
+    )
+    .await?;
 
     webhook.send_message(
         w_id.clone(),
