@@ -440,6 +440,7 @@
 		if (transformer) {
 			try {
 				let raw = $worldStore.newOutput(id, 'raw', res)
+				raw.set(res)
 				const transformerResult = await eval_like(
 					transformer.content,
 					computeGlobalContext($worldStore, {
@@ -454,7 +455,6 @@
 					$worldStore,
 					$runnableComponents
 				)
-				raw.set(transformerResult)
 				return transformerResult
 			} catch (err) {
 				return {
