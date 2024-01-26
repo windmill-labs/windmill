@@ -2,15 +2,26 @@
 	import { classNames } from '$lib/utils'
 	import type { AlertType } from './model'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-svelte'
+	import {
+		AlertCircle,
+		AlertTriangle,
+		CheckCircle2,
+		Info,
+		ChevronDown,
+		ChevronUp
+	} from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	export let type: AlertType = 'info'
 	export let title: string
 	export let notRounded = false
 	export let tooltip: string = ''
 	export let documentationLink: string | undefined = undefined
-
 	export let size: 'xs' | 'sm' = 'sm'
+	export let collapsible: boolean = false
+
+	let isCollapsed = true
 
 	const icons: Record<AlertType, any> = {
 		info: Info,
@@ -45,12 +56,18 @@
 			descriptionClass: 'text-green-700 dark:text-green-200'
 		}
 	}
+
+	function toggleCollapse() {
+		if (collapsible) {
+			isCollapsed = !isCollapsed
+		}
+	}
 </script>
 
 <div
 	class={classNames(
 		notRounded ? '' : 'rounded-md',
-		size === 'sm' ? 'p-4' : 'p-2 ',
+		size === 'sm' ? 'p-4' : 'p-2',
 		classes[type].bgClass,
 		$$props.class
 	)}
@@ -59,28 +76,53 @@
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
 			<svelte:component this={icons[type]} class={classes[type].iconClass} size={16} />
 		</div>
-
-		<div class="ml-2 pt-[0.15rem] w-full">
-			<span
-				class={classNames(
-					size === 'sm' ? 'text-sm' : 'text-xs ',
-					'font-medium',
-					classes[type].titleClass
-				)}
-			>
-				{title}&nbsp;{#if tooltip != '' || documentationLink}
-					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
-				{/if}
-			</span>
-			{#if $$slots.default}
-				<div
+		<div class={twMerge('ml-2 w-full')}>
+			<div class={twMerge('w-full flex flex-row items-center justify-between h-8')}>
+				<span
 					class={classNames(
-						size === 'sm' ? 'text-sm' : 'text-xs ',
-						'mt-2',
-						classes[type].descriptionClass
+						size === 'sm' ? 'text-sm' : 'text-xs',
+						'font-medium',
+						classes[type].titleClass
 					)}
 				>
-					<slot />
+					{title}
+					{#if tooltip != '' || documentationLink}
+						<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
+					{/if}
+				</span>
+				{#if collapsible}
+					<button class="cursor-pointer" on:click={toggleCollapse}>
+						{#if isCollapsed}
+							<ChevronDown size={16} />
+						{:else}
+							<ChevronUp size={16} />
+						{/if}
+					</button>
+				{/if}
+			</div>
+
+			{#if $$slots.default && !isCollapsed}
+				<div transition:slide|local={{ duration: 200 }} class="mt-2">
+					<div
+						class={classNames(
+							size === 'sm' ? 'text-sm' : 'text-xs',
+							classes[type].descriptionClass
+						)}
+					>
+						<slot />
+					</div>
+				</div>
+			{/if}
+			{#if $$slots.default && !collapsible}
+				<div class="mt-2">
+					<div
+						class={classNames(
+							size === 'sm' ? 'text-sm' : 'text-xs',
+							classes[type].descriptionClass
+						)}
+					>
+						<slot />
+					</div>
 				</div>
 			{/if}
 		</div>
