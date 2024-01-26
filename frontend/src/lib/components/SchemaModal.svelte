@@ -283,7 +283,7 @@
 						<Tab value="custom-object">Custom Object</Tab>
 						<Tab value="resource">Resource</Tab>
 						<svelte:fragment slot="content">
-							<div class="overflow-auto pt-2">
+							<div class="pt-2">
 								<TabContent value="custom-object">
 									<SchemaEditor bind:schema={property.schema} />
 								</TabContent>
