@@ -29,7 +29,10 @@
 				configuration: {
 					gotoUrl: { url: (() => string) | string | undefined; newTab: boolean | undefined }
 					setTab: {
-						setTab: { id: string; index: number }[] | undefined
+						setTab:
+							| (() => { id: string; index: number }[])
+							| { id: string; index: number }[]
+							| undefined
 					}
 					sendToast?: {
 						message: (() => string) | string | undefined
@@ -135,8 +138,11 @@
 
 		switch (sideEffect.selected) {
 			case 'setTab':
-				const setTab = sideEffect?.configuration.setTab?.setTab
-
+				let setTab = sideEffect?.configuration.setTab?.setTab
+				if (!setTab) return
+				if (typeof setTab === 'function') {
+					setTab = await setTab()
+				}
 				if (Array.isArray(setTab)) {
 					setTab.forEach((tab) => {
 						if (tab) {

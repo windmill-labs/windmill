@@ -24,6 +24,7 @@
 	import { selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
+	import { get } from 'svelte/store'
 
 	// Component props
 	export let id: string
@@ -264,7 +265,7 @@
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
 				r = { error: { message: e.body ?? e.message } }
-				await setResult(r, job)
+				await setResult(r, job, setRunnableJobEditorPanel)
 			}
 			loading = false
 			donePromise?.(r)
@@ -440,6 +441,7 @@
 		if (transformer) {
 			try {
 				let raw = $worldStore.newOutput(id, 'raw', res)
+				raw.set(res)
 				const transformerResult = await eval_like(
 					transformer.content,
 					computeGlobalContext($worldStore, {
@@ -454,7 +456,6 @@
 					$worldStore,
 					$runnableComponents
 				)
-				raw.set(transformerResult)
 				return transformerResult
 			} catch (err) {
 				return {
@@ -494,7 +495,8 @@
 		}
 
 		const transformerResult = await runTransformer(res)
-		if (setRunnableJobEditorPanel && editorContext) {
+
+		if (transformerResult && editorContext && get(editorContext.runnableJobEditorPanel)?.focused) {
 			editorContext.runnableJobEditorPanel.update((p) => {
 				return {
 					...p,

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.253.2
+  version: 1.253.7
   title: Windmill API
 
   contact:
@@ -1750,7 +1750,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/variables/create:
     post:
@@ -6988,6 +6987,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
                 required:
                   - windmill_large_files
 
@@ -7056,6 +7057,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/job_helpers/load_parquet_preview/{path}:
+    get:
+      summary: Load a preview of a parquet file
+      operationId: loadParquetPreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: offset
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: sort_col
+          in: query
+          schema:
+            type: string
+        - name: sort_desc
+          in: query
+          schema:
+            type: boolean
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+            
+      responses:
+        "200":
+          description: Parquet Preview
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/job_helpers/generate_download_url:
     get:
@@ -7164,6 +7206,9 @@ paths:
                   type: boolean
                 s3_resource_path:
                   type: string
+                file_expiration:
+                  type: string
+                  format: date-time
               required:
                 - part_content
                 - parts
@@ -7192,6 +7237,52 @@ paths:
                   - upload_id
                   - parts
                   - is_done
+
+  /w/{workspace}/job_helpers/multipart_download_s3_file:
+    post:
+      summary: Download file to S3 bucket
+      operationId: multipartFileDownload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Query args for a multipart file upload to S3
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_key:
+                  type: string
+                part_number:
+                  type: integer
+                file_size:
+                  type: integer
+                s3_resource_path:
+                  type: string
+              required:
+                - file_key
+                - part_number
+      responses:
+        "200":
+          description: Chunk of the downloaded file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_size:
+                    type: integer
+                  part_content:
+                    type: array
+                    items:
+                      type: integer
+                  next_part_number:
+                    type: integer
+                required:
+                  - part_content
 
   /w/{workspace}/job_metrics/get/{id}:
     post:
@@ -9360,6 +9451,8 @@ components:
           enum: ["S3Storage"]
         s3_resource_path:
           type: string
+        public_resource:
+          type: boolean
 
     WindmillLargeFile:
       type: object

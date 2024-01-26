@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import datetime as dt
 import functools
+from io import BufferedReader, BytesIO
 import logging
 import os
 import random
@@ -372,7 +373,7 @@ class Windmill:
         except JSONDecodeError as e:
             raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str = ""):
+    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
@@ -384,22 +385,39 @@ class Windmill:
         file_content = my_obj["Body"].read().decode("utf-8")
         '''
         """
-        try:
-            s3_resource = self.post(
-                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
-            ).json()
-        except JSONDecodeError as e:
-            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
 
-        import boto3
+        part_number = 0
+        file_total_size = None
+        file_content: list[int] = []
+        while True:
+            if part_number is None:
+                break
+            try:
+                part_response = self.post(
+                    f"/w/{self.workspace}/job_helpers/multipart_download_s3_file",
+                    json={
+                        "file_key": s3object["s3"],
+                        "part_number": part_number,
+                        "file_size": file_total_size,
+                        "s3_resource_path": s3_resource_path,
+                    },
+                ).json()
+            except JSONDecodeError as e:
+                raise Exception("Could not generate download S3 file part") from e
 
-        args = self.__boto3_connection_settings(s3_resource)
-        s3client = boto3.client("s3", **args)
-        bucket = s3_resource["bucket"]
-        return s3client.get_object(bucket, Key=s3object["s3"])
+            if len(part_response["part_content"]) > 0:
+                file_content = file_content + part_response["part_content"]
+            part_number = part_response["next_part_number"]
+            file_total_size = part_response["file_size"]
+        return bytes(file_content)
 
-    def write_s3_file(self, s3object: S3Object, file_content: bytes, s3_resource_path: str = ""):
+    def write_s3_file(
+        self,
+        s3object: S3Object | None,
+        file_content: BufferedReader | bytes,
+        file_expiration: dt.datetime | None,
+        s3_resource_path: str | None,
+    ) -> S3Object:
         """
         Write a file to the workspace S3 bucket
 
@@ -407,24 +425,56 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
+
+        # for an in memory bytes array:
         file_content = b'Hello Windmill!'
         client.write_s3_file(s3_obj, file_content)
+
+        # for a file:
+        with open("my_file.txt", "rb") as my_file:
+            client.write_s3_file(s3_obj, my_file)
         '''
         """
-        try:
-            s3_resource = self.post(
-                f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
-            ).json()
-        except JSONDecodeError as e:
-            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
+        content_reader: BufferedReader | BytesIO
+        if isinstance(file_content, BufferedReader):
+            content_reader = file_content
+        elif isinstance(file_content, bytes):
+            content_reader = BytesIO(file_content)
+        else:
+            raise Exception("Type of file_content not supported")
 
-        import boto3
-
-        args = self.__boto3_connection_settings(s3_resource)
-        s3client = boto3.client("s3", **args)
-        bucket = s3_resource["bucket"]
-        s3client.put_object(bucket, Key=s3object["s3"], Body=file_content)
+        file_key = s3object["s3"] if s3object is not None else None
+        parts = []
+        upload_id = None
+        chunk = content_reader.read(5 * 1024 * 1024)
+        if len(chunk) == 0:
+            raise Exception("File content is empty, nothing to upload")
+        while True:
+            chunk_2 = content_reader.read(5 * 1024 * 1024)
+            reader_done = len(chunk_2) == 0
+            try:
+                response = self.post(
+                    f"/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
+                    json={
+                        "file_key": file_key,
+                        "part_content": [b for b in chunk],
+                        "upload_id": upload_id,
+                        "parts": parts,
+                        "is_final": reader_done,
+                        "cancel_upload": False,
+                        "s3_resource_path": s3_resource_path,
+                        "file_expiration": file_expiration.isoformat() if file_expiration else None,
+                    },
+                ).json()
+            except Exception as e:
+                raise Exception("Could not write file to S3") from e
+            parts = response["parts"]
+            upload_id = response["upload_id"]
+            file_key = response["file_key"]
+            if response["is_done"]:
+                break
+            chunk = chunk_2
+        return S3Object(s3=file_key)
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
@@ -674,6 +724,29 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
     initiate an S3 connection using boto3
     """
     return _client.get_boto3_connection_settings(s3_resource_path)
+
+
+@init_global_client
+def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
+    """
+    Load the content of a file stored in S3
+    """
+    return _client.load_s3_file(s3object, s3_resource_path if s3_resource_path != "" else None)
+
+
+@init_global_client
+def write_s3_file(
+    s3object: S3Object | None,
+    file_content: BufferedReader | bytes,
+    file_expiration: dt.datetime | None = None,
+    s3_resource_path: str = "",
+) -> S3Object:
+    """
+    Upload a file to S3
+    """
+    return _client.write_s3_file(
+        s3object, file_content, file_expiration, s3_resource_path if s3_resource_path != "" else None
+    )
 
 
 @init_global_client

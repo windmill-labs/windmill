@@ -1,6 +1,43 @@
 # Changelog
 
 
+## [1.253.7](https://github.com/windmill-labs/windmill/compare/v1.253.6...v1.253.7) (2024-01-25)
+
+
+### Bug Fixes
+
+* Improvement for Python write_s3_file ([#3079](https://github.com/windmill-labs/windmill/issues/3079)) ([082aa6a](https://github.com/windmill-labs/windmill/commit/082aa6a61d860354929efcccfcff695c5ccc8c1d))
+
+## [1.253.6](https://github.com/windmill-labs/windmill/compare/v1.253.5...v1.253.6) (2024-01-25)
+
+
+### Bug Fixes
+
+* merge conflicts ([7d6039f](https://github.com/windmill-labs/windmill/commit/7d6039f9694bfef672c508dbc2699d33bedeae23))
+
+## [1.253.5](https://github.com/windmill-labs/windmill/compare/v1.253.4...v1.253.5) (2024-01-25)
+
+
+### Bug Fixes
+
+* openapi definition ([09e08c3](https://github.com/windmill-labs/windmill/commit/09e08c3c94dfff12ac8df9750bea3fadfa455f40))
+
+## [1.253.4](https://github.com/windmill-labs/windmill/compare/v1.253.3...v1.253.4) (2024-01-25)
+
+
+### Bug Fixes
+
+* add s3 parquet file renderer ([4a6710e](https://github.com/windmill-labs/windmill/commit/4a6710ea913da64ce2caf93499c9ec69d89b3cf3))
+* add s3 parquet file renderer ([2f8243b](https://github.com/windmill-labs/windmill/commit/2f8243b39085222a3bde8c31fce6fc36a7b8f453))
+* improve parquet renderer error ([4b348a0](https://github.com/windmill-labs/windmill/commit/4b348a032e3cb7ea3c945635ed8d3cb1bd91b9b4))
+
+## [1.253.3](https://github.com/windmill-labs/windmill/compare/v1.253.2...v1.253.3) (2024-01-25)
+
+
+### Bug Fixes
+
+* Better UI for S3 download and S3 TS SDK endpoints ([#3065](https://github.com/windmill-labs/windmill/issues/3065)) ([da6edee](https://github.com/windmill-labs/windmill/commit/da6edee4505318deef4557a82eb61356a5f1bfb4))
+
 ## [1.253.2](https://github.com/windmill-labs/windmill/compare/v1.253.1...v1.253.2) (2024-01-24)
 
 

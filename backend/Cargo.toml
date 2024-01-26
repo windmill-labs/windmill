@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.253.2"
+version = "1.253.7"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.253.2"
+version = "1.253.7"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -213,7 +213,8 @@ candle-nn = "0.3.0"
 tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono"] }
 aws-sdk-s3 = "1.5.0"
 aws-config = "1.0.3"
-polars = { version = "0.35.2", features = ["lazy", "parquet", "aws", "csv", "dtype-full"] }
-polars-io = { version = "0.35.2", features = ["csv"] }
+
+polars = { version = "0.35.4", features = ["lazy", "parquet", "aws", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
+polars-io = { version = "0.35.4", features = ["csv"] }
 object_store = { version = "0.8.0", features = ["aws"] }
 openidconnect = { version = "3.4.0" }

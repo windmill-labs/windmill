@@ -113,7 +113,8 @@
 						is_final: readerDone,
 						cancel_upload: currentFileUpload.cancelled ?? false,
 						s3_resource_path:
-							customS3ResourcePath !== undefined ? customS3ResourcePath.split(':')[1] : undefined
+							customS3ResourcePath !== undefined ? customS3ResourcePath.split(':')[1] : undefined,
+						file_expiration: undefined
 					}
 				})
 				uploadData.path = response.file_key
