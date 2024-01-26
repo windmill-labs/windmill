@@ -143,8 +143,6 @@
 	let title = ''
 	$: title = editing ? `Edit ${oldArgName} argument` : 'Add an argument'
 
-	let isS3Selected: boolean = false
-
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
 			return [format.split('-')[1]]
@@ -205,11 +203,9 @@
 								if (isS3) {
 									property.selectedType = 'object'
 									property.format = 'resource-s3'
-									isS3Selected = true
 								} else {
 									property.format = undefined
 									property.selectedType = argType
-									isS3Selected = false
 								}
 
 								property.contentEncoding = undefined
