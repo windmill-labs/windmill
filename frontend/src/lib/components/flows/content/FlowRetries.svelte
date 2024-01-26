@@ -4,6 +4,8 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { AlertTriangle } from 'lucide-svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let flowModuleRetry: Retry | undefined
 	export let disabled: boolean = false
@@ -67,8 +69,8 @@
 		}}
 	>
 		<ToggleButton light value="disabled" label="Disabled" />
-		<ToggleButton disabled={!$enterpriseLicense} light value="constant" label="Constant" />
-		<ToggleButton disabled={!$enterpriseLicense} light value="exponential" label="Exponential" />
+		<ToggleButton light value="constant" label="Constant" />
+		<ToggleButton light value="exponential" label="Exponential" />
 	</ToggleButtonGroup>
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
@@ -90,7 +92,13 @@
 					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />
 					<div class="text-xs font-bold !mt-2">Randomization factor (percentage)</div>
 					<div class="flex w-full gap-4">
+						{#if !$enterpriseLicense}
+							<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
+								<AlertTriangle size={16} />
+								EE only
+							</div>{/if}
 						<input
+							disabled={!$enterpriseLicense}
 							type="range"
 							min={0}
 							max={100}
