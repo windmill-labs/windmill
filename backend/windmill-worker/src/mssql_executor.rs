@@ -3,7 +3,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row};
+use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row, SqlBrowser};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
@@ -44,7 +44,8 @@ pub async fn do_mssql(
 
     config.host(database.host);
     config.database(database.dbname);
-    if database.instance_name.as_ref().is_some_and(|x| x != "") {
+    let use_instance_name = database.instance_name.as_ref().is_some_and(|x| x != "");
+    if use_instance_name {
         config.instance_name(database.instance_name.unwrap());
     }
     if let Some(port) = database.port {
@@ -55,7 +56,11 @@ pub async fn do_mssql(
     config.authentication(AuthMethod::sql_server(database.user, database.password));
     config.trust_cert(); // on production, it is not a good idea to do this
 
-    let tcp = TcpStream::connect(config.get_addr()).await?;
+    let tcp = if use_instance_name {
+        TcpStream::connect_named(&config).await.map_err(to_anyhow)? // named instance
+    } else {
+        TcpStream::connect(config.get_addr()).await?
+    };
     tcp.set_nodelay(true)?;
 
     // To be able to use Tokio's tcp, we're using the `compat_write` from
