@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.254.0](https://github.com/windmill-labs/windmill/compare/v1.253.8...v1.254.0) (2024-01-26)
+
+
+### Features
+
+* **frontend:** add support for render all ([#3084](https://github.com/windmill-labs/windmill/issues/3084)) ([4607939](https://github.com/windmill-labs/windmill/commit/460793954944f695d6c8fed88424d48571348135))
+* **frontend:** S3 resource schema ([#3083](https://github.com/windmill-labs/windmill/issues/3083)) ([fa8a6e8](https://github.com/windmill-labs/windmill/commit/fa8a6e8c3dcfcca6f17c2fdd4910ab7980192e11))
+
+
+### Bug Fixes
+
+* **frontend:** add missing InitializeComponent ([#3088](https://github.com/windmill-labs/windmill/issues/3088)) ([6a73ccf](https://github.com/windmill-labs/windmill/commit/6a73ccf6261d58f019bbb01e10c4f81be62f66e6))
+* **frontend:** Fix currency input dark mode ([#3085](https://github.com/windmill-labs/windmill/issues/3085)) ([bcc341c](https://github.com/windmill-labs/windmill/commit/bcc341c255ee04dfbf28ed678b025310f57e501c))
+* load input history correctly on past versions ([80eeba5](https://github.com/windmill-labs/windmill/commit/80eeba5ee34204876a4db4e3fda7539247cd0322))
+
 ## [1.253.8](https://github.com/windmill-labs/windmill/compare/v1.253.7...v1.253.8) (2024-01-26)
 
 
