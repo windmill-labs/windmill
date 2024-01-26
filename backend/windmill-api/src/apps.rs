@@ -846,9 +846,23 @@ async fn update_app(
         )
         .execute(&mut tx)
         .await?;
-        Some(v_id)
+        v_id
     } else {
-        None
+        let v_id = sqlx::query_scalar!(
+            "SELECT  app.versions[array_upper(app.versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
+            npath,
+            w_id
+        )
+        .fetch_one(&mut tx)
+        .await?;
+        if let Some(v_id) = v_id {
+            v_id
+        } else {
+            return Err(Error::BadRequest(format!(
+                "App with path {} not found",
+                npath
+            )));
+        }
     };
 
     sqlx::query!(
@@ -870,44 +884,40 @@ async fn update_app(
     )
     .await?;
 
-    if let Some(v_id) = v_id {
-        let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
-            PushIsolationLevel::Transaction(tx);
-        let mut args: HashMap<String, serde_json::Value> = HashMap::new();
-        if let Some(dm) = ns.deployment_message {
-            args.insert("deployment_message".to_string(), json!(dm));
-        }
-        args.insert("parent_path".to_string(), json!(path));
-
-        let (dependency_job_uuid, new_tx) = push(
-            &db,
-            tx,
-            &w_id,
-            JobPayload::AppDependencies { path: npath.clone(), version: v_id },
-            args,
-            &authed.username,
-            &authed.email,
-            windmill_common::users::username_to_permissioned_as(&authed.username),
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-        tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
-        new_tx.commit().await?;
-    } else {
-        tx.commit().await?;
+    let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
+        PushIsolationLevel::Transaction(tx);
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(dm) = ns.deployment_message {
+        args.insert("deployment_message".to_string(), json!(dm));
     }
+    args.insert("parent_path".to_string(), json!(path));
+
+    let (dependency_job_uuid, new_tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::AppDependencies { path: npath.clone(), version: v_id },
+        args,
+        &authed.username,
+        &authed.email,
+        windmill_common::users::username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
+    new_tx.commit().await?;
 
     webhook.send_message(
         w_id.clone(),

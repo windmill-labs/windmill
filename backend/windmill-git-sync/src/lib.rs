@@ -26,6 +26,7 @@ pub enum DeployedObject {
     Script { hash: ScriptHash, path: String, parent_path: Option<String> },
     Flow { path: String, parent_path: Option<String> },
     App { path: String, version: i64, parent_path: Option<String> },
+    Folder { path: String, parent_path: Option<String> },
 }
 
 impl DeployedObject {
@@ -34,6 +35,7 @@ impl DeployedObject {
             DeployedObject::Script { path, .. } => path,
             DeployedObject::Flow { path, .. } => path,
             DeployedObject::App { path, .. } => path,
+            DeployedObject::Folder { path, .. } => path,
         }
     }
 
@@ -42,6 +44,7 @@ impl DeployedObject {
             DeployedObject::Script { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::Flow { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::App { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::Folder { parent_path, .. } => parent_path.to_owned(),
         }
     }
 }
@@ -151,6 +154,16 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                         deployment_message.clone().unwrap()
                     }
                 }
+                DeployedObject::Folder { path, .. } => {
+                    args.insert("path_type".to_string(), json!("folder"));
+                    if deployment_message.as_ref().is_none()
+                        || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                    {
+                        format!("Folder '{}' deployed", path)
+                    } else {
+                        deployment_message.clone().unwrap()
+                    }
+                }
             };
 
             args.insert("commit_msg".to_string(), json!(message));
@@ -196,26 +209,29 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     if !skip_db_insert && (deployment_message.is_some() || git_sync_job_uuids.len() > 0) {
         // if the git sync job hasn't been triggered, and there is not custom deployment message, there's not point adding an entry to the table
         match obj.clone() {
-             DeployedObject::Script { path, hash, .. } => {
-                 sqlx::query!(
+            DeployedObject::Script { path, hash, .. } => {
+                sqlx::query!(
                      "INSERT INTO deployment_metadata (workspace_id, path, script_hash, callback_job_ids, deployment_msg) VALUES ($1, $2, $3, $4, $5)",
                      w_id, path, hash.0, &git_sync_job_uuids, deployment_message,
-                 )
-             },
-             DeployedObject::Flow { path, .. } => {
-                 sqlx::query!(
+                 ).execute(db)
+                 .await?;
+            }
+            DeployedObject::Flow { path, .. } => {
+                sqlx::query!(
                      "INSERT INTO deployment_metadata (workspace_id, path, callback_job_ids, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path) WHERE script_hash IS NULL AND app_version IS NULL DO UPDATE SET callback_job_ids = $3, deployment_msg = $4",
                      w_id, path, &git_sync_job_uuids, deployment_message,
-                 )
-             }
-             DeployedObject::App { path, version, .. } => {
-                 sqlx::query!(
+                 ).execute(db)
+                 .await?;
+            }
+            DeployedObject::App { path, version, .. } => {
+                sqlx::query!(
                      "INSERT INTO deployment_metadata (workspace_id, path, app_version, callback_job_ids, deployment_msg) VALUES ($1, $2, $3, $4, $5)",
                      w_id, path, version, &git_sync_job_uuids, deployment_message,
-                 )
-             }
-         }.execute(db)
-         .await?;
+                 ).execute(db)
+                 .await?;
+            }
+            DeployedObject::Folder { .. } => (),
+        }
     }
 
     return Ok(());

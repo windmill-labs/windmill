@@ -77,7 +77,7 @@
 			</div>
 		{/if}
 
-		<div class=" w-full rounded-md overflow-auto h-full">
+		<div class=" w-full rounded-md min-h-full">
 			{#if job?.type === Job.type.COMPLETED_JOB}
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
