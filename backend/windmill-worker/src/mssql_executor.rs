@@ -43,10 +43,12 @@ pub async fn do_mssql(
     let mut config = Config::new();
 
     config.host(database.host);
-    config.port(database.port.unwrap_or(1433));
     config.database(database.dbname);
-    if let Some(instance_name) = database.instance_name {
-        config.instance_name(instance_name);
+    if database.instance_name.as_ref().is_some_and(|x| x != "") {
+        config.instance_name(database.instance_name.unwrap());
+    }
+    if let Some(port) = database.port {
+        config.port(port);
     }
 
     // Using SQL Server authentication.
