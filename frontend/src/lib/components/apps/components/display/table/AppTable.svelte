@@ -38,6 +38,7 @@
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
+	import sum from 'hash-sum'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -101,14 +102,13 @@
 	let selectedRowIndex = -1
 
 	function toggleRow(row: Record<string, any>, force: boolean = false) {
+		console.log(row)
 		let data = { ...row.original }
 		let index = data['__index']
 		delete data['__index']
-		if (
-			selectedRowIndex !== index ||
-			JSON.stringify(data) !== JSON.stringify(result?.[index]) ||
-			force
-		) {
+		let peak = outputs?.selectedRow.peak()
+
+		if (selectedRowIndex !== index || peak == undefined || sum(data) != sum(peak) || force) {
 			selectedRowIndex = index
 			outputs?.selectedRow.set(data, force)
 			outputs?.selectedRowIndex.set(index, force)
