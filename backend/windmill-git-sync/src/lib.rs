@@ -14,6 +14,8 @@ use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 use windmill_common::workspaces::WorkspaceGitRepo;
 
 use serde_json::json;
+#[cfg(not(feature = "enterprise"))]
+use windmill_common::error::Error::InternalErr;
 use windmill_common::error::{Error, Result};
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
@@ -49,6 +51,22 @@ impl DeployedObject {
     }
 }
 
+#[cfg(not(feature = "enterprise"))]
+pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send + Clone + 'c>(
+    email: &str,
+    created_by: &str,
+    db: &DB,
+    w_id: &str,
+    obj: DeployedObject,
+    deployment_message: Option<String>,
+    rsmq: Option<R>,
+    skip_db_insert: bool,
+) -> Result<()> {
+    tracing::debug!("Git sync is only available in Windmill Enterprise Edition, it will no-op in the Community Edition");
+    return Ok(());
+}
+
+#[cfg(feature = "enterprise")]
 pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send + Clone + 'c>(
     email: &str,
     created_by: &str,
