@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.253.8](https://github.com/windmill-labs/windmill/compare/v1.253.7...v1.253.8) (2024-01-26)
+
+
+### Bug Fixes
+
+* add support for instance name for mssql ([91289a0](https://github.com/windmill-labs/windmill/commit/91289a0d5a96d6f7b11e60d512d0d3a9ceb341e7))
+* git sync include changing permissions on apps, scripts, flows ([ee965a1](https://github.com/windmill-labs/windmill/commit/ee965a1a4c1e122c5b0adb93c548b41d587bd0a2))
+* git sync include changing permissions on folders ([0f6c127](https://github.com/windmill-labs/windmill/commit/0f6c127002cee35479231140ec96eef2176bba42))
+* improve git sync on rename/deletion ([a025146](https://github.com/windmill-labs/windmill/commit/a0251463f803db7e35572ba68862345d2b53a399))
+
 ## [1.253.7](https://github.com/windmill-labs/windmill/compare/v1.253.6...v1.253.7) (2024-01-25)
 
 
