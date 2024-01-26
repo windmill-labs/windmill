@@ -14,6 +14,17 @@
 		'array',
 		'S3'
 	] as const
+
+	const argTypesLabels = {
+		integer: 'Integer',
+		number: 'Number',
+		string: 'String',
+		boolean: 'Boolean',
+		object: 'Object',
+		array: 'Array',
+		S3: 'S3 Resource'
+	} as const
+
 	export type ArgType = (typeof ARG_TYPES)[number]
 
 	export function schemaToModal(
@@ -133,6 +144,14 @@
 	$: title = editing ? `Edit ${oldArgName} argument` : 'Add an argument'
 
 	let isS3Selected: boolean = false
+
+	function getResourceTypesFromFormat(format: string | undefined): string[] {
+		if (format?.startsWith('resource-')) {
+			return [format.split('-')[1]]
+		}
+
+		return []
+	}
 </script>
 
 <Drawer bind:this={drawer} placement="right">
@@ -208,12 +227,10 @@
 									property.items = undefined
 								}
 								property.showExpr = undefined
-
-								console.log(property)
 							}}
 							id={`schema-modal-type-${argType}`}
 						>
-							{argType}
+							{argTypesLabels[argType]}
 						</Button>
 					{/each}
 					<Button
@@ -232,7 +249,7 @@
 			<div>
 				<div class="flex flex-row gap-x-4 items-center">
 					<ArgInput
-						resourceTypes={property.format === 'resource-s3' ? ['s3'] : []}
+						resourceTypes={getResourceTypesFromFormat(property.format)}
 						label="Default"
 						bind:value={property.default}
 						type={property.selectedType}
