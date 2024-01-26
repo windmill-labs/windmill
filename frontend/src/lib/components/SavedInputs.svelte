@@ -34,7 +34,7 @@
 	let savingInputs = false
 	const dispatch = createEventDispatcher()
 
-	$: runnableId = scriptPath || flowPath || undefined
+	$: runnableId = scriptHash || scriptPath || flowPath || undefined
 	$: runnableType = scriptHash
 		? RunnableType.SCRIPT_HASH
 		: scriptPath
