@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+
 	/* Forked from MIT LICENSE
     https://raw.githubusercontent.com/Canutin/svelte-currency-input/main/src/lib/CurrencyInput.svelte 
     */
@@ -35,6 +37,7 @@
 	export let isNegativeAllowed: boolean = true
 	export let fractionDigits: number = DEFAULT_FRACTION_DIGITS
 	export let inputClasses: InputClasses | null = null
+	export let noColor: boolean = false
 	export let style: string = ''
 
 	// Formats value as: e.g. $1,523.00 | -$1,523.00
@@ -161,7 +164,11 @@
 	$: isZero = value === 0
 	$: isNegative = value < 0
 	$: value, setFormattedValue()
+
+	let darkMode: boolean = false
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <div class={inputClasses?.wrapper ?? DEFAULT_CLASS_WRAPPER}>
 	<input
@@ -182,7 +189,7 @@
 			? inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE
 			: ''}
 		"
-		{style}
+		style={style ? style : noColor ? (darkMode ? 'color: white;' : 'color: black;') : ''}
 		type="text"
 		inputmode="numeric"
 		name={`formatted-${name}`}
