@@ -3,6 +3,7 @@
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Button } from './common'
+	import Alert from './common/alert/Alert.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
@@ -200,6 +201,16 @@
 			<input type="number" bind:value={minRows} />
 		</label>
 	{/if}
+{:else if kind === 'base64'}
+	<Alert
+		type="warning"
+		title="S3 Object recommended"
+		collapsible
+		size="xs"
+		documentationLink="Pattern (Regex) https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
+	>
+		For large files, we recommend using the S3 Object type instead of the base64 string type.
+	</Alert>
 {/if}
 {#if (kind == 'none' || kind == 'pattern' || kind == 'format') && !noExtra}
 	<div class="mt-1" />
