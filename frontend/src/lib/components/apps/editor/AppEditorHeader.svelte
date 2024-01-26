@@ -987,12 +987,14 @@
 			</Pane>
 			<Pane size={75}>
 				<div class="w-full h-full flex flex-col">
-					<Tabs bind:selected={rightColumnSelect}>
-						<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
-						<Tab value="detail"><span class="font-semibold">Details</span></Tab>
-					</Tabs>
+					<div>
+						<Tabs bind:selected={rightColumnSelect}>
+							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+						</Tabs>
+					</div>
 					{#if rightColumnSelect == 'timeline'}
-						<div class="p-2">
+						<div class="p-2 grow overflow-auto">
 							<AppTimeline />
 						</div>
 					{:else if rightColumnSelect == 'detail'}
