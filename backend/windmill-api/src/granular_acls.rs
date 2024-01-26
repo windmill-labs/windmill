@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    scripts::ScriptHash,
     utils::{not_found_if_none, StripPath},
 };
 
@@ -96,49 +95,49 @@ async fn add_granular_acl(
             )
             .await?
         }
-        "app" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-                Some(format!("App '{}' changed permissions", path)),
-                rsmq,
-                true,
-            )
-            .await?
-        }
-        "script" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::Script {
-                    path: path.to_string(),
-                    parent_path: None,
-                    hash: ScriptHash(0),
-                },
-                Some(format!("Script '{}' changed permissions", path)),
-                rsmq,
-                true,
-            )
-            .await?
-        }
-        "flow" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::Flow { path: path.to_string(), parent_path: None },
-                Some(format!("Flow '{}' changed permissions", path)),
-                rsmq,
-                true,
-            )
-            .await?
-        }
+        // "app" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+        //         Some(format!("App '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "script" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Script {
+        //             path: path.to_string(),
+        //             parent_path: None,
+        //             hash: ScriptHash(0),
+        //         },
+        //         Some(format!("Script '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "flow" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
+        //         Some(format!("Flow '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
         _ => (),
     }
 
@@ -209,49 +208,49 @@ async fn remove_granular_acl(
             )
             .await?
         }
-        "app" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-                Some(format!("App '{}' changed permissions", path)),
-                rsmq,
-                true,
-            )
-            .await?
-        }
-        "script" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::Script {
-                    path: path.to_string(),
-                    parent_path: None,
-                    hash: ScriptHash(0),
-                },
-                Some(format!("Script '{}' changed permissions", path)),
-                rsmq,
-                true,
-            )
-            .await?
-        }
-        "flow" => {
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::Flow { path: path.to_string(), parent_path: None },
-                Some(format!("Flow '{}' changed permissions", path)),
-                rsmq,
-                true,
-            )
-            .await?
-        }
+        // "app" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+        //         Some(format!("App '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "script" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Script {
+        //             path: path.to_string(),
+        //             parent_path: None,
+        //             hash: ScriptHash(0),
+        //         },
+        //         Some(format!("Script '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "flow" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
+        //         Some(format!("Flow '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
         _ => (),
     }
 
