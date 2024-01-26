@@ -22,6 +22,7 @@ struct MssqlDatabase {
     password: String,
     port: Option<u16>,
     dbname: String,
+    instance_name: Option<String>,
 }
 
 pub async fn do_mssql(
@@ -44,6 +45,9 @@ pub async fn do_mssql(
     config.host(database.host);
     config.port(database.port.unwrap_or(1433));
     config.database(database.dbname);
+    if let Some(instance_name) = database.instance_name {
+        config.instance_name(instance_name);
+    }
 
     // Using SQL Server authentication.
     config.authentication(AuthMethod::sql_server(database.user, database.password));
