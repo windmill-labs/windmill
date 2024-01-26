@@ -187,11 +187,11 @@
 				{:else if extra?.currency}
 					<CurrencyInput
 						inputClasses={{
-							formatted: twMerge('px-2 w-full py-1.5 text-black'),
+							formatted: 'px-2 w-full py-1.5 text-black dark:text-white',
 							wrapper: 'w-full windmillapp',
-							formattedZero: twMerge('text-black')
+							formattedZero: 'text-black dark:text-white'
 						}}
-						style="color:black;"
+						noColor
 						bind:value
 						currency={extra?.currency}
 						locale={extra?.currencyLocale ?? 'en-US'}
