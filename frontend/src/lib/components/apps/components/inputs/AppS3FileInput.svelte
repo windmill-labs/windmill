@@ -9,10 +9,11 @@
 	import { components } from '../../editor/component'
 	import { writable, type Writable } from 'svelte/store'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'s3fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
 
@@ -74,6 +75,8 @@
 									*/
 	let forceDisplayUploads: boolean = false
 </script>
+
+<InitializeComponent {id} />
 
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle
