@@ -26,6 +26,9 @@ import {
   ScriptLanguage,
   inferContentTypeFromFilePath,
 } from "./script_common.ts";
+import { elementsToMap } from "./sync.ts";
+import { ignoreF } from "./sync.ts";
+import { FSFSElement } from "./sync.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -561,17 +564,35 @@ async function bootstrap(
 
 async function generateMetadata(
   opts: GlobalOptions & { lockOnly?: boolean; schemaOnly?: boolean },
-  scriptPath: string
+  scriptPath?: string
 ) {
-  if (!validatePath(scriptPath)) {
+  if (scriptPath == "") {
+    scriptPath = undefined;
+  }
+  if (scriptPath && !validatePath(scriptPath)) {
     return;
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // read script metadata file
-  await generateMetadataInternal(scriptPath, workspace, opts);
+  if (scriptPath) {
+    // read script metadata file
+    await generateMetadataInternal(scriptPath, workspace, opts);
+  } else {
+    log.error("Not implemented");
+    // const elems = await elementsToMap(
+    //   await FSFSElement(Deno.cwd()),
+    //   await ignoreF(),
+    //   false,
+    //   {}
+    // );
+    // log.info("Generating metadata for all stale scripts");
+    // for (const e of Object.keys(elems)) {
+    //   log.info(`Processing ${e}`);
+    //   await generateMetadataInternal(e, workspace, opts);
+    // }
+  }
 }
 
 const command = new Command()
@@ -607,15 +628,7 @@ const command = new Command()
     "generate-metadata",
     "re-generate the metadata file updating the lock and the script schema"
   )
-  .arguments("<path_to_script_file:string>")
-  .option("--lock-only", "re-generate only the lock")
-  .option("--schema-only", "re-generate only script schema")
-  .action(generateMetadata as any)
-  .command(
-    "update-all-locks",
-    "re-generate the metadata file updating the lock and the script schema"
-  )
-  .arguments("<path_to_script_file:string>")
+  .arguments("[script:string]")
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
   .action(generateMetadata as any);

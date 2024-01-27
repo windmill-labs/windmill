@@ -48,7 +48,7 @@ type DynFSElement = {
   getChildren(): AsyncIterable<DynFSElement>;
 };
 
-async function FSFSElement(p: string): Promise<DynFSElement> {
+export async function FSFSElement(p: string): Promise<DynFSElement> {
   function _internal_element(localP: string, isDir: boolean): DynFSElement {
     return {
       isDirectory: isDir,
@@ -303,7 +303,7 @@ type Edit = { name: "edited"; path: string; before: string; after: string };
 
 type Change = Added | Deleted | Edit;
 
-async function elementsToMap(
+export async function elementsToMap(
   els: DynFSElement,
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
@@ -504,7 +504,7 @@ export async function ignoreF(): Promise<
 
 async function pull(
   opts: GlobalOptions & {
-    raw: boolean;
+    stateful: boolean;
     yes: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
@@ -515,7 +515,7 @@ async function pull(
     includeSchedules?: boolean;
   }
 ) {
-  if (!opts.raw) {
+  if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
 
@@ -538,7 +538,7 @@ async function pull(
     ))!,
     !opts.json
   );
-  const local = opts.raw
+  const local = !opts.stateful
     ? await FSFSElement(Deno.cwd())
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"));
   const changes = await compareDynFSElement(
@@ -613,19 +613,19 @@ async function pull(
         }
         await Deno.writeTextFile(target, change.after);
 
-        if (!opts.raw) {
+        if (opts.stateful) {
           await ensureDir(path.dirname(stateTarget));
           await Deno.copyFile(target, stateTarget);
         }
       } else if (change.name === "added") {
         await ensureDir(path.dirname(target));
-        if (!opts.raw) {
+        if (opts.stateful) {
           await ensureDir(path.dirname(stateTarget));
           log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.content);
         log.info(`Writing ${getTypeStrFromPath(change.path)} ${change.path}`);
-        if (!opts.raw) {
+        if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
@@ -634,11 +634,11 @@ async function pull(
             `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`
           );
           await Deno.remove(target);
-          if (!opts.raw) {
+          if (opts.stateful) {
             await Deno.remove(stateTarget);
           }
         } catch {
-          if (!opts.raw) {
+          if (opts.stateful) {
             await Deno.remove(stateTarget);
           }
         }
@@ -715,6 +715,7 @@ function removeSuffix(str: string, suffix: string) {
 
 async function push(
   opts: GlobalOptions & {
+    stateful: boolean;
     raw: boolean;
     yes: boolean;
     skipPull: boolean;
@@ -728,7 +729,10 @@ async function push(
     message?: string;
   }
 ) {
-  if (!opts.raw) {
+  if (opts.raw) {
+    log.info("--raw is now the default, you can remove it as a flag");
+  }
+  if (opts.stateful) {
     if (!opts.skipPull) {
       log.info(
         colors.gray("You need to be up-to-date before pushing, pulling first.")
@@ -819,7 +823,7 @@ async function push(
             lockfileUseArray
           )
         ) {
-          if (!opts.raw && stateExists) {
+          if (opts.stateful && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
           }
           continue;
@@ -833,12 +837,12 @@ async function push(
             opts
           )
         ) {
-          if (!opts.raw && stateExists) {
+          if (opts.stateful && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
           }
           continue;
         }
-        if (!opts.raw) {
+        if (opts.stateful) {
           await ensureDir(path.dirname(stateTarget));
           log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
@@ -854,7 +858,7 @@ async function push(
           opts.message
         );
 
-        if (!opts.raw && stateExists) {
+        if (opts.stateful && stateExists) {
           await Deno.writeTextFile(stateTarget, change.after);
         }
       } else if (change.name === "added") {
@@ -875,7 +879,7 @@ async function push(
         ) {
           continue;
         }
-        if (!opts.raw && stateExists) {
+        if (opts.stateful && stateExists) {
           await ensureDir(path.dirname(stateTarget));
           log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
@@ -889,7 +893,7 @@ async function push(
           opts.message
         );
 
-        if (!opts.raw && stateExists) {
+        if (opts.stateful && stateExists) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
