@@ -248,11 +248,6 @@ lazy_static::lazy_static! {
     pub static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
     pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
-    pub static ref ENV_PASSTHROUGH: Vec<(String, String)> = std::env::var("ENV_PASSTHROUGH").unwrap_or_else(|_| String::new())
-    .split(",")
-    .map(|x| (x.to_string(), std::env::var(x).unwrap_or_else(|_| String::new())))
-    .filter(|x| !x.1.is_empty())
-    .collect::<Vec<_>>();
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -2701,9 +2696,6 @@ fn build_envs(
         HashMap::new()
     } else {
         let mut hm = HashMap::new();
-        for s in ENV_PASSTHROUGH.iter() {
-            hm.insert(s.0.to_string(), s.1.to_string());
-        }
         for s in envs.unwrap() {
             let (k, v) = s.split_once('=').ok_or_else(|| {
                 Error::BadRequest(format!(
