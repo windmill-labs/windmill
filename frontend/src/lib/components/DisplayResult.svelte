@@ -78,6 +78,7 @@
 
 	let largeObject: boolean | undefined = undefined
 
+	let is_render_all = false
 	function inferResultKind(result: any) {
 		if (result == 'WINDMILL_TOO_BIG') {
 			largeObject = true
@@ -85,6 +86,7 @@
 		}
 
 		if (result !== undefined) {
+			is_render_all = isRenderAll(result)
 			try {
 				let keys = Object.keys(result)
 
@@ -208,7 +210,7 @@
 		return result
 	}
 
-	function isRenderAll() {
+	function isRenderAll(result: any) {
 		return (
 			result != undefined &&
 			Object.keys(result).length === 1 &&
@@ -220,7 +222,7 @@
 	let globalForceJson: boolean = false
 </script>
 
-{#if isRenderAll()}
+{#if is_render_all}
 	<div class="flex flex-col w-full">
 		<div class="mb-2 text-tertiary text-sm">
 			as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={globalForceJson} />
