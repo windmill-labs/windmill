@@ -210,6 +210,7 @@
 
 	function isRenderAll() {
 		return (
+			result != undefined &&
 			Object.keys(result).length === 1 &&
 			'render_all' in result &&
 			Array.isArray(result['render_all'])
