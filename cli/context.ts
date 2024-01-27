@@ -101,6 +101,7 @@ export async function fetchVersion(baseUrl: string): Promise<string> {
   const extraHeaders = getHeaders();
   if (extraHeaders) {
     for (const [key, value] of Object.entries(extraHeaders)) {
+      // @ts-ignore
       requestHeaders.set(key, value);
     }
   }
