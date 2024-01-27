@@ -32,6 +32,7 @@ export async function generateMetadataInternal(
   opts: GlobalOptions & {
     lockOnly?: boolean | undefined;
     schemaOnly?: boolean | undefined;
+    defaultTs?: "bun" | "deno";
   }
 ) {
   const remotePath = scriptPath
@@ -56,7 +57,7 @@ export async function generateMetadataInternal(
     any
   >;
 
-  const language = inferContentTypeFromFilePath(scriptPath);
+  const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
   if (!opts.lockOnly) {
     await updateScriptSchema(
       scriptContent,

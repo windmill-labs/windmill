@@ -14,7 +14,8 @@ export type ScriptLanguage =
   | "graphql";
 
 export function inferContentTypeFromFilePath(
-  contentPath: string
+  contentPath: string,
+  defaultTs: "bun" | "deno" | undefined
 ): ScriptLanguage {
   if (contentPath.endsWith(".py")) {
     return "python3";
@@ -22,8 +23,10 @@ export function inferContentTypeFromFilePath(
     return "nativets";
   } else if (contentPath.endsWith("bun.ts")) {
     return "bun";
-  } else if (contentPath.endsWith(".ts")) {
+  } else if (contentPath.endsWith("deno.ts")) {
     return "deno";
+  } else if (contentPath.endsWith(".ts")) {
+    return defaultTs ?? "deno";
   } else if (contentPath.endsWith(".go")) {
     return "go";
   } else if (contentPath.endsWith(".my.sql")) {

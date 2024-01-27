@@ -522,7 +522,8 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.skipVariables,
       opts.skipResources,
       opts.skipSecrets,
-      opts.includeSchedules
+      opts.includeSchedules,
+      opts.defaultTs
     ))!,
     !opts.json
   );
@@ -732,7 +733,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.skipVariables,
       opts.skipResources,
       opts.skipSecrets,
-      opts.includeSchedules
+      opts.includeSchedules,
+      opts.defaultTs
     ))!,
     !opts.json
   );
