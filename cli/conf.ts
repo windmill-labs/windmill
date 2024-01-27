@@ -16,6 +16,7 @@ export interface SyncOptions {
   includes?: string[];
   extraIncludes?: string[];
   excludes?: string[];
+  defaultTs?: "bun" | "deno";
 }
 
 export async function readConfigFile(): Promise<SyncOptions> {
@@ -30,7 +31,9 @@ export async function readConfigFile(): Promise<SyncOptions> {
   }
 }
 
-export async function mergeConfigWithConfigFile<T>(opts: T): Promise<T> {
+export async function mergeConfigWithConfigFile<T>(
+  opts: T
+): Promise<T & SyncOptions> {
   const configFile = await readConfigFile();
   return Object.assign(configFile, opts);
 }

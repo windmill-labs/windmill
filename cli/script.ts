@@ -29,6 +29,7 @@ import {
 import { elementsToMap } from "./sync.ts";
 import { ignoreF } from "./sync.ts";
 import { FSFSElement } from "./sync.ts";
+import { mergeConfigWithConfigFile, readConfigFile } from "./conf.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -42,6 +43,7 @@ export interface ScriptFile {
 
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string) {
+  opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
 
   if (!validatePath(filePath)) {
@@ -92,17 +94,11 @@ export async function handleFile(
   alreadySynced: string[],
   message: string | undefined,
   lockfileUseArray: boolean,
-  opts: GlobalOptions | undefined
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
-    (path.endsWith(".ts") ||
-      path.endsWith(".py") ||
-      path.endsWith(".go") ||
-      path.endsWith(".sh") ||
-      path.endsWith(".sql") ||
-      path.endsWith(".gql") ||
-      path.endsWith(".ps1"))
+    exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -119,7 +115,7 @@ export async function handleFile(
         opts ? { ...opts, path, workspaceRemote: workspace } : undefined
       )
     )?.payload;
-    const language = inferContentTypeFromFilePath(path);
+    const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
     const workspaceId = workspace.workspaceId;
 
@@ -223,33 +219,9 @@ export async function handleFile(
 
 export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
-    ? [
-        filePath.replace(".script.json", ".fetch.ts"),
-        filePath.replace(".script.json", ".bun.ts"),
-        filePath.replace(".script.json", ".ts"),
-        filePath.replace(".script.json", ".py"),
-        filePath.replace(".script.json", ".go"),
-        filePath.replace(".script.json", ".sh"),
-        filePath.replace(".script.json", "pg.sql"),
-        filePath.replace(".script.json", "my.sql"),
-        filePath.replace(".script.json", "bq.sql"),
-        filePath.replace(".script.json", "sf.sql"),
-        filePath.replace(".script.json", ".gql"),
-        filePath.replace(".script.json", ".ps1"),
-      ]
-    : [
-        filePath.replace(".script.yaml", ".fetch.ts"),
-        filePath.replace(".script.yaml", ".bun.ts"),
-        filePath.replace(".script.yaml", ".ts"),
-        filePath.replace(".script.yaml", ".py"),
-        filePath.replace(".script.yaml", ".go"),
-        filePath.replace(".script.yaml", ".sh"),
-        filePath.replace(".script.yaml", "pg.sql"),
-        filePath.replace(".script.yaml", "bq.sql"),
-        filePath.replace(".script.yaml", "sf.sql"),
-        filePath.replace(".script.yaml", ".gql"),
-        filePath.replace(".script.yaml", ".ps1"),
-      ];
+    ? exts.map((x) => filePath.replace(".script.json", x))
+    : exts.map((x) => filePath.replace(".script.yaml", x));
+
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
@@ -279,16 +251,25 @@ export async function findContentFile(filePath: string) {
 }
 
 export function filePathExtensionFromContentType(
-  language: ScriptLanguage
+  language: ScriptLanguage,
+  defaultTs: "bun" | "deno" | undefined
 ): string {
   if (language === "python3") {
     return ".py";
   } else if (language === "nativets") {
     return ".fetch.ts";
   } else if (language === "bun") {
-    return ".bun.ts";
+    if (defaultTs == undefined || defaultTs == "deno") {
+      return ".bun.ts";
+    } else {
+      return ".ts";
+    }
   } else if (language === "deno") {
-    return ".ts";
+    if (defaultTs == "bun") {
+      return ".deno.ts";
+    } else {
+      return ".ts";
+    }
   } else if (language === "go") {
     return ".go";
   } else if (language === "mysql") {
@@ -312,24 +293,26 @@ export function filePathExtensionFromContentType(
   }
 }
 
-export const listValidExtensions = [
-  ".py",
-  ".bun.ts",
+const exts = [
   ".fetch.ts",
+  ".deno.ts",
+  ".bun.ts",
   ".ts",
+  ".py",
   ".go",
   ".sh",
+  ".pg.sql",
   ".my.sql",
   ".bq.sql",
-  "ms.sql",
-  ".pg.sql",
+  ".sf.sql",
+  ".ms.sql",
   ".sql",
   ".gql",
   ".ps1",
 ];
 
 export function removeExtensionToPath(path: string): string {
-  for (const ext of listValidExtensions) {
+  for (const ext of exts) {
     if (path.endsWith(ext)) {
       return path.substring(0, path.length - ext.length);
     }
@@ -530,7 +513,12 @@ async function bootstrap(
     throw new Error("Language unknown");
   }
 
-  const extension = filePathExtensionFromContentType(language);
+  const config = await readConfigFile();
+
+  const extension = filePathExtensionFromContentType(
+    language,
+    config.defaultTs
+  );
   const scriptCodeFileFullPath = scriptPath + extension;
   const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
 

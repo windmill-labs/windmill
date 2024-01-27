@@ -4,7 +4,7 @@ export interface ScriptMetadata {
   summary: string;
   description: string;
   lock: string | string[];
-  is_template: boolean;
+  is_template?: boolean;
   kind: string;
   schema: {
     $schema: string;
@@ -19,7 +19,6 @@ export function defaultScriptMetadata(): ScriptMetadata {
     summary: "",
     description: "",
     lock: "",
-    is_template: false,
     kind: "script",
     schema: {
       $schema: "https://json-schema.org/draft/2020-12/schema",
