@@ -349,7 +349,6 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("BASE_URL", base_internal_url)
-            .env("HOME", HOME_ENV.as_str())
             .args(vec![
                 "--config",
                 "run.config.proto",
