@@ -678,6 +678,11 @@ export function roughSizeOfObject(object: object | string) {
 	if (typeof object == 'string') {
 		return object.length * 2
 	}
+
+	if (typeof object != 'object') {
+		return 0
+	}
+
 	var objectList: any[] = []
 	var stack = [object]
 	var bytes = 0
