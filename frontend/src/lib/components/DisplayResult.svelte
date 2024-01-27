@@ -108,7 +108,7 @@
 				}
 
 				if (keys.length != 0) {
-					if ((keys.length == 1 && keys[0] == 'table-row') || isRectangularArray(result)) {
+					if (keys.length == 1 && keys[0] == 'table-row') {
 						return 'table-row'
 					} else if (
 						(keys.length == 1 && keys[0] == 'table-col') ||
@@ -159,6 +159,8 @@
 					result.every((elt) => inferResultKind(elt) === 's3object')
 				) {
 					return 's3object-list'
+				} else if (isRectangularArray(result)) {
+					return 'table-col'
 				}
 			} catch (err) {}
 		} else {
