@@ -86,9 +86,10 @@
 		}
 
 		if (result !== undefined) {
-			is_render_all = isRenderAll(result)
 			try {
-				let keys = Object.keys(result)
+				let keys = typeof result == 'object' ? Object.keys(result) : []
+				is_render_all =
+					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				// Check if the result is an image
 				if (['png', 'svg', 'jpeg'].includes(keys[0]) && keys.length == 1) {
@@ -106,55 +107,63 @@
 					return 'json'
 				}
 
-				if ((keys.length == 1 && keys[0] == 'table-row') || isRectangularArray(result)) {
-					return 'table-row'
-				} else if ((keys.length == 1 && keys[0] == 'table-col') || isObjectOfArray(result, keys)) {
-					return 'table-col'
-				} else if (keys.length == 1 && keys[0] == 'html') {
-					return 'html'
-				} else if (keys.length == 1 && keys[0] == 'file') {
-					return 'file'
-				} else if (
-					keys.includes('windmill_content_type') &&
-					result['windmill_content_type'].startsWith('text/')
-				) {
-					return 'plain'
-				} else if (keys.length == 1 && keys[0] == 'error') {
-					return 'error'
-				} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
-					return 'file'
-				} else if (
-					keys.length === 3 &&
-					keys.includes('file') &&
-					keys.includes('filename') &&
-					keys.includes('autodownload')
-				) {
-					if (result.autodownload) {
-						const a = document.createElement('a')
+				if (keys.length != 0) {
+					if ((keys.length == 1 && keys[0] == 'table-row') || isRectangularArray(result)) {
+						return 'table-row'
+					} else if (
+						(keys.length == 1 && keys[0] == 'table-col') ||
+						isObjectOfArray(result, keys)
+					) {
+						return 'table-col'
+					} else if (keys.length == 1 && keys[0] == 'html') {
+						return 'html'
+					} else if (keys.length == 1 && keys[0] == 'file') {
+						return 'file'
+					} else if (
+						keys.includes('windmill_content_type') &&
+						result['windmill_content_type'].startsWith('text/')
+					) {
+						return 'plain'
+					} else if (keys.length == 1 && keys[0] == 'error') {
+						return 'error'
+					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
+						return 'file'
+					} else if (
+						keys.length === 3 &&
+						keys.includes('file') &&
+						keys.includes('filename') &&
+						keys.includes('autodownload')
+					) {
+						if (result.autodownload) {
+							const a = document.createElement('a')
 
-						a.href = 'data:application/octet-stream;base64,' + result.file
-						a.download = result.filename
-						a.click()
-						console.log('autodownload', result.file, result.filename)
+							a.href = 'data:application/octet-stream;base64,' + result.file
+							a.download = result.filename
+							a.click()
+							console.log('autodownload', result.file, result.filename)
+						}
+						return 'file'
+					} else if (
+						keys.includes('resume') &&
+						keys.includes('cancel') &&
+						keys.includes('approvalPage')
+					) {
+						return 'approval'
+					} else if (keys.length === 1 && keys.includes('s3')) {
+						return 's3object'
+					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
+						return 'markdown'
 					}
-					return 'file'
-				} else if (
-					keys.includes('resume') &&
-					keys.includes('cancel') &&
-					keys.includes('approvalPage')
-				) {
-					return 'approval'
-				} else if (keys.length === 1 && keys.includes('s3')) {
-					return 's3object'
 				} else if (
 					Array.isArray(result) &&
 					result.every((elt) => inferResultKind(elt) === 's3object')
 				) {
 					return 's3object-list'
-				} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
-					return 'markdown'
 				}
 			} catch (err) {}
+		} else {
+			largeObject = false
+			is_render_all = false
 		}
 		return 'json'
 	}
@@ -208,15 +217,6 @@
 		}
 
 		return result
-	}
-
-	function isRenderAll(result: any) {
-		return (
-			result != undefined &&
-			Object.keys(result).length === 1 &&
-			'render_all' in result &&
-			Array.isArray(result['render_all'])
-		)
 	}
 
 	let globalForceJson: boolean = false
