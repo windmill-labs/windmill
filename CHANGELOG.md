@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.254.1](https://github.com/windmill-labs/windmill/compare/v1.254.0...v1.254.1) (2024-01-27)
+
+
+### Bug Fixes
+
+* render all responsiveness fix ([18d832c](https://github.com/windmill-labs/windmill/commit/18d832c6347c31fb2c2ddc1268cfd066d01352ae))
+* render all responsiveness fix ([dfabb37](https://github.com/windmill-labs/windmill/commit/dfabb371003e955a05e4d8672fb95a637f236a72))
+
 ## [1.254.0](https://github.com/windmill-labs/windmill/compare/v1.253.8...v1.254.0) (2024-01-26)
 
 
