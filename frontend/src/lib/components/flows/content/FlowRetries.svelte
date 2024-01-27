@@ -5,7 +5,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let flowModuleRetry: Retry | undefined
 	export let disabled: boolean = false
