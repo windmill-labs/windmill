@@ -37,8 +37,7 @@ import { handleScriptMetadata, removeExtensionToPath } from "./script.ts";
 
 import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
-import { read } from "https://deno.land/x/cbor@v1.4.1/decode.js";
-import { readConfigFile } from "./conf.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -442,11 +441,10 @@ export const isWhitelisted = (p: string) => {
   return p == "." + SEP || p == "" || p == "u" || p == "f" || p == "g";
 };
 
-export async function ignoreF(): Promise<
-  (p: string, isDirectory: boolean) => boolean
-> {
-  const wmillconf = await readConfigFile();
-
+export async function ignoreF(wmillconf: {
+  includes?: string[];
+  excludes?: string[];
+}): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
   if (wmillconf?.includes || wmillconf?.excludes) {
@@ -502,19 +500,9 @@ export async function ignoreF(): Promise<
   };
 }
 
-async function pull(
-  opts: GlobalOptions & {
-    stateful: boolean;
-    yes: boolean;
-    failConflicts: boolean;
-    plainSecrets?: boolean;
-    json?: boolean;
-    skipVariables?: boolean;
-    skipResources?: boolean;
-    skipSecrets?: boolean;
-    includeSchedules?: boolean;
-  }
-) {
+async function pull(opts: GlobalOptions & SyncOptions) {
+  opts = await mergeConfigWithConfigFile(opts);
+
   if (opts.stateful) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
@@ -544,7 +532,7 @@ async function pull(
   const changes = await compareDynFSElement(
     remote,
     local,
-    await ignoreF(),
+    await ignoreF(opts),
     opts.json ?? false,
     opts,
     false
@@ -713,22 +701,8 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(
-  opts: GlobalOptions & {
-    stateful: boolean;
-    raw: boolean;
-    yes: boolean;
-    skipPull: boolean;
-    failConflicts: boolean;
-    plainSecrets?: boolean;
-    json?: boolean;
-    skipVariables?: boolean;
-    skipResources?: boolean;
-    skipSecrets?: boolean;
-    includeSchedules?: boolean;
-    message?: string;
-  }
-) {
+async function push(opts: GlobalOptions & SyncOptions) {
+  opts = await mergeConfigWithConfigFile(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");
   }
@@ -767,7 +741,7 @@ async function push(
   const changes = await compareDynFSElement(
     local,
     remote,
-    await ignoreF(),
+    await ignoreF(opts),
     opts.json ?? false,
     opts,
     true
@@ -990,12 +964,12 @@ const command = new Command()
   )
   .option(
     "--raw",
-    "Push without using state, just overwrite. (Will be removed as a flag and made the default behavior in the future)"
+    "Push without using state, just overwrite. (Default, has no effect)"
   )
   .option("--yes", "Pull without needing confirmation")
   .option(
     "--stateful",
-    "Pull using state tracking (create .wmill folder and needed for --fail-conflicts). Default currently but will change in favor of --raw"
+    "Pull using state tracking (create .wmill folder and needed for --fail-conflicts)"
   )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
@@ -1003,6 +977,14 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
+  .option(
+    "-i --includes <patterns...:file>",
+    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns...:file>",
+    "Patterns to specify which file to NOT take into account."
+  )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -1015,11 +997,11 @@ const command = new Command()
   )
   .option(
     "--raw",
-    "Push without using state, just overwrite. (Will be removed as a flag and made the default behavior in the future)"
+    "Push without using state, just overwrite. (Default, has no effect)"
   )
   .option(
     "--stateful",
-    "Pull using state tracking (use .wmill folder and needed for --fail-conflicts). Default currently but will change in favor of --raw"
+    "Pull using state tracking (use .wmill folder and needed for --fail-conflicts)w"
   )
   .option("--skip-pull", "(stateful only) Push without pulling first")
   .option("--yes", "Push without needing confirmation")
@@ -1029,6 +1011,14 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
+  .option(
+    "-i --includes <patterns...:file>",
+    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns...:file>",
+    "Patterns to specify which file to NOT take into account."
+  )
   .option(
     "--message <message:string>",
     "Include a message that will be added to all scripts/flows/apps updated during this push"

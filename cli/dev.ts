@@ -3,18 +3,20 @@ import { Application, Command, Router, log, open, path } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 
 const PORT = 3001;
-async function dev(opts: GlobalOptions & { filter?: string }) {
+async function dev(opts: GlobalOptions & SyncOptions) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   log.info("Started dev mode");
   let currentLastEdit: LastEdit | undefined = undefined;
 
-  const watcher = Deno.watchFs(opts.filter ?? ".");
+  const watcher = Deno.watchFs(".");
   const base = await Deno.realPath(".");
-  const ignore = await ignoreF();
+  opts = await mergeConfigWithConfigFile(opts);
+  const ignore = await ignoreF(opts);
 
   async function watchChanges() {
     for await (const event of watcher) {
@@ -159,7 +161,7 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
 const command = new Command()
   .description("Launch a dev server that will spawn a webserver with HMR")
   .option(
-    "--filter <filter:string>",
+    "--includes <pattern...:string>",
     "Filter paths givena glob pattern or path"
   )
   // deno-lint-ignore no-explicit-any

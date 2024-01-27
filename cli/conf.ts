@@ -1,17 +1,36 @@
 import { yamlParse } from "./deps.ts";
 
-export interface WmillConfiguration {
+export interface SyncOptions {
+  stateful?: boolean;
+  raw?: boolean;
+  yes?: boolean;
+  skipPull?: boolean;
+  failConflicts?: boolean;
+  plainSecrets?: boolean;
+  json?: boolean;
+  skipVariables?: boolean;
+  skipResources?: boolean;
+  skipSecrets?: boolean;
+  includeSchedules?: boolean;
+  message?: string;
   includes?: string[];
+  extraIncludes?: string[];
   excludes?: string[];
 }
-export async function readConfigFile(): Promise<WmillConfiguration> {
+
+export async function readConfigFile(): Promise<SyncOptions> {
   try {
     const conf = yamlParse(
       await Deno.readTextFile("wmill.yaml")
-    ) as WmillConfiguration;
+    ) as SyncOptions;
 
-    return typeof conf == "object" ? conf : ({} as WmillConfiguration);
+    return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
     return {};
   }
+}
+
+export async function mergeConfigWithConfigFile<T>(opts: T): Promise<T> {
+  const configFile = await readConfigFile();
+  return Object.assign(configFile, opts);
 }
