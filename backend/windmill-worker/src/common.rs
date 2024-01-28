@@ -604,21 +604,21 @@ pub async fn handle_child(
             }
         };
 
-        if sigterm {
-            if let Some(id) = child.id() {
-                if *MAX_WAIT_FOR_SIGINT > 0 {
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
-                    for _ in 0..*MAX_WAIT_FOR_SIGINT {
-                        if child.try_wait().is_ok_and(|x| x.is_some()) {
-                            break;
-                        }
-                        sleep(Duration::from_secs(1)).await;
-                    }
+        if let Some(id) = child.id() {
+            if *MAX_WAIT_FOR_SIGINT > 0 {
+                signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+                for _ in 0..*MAX_WAIT_FOR_SIGINT {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
-                        set_reason.await;
-                        return Ok(Err(kill_reason));
+                        break;
                     }
+                    sleep(Duration::from_secs(1)).await;
                 }
+                if child.try_wait().is_ok_and(|x| x.is_some()) {
+                    set_reason.await;
+                    return Ok(Err(kill_reason));
+                }
+            }
+            if sigterm {
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
                 for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
