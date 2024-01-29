@@ -56,6 +56,9 @@
 	let script_path = ''
 	let initialScriptPath = ''
 
+	let runnable: Script | Flow | undefined
+	let args: Record<string, any> = {}
+
 	export function openEdit(ePath: string, isFlow: boolean) {
 		is_flow = isFlow
 		initialPath = ePath
@@ -70,6 +73,8 @@
 	}
 
 	export async function openNew(is_flow: boolean, initial_script_path?: string) {
+		args = {}
+		runnable = undefined
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
@@ -90,7 +95,6 @@
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
 		if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
-			console.log(defaultErrorHandlerMaybe)
 			wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
 			let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
 			errorHandleritemKind = splitted[0] as 'flow' | 'script'
@@ -135,9 +139,6 @@
 
 	$: (is_flow = itemKind == 'flow') && resetRetries()
 
-	let runnable: Script | Flow | undefined
-	let args: Record<string, any> = {}
-
 	let isValid = true
 
 	let path: string = ''
@@ -161,7 +162,10 @@
 	const dispatch = createEventDispatcher()
 
 	async function loadScript(p: string | undefined): Promise<void> {
+		console.log('LOAD', p)
 		if (p) {
+			args = {}
+			runnable = undefined
 			if (is_flow) {
 				runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
 			} else {
@@ -239,7 +243,12 @@
 			schedule = s.schedule
 			timezone = s.timezone
 			summary = s.summary ?? ''
+			let oldScriptPath = script_path
 			script_path = s.script_path ?? ''
+			if (oldScriptPath == script_path) {
+				loadScript(script_path)
+			}
+			console.log(script_path)
 			is_flow = s.is_flow
 			no_flow_overlap = s.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
@@ -537,8 +546,6 @@
 					{/if}
 				</div>
 			</Section>
-
-			{#if !is_flow}{/if}
 
 			<div class="flex flex-col gap-2">
 				<Tabs bind:selected={optionTabSelected}>

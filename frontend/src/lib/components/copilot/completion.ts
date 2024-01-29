@@ -2,24 +2,15 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat'
 import { getNonStreamingCompletion } from './lib'
 import { codeCompletionLoading } from '$lib/stores'
 
-const systemPrompt =
-	'You are a code completion assistant, return the code that should go inside the <completion></completion> tags. If you add a line break, take into account the indentation of the code. You can also not return anything if you think the code is already complete.'
-const prompt = `complete the following code:
-\`\`\`{language}
-{before}<completion></completion>{after}
-\`\`\``
+const systemPrompt = `You are a code completion assistant, return the code that should go instead of the <completion_tokens>.
 
-const exampleUser = prompt
-	.replace('{language}', 'python')
-	.replace(
-		'{before}',
-		`def main(number):
-    # print the number and divide it by 4
-    `
-	)
-	.replace('{after}', `\n\n    return number`)
-const exampleAssistant = `<completion>print(number)
-		number = number / 4</completion>`
+Only return the completion tokens. Wrap the completion tokens in a code block (\`\`\`lang\n[completion_tokens]\n\`\`\`).
+
+Return \`None\` if you think the code is already complete.`
+const prompt = `\`\`\`{language}
+{before}<completion_tokens>{after}
+\`\`\`
+`
 
 export async function editorCodeCompletion(
 	before: string,
@@ -35,14 +26,6 @@ export async function editorCodeCompletion(
 		},
 		{
 			role: 'user',
-			content: exampleUser
-		},
-		{
-			role: 'assistant',
-			content: exampleAssistant
-		},
-		{
-			role: 'user',
 			content: prompt
 				.replace('{language}', lang)
 				.replace('{before}', before)
@@ -51,8 +34,17 @@ export async function editorCodeCompletion(
 	]
 
 	try {
-		const result = await getNonStreamingCompletion(messages, abortController, 'gpt-3.5-turbo')
-		const completion = result.match(/<completion>(.*)<\/completion>/s)?.[1] || ''
+		const result = await getNonStreamingCompletion(messages, abortController, 'gpt-3.5-turbo-1106')
+
+		const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
+
+		let completion = match?.[1] || ''
+		if (completion) {
+			const previousIndent = before.match(/(\n|^)([ \t]*)$/)?.[2]
+			if (previousIndent) {
+				completion = completion.replace(/\n/g, `\n${previousIndent}`)
+			}
+		}
 
 		return completion
 	} catch (err) {

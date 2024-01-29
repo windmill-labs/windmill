@@ -54,6 +54,8 @@
 		args = nargs
 	}
 
+	let keys: string[] = []
+
 	function removeExtraKey() {
 		const nargs = {}
 		Object.keys(args ?? {}).forEach((key) => {
@@ -68,7 +70,6 @@
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
 
-	let keys: string[] = []
 	$: {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {

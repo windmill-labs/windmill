@@ -16,8 +16,8 @@ export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
 const openaiConfig: ChatCompletionCreateParamsStreaming = {
 	temperature: 0,
-	max_tokens: 2048,
-	model: 'gpt-4-1106-preview',
+	max_tokens: 4096,
+	model: 'gpt-4-0125-preview',
 	seed: 42,
 	stream: true,
 	messages: []
