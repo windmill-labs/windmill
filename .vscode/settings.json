@@ -1,5 +1,3 @@
 {
-  "python.analysis.typeCheckingMode": "basic",
-  "rust-analyzer.cargo.features": ["enterprise"],
-  "rust-analyzer.showUnlinkedFileNotification": false
+  "python.analysis.typeCheckingMode": "basic"
 }
