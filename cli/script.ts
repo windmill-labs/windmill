@@ -655,7 +655,7 @@ async function generateMetadata(
       return;
     }
     for (const e of Object.keys(elems)) {
-      log.info(`Processing ${e}`);
+      log.info(colors.gray(`Generating metadata for ${e}`));
       await generateMetadataInternal(
         e,
         workspace,
