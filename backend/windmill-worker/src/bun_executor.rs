@@ -321,7 +321,7 @@ pub async fn handle_bun_job(
     let annotation = get_annotation(inner_content);
 
     #[cfg(not(feature = "enterprise"))]
-    if nodejs_mode || npm_mode {
+    if annotation.nodejs_mode || annotation.npm_mode {
         return Err(error::Error::ExecutionErr(
             "Nodejs / npm mode is an EE feature".to_string(),
         ));
