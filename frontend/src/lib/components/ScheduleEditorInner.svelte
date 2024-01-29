@@ -162,7 +162,6 @@
 	const dispatch = createEventDispatcher()
 
 	async function loadScript(p: string | undefined): Promise<void> {
-		console.log('LOAD', p)
 		if (p) {
 			args = {}
 			runnable = undefined
@@ -248,7 +247,6 @@
 			if (oldScriptPath == script_path) {
 				loadScript(script_path)
 			}
-			console.log(script_path)
 			is_flow = s.is_flow
 			no_flow_overlap = s.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false

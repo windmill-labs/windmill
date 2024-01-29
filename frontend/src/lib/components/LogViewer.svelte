@@ -40,6 +40,7 @@
 	}
 
 	$: truncatedContent && scrollToBottom()
+
 	$: html = ansi_up.ansi_to_html(truncatedContent ?? '')
 	export function scrollToBottom() {
 		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
