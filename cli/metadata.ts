@@ -23,10 +23,39 @@ import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
+import { GlobalDeps } from "./script.ts";
 
 export async function generateAllMetadata() {}
 
-function findClosest
+function findClosestRawReqs(
+  lang: "bun" | "python" | undefined,
+  remotePath: string,
+  globalDeps: GlobalDeps
+): string | undefined {
+  let bestCandidate: { k: string; v: string } | undefined = undefined;
+  if (lang == "bun") {
+    Object.entries(globalDeps.pkgs).forEach(([k, v]) => {
+      if (
+        remotePath.startsWith(k) &&
+        k.length > (bestCandidate?.k ?? "").length
+      ) {
+        bestCandidate = { k, v };
+      }
+    });
+  } else if (lang == "python") {
+    Object.entries(globalDeps.reqs).forEach(([k, v]) => {
+      if (
+        remotePath.startsWith(k) &&
+        k.length > (bestCandidate?.k ?? "").length
+      ) {
+        bestCandidate = { k, v };
+      }
+    });
+  }
+  // @ts-ignore
+  return bestCandidate?.v;
+}
+
 export async function generateMetadataInternal(
   scriptPath: string,
   workspace: Workspace,
@@ -37,18 +66,33 @@ export async function generateMetadataInternal(
   },
   dryRun: boolean,
   noStaleMessage: boolean,
-  {pkgs, reqs}: {pkgs: Record<string, string>, reqs: Record<string, string>}
+  globalDeps: GlobalDeps
 ): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
     .replaceAll("\\", "/");
-  const metadataWithType = await parseMetadataFile(remotePath, undefined);
+
+  const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
+
+  const rawReqs = findClosestRawReqs(
+    language as "bun" | "python" | undefined,
+    scriptPath,
+    globalDeps
+  );
+  const metadataWithType = await parseMetadataFile(
+    remotePath,
+    undefined,
+    globalDeps
+  );
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
   const metadataContent = await Deno.readTextFile(metadataWithType.path);
   if (
-    await checkifMetadataUptodate(remotePath, scriptContent + metadataContent)
+    await checkifMetadataUptodate(
+      remotePath,
+      (rawReqs ?? "") + scriptContent + metadataContent
+    )
   ) {
     if (!noStaleMessage) {
       log.info(
@@ -65,7 +109,6 @@ export async function generateMetadataInternal(
     any
   >;
 
-  const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
   if (!opts.lockOnly) {
     await updateScriptSchema(
       scriptContent,
@@ -81,7 +124,8 @@ export async function generateMetadataInternal(
       scriptContent,
       language,
       remotePath,
-      metadataParsedContent
+      metadataParsedContent,
+      rawReqs
     );
   }
 
@@ -91,7 +135,10 @@ export async function generateMetadataInternal(
     metaPath = remotePath + ".script.json";
     newMetadataContent = JSON.stringify(metadataParsedContent);
   }
-  await updateMetadataLock(remotePath, scriptContent + newMetadataContent);
+  await updateMetadataLock(
+    remotePath,
+    (rawReqs ?? "") + scriptContent + newMetadataContent
+  );
   await Deno.writeTextFile(metaPath, newMetadataContent);
   return remotePath;
 }
@@ -118,7 +165,8 @@ async function updateScriptLock(
   scriptContent: string,
   language: ScriptLanguage,
   remotePath: string,
-  metadataContent: Record<string, any>
+  metadataContent: Record<string, any>,
+  rawReq: string | undefined
 ): Promise<void> {
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
@@ -136,6 +184,7 @@ async function updateScriptLock(
             raw_code: scriptContent,
             language: language,
             script_path: remotePath,
+            raw_reqs: rawReq,
           },
         ],
         entrypoint: remotePath,
@@ -369,7 +418,8 @@ export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
     | (GlobalOptions & { path: string; workspaceRemote: Workspace })
-    | undefined
+    | undefined,
+  globalDeps: GlobalDeps
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
@@ -416,7 +466,8 @@ export async function parseMetadataFile(
             generateMetadataIfMissing.workspaceRemote,
             generateMetadataIfMissing,
             false,
-            false
+            false,
+            globalDeps
           );
 
           scriptInitialMetadata = yamlParse(

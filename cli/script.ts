@@ -99,7 +99,8 @@ export async function handleFile(
   alreadySynced: string[],
   message: string | undefined,
   lockfileUseArray: boolean,
-  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined,
+  globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -117,7 +118,8 @@ export async function handleFile(
     const typed = (
       await parseMetadataFile(
         remotePath,
-        opts ? { ...opts, path, workspaceRemote: workspace } : undefined
+        opts ? { ...opts, path, workspaceRemote: workspace } : undefined,
+        globalDeps
       )
     )?.payload;
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
@@ -555,7 +557,11 @@ async function bootstrap(
   });
 }
 
-async function findGlobalDeps() {
+export type GlobalDeps = {
+  pkgs: Record<string, string>;
+  reqs: Record<string, string>;
+};
+async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const els = await FSFSElement(Deno.cwd());
@@ -593,10 +599,17 @@ async function generateMetadata(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const { pkgs, reqs } = await findGlobalDeps();
+  const globalDeps = await findGlobalDeps();
   if (scriptPath) {
     // read script metadata file
-    await generateMetadataInternal(scriptPath, workspace, opts, false, false);
+    await generateMetadataInternal(
+      scriptPath,
+      workspace,
+      opts,
+      false,
+      false,
+      globalDeps
+    );
   } else {
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
@@ -615,7 +628,8 @@ async function generateMetadata(
         workspace,
         opts,
         true,
-        true
+        true,
+        globalDeps
       );
       if (candidate) {
         hasAny = true;
@@ -638,7 +652,14 @@ async function generateMetadata(
     }
     for (const e of Object.keys(elems)) {
       log.info(`Processing ${e}`);
-      await generateMetadataInternal(e, workspace, opts, false, true);
+      await generateMetadataInternal(
+        e,
+        workspace,
+        opts,
+        false,
+        true,
+        globalDeps
+      );
     }
   }
 }
