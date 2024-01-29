@@ -27,7 +27,11 @@ import {
   ScriptLanguage,
   inferContentTypeFromFilePath,
 } from "./script_common.ts";
-import { elementsToMap, readDirRecursiveWithIgnore } from "./sync.ts";
+import {
+  elementsToMap,
+  readDirRecursiveWithIgnore,
+  yamlOptions,
+} from "./sync.ts";
 import { ignoreF } from "./sync.ts";
 import { FSFSElement } from "./sync.ts";
 import {
@@ -303,7 +307,7 @@ export function filePathExtensionFromContentType(
   }
 }
 
-const exts = [
+export const exts = [
   ".fetch.ts",
   ".deno.ts",
   ".bun.ts",
@@ -549,7 +553,8 @@ async function bootstrap(
   }
 
   const scriptInitialMetadataYaml = yamlStringify(
-    scriptMetadata as Record<string, any>
+    scriptMetadata as Record<string, any>,
+    yamlOptions
   );
 
   Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
@@ -655,7 +660,6 @@ async function generateMetadata(
       return;
     }
     for (const e of Object.keys(elems)) {
-      log.info(colors.gray(`Generating metadata for ${e}`));
       await generateMetadataInternal(
         e,
         workspace,

@@ -101,6 +101,7 @@ export const yamlOptions = {
   },
   noCompatMode: true,
   noRefs: true,
+  skipInvalid: true,
 };
 
 function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {

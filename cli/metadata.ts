@@ -24,6 +24,7 @@ import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps } from "./script.ts";
+import { yamlOptions } from "./sync.ts";
 
 export async function generateAllMetadata() {}
 
@@ -104,6 +105,8 @@ export async function generateMetadataInternal(
     return `${remotePath} (${language})`;
   }
 
+  log.info(colors.gray(`Generating metadata for ${scriptPath}`));
+
   const metadataParsedContent = metadataWithType?.payload as Record<
     string,
     any
@@ -130,7 +133,7 @@ export async function generateMetadataInternal(
   }
 
   let metaPath = remotePath + ".script.yaml";
-  let newMetadataContent = yamlStringify(metadataParsedContent);
+  let newMetadataContent = yamlStringify(metadataParsedContent, yamlOptions);
   if (metadataWithType.isJson) {
     metaPath = remotePath + ".script.json";
     newMetadataContent = JSON.stringify(metadataParsedContent);
@@ -450,7 +453,8 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
       const scriptInitialMetadataYaml = yamlStringify(
-        scriptInitialMetadata as Record<string, any>
+        scriptInitialMetadata as Record<string, any>,
+        yamlOptions
       );
       Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
         createNew: true,
@@ -506,7 +510,7 @@ export async function readLockfile(): Promise<Lock> {
     }
   } catch {
     const lock = { locks: {} };
-    await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock));
+    await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions));
     return lock;
   }
 }
@@ -542,6 +546,6 @@ export async function updateMetadataLock(
   conf.locks[path] = hash;
   await Deno.writeTextFile(
     WMILL_LOCKFILE,
-    yamlStringify(conf as Record<string, any>)
+    yamlStringify(conf as Record<string, any>, yamlOptions)
   );
 }
