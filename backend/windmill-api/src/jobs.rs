@@ -1579,6 +1579,7 @@ struct Preview {
     language: Option<ScriptLang>,
     tag: Option<String>,
     dedicated_worker: Option<bool>,
+    lock: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2507,7 +2508,7 @@ async fn run_preview_job(
                 content: preview.content.unwrap_or_default(),
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
-                lock: None,
+                lock: preview.lock,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
                 cache_ttl: None,

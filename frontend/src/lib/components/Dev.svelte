@@ -86,6 +86,7 @@
 		content: string
 		path: string
 		language: Preview.language
+		lock?: string
 	}
 
 	let currentScript: LastEditScript | undefined = undefined

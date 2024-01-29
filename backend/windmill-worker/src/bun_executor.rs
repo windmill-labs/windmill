@@ -17,7 +17,8 @@ use crate::{
         read_result, set_logs, start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
-    DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV,
+    TZ_ENV,
 };
 
 use tokio::{fs::File, process::Command};
@@ -65,6 +66,7 @@ pub async fn gen_lockfile(
     export_pkg: bool,
     trusted_deps: Vec<String>,
     raw_deps: Option<String>,
+    npm_mode: bool,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
@@ -156,10 +158,11 @@ pub async fn gen_lockfile(
         job_dir,
         worker_name,
         common_bun_proc_envs,
+        npm_mode,
     )
     .await?;
 
-    if export_pkg {
+    if export_pkg && !npm_mode {
         let mut content = "".to_string();
         {
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
@@ -229,8 +232,9 @@ pub async fn install_lockfile(
     job_dir: &str,
     worker_name: &str,
     common_bun_proc_envs: HashMap<String, String>,
+    npm_mode: bool,
 ) -> Result<()> {
-    let mut child_cmd = Command::new(&*BUN_PATH);
+    let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
     child_cmd
         .current_dir(job_dir)
         .env_clear()
@@ -276,6 +280,23 @@ pub fn get_trusted_deps(code: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+struct Annotations {
+    npm_mode: bool,
+    nodejs_mode: bool,
+}
+
+fn get_annotation(inner_content: &str) -> Annotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("//"))
+        .map(|x| x.to_string().replace("//", "").trim().to_string())
+        .collect_vec();
+    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
+    let npm_mode: bool = annotations.contains(&"npm".to_string());
+
+    Annotations { npm_mode, nodejs_mode }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
@@ -297,12 +318,12 @@ pub async fn handle_bun_job(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let nodejs_mode: bool = inner_content.starts_with("//nodejs");
+    let annotation = get_annotation(inner_content);
 
     #[cfg(not(feature = "enterprise"))]
-    if nodejs_mode {
+    if nodejs_mode || npm_mode {
         return Err(error::Error::ExecutionErr(
-            "Nodejs mode is an EE feature".to_string(),
+            "Nodejs / npm mode is an EE feature".to_string(),
         ));
     }
 
@@ -341,6 +362,7 @@ pub async fn handle_bun_job(
                 job_dir,
                 worker_name,
                 common_bun_proc_envs.clone(),
+                annotation.npm_mode,
             )
             .await?;
         }
@@ -366,6 +388,7 @@ pub async fn handle_bun_job(
             false,
             trusted_deps,
             None,
+            annotation.npm_mode,
         )
         .await?;
         // }
@@ -374,7 +397,7 @@ pub async fn handle_bun_job(
     let main_code = remove_pinned_imports(inner_content)?;
     let _ = write_file(job_dir, "main.ts", &main_code).await?;
 
-    if nodejs_mode {
+    if annotation.nodejs_mode {
         logs.push_str("\n\n--- NODE CODE EXECUTION ---\n");
     } else {
         logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
@@ -460,7 +483,7 @@ run().catch(async (e) => {{
         .replace("CURRENT_PATH", job.script_path())
         .replace("RAW_GET_ENDPOINT", "raw_unpinned");
     let write_loader_f = async move {
-        if nodejs_mode {
+        if annotation.nodejs_mode {
             write_file(
                 &job_dir,
                 "node_builder.ts",
@@ -522,7 +545,7 @@ plugin(p)
         write_loader_f
     )?;
 
-    if nodejs_mode {
+    if annotation.nodejs_mode {
         let mut child = Command::new(&*BUN_PATH);
         child
             .current_dir(job_dir)
@@ -562,7 +585,14 @@ plugin(p)
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
-                .replace("{LANG}", if nodejs_mode { "nodejs" } else { "bun" })
+                .replace(
+                    "{LANG}",
+                    if annotation.nodejs_mode {
+                        "nodejs"
+                    } else {
+                        "bun"
+                    },
+                )
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
@@ -571,7 +601,7 @@ plugin(p)
         .await?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-        let args = if nodejs_mode {
+        let args = if annotation.nodejs_mode {
             vec![
                 "--config",
                 "run.config.proto",
@@ -605,7 +635,7 @@ plugin(p)
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let cmd = if nodejs_mode {
+        let cmd = if annotation.nodejs_mode {
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*NODE_PATH);
@@ -727,6 +757,7 @@ pub async fn start_worker(
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
+    let annotation = get_annotation(inner_content);
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -762,6 +793,7 @@ pub async fn start_worker(
                 job_dir,
                 worker_name,
                 common_bun_proc_envs.clone(),
+                annotation.npm_mode,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -784,6 +816,7 @@ pub async fn start_worker(
             false,
             trusted_deps,
             None,
+            annotation.npm_mode,
         )
         .await?;
     }
