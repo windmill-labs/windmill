@@ -1,5 +1,6 @@
 import unittest
 import wmill
+from wmill import S3Object
 import os
 
 
