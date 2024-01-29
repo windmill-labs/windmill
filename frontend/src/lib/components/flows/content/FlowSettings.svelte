@@ -282,33 +282,35 @@
 						</Section>
 					</TabContent>
 					<TabContent value="settings-cache" class="p-4 flex flex-col">
-						<h2 class="border-b pb-1 mb-4 flex items-center gap-4"
-							>Cache <Toggle
-								size="xs"
-								checked={Boolean($flowStore.value.cache_ttl)}
-								on:change={() => {
-									if ($flowStore.value.cache_ttl && $flowStore.value.cache_ttl != undefined) {
-										$flowStore.value.cache_ttl = undefined
-									} else {
-										$flowStore.value.cache_ttl = 300
-									}
-								}}
-								options={{
-									right: 'Cache the results for each possible inputs'
-								}}
-							/></h2
-						>
+						<Section label="Cache">
+							<svelte:fragment slot="action">
+								<Toggle
+									size="xs"
+									checked={Boolean($flowStore.value.cache_ttl)}
+									on:change={() => {
+										if ($flowStore.value.cache_ttl && $flowStore.value.cache_ttl != undefined) {
+											$flowStore.value.cache_ttl = undefined
+										} else {
+											$flowStore.value.cache_ttl = 300
+										}
+									}}
+									options={{
+										right: 'Cache the results for each possible inputs'
+									}}
+								/>
+							</svelte:fragment>
 
-						<div class="flex gap-x-4 flex-col gap-2">
-							<div class="text-xs">How long to keep the cache valid</div>
-							<div>
-								{#if $flowStore.value.cache_ttl}
-									<SecondsInput bind:seconds={$flowStore.value.cache_ttl} />
-								{:else}
-									<SecondsInput disabled />
-								{/if}
+							<div class="flex gap-x-4 flex-col gap-2">
+								<div class="text-xs">How long to keep the cache valid</div>
+								<div>
+									{#if $flowStore.value.cache_ttl}
+										<SecondsInput bind:seconds={$flowStore.value.cache_ttl} />
+									{:else}
+										<SecondsInput disabled />
+									{/if}
+								</div>
 							</div>
-						</div>
+						</Section>
 					</TabContent>
 
 					<TabContent value="settings-worker-group" class="p-4 flex flex-col">
