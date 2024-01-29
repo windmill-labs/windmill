@@ -1259,7 +1259,7 @@ async fn read_object_chunk(
 ) -> error::Result<Vec<u8>> {
     let s3_object = s3_client
         .get_object()
-        .range(format!("bytes={}-{}", from_byte, from_byte + length).to_string())
+        .range(format!("bytes={}-{}", from_byte, from_byte + length - 1).to_string())
         .bucket(s3_bucket)
         .key(file_key)
         .send()

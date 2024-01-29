@@ -14,6 +14,7 @@ from typing import Dict, Any, Union, Literal
 
 import httpx
 
+from .s3_reader import S3BufferedReader
 from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
 
 _client: "Windmill | None" = None
@@ -375,41 +376,38 @@ class Windmill:
 
     def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
         """
+        Load a file from the workspace s3 bucket and returns its content as bytes.
+
+        '''python
+        from wmill import S3Object
+
+        s3_obj = S3Object(s3="/path/to/my_file.txt")
+        my_obj_content = client.load_s3_file(s3_obj)
+        file_content = my_obj_content.decode("utf-8")
+        '''
+        """
+        return self.load_s3_file_reader(s3object, s3_resource_path).read()
+
+    def load_s3_file_reader(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
+        """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
         '''python
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        my_obj = client.load_s3_file(s3_obj)
-        file_content = my_obj["Body"].read().decode("utf-8")
+        my_obj_content_reader = client.load_s3_file_reader(s3_obj)
+        file_content = my_obj_content_reader.read().decode("utf-8")
         '''
         """
 
-        part_number = 0
-        file_total_size = None
-        file_content: list[int] = []
-        while True:
-            if part_number is None:
-                break
-            try:
-                part_response = self.post(
-                    f"/w/{self.workspace}/job_helpers/multipart_download_s3_file",
-                    json={
-                        "file_key": s3object["s3"],
-                        "part_number": part_number,
-                        "file_size": file_total_size,
-                        "s3_resource_path": s3_resource_path,
-                    },
-                ).json()
-            except JSONDecodeError as e:
-                raise Exception("Could not generate download S3 file part") from e
-
-            if len(part_response["part_content"]) > 0:
-                file_content = file_content + part_response["part_content"]
-            part_number = part_response["next_part_number"]
-            file_total_size = part_response["file_size"]
-        return bytes(file_content)
+        result = S3BufferedReader(
+            workspace=f"{self.workspace}",
+            windmill_client=self.client,
+            file_key=s3object["s3"],
+            s3_resource_path=s3_resource_path,
+        )
+        return result
 
     def write_s3_file(
         self,
@@ -729,9 +727,17 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
 @init_global_client
 def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
     """
-    Load the content of a file stored in S3
+    Load the entire content of a file stored in S3
     """
     return _client.load_s3_file(s3object, s3_resource_path if s3_resource_path != "" else None)
+
+
+@init_global_client
+def load_s3_file_reader(s3object: S3Object, s3_resource_path: str = "") -> BufferedReader:
+    """
+    Load the content of a file stored in S3 as a buffered reader
+    """
+    return _client.load_s3_file_reader(s3object, s3_resource_path if s3_resource_path != "" else None)
 
 
 @init_global_client
