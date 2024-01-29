@@ -289,6 +289,7 @@
 							: script.concurrency_key
 					}
 				})
+				initialPath = script.path
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
