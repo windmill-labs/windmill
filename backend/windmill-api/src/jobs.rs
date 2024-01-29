@@ -9,6 +9,8 @@
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use tokio::time::Instant;
 use windmill_common::flow_status::RestartedFrom;
 use windmill_common::variables::get_workspace_key;
 
@@ -49,17 +51,54 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
+use windmill_common::{
+    get_latest_deployed_hash_for_path, BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+};
 use windmill_queue::{
     add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
     push, CanceledBy, PushArgs, PushIsolationLevel,
 };
+
+fn setup_list_jobs_debug_metrics() -> (Option<prometheus::Histogram>, Option<prometheus::Histogram>)
+{
+    let api_list_jobs_query_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
+        && METRICS_ENABLED.load(Ordering::Relaxed)
+    {
+        Some(
+            prometheus::register_histogram!(prometheus::HistogramOpts::new(
+                "api_list_jobs_query_duration",
+                "Duration of listing jobs (query)",
+            ))
+            .expect("register prometheus metric"),
+        )
+    } else {
+        None
+    };
+
+    let api_list_jobs_ser_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
+        && METRICS_ENABLED.load(Ordering::Relaxed)
+    {
+        Some(
+            prometheus::register_histogram!(prometheus::HistogramOpts::new(
+                "api_list_jobs_ser_duration",
+                "Duration of listing jobs (serialization)",
+            ))
+            .expect("register prometheus metric"),
+        )
+    } else {
+        None
+    };
+
+    (api_list_jobs_query_duration, api_list_jobs_ser_duration)
+}
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
+
+    let list_jobs_debug_metrics = setup_list_jobs_debug_metrics();
 
     Router::new()
         .route(
@@ -111,7 +150,10 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview", post(run_preview_job))
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
-        .route("/list", get(list_jobs))
+        .route(
+            "/list",
+            get(list_jobs).layer(Extension(list_jobs_debug_metrics)),
+        )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/cancel_all", post(cancel_all))
@@ -793,7 +835,11 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-) -> error::JsonResult<Vec<Job>> {
+    Extension((api_list_jobs_query_duration, api_list_jobs_ser_duration)): Extension<(
+        Option<prometheus::Histogram>,
+        Option<prometheus::Histogram>,
+    )>,
+) -> impl IntoResponse {
     check_scopes(&authed, || format!("listjobs"))?;
 
     let (per_page, offset) = paginate(pagination);
@@ -922,9 +968,25 @@ async fn list_jobs(
         sqlc.unwrap().query()?
     };
     let mut tx = user_db.begin(&authed).await?;
+
+    let start = Instant::now();
+
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
-    Ok(Json(jobs.into_iter().map(From::from).collect()))
+
+    if let Some(api_list_jobs_query_duration) = api_list_jobs_query_duration {
+        api_list_jobs_query_duration.observe(start.elapsed().as_secs_f64());
+    }
+
+    let start = Instant::now();
+
+    let response = Json(jobs.into_iter().map(From::from).collect::<Vec<Job>>()).into_response();
+
+    if let Some(api_list_jobs_ser_duration) = api_list_jobs_ser_duration {
+        api_list_jobs_ser_duration.observe(start.elapsed().as_secs_f64());
+    }
+
+    Ok(response)
 }
 
 pub async fn resume_suspended_flow_as_owner(
