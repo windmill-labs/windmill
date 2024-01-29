@@ -4,9 +4,7 @@
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
-	import TabContent from '../common/tabs/TabContent.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
-	import TableCustom from '../TableCustom.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
@@ -17,6 +15,9 @@
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
+	import Cell from '../table/Cell.svelte'
+	import DataTable from '../table/DataTable.svelte'
+	import Head from '../table/Head.svelte'
 
 	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
@@ -127,33 +128,35 @@
 				</Splitpanes>
 			</SplitPanesWrapper>
 		{/if}
-		<TabContent value="history" class="p-2">
-			<TableCustom>
-				<tr slot="header-row">
-					<th class="text-xs">Id</th>
-					<th class="text-xs">Created at</th>
-					<th class="text-xs">Success</th>
-					<th class="text-xs">Result</th>
-					<th class="text-xs">Code</th>
-					<th class="text-xs">Logs</th>
-				</tr>
-				<tbody slot="body">
+		<div>
+			<DataTable size="xs" noBorder>
+				<Head>
+					<tr>
+						<Cell first>Id</Cell>
+						<Cell>Created at</Cell>
+						<Cell>Success</Cell>
+						<Cell>Result</Cell>
+						<Cell>Code</Cell>
+						<Cell last>Logs</Cell>
+					</tr>
+				</Head>
+				<tbody class="divide-y">
 					{#each pastPreviews as { id, created_at, success }}
-						<tr class="">
-							<td class="text-xs">
+						<tr>
+							<Cell first>
 								<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank"
 									>{id.substring(30)}</a
 								>
-							</td>
-							<td class="text-xs">{displayDate(created_at)}</td>
-							<td class="text-xs">
+							</Cell>
+							<Cell>{displayDate(created_at)}</Cell>
+							<Cell>
 								{#if success}
 									<CheckCircle2 size={10} class="text-green-600" />
 								{:else}
 									<XCircle size={10} class="text-red-700" />
 								{/if}
-							</td>
-							<td class="text-xs">
+							</Cell>
+							<Cell>
 								<button
 									class="text-xs"
 									on:click|preventDefault={() => {
@@ -168,8 +171,8 @@
 								>
 									See Result
 								</button>
-							</td>
-							<td class="text-xs">
+							</Cell>
+							<Cell>
 								<button
 									class="text-xs"
 									on:click|preventDefault={async () => {
@@ -189,8 +192,8 @@
 								>
 									View code
 								</button>
-							</td>
-							<td>
+							</Cell>
+							<Cell last>
 								<button
 									class="text-xs"
 									on:click|preventDefault={async () => {
@@ -205,11 +208,11 @@
 								>
 									View logs
 								</button>
-							</td>
+							</Cell>
 						</tr>
 					{/each}
 				</tbody>
-			</TableCustom>
-		</TabContent>
+			</DataTable>
+		</div>
 	</svelte:fragment>
 </Tabs>
