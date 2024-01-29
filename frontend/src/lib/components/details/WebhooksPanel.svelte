@@ -253,17 +253,17 @@ done`
 			</ToggleButtonGroup>
 		</div>
 	</div>
-	{#key token}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<Tabs selected="rest">
-			<Tab value="rest" size="xs">REST</Tab>
-			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-				<Tab value="curl" size="xs">Curl</Tab>
-			{/if}
-			<Tab value="fetch" size="xs">Fetch</Tab>
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<Tabs selected="rest">
+		<Tab value="rest" size="xs">REST</Tab>
+		{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+			<Tab value="curl" size="xs">Curl</Tab>
+		{/if}
+		<Tab value="fetch" size="xs">Fetch</Tab>
 
-			<svelte:fragment slot="content">
+		<svelte:fragment slot="content">
+			{#key token}
 				<TabContent value="rest" class="flex flex-col flex-1 h-full ">
 					<div class="flex flex-col gap-2">
 						<ClipboardPanel title="Url" content={url} />
@@ -319,7 +319,7 @@ done`
 									{/key}{/key}{/key}{/key}
 					{/key}
 				</TabContent>
-			</svelte:fragment>
-		</Tabs>
-	{/key}
+			{/key}
+		</svelte:fragment>
+	</Tabs>
 </div>
