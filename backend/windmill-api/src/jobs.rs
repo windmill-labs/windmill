@@ -2594,7 +2594,7 @@ pub async fn run_dependencies_job(
             raw_script.raw_code.unwrap_or_else(|| "".to_string()),
         )
     };
-    tracing::info!("Running dependencies job for {:?}", args);
+
     let language = raw_script.language;
 
     let (uuid, tx) = push(
