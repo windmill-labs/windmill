@@ -77,7 +77,9 @@
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
-		ready: undefined as boolean | undefined
+		ready: undefined as boolean | undefined,
+		filters: {},
+		displayedRowCount: 0
 	})
 
 	let selectedRowIndex = -1
@@ -176,9 +178,11 @@
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
+							outputs?.displayedRowCount?.set(e.api.getDisplayedRowCount())
 						},
 						onGridReady: (e) => {
 							outputs?.ready.set(true)
+
 							value = value
 							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
 								e.api.getRowNode('0')?.setSelected(true)
@@ -195,6 +199,9 @@
 						onSelectionChanged: (e) => {
 							onSelectionChanged(e.api)
 							resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
+						},
+						onFilterChanged: (e) => {
+							outputs?.filters?.set(e.api.getFilterModel())
 						},
 						getRowId: (data) => data.data['__index']
 					},
