@@ -182,7 +182,6 @@
 						},
 						onGridReady: (e) => {
 							outputs?.ready.set(true)
-
 							value = value
 							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
 								e.api.getRowNode('0')?.setSelected(true)
