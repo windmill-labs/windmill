@@ -128,89 +128,91 @@
 				</Splitpanes>
 			</SplitPanesWrapper>
 		{/if}
-		<DataTable size="xs" class="border-0">
-			<Head>
-				<tr>
-					<Cell first>Id</Cell>
-					<Cell>Created at</Cell>
-					<Cell>Success</Cell>
-					<Cell>Result</Cell>
-					<Cell>Code</Cell>
-					<Cell last>Logs</Cell>
-				</tr>
-			</Head>
-			<tbody class="divide-y">
-				{#each pastPreviews as { id, created_at, success }}
+		<div>
+			<DataTable size="xs" noBorder>
+				<Head>
 					<tr>
-						<Cell first>
-							<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank"
-								>{id.substring(30)}</a
-							>
-						</Cell>
-						<Cell>{displayDate(created_at)}</Cell>
-						<Cell>
-							{#if success}
-								<CheckCircle2 size={10} class="text-green-600" />
-							{:else}
-								<XCircle size={10} class="text-red-700" />
-							{/if}
-						</Cell>
-						<Cell>
-							<button
-								class="text-xs"
-								on:click|preventDefault={() => {
-									openDrawer({ mode: 'json', content: undefined, title: 'Result' })
-									JobService.getCompletedJobResult({
-										workspace: $workspaceStore ?? 'NO_W',
-										id
-									}).then((res) => {
-										drawerContent && (drawerContent.content = res)
-									})
-								}}
-							>
-								See Result
-							</button>
-						</Cell>
-						<Cell>
-							<button
-								class="text-xs"
-								on:click|preventDefault={async () => {
-									const code = (
-										await JobService.getCompletedJob({
-											workspace: $workspaceStore ?? 'NO_W',
-											id
-										})
-									).raw_code
-
-									openDrawer({
-										mode: lang ?? 'plain',
-										content: String(code),
-										title: `Code ${lang}`
-									})
-								}}
-							>
-								View code
-							</button>
-						</Cell>
-						<Cell last>
-							<button
-								class="text-xs"
-								on:click|preventDefault={async () => {
-									const logs = (
-										await JobService.getCompletedJob({
-											workspace: $workspaceStore ?? 'NO_W',
-											id
-										})
-									).logs
-									openDrawer({ mode: 'plain', content: String(logs), title: `Logs for ${id}` })
-								}}
-							>
-								View logs
-							</button>
-						</Cell>
+						<Cell first>Id</Cell>
+						<Cell>Created at</Cell>
+						<Cell>Success</Cell>
+						<Cell>Result</Cell>
+						<Cell>Code</Cell>
+						<Cell last>Logs</Cell>
 					</tr>
-				{/each}
-			</tbody>
-		</DataTable>
+				</Head>
+				<tbody class="divide-y">
+					{#each pastPreviews as { id, created_at, success }}
+						<tr>
+							<Cell first>
+								<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank"
+									>{id.substring(30)}</a
+								>
+							</Cell>
+							<Cell>{displayDate(created_at)}</Cell>
+							<Cell>
+								{#if success}
+									<CheckCircle2 size={10} class="text-green-600" />
+								{:else}
+									<XCircle size={10} class="text-red-700" />
+								{/if}
+							</Cell>
+							<Cell>
+								<button
+									class="text-xs"
+									on:click|preventDefault={() => {
+										openDrawer({ mode: 'json', content: undefined, title: 'Result' })
+										JobService.getCompletedJobResult({
+											workspace: $workspaceStore ?? 'NO_W',
+											id
+										}).then((res) => {
+											drawerContent && (drawerContent.content = res)
+										})
+									}}
+								>
+									See Result
+								</button>
+							</Cell>
+							<Cell>
+								<button
+									class="text-xs"
+									on:click|preventDefault={async () => {
+										const code = (
+											await JobService.getCompletedJob({
+												workspace: $workspaceStore ?? 'NO_W',
+												id
+											})
+										).raw_code
+
+										openDrawer({
+											mode: lang ?? 'plain',
+											content: String(code),
+											title: `Code ${lang}`
+										})
+									}}
+								>
+									View code
+								</button>
+							</Cell>
+							<Cell last>
+								<button
+									class="text-xs"
+									on:click|preventDefault={async () => {
+										const logs = (
+											await JobService.getCompletedJob({
+												workspace: $workspaceStore ?? 'NO_W',
+												id
+											})
+										).logs
+										openDrawer({ mode: 'plain', content: String(logs), title: `Logs for ${id}` })
+									}}
+								>
+									View logs
+								</button>
+							</Cell>
+						</tr>
+					{/each}
+				</tbody>
+			</DataTable>
+		</div>
 	</svelte:fragment>
 </Tabs>
