@@ -242,6 +242,13 @@ pub async fn install_lockfile(
         .args(vec!["install"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if npm_mode {
+        let registry = NPM_CONFIG_REGISTRY.read().await.clone();
+        if let Some(registry) = registry {
+            child_cmd.env("NPM_CONFIG_REGISTRY", registry);
+        }
+    }
+
     let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
     gen_bunfig(job_dir).await?;

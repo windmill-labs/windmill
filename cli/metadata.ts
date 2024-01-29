@@ -80,6 +80,13 @@ export async function generateMetadataInternal(
     scriptPath,
     globalDeps
   );
+  if (rawReqs) {
+    log.info(
+      colors.blue(
+        `Found raw requirements (package.json/requirements.txt) for ${scriptPath}, using it`
+      )
+    );
+  }
   const metadataWithType = await parseMetadataFile(
     remotePath,
     undefined,
