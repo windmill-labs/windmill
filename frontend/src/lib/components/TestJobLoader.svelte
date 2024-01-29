@@ -87,7 +87,8 @@
 		code: string,
 		lang: SupportedLanguage,
 		args: Record<string, any>,
-		tag: string | undefined
+		tag: string | undefined,
+		lock?: string
 	): Promise<string> {
 		return abstractRun(() =>
 			JobService.runScriptPreview({
@@ -97,7 +98,8 @@
 					content: code,
 					args,
 					language: lang as Preview.language,
-					tag
+					tag,
+					lock
 				}
 			})
 		)

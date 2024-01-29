@@ -463,7 +463,7 @@
 				async provideInlineCompletionItems(model, position, context, token) {
 					abortController?.abort()
 					const textUntilPosition = model.getText(
-						new vscode.Range(1, 1, position.line, position.character)
+						new vscode.Range(0, 0, position.line, position.character)
 					)
 					let items: vscode.InlineCompletionItem[] = []
 

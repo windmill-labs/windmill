@@ -289,6 +289,7 @@
 							: script.concurrency_key
 					}
 				})
+				initialPath = script.path
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
@@ -867,7 +868,7 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="min-w-64 w-full max-w-md">
+					<div class="min-w-32 lg:min-w-64 w-full max-w-md">
 						<input
 							type="text"
 							placeholder="Script summary"
@@ -931,7 +932,7 @@
 					>
 						<div class="flex flex-row gap-2 items-center">
 							<DiffIcon size={14} />
-							Diff
+							<span class="hidden lg:flex"> Diff </span>
 						</div>
 					</Button>
 					<Button
@@ -943,7 +944,7 @@
 						}}
 						startIcon={{ icon: Settings }}
 					>
-						Settings
+						<span class="hidden lg:flex"> Settings </span>
 					</Button>
 					<Button
 						loading={loadingDraft}
@@ -952,7 +953,7 @@
 						on:click={() => saveDraft()}
 						disabled={initialPath != '' && !savedScript}
 					>
-						<span class="hidden sm:flex">
+						<span class="hidden lg:flex">
 							Save draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 						</span>
 						<Kbd small>S</Kbd>

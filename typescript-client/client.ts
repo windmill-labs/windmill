@@ -1,4 +1,3 @@
-import { Readable } from "stream";
 import {
   ResourceService,
   VariableService,
@@ -298,7 +297,7 @@ export async function denoS3LightClientSettings(
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
  * 
  * ```typescript
- * let fileContentStream = await wmill.loadS3File(inputFile)
+ * let fileContent = await wmill.loadS3File(inputFile)
  * // if the file is a raw text file, it can be decoded and printed directly:
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
@@ -308,6 +307,60 @@ export async function loadS3File(
   s3object: S3Object,
   s3ResourcePath: string | undefined
 ): Promise<Uint8Array|undefined> {
+  !clientSet && setClient();
+  const fileContentStream = await loadS3FileStream(s3object, s3ResourcePath)
+  if (fileContentStream === undefined) {
+    return undefined
+  }
+
+  // we read the stream until completion and put the content in an Uint8Array
+  const reader = fileContentStream.getReader()
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const {value: chunk, done} = await reader.read();
+    if (done) {
+      break;
+    }
+    chunks.push(chunk);
+  }
+  let fileContentLength = 0;
+  chunks.forEach(item => {
+    fileContentLength += item.length;
+  });
+  let fileContent = new Uint8Array(fileContentLength);
+  let offset = 0;
+  chunks.forEach(chunk => {
+    fileContent.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return fileContent
+}
+
+/**
+ * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * ```typescript
+ * let fileContentStream = await wmill.loadS3FileStream(inputFile)
+ * // Use a read to read the stream:
+ * const chunks: Uint8Array[] = [];
+ * const reader = fileContentStream.getReader()
+ * while (true) {
+ *   const {value, done} = await reader.read();
+ *   if (done) {
+ *     break;
+ *   }
+ *   chunks.push(chunk);
+ * }
+ * // then the chunks can be concatenated into a single Uint8Array and if the
+ * // file is a raw text file, it can be decoded and printed directly:
+ * const text = new TextDecoder().decode(fileContent)
+ * console.log(text);
+ * ```
+ */
+export async function loadS3FileStream(
+  s3object: S3Object,
+  s3ResourcePath: string | undefined
+): Promise<ReadableStream|undefined> {
   !clientSet && setClient();
 
   let part_number: number | undefined = 0
@@ -347,28 +400,7 @@ export async function loadS3File(
       await fetch(controller)
     }
   })
-
-  // For now we read all the stream in here. In the future return the stream and let the users consume it as they wish
-  const reader = fileContentStream.getReader()
-  const chunks: Uint8Array[] = [];
-  while (true) {
-    const {value: chunk, done} = await reader.read();
-    if (done) {
-      break;
-    }
-    chunks.push(chunk);
-  }
-  let fileContentLength = 0;
-  chunks.forEach(item => {
-    fileContentLength += item.length;
-  });
-  let fileContent = new Uint8Array(fileContentLength);
-  let offset = 0;
-  chunks.forEach(chunk => {
-    fileContent.set(chunk, offset);
-    offset += chunk.length;
-  });
-  return fileContent
+  return fileContentStream
 }
 
 /**

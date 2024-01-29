@@ -4,6 +4,7 @@ import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
   Command,
+  Confirm,
   JobService,
   log,
   NewScript,
@@ -26,10 +27,18 @@ import {
   ScriptLanguage,
   inferContentTypeFromFilePath,
 } from "./script_common.ts";
-import { elementsToMap } from "./sync.ts";
+import {
+  elementsToMap,
+  readDirRecursiveWithIgnore,
+  yamlOptions,
+} from "./sync.ts";
 import { ignoreF } from "./sync.ts";
 import { FSFSElement } from "./sync.ts";
-import { mergeConfigWithConfigFile, readConfigFile } from "./conf.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+} from "./conf.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -62,7 +71,8 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
-  await handleFile(filePath, workspace, [], undefined, false, opts);
+  const globalDeps = await findGlobalDeps();
+  await handleFile(filePath, workspace, [], undefined, false, opts, globalDeps);
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
@@ -71,7 +81,8 @@ export async function handleScriptMetadata(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  lockfileUseArray: boolean
+  lockfileUseArray: boolean,
+  globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
@@ -81,7 +92,8 @@ export async function handleScriptMetadata(
       alreadySynced,
       message,
       lockfileUseArray,
-      undefined
+      undefined,
+      globalDeps
     );
   } else {
     return false;
@@ -94,7 +106,8 @@ export async function handleFile(
   alreadySynced: string[],
   message: string | undefined,
   lockfileUseArray: boolean,
-  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined,
+  globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -112,7 +125,8 @@ export async function handleFile(
     const typed = (
       await parseMetadataFile(
         remotePath,
-        opts ? { ...opts, path, workspaceRemote: workspace } : undefined
+        opts ? { ...opts, path, workspaceRemote: workspace } : undefined,
+        globalDeps
       )
     )?.payload;
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
@@ -293,7 +307,7 @@ export function filePathExtensionFromContentType(
   }
 }
 
-const exts = [
+export const exts = [
   ".fetch.ts",
   ".deno.ts",
   ".bun.ts",
@@ -539,7 +553,8 @@ async function bootstrap(
   }
 
   const scriptInitialMetadataYaml = yamlStringify(
-    scriptMetadata as Record<string, any>
+    scriptMetadata as Record<string, any>,
+    yamlOptions
   );
 
   Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
@@ -550,8 +565,36 @@ async function bootstrap(
   });
 }
 
+export type GlobalDeps = {
+  pkgs: Record<string, string>;
+  reqs: Record<string, string>;
+};
+export async function findGlobalDeps(): Promise<GlobalDeps> {
+  const pkgs: { [key: string]: string } = {};
+  const reqs: { [key: string]: string } = {};
+  const els = await FSFSElement(Deno.cwd());
+  for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
+    p = "/" + p;
+    return (
+      !isDir && !(p.endsWith("/package.json") || p.endsWith("requirements.txt"))
+    );
+  }, els)) {
+    if (entry.isDirectory || entry.ignored) continue;
+    const content = await entry.getContentText();
+    if (entry.path.endsWith("package.json")) {
+      pkgs[entry.path.substring(0, entry.path.length - 12)] = content;
+    } else if (entry.path.endsWith("requirements.txt")) {
+      reqs[entry.path.substring(0, entry.path.length - 16)] = content;
+    }
+  }
+  return { pkgs, reqs };
+}
 async function generateMetadata(
-  opts: GlobalOptions & { lockOnly?: boolean; schemaOnly?: boolean },
+  opts: GlobalOptions & {
+    lockOnly?: boolean;
+    schemaOnly?: boolean;
+    yes?: boolean;
+  } & SyncOptions,
   scriptPath?: string
 ) {
   if (scriptPath == "") {
@@ -563,23 +606,69 @@ async function generateMetadata(
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
 
+  const globalDeps = await findGlobalDeps();
   if (scriptPath) {
     // read script metadata file
-    await generateMetadataInternal(scriptPath, workspace, opts);
+    await generateMetadataInternal(
+      scriptPath,
+      workspace,
+      opts,
+      false,
+      false,
+      globalDeps
+    );
   } else {
-    log.error("Not implemented");
-    // const elems = await elementsToMap(
-    //   await FSFSElement(Deno.cwd()),
-    //   await ignoreF(),
-    //   false,
-    //   {}
-    // );
-    // log.info("Generating metadata for all stale scripts");
-    // for (const e of Object.keys(elems)) {
-    //   log.info(`Processing ${e}`);
-    //   await generateMetadataInternal(e, workspace, opts);
-    // }
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(Deno.cwd()),
+      (p, isD) => {
+        return (!isD && !exts.some((ext) => p.endsWith(ext))) || ignore(p, isD);
+      },
+      false,
+      {}
+    );
+    let hasAny = false;
+    log.info("Generating metadata for all stale scripts:");
+    for (const e of Object.keys(elems)) {
+      const candidate = await generateMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true,
+        true,
+        globalDeps
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+    if (hasAny) {
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above scripts?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+    for (const e of Object.keys(elems)) {
+      await generateMetadataInternal(
+        e,
+        workspace,
+        opts,
+        false,
+        true,
+        globalDeps
+      );
+    }
   }
 }
 
@@ -617,8 +706,17 @@ const command = new Command()
     "re-generate the metadata file updating the lock and the script schema"
   )
   .arguments("[script:string]")
+  .option("--yes", "Skip confirmation prompt")
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
+  .option(
+    "-i --includes <patterns...:file>",
+    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns...:file>",
+    "Patterns to specify which file to NOT take into account."
+  )
   .action(generateMetadata as any);
 
 export default command;

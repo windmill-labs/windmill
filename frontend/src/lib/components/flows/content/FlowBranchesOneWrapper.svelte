@@ -36,11 +36,11 @@
 						title="Only first branch whose condition is true will be run"
 						tooltip="Branch one"
 						documentationLink="https://www.windmill.dev/docs/flows/flow_branches#branch-one"
-						class="m-2"
+						class="m-4"
 					>
 						The result of this step is the result of the branch.
 					</Alert>
-					<div class="p-2">
+					<div class="p-4">
 						<h3 class="my-4">
 							{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
 						</h3>

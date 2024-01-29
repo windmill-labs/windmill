@@ -412,17 +412,17 @@
 				{#if treeView}
 					<Button
 						wrapperClasses="mb-0.5"
-						size="xs"
+						size="xs2"
 						variant="contained"
 						color="light"
 						on:click={() => (collapseAll = !collapseAll)}
 					>
 						{#if collapseAll}
-							Expand
+							Expand all
 						{:else}
-							Collapse
-						{/if}</Button
-					>
+							Collapse all
+						{/if}
+					</Button>
 				{/if}
 			</div>
 		{/if}
