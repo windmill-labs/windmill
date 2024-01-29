@@ -17,6 +17,8 @@
 	export let iconSize = 36
 	export let returnFileNames = false
 	export let submittedText: string | undefined = undefined
+	export let defaultFile: string | undefined = undefined
+
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
 	let files: File[] | undefined = undefined
@@ -156,4 +158,10 @@
 		{multiple}
 		{...$$restProps}
 	/>
+
+	{#if defaultFile}
+		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
+			Default file: <span class="text-blue-500">{defaultFile}</span>
+		</div>
+	{/if}
 </button>

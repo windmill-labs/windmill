@@ -489,7 +489,7 @@
 							on:focus={(e) => {
 								dispatch('focus')
 							}}
-							code={JSON.stringify({ s3: '' }, null, 2)}
+							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
 							bind:value
 						/>
 						<Button
@@ -518,6 +518,7 @@
 									s3: ''
 								}
 							}}
+							defaultValue={defaultValue?.s3}
 						/>
 					{/if}
 				</div>
