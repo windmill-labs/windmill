@@ -59,8 +59,7 @@ use windmill_queue::{
     push, CanceledBy, PushArgs, PushIsolationLevel,
 };
 
-fn setup_list_jobs_debug_metrics() -> (Option<prometheus::Histogram>, Option<prometheus::Histogram>)
-{
+fn setup_list_jobs_debug_metrics() -> Option<prometheus::Histogram> {
     let api_list_jobs_query_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
         && METRICS_ENABLED.load(Ordering::Relaxed)
     {
@@ -75,21 +74,7 @@ fn setup_list_jobs_debug_metrics() -> (Option<prometheus::Histogram>, Option<pro
         None
     };
 
-    let api_list_jobs_ser_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
-        && METRICS_ENABLED.load(Ordering::Relaxed)
-    {
-        Some(
-            prometheus::register_histogram!(prometheus::HistogramOpts::new(
-                "api_list_jobs_ser_duration",
-                "Duration of listing jobs (serialization)",
-            ))
-            .expect("register prometheus metric"),
-        )
-    } else {
-        None
-    };
-
-    (api_list_jobs_query_duration, api_list_jobs_ser_duration)
+    api_list_jobs_query_duration
 }
 
 pub fn workspaced_service() -> Router {
@@ -98,7 +83,7 @@ pub fn workspaced_service() -> Router {
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    let list_jobs_debug_metrics = setup_list_jobs_debug_metrics();
+    let api_list_jobs_query_duration = setup_list_jobs_debug_metrics();
 
     Router::new()
         .route(
@@ -152,7 +137,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
             "/list",
-            get(list_jobs).layer(Extension(list_jobs_debug_metrics)),
+            get(list_jobs).layer(Extension(api_list_jobs_query_duration)),
         )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
@@ -835,11 +820,8 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-    Extension((api_list_jobs_query_duration, api_list_jobs_ser_duration)): Extension<(
-        Option<prometheus::Histogram>,
-        Option<prometheus::Histogram>,
-    )>,
-) -> impl IntoResponse {
+    Extension(api_list_jobs_query_duration): Extension<Option<prometheus::Histogram>>,
+) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("listjobs"))?;
 
     let (per_page, offset) = paginate(pagination);
@@ -978,15 +960,7 @@ async fn list_jobs(
         api_list_jobs_query_duration.observe(start.elapsed().as_secs_f64());
     }
 
-    let start = Instant::now();
-
-    let response = Json(jobs.into_iter().map(From::from).collect::<Vec<Job>>()).into_response();
-
-    if let Some(api_list_jobs_ser_duration) = api_list_jobs_ser_duration {
-        api_list_jobs_ser_duration.observe(start.elapsed().as_secs_f64());
-    }
-
-    Ok(response)
+    Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
 
 pub async fn resume_suspended_flow_as_owner(
