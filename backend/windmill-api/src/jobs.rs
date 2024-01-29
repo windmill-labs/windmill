@@ -957,7 +957,9 @@ async fn list_jobs(
     tx.commit().await?;
 
     if let Some(api_list_jobs_query_duration) = api_list_jobs_query_duration {
-        api_list_jobs_query_duration.observe(start.elapsed().as_secs_f64());
+        let duration = start.elapsed().as_secs_f64();
+        api_list_jobs_query_duration.observe(duration);
+        tracing::info!("list_jobs query took {}s: {}", duration, sql);
     }
 
     Ok(Json(jobs.into_iter().map(From::from).collect()))
