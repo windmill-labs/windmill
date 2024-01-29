@@ -46,7 +46,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       const content = await Deno.readTextFile(cpath);
       const splitted = cpath.split(".");
       const wmPath = splitted[0];
-      const lang = inferContentTypeFromFilePath(wmPath, conf.defaultTs);
+      const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
       currentLastEdit = {
         content,
         path: wmPath,
