@@ -248,7 +248,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
   return _internal_folder("." + SEP, zip);
 }
 
-async function* readDirRecursiveWithIgnore(
+export async function* readDirRecursiveWithIgnore(
   ignore: (path: string, isDirectory: boolean) => boolean,
   root: DynFSElement
 ): AsyncGenerator<{

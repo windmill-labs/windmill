@@ -3091,6 +3091,14 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
     };
 
     let script_path = job.script_path();
+    let raw_deps = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("raw_deps")
+                .is_some_and(|y| y.to_string().as_str() == "true")
+        })
+        .unwrap_or(false);
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -3110,6 +3118,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
         base_internal_url,
         token,
         script_path,
+        raw_deps,
     )
     .await;
     match content {
@@ -3547,6 +3556,7 @@ async fn lock_modules(
             base_internal_url,
             token,
             &path.clone().unwrap_or_else(|| job_path.to_string()),
+            false,
         )
         .await;
         match new_lock {
@@ -3637,6 +3647,7 @@ async fn lock_modules_app(
                                 base_internal_url,
                                 token,
                                 job.script_path(),
+                                false,
                             )
                             .await;
                             match new_lock {
@@ -3831,17 +3842,22 @@ async fn capture_dependency_job(
     base_internal_url: &str,
     token: &str,
     script_path: &str,
+    raw_deps: bool,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
-            let reqs = windmill_parser_py_imports::parse_python_imports(
-                job_raw_code,
-                &w_id,
-                script_path,
-                &db,
-            )
-            .await?
-            .join("\n");
+            let reqs = if raw_deps {
+                job_raw_code.to_string()
+            } else {
+                windmill_parser_py_imports::parse_python_imports(
+                    job_raw_code,
+                    &w_id,
+                    script_path,
+                    &db,
+                )
+                .await?
+                .join("\n")
+            };
             create_dependencies_dir(job_dir).await;
             let req: std::result::Result<String, Error> = pip_compile(
                 job_id,
@@ -3882,6 +3898,11 @@ async fn capture_dependency_job(
             req
         }
         ScriptLang::Go => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for go".to_string(),
+                ));
+            }
             install_go_dependencies(
                 job_id,
                 job_raw_code,
@@ -3899,6 +3920,11 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Deno => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for deno".to_string(),
+                ));
+            }
             generate_deno_lock(
                 job_id,
                 job_raw_code,
@@ -3914,9 +3940,13 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Bun => {
-            let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
-            //TODO: remove once bun provides sane default fot it
-            let trusted_deps = get_trusted_deps(job_raw_code);
+            let trusted_deps = if !raw_deps {
+                let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
+                //TODO: remove once bun provides sane default fot it
+                get_trusted_deps(job_raw_code)
+            } else {
+                vec![]
+            };
             let req = gen_lockfile(
                 logs,
                 mem_peak,
@@ -3931,6 +3961,11 @@ async fn capture_dependency_job(
                 worker_name,
                 true,
                 trusted_deps,
+                if raw_deps {
+                    Some(job_raw_code.to_string())
+                } else {
+                    None
+                },
             )
             .await?;
             Ok(req.unwrap_or_else(String::new))

@@ -2542,12 +2542,13 @@ async fn run_preview_job(
 pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
+    pub raw_dep: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct RawScriptForDependencies {
     pub script_path: String,
-    pub raw_code: String,
+    pub raw_code: Option<String>,
     pub language: ScriptLang,
 }
 
@@ -2577,7 +2578,22 @@ pub async fn run_dependencies_job(
     }
     let raw_script = req.raw_scripts[0].clone();
     let script_path = raw_script.script_path;
-    let raw_code = raw_script.raw_code;
+    let (args, raw_code) = if let Some(deps) = req.raw_dep {
+        let mut hm = HashMap::new();
+        hm.insert(
+            "raw_deps".to_string(),
+            JsonRawValue::from_string("true".to_string()).unwrap(),
+        );
+        (
+            PushArgs { extra: hm, args: sqlx::types::Json(HashMap::new()) },
+            deps,
+        )
+    } else {
+        (
+            PushArgs::empty(),
+            raw_script.raw_code.unwrap_or_else(|| "".to_string()),
+        )
+    };
     let language = raw_script.language;
 
     let (uuid, tx) = push(
@@ -2589,7 +2605,7 @@ pub async fn run_dependencies_job(
             content: raw_code,
             language: language,
         },
-        PushArgs::empty(),
+        args,
         &authed.username,
         &authed.email,
         username_to_permissioned_as(&authed.username),

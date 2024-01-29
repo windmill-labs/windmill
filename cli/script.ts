@@ -4,6 +4,7 @@ import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
   Command,
+  Confirm,
   JobService,
   log,
   NewScript,
@@ -26,10 +27,14 @@ import {
   ScriptLanguage,
   inferContentTypeFromFilePath,
 } from "./script_common.ts";
-import { elementsToMap } from "./sync.ts";
+import { elementsToMap, readDirRecursiveWithIgnore } from "./sync.ts";
 import { ignoreF } from "./sync.ts";
 import { FSFSElement } from "./sync.ts";
-import { mergeConfigWithConfigFile, readConfigFile } from "./conf.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+} from "./conf.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -550,8 +555,32 @@ async function bootstrap(
   });
 }
 
+async function findGlobalDeps() {
+  const pkgs: { [key: string]: string } = {};
+  const reqs: { [key: string]: string } = {};
+  const els = await FSFSElement(Deno.cwd());
+  for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
+    p = "/" + p;
+    return (
+      !isDir && !(p.endsWith("/package.json") || p.endsWith("requirements.txt"))
+    );
+  }, els)) {
+    if (entry.isDirectory || entry.ignored) continue;
+    const content = await entry.getContentText();
+    if (entry.path.endsWith("package.json")) {
+      pkgs[entry.path.substring(0, entry.path.length - 12)] = content;
+    } else if (entry.path.endsWith("requirements.txt")) {
+      reqs[entry.path.substring(0, entry.path.length - 16)] = content;
+    }
+  }
+  return { pkgs, reqs };
+}
 async function generateMetadata(
-  opts: GlobalOptions & { lockOnly?: boolean; schemaOnly?: boolean },
+  opts: GlobalOptions & {
+    lockOnly?: boolean;
+    schemaOnly?: boolean;
+    yes?: boolean;
+  } & SyncOptions,
   scriptPath?: string
 ) {
   if (scriptPath == "") {
@@ -564,22 +593,53 @@ async function generateMetadata(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
+  const { pkgs, reqs } = await findGlobalDeps();
   if (scriptPath) {
     // read script metadata file
-    await generateMetadataInternal(scriptPath, workspace, opts);
+    await generateMetadataInternal(scriptPath, workspace, opts, false, false);
   } else {
-    log.error("Not implemented");
-    // const elems = await elementsToMap(
-    //   await FSFSElement(Deno.cwd()),
-    //   await ignoreF(),
-    //   false,
-    //   {}
-    // );
-    // log.info("Generating metadata for all stale scripts");
-    // for (const e of Object.keys(elems)) {
-    //   log.info(`Processing ${e}`);
-    //   await generateMetadataInternal(e, workspace, opts);
-    // }
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(Deno.cwd()),
+      (p, isD) => {
+        return (!isD && !exts.some((ext) => p.endsWith(ext))) || ignore(p, isD);
+      },
+      false,
+      {}
+    );
+    let hasAny = false;
+    log.info("Generating metadata for all stale scripts:");
+    for (const e of Object.keys(elems)) {
+      const candidate = await generateMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true,
+        true
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+    if (hasAny) {
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above scripts?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+    for (const e of Object.keys(elems)) {
+      log.info(`Processing ${e}`);
+      await generateMetadataInternal(e, workspace, opts, false, true);
+    }
   }
 }
 
@@ -617,8 +677,17 @@ const command = new Command()
     "re-generate the metadata file updating the lock and the script schema"
   )
   .arguments("[script:string]")
+  .option("--yes", "Skip confirmation prompt")
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
+  .option(
+    "-i --includes <patterns...:file>",
+    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns...:file>",
+    "Patterns to specify which file to NOT take into account."
+  )
   .action(generateMetadata as any);
 
 export default command;

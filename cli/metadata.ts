@@ -26,6 +26,7 @@ import { inferContentTypeFromFilePath } from "./script_common.ts";
 
 export async function generateAllMetadata() {}
 
+function findClosest
 export async function generateMetadataInternal(
   scriptPath: string,
   workspace: Workspace,
@@ -33,8 +34,11 @@ export async function generateMetadataInternal(
     lockOnly?: boolean | undefined;
     schemaOnly?: boolean | undefined;
     defaultTs?: "bun" | "deno";
-  }
-) {
+  },
+  dryRun: boolean,
+  noStaleMessage: boolean,
+  {pkgs, reqs}: {pkgs: Record<string, string>, reqs: Record<string, string>}
+): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
     .replaceAll("\\", "/");
@@ -46,10 +50,14 @@ export async function generateMetadataInternal(
   if (
     await checkifMetadataUptodate(remotePath, scriptContent + metadataContent)
   ) {
-    log.info(
-      colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
-    );
+    if (!noStaleMessage) {
+      log.info(
+        colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
+      );
+    }
     return;
+  } else if (dryRun) {
+    return remotePath;
   }
 
   const metadataParsedContent = metadataWithType?.payload as Record<
@@ -85,6 +93,7 @@ export async function generateMetadataInternal(
   }
   await updateMetadataLock(remotePath, scriptContent + newMetadataContent);
   await Deno.writeTextFile(metaPath, newMetadataContent);
+  return remotePath;
 }
 
 async function updateScriptSchema(
@@ -405,7 +414,9 @@ export async function parseMetadataFile(
           await generateMetadataInternal(
             generateMetadataIfMissing.path,
             generateMetadataIfMissing.workspaceRemote,
-            generateMetadataIfMissing
+            generateMetadataIfMissing,
+            false,
+            false
           );
 
           scriptInitialMetadata = yamlParse(

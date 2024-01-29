@@ -64,85 +64,85 @@ pub async fn gen_lockfile(
     worker_name: &str,
     export_pkg: bool,
     trusted_deps: Vec<String>,
+    raw_deps: Option<String>,
 ) -> Result<Option<String>> {
-    let _ = write_file(
-        &job_dir,
-        "build.ts",
-        &format!(
-            r#"
+    let common_bun_proc_envs: HashMap<String, String> =
+        get_common_bun_proc_envs(&base_internal_url).await;
+
+    if let Some(raw_deps) = raw_deps {
+        gen_bunfig(job_dir).await?;
+        write_file(job_dir, "package.json", raw_deps.as_str()).await?;
+    } else {
+        let _ = write_file(
+            &job_dir,
+            "build.ts",
+            &format!(
+                r#"
 {}
 
 {RELATIVE_BUN_BUILDER}
 "#,
-            RELATIVE_BUN_LOADER
-                .replace("W_ID", w_id)
-                .replace("BASE_INTERNAL_URL", base_internal_url)
-                .replace("TOKEN", token)
-                .replace("CURRENT_PATH", script_path)
-                .replace("RAW_GET_ENDPOINT", "raw")
-        ),
-    )
-    .await?;
-
-    gen_bunfig(job_dir).await?;
-
-    let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url).await;
-
-    let mut child_cmd = Command::new(&*BUN_PATH);
-    child_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(common_bun_proc_envs.clone())
-        .args(vec!["run", "build.ts"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
-
-    handle_child(
-        job_id,
-        db,
-        logs,
-        mem_peak,
-        canceled_by,
-        child_process,
-        false,
-        worker_name,
-        w_id,
-        "bun build",
-        None,
-        false,
-    )
-    .await?;
-
-    if trusted_deps.len() > 0 {
-        logs.push_str(&format!(
-            "\ndetected trustedDependencies: {}\n",
-            trusted_deps.join(", ")
-        ));
-        let mut content = "".to_string();
-        {
-            let mut file = File::open(format!("{job_dir}/package.json")).await?;
-            file.read_to_string(&mut content).await?;
-        }
-        let mut value =
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&content)
-                .map_err(to_anyhow)?;
-        value.insert(
-            "trustedDependencies".to_string(),
-            serde_json::json!(trusted_deps),
-        );
-        write_file(
-            job_dir,
-            "package.json",
-            &serde_json::to_string(&value).map_err(to_anyhow)?,
+                RELATIVE_BUN_LOADER
+                    .replace("W_ID", w_id)
+                    .replace("BASE_INTERNAL_URL", base_internal_url)
+                    .replace("TOKEN", token)
+                    .replace("CURRENT_PATH", script_path)
+                    .replace("RAW_GET_ENDPOINT", "raw")
+            ),
         )
         .await?;
 
-        let mut content = "".to_string();
-        {
-            let mut file = File::open(format!("{job_dir}/package.json")).await?;
-            file.read_to_string(&mut content).await?;
+        gen_bunfig(job_dir).await?;
+
+        let mut child_cmd = Command::new(&*BUN_PATH);
+        child_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(common_bun_proc_envs.clone())
+            .args(vec!["run", "build.ts"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+
+        handle_child(
+            job_id,
+            db,
+            logs,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            w_id,
+            "bun build",
+            None,
+            false,
+        )
+        .await?;
+
+        if trusted_deps.len() > 0 {
+            logs.push_str(&format!(
+                "\ndetected trustedDependencies: {}\n",
+                trusted_deps.join(", ")
+            ));
+            let mut content = "".to_string();
+            {
+                let mut file = File::open(format!("{job_dir}/package.json")).await?;
+                file.read_to_string(&mut content).await?;
+            }
+            let mut value =
+                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&content)
+                    .map_err(to_anyhow)?;
+            value.insert(
+                "trustedDependencies".to_string(),
+                serde_json::json!(trusted_deps),
+            );
+            write_file(
+                job_dir,
+                "package.json",
+                &serde_json::to_string(&value).map_err(to_anyhow)?,
+            )
+            .await?;
         }
     }
 
@@ -365,6 +365,7 @@ pub async fn handle_bun_job(
             worker_name,
             false,
             trusted_deps,
+            None,
         )
         .await?;
         // }
@@ -782,6 +783,7 @@ pub async fn start_worker(
             worker_name,
             false,
             trusted_deps,
+            None,
         )
         .await?;
     }
