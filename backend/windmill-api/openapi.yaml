@@ -8697,6 +8697,8 @@ components:
           enum: [code, identity, http]
         dedicated_worker:
           type: boolean
+        lock:
+          type: string
       required:
         - args
 
