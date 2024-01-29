@@ -67,7 +67,8 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
-  await handleFile(filePath, workspace, [], undefined, false, opts);
+  const globalDeps = await findGlobalDeps();
+  await handleFile(filePath, workspace, [], undefined, false, opts, globalDeps);
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
@@ -76,7 +77,8 @@ export async function handleScriptMetadata(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  lockfileUseArray: boolean
+  lockfileUseArray: boolean,
+  globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
@@ -86,7 +88,8 @@ export async function handleScriptMetadata(
       alreadySynced,
       message,
       lockfileUseArray,
-      undefined
+      undefined,
+      globalDeps
     );
   } else {
     return false;
@@ -561,7 +564,7 @@ export type GlobalDeps = {
   pkgs: Record<string, string>;
   reqs: Record<string, string>;
 };
-async function findGlobalDeps(): Promise<GlobalDeps> {
+export async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const els = await FSFSElement(Deno.cwd());
@@ -598,6 +601,7 @@ async function generateMetadata(
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
 
   const globalDeps = await findGlobalDeps();
   if (scriptPath) {

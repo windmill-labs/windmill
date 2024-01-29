@@ -2542,7 +2542,7 @@ async fn run_preview_job(
 pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
-    pub raw_dep: Option<String>,
+    pub raw_deps: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -2578,7 +2578,7 @@ pub async fn run_dependencies_job(
     }
     let raw_script = req.raw_scripts[0].clone();
     let script_path = raw_script.script_path;
-    let (args, raw_code) = if let Some(deps) = req.raw_dep {
+    let (args, raw_code) = if let Some(deps) = req.raw_deps {
         let mut hm = HashMap::new();
         hm.insert(
             "raw_deps".to_string(),
@@ -2594,6 +2594,7 @@ pub async fn run_dependencies_job(
             raw_script.raw_code.unwrap_or_else(|| "".to_string()),
         )
     };
+    tracing::info!("Running dependencies job for {:?}", args);
     let language = raw_script.language;
 
     let (uuid, tx) = push(

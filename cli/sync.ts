@@ -33,7 +33,11 @@ import {
 } from "./types.ts";
 import { downloadZip } from "./pull.ts";
 
-import { handleScriptMetadata, removeExtensionToPath } from "./script.ts";
+import {
+  findGlobalDeps,
+  handleScriptMetadata,
+  removeExtensionToPath,
+} from "./script.ts";
 
 import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
@@ -780,6 +784,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
     log.info(colors.gray(`Applying changes to files ...`));
 
     const alreadySynced: string[] = [];
+    const globalDeps = await findGlobalDeps();
+
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
       let stateExists = true;
@@ -796,7 +802,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
             workspace,
             alreadySynced,
             opts.message,
-            lockfileUseArray
+            lockfileUseArray,
+            globalDeps
           )
         ) {
           if (opts.stateful && stateExists) {
@@ -810,7 +817,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
             alreadySynced,
             opts.message,
             lockfileUseArray,
-            opts
+            opts,
+            globalDeps
           )
         ) {
           if (opts.stateful && stateExists) {
@@ -850,7 +858,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
             alreadySynced,
             opts.message,
             lockfileUseArray,
-            opts
+            opts,
+            globalDeps
           )
         ) {
           continue;

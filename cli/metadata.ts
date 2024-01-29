@@ -28,7 +28,7 @@ import { GlobalDeps } from "./script.ts";
 export async function generateAllMetadata() {}
 
 function findClosestRawReqs(
-  lang: "bun" | "python" | undefined,
+  lang: "bun" | "python3" | undefined,
   remotePath: string,
   globalDeps: GlobalDeps
 ): string | undefined {
@@ -37,16 +37,16 @@ function findClosestRawReqs(
     Object.entries(globalDeps.pkgs).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
-        k.length > (bestCandidate?.k ?? "").length
+        k.length >= (bestCandidate?.k ?? "").length
       ) {
         bestCandidate = { k, v };
       }
     });
-  } else if (lang == "python") {
+  } else if (lang == "python3") {
     Object.entries(globalDeps.reqs).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
-        k.length > (bestCandidate?.k ?? "").length
+        k.length >= (bestCandidate?.k ?? "").length
       ) {
         bestCandidate = { k, v };
       }
@@ -75,7 +75,7 @@ export async function generateMetadataInternal(
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
   const rawReqs = findClosestRawReqs(
-    language as "bun" | "python" | undefined,
+    language as "bun" | "python3" | undefined,
     scriptPath,
     globalDeps
   );
@@ -101,7 +101,7 @@ export async function generateMetadataInternal(
     }
     return;
   } else if (dryRun) {
-    return remotePath;
+    return `${remotePath} (${language})`;
   }
 
   const metadataParsedContent = metadataWithType?.payload as Record<
@@ -140,7 +140,7 @@ export async function generateMetadataInternal(
     (rawReqs ?? "") + scriptContent + newMetadataContent
   );
   await Deno.writeTextFile(metaPath, newMetadataContent);
-  return remotePath;
+  return `${remotePath} (${language})`;
 }
 
 async function updateScriptSchema(
@@ -166,7 +166,7 @@ async function updateScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawReq: string | undefined
+  rawDeps: string | undefined
 ): Promise<void> {
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
@@ -184,9 +184,9 @@ async function updateScriptLock(
             raw_code: scriptContent,
             language: language,
             script_path: remotePath,
-            raw_reqs: rawReq,
           },
         ],
+        raw_deps: rawDeps,
         entrypoint: remotePath,
       }),
     }

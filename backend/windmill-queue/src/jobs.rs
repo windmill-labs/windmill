@@ -2218,7 +2218,7 @@ macro_rules! fetch_scalar_isolated {
 
 use sqlx::types::JsonRawValue;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct PushArgs<T> {
     #[serde(flatten)]
     pub extra: HashMap<String, Box<RawValue>>,
