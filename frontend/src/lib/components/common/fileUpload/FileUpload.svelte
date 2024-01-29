@@ -21,6 +21,7 @@
 	export let randomFileKey: boolean = false
 	export let pathTransformer: any = undefined // function taking as input {file: File} and returning a string
 	export let forceDisplayUploads: boolean = false
+	export let defaultValue: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -174,7 +175,7 @@
 	}
 </script>
 
-<div class="w-full h-full p-2 flex">
+<div class="w-full h-full p-2 flex flex-col">
 	{#if $fileUploads.length > 0 && !forceDisplayUploads}
 		<div class="border rounded-md flex flex-col gap-1 divide-y h-full w-full p-1">
 			<div class="flex h-full overflow-y-auto flex-col">
@@ -362,6 +363,7 @@
 			}}
 			class={twMerge('w-full h-full', customClass, 'wm-file-input')}
 			style={customStyle}
+			defaultFile={defaultValue}
 		>
 			{containerText}
 		</FileInput>
