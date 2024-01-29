@@ -15,7 +15,8 @@
 			<tr>
 				{#if headers}
 					{#each headers as header, i}
-						<Cell first={i == 0} last={i == headers.length - 1} head>{header}</Cell>
+						<Cell first={i == 0} last={i == headers.length - 1} head class="max-w-96">{header}</Cell
+						>
 					{/each}
 				{/if}
 			</tr>
@@ -25,7 +26,11 @@
 				{#each data as row}
 					<tr>
 						{#each keys as key, i}
-							<Cell first={i == 0} last={i == keys.length - 1} class="w-1/3 whitespace-pre-wrap">
+							<Cell
+								first={i == 0}
+								last={i == keys.length - 1}
+								class="max-w-96 whitespace-pre-wrap overflow-hidden text-ellipsis"
+							>
 								{row[key] ?? ''}
 							</Cell>
 						{/each}
