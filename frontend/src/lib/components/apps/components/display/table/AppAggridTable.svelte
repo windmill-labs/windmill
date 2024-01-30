@@ -202,6 +202,7 @@
 						onFilterChanged: (e) => {
 							outputs?.filters?.set(e.api.getFilterModel())
 							outputs?.displayedRowCount?.set(e.api.getDisplayedRowCount())
+							resolvedConfig?.extraConfig?.['onFilterChanged']?.(e)
 						},
 						getRowId: (data) => data.data['__index']
 					},
