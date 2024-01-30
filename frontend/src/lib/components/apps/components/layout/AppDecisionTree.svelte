@@ -87,6 +87,21 @@
 				parentComponentId: id,
 				subGridIndex: selectedConditionIndex
 			}
+		} else {
+			// if no history, go to first node
+
+			const node = nodes[0]
+
+			if (node) {
+				currentNodeId = node.id
+
+				selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
+
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: selectedConditionIndex
+				}
+			}
 		}
 	}
 
