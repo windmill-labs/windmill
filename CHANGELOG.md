@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.257.0](https://github.com/windmill-labs/windmill/compare/v1.256.0...v1.257.0) (2024-01-30)
+
+
+### Features
+
+* **frontend:** Correctly set the licence key on the approval page ([#3112](https://github.com/windmill-labs/windmill/issues/3112)) ([8ebc90a](https://github.com/windmill-labs/windmill/commit/8ebc90abb2e9d99c4f20cb2e14c0a5487d5a11a0))
+
+
+### Bug Fixes
+
+* **cli:** avoid flows in script generate-metadata ([565e166](https://github.com/windmill-labs/windmill/commit/565e1668b372e7ac4482fc13962b32b1dbb084b3))
+* **frontend:** expose Filters + Displayed row count in the outputs ([#3101](https://github.com/windmill-labs/windmill/issues/3101)) ([b55c0bd](https://github.com/windmill-labs/windmill/commit/b55c0bd2c5a1646709328d8ee9b191a34a2c976c))
+* **frontend:** fix logpanel ([#3111](https://github.com/windmill-labs/windmill/issues/3111)) ([64441b3](https://github.com/windmill-labs/windmill/commit/64441b34522ba99ce44e74a2c81dcc4999acdfa3))
+* simplify folder creation by non admins ([34253fd](https://github.com/windmill-labs/windmill/commit/34253fd43b01fbe15dafe233d008fc9b98c29828))
+
 ## [1.256.0](https://github.com/windmill-labs/windmill/compare/v1.255.0...v1.256.0) (2024-01-30)
 
 
