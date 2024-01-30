@@ -624,7 +624,11 @@ async function generateMetadata(
     const elems = await elementsToMap(
       await FSFSElement(Deno.cwd()),
       (p, isD) => {
-        return (!isD && !exts.some((ext) => p.endsWith(ext))) || ignore(p, isD);
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          p.includes(".flow/")
+        );
       },
       false,
       {}
