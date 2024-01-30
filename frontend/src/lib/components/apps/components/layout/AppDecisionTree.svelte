@@ -66,7 +66,6 @@
 				history.push(node.id)
 
 				selectedConditionIndex = index + 1
-				console.log('selectedConditionIndex', selectedConditionIndex)
 
 				$focusedGrid = {
 					parentComponentId: id,
@@ -83,7 +82,6 @@
 			currentNodeId = previsouNodeId
 
 			selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
-			console.log('selectedConditionIndex', selectedConditionIndex)
 
 			$focusedGrid = {
 				parentComponentId: id,
