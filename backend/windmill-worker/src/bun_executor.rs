@@ -243,11 +243,35 @@ pub async fn install_lockfile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if npm_mode {
+        logs.push_str("NPM mode\n")
+    }
+    let has_file = if npm_mode {
         let registry = NPM_CONFIG_REGISTRY.read().await.clone();
         if let Some(registry) = registry {
-            child_cmd.env("NPM_CONFIG_REGISTRY", registry);
+            let content = registry
+                .trim_start_matches("https:")
+                .trim_start_matches("http:");
+
+            let mut splitted = registry.split(":_authToken=");
+            let custom_registry = splitted.next().unwrap_or_default();
+            logs.push_str(&format!(
+                "Using custom npm registry: {custom_registry} {}\n",
+                if splitted.next().is_some() {
+                    "with authToken"
+                } else {
+                    "without authToken"
+                }
+            ));
+
+            child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
+            write_file(job_dir, ".npmrc", content).await?;
+            true
+        } else {
+            false
         }
-    }
+    } else {
+        false
+    };
 
     let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
@@ -267,6 +291,11 @@ pub async fn install_lockfile(
         false,
     )
     .await?;
+
+    if has_file {
+        tokio::fs::remove_file(format!("{job_dir}/.npmrc")).await?;
+    }
+
     Ok(())
 }
 
