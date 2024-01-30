@@ -178,8 +178,8 @@
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
-							outputs?.displayedRowCount?.set(e.api.getDisplayedRowCount())
 						},
+
 						onGridReady: (e) => {
 							outputs?.ready.set(true)
 							value = value
@@ -201,6 +201,7 @@
 						},
 						onFilterChanged: (e) => {
 							outputs?.filters?.set(e.api.getFilterModel())
+							outputs?.displayedRowCount?.set(e.api.getDisplayedRowCount())
 						},
 						getRowId: (data) => data.data['__index']
 					},
@@ -240,6 +241,12 @@
 
 	function updateValue() {
 		api?.updateGridOptions({ rowData: value })
+
+		const displayedRowCount = api?.getDisplayedRowCount()
+		if (displayedRowCount) {
+			outputs?.displayedRowCount?.set(displayedRowCount)
+		}
+
 		if (api) {
 			onSelectionChanged(api)
 		}
