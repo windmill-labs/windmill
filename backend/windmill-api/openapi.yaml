@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.254.1
+  version: 1.256.0
   title: Windmill API
 
   contact:
@@ -8697,6 +8697,8 @@ components:
           enum: [code, identity, http]
         dedicated_worker:
           type: boolean
+        lock:
+          type: string
       required:
         - args
 

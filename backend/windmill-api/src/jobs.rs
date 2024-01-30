@@ -9,6 +9,8 @@
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use tokio::time::Instant;
 use windmill_common::flow_status::RestartedFrom;
 use windmill_common::variables::get_workspace_key;
 
@@ -49,17 +51,39 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
+use windmill_common::{
+    get_latest_deployed_hash_for_path, BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+};
 use windmill_queue::{
     add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
     push, CanceledBy, PushArgs, PushIsolationLevel,
 };
+
+fn setup_list_jobs_debug_metrics() -> Option<prometheus::Histogram> {
+    let api_list_jobs_query_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
+        && METRICS_ENABLED.load(Ordering::Relaxed)
+    {
+        Some(
+            prometheus::register_histogram!(prometheus::HistogramOpts::new(
+                "api_list_jobs_query_duration",
+                "Duration of listing jobs (query)",
+            ))
+            .expect("register prometheus metric"),
+        )
+    } else {
+        None
+    };
+
+    api_list_jobs_query_duration
+}
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
+
+    let api_list_jobs_query_duration = setup_list_jobs_debug_metrics();
 
     Router::new()
         .route(
@@ -111,7 +135,10 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview", post(run_preview_job))
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
-        .route("/list", get(list_jobs))
+        .route(
+            "/list",
+            get(list_jobs).layer(Extension(api_list_jobs_query_duration)),
+        )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/cancel_all", post(cancel_all))
@@ -793,6 +820,7 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
+    Extension(api_list_jobs_query_duration): Extension<Option<prometheus::Histogram>>,
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("listjobs"))?;
 
@@ -922,8 +950,18 @@ async fn list_jobs(
         sqlc.unwrap().query()?
     };
     let mut tx = user_db.begin(&authed).await?;
+
+    let start = Instant::now();
+
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
+
+    if let Some(api_list_jobs_query_duration) = api_list_jobs_query_duration {
+        let duration = start.elapsed().as_secs_f64();
+        api_list_jobs_query_duration.observe(duration);
+        tracing::info!("list_jobs query took {}s: {}", duration, sql);
+    }
+
     Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
 
@@ -1579,6 +1617,7 @@ struct Preview {
     language: Option<ScriptLang>,
     tag: Option<String>,
     dedicated_worker: Option<bool>,
+    lock: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2507,7 +2546,7 @@ async fn run_preview_job(
                 content: preview.content.unwrap_or_default(),
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
-                lock: None,
+                lock: preview.lock,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
                 cache_ttl: None,
@@ -2542,12 +2581,13 @@ async fn run_preview_job(
 pub struct RunDependenciesRequest {
     pub raw_scripts: Vec<RawScriptForDependencies>,
     pub entrypoint: String,
+    pub raw_deps: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct RawScriptForDependencies {
     pub script_path: String,
-    pub raw_code: String,
+    pub raw_code: Option<String>,
     pub language: ScriptLang,
 }
 
@@ -2577,7 +2617,23 @@ pub async fn run_dependencies_job(
     }
     let raw_script = req.raw_scripts[0].clone();
     let script_path = raw_script.script_path;
-    let raw_code = raw_script.raw_code;
+    let (args, raw_code) = if let Some(deps) = req.raw_deps {
+        let mut hm = HashMap::new();
+        hm.insert(
+            "raw_deps".to_string(),
+            JsonRawValue::from_string("true".to_string()).unwrap(),
+        );
+        (
+            PushArgs { extra: hm, args: sqlx::types::Json(HashMap::new()) },
+            deps,
+        )
+    } else {
+        (
+            PushArgs::empty(),
+            raw_script.raw_code.unwrap_or_else(|| "".to_string()),
+        )
+    };
+
     let language = raw_script.language;
 
     let (uuid, tx) = push(
@@ -2589,7 +2645,7 @@ pub async fn run_dependencies_job(
             content: raw_code,
             language: language,
         },
-        PushArgs::empty(),
+        args,
         &authed.username,
         &authed.email,
         username_to_permissioned_as(&authed.username),

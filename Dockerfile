@@ -197,7 +197,7 @@ ARG nsjail=""
 
 RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
     && apt-get install -y \
-    curl nodejs; fi
+    curl nodejs npm; fi
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm &&  printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
