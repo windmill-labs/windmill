@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.256.0](https://github.com/windmill-labs/windmill/compare/v1.255.0...v1.256.0) (2024-01-30)
+
+
+### Features
+
+* list jobs metrics ([#3104](https://github.com/windmill-labs/windmill/issues/3104)) ([26d5c6c](https://github.com/windmill-labs/windmill/commit/26d5c6c1ba2dfa7edb0217bf7dc89f45279781a7))
+
+
+### Bug Fixes
+
+* add support for NPM_CONFIG_REGISTRY ([47fcfbb](https://github.com/windmill-labs/windmill/commit/47fcfbbbdf179d241f1deb3d5527f8faa0a8132e))
+* add support for NPM_CONFIG_REGISTRY ([27f4624](https://github.com/windmill-labs/windmill/commit/27f4624b30fcb04c98d093e49c614baa5a938528))
+* **frontend:** fix chartjs when resolvedDatasets is not defined ([#3106](https://github.com/windmill-labs/windmill/issues/3106)) ([0102dce](https://github.com/windmill-labs/windmill/commit/0102dcef8ecbc1d8a9528bac8fdfd95b93689155))
+
 ## [1.255.0](https://github.com/windmill-labs/windmill/compare/v1.254.1...v1.255.0) (2024-01-29)
 
 
