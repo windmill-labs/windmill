@@ -10,6 +10,7 @@
 	import type { DecisionTreeNode } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ArrowLeft, ArrowRight } from 'lucide-svelte'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -17,12 +18,16 @@
 	export let render: boolean
 	export let nodes: DecisionTreeNode[]
 
-	const { app, focusedGrid, selectedComponent, connectingInput, componentControl } =
+	const { app, focusedGrid, selectedComponent, connectingInput, componentControl, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 	let selectedConditionIndex = 0
 	let currentNodeId = nodes[0].id
+
+	let outputs = initOutput($worldStore, id, {
+		currentNodeId
+	})
 
 	$: resolvedConditions = nodes.reduce((acc, node) => {
 		acc[node.id] = acc[node.id] || []
@@ -106,6 +111,7 @@
 			parentComponentId: id,
 			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
 		}
+		outputs.currentNodeId.set(currentNodeId)
 	}
 </script>
 

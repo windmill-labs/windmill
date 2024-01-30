@@ -14,19 +14,18 @@ function createBooleanRC(): RichConfiguration {
 export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode | undefined) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
-	const newNode: DecisionTreeNode = {
-		id: nextId,
-		label: nextId,
-		next: sourceNode ? sourceNode.next : [{ id: nodes[0].id }],
-		allowed: createBooleanRC()
-	}
-
 	if (sourceNode) {
-		let index = nodes.findIndex((n) => n.id === sourceNode.id)
-		nodes = [...nodes.slice(0, index), newNode, ...nodes.slice(index)]
+		const newNode: DecisionTreeNode = {
+			id: nextId,
+			label: nextId,
+			next: sourceNode.next,
+			allowed: createBooleanRC()
+		}
+
+		nodes.push(newNode)
 
 		nodes = nodes.map((node) => {
-			if (node.id === sourceNode.id) {
+			if (node.id === sourceNode?.id) {
 				node.next = [
 					{
 						id: newNode.id,
@@ -36,10 +35,20 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode 
 			}
 			return node
 		})
+
+		return nodes
 	} else {
-		nodes = [newNode, ...nodes]
+		const newNode: DecisionTreeNode = {
+			id: nextId,
+			label: nextId,
+			next: [{ id: nodes[0].id }],
+			allowed: createBooleanRC()
+		}
+
+		nodes.unshift(newNode)
+
+		return nodes
 	}
-	return nodes
 }
 
 export function insertNode(
