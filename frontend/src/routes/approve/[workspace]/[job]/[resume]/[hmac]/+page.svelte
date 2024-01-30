@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { Job, JobService, SettingsService } from '$lib/gen'
 	import { page } from '$app/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -36,7 +36,15 @@
 	let default_payload: any = {}
 	let enum_payload: object = {}
 
+	async function setLicense() {
+		const license = await SettingsService.getLicenseId()
+		if (license) {
+			$enterpriseLicense = license
+		}
+	}
+
 	onMount(() => {
+		setLicense()
 		getJob()
 		timeout = setInterval(getJob, 1000)
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
