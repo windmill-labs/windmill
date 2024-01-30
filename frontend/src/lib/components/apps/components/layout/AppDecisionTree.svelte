@@ -26,7 +26,8 @@
 	let currentNodeId = nodes[0].id
 
 	let outputs = initOutput($worldStore, id, {
-		currentNodeId
+		currentNodeId,
+		currentNodeIndex: selectedConditionIndex
 	})
 
 	$: resolvedConditions = nodes.reduce((acc, node) => {
@@ -65,6 +66,7 @@
 				history.push(node.id)
 
 				selectedConditionIndex = index + 1
+				console.log('selectedConditionIndex', selectedConditionIndex)
 
 				$focusedGrid = {
 					parentComponentId: id,
@@ -81,6 +83,7 @@
 			currentNodeId = previsouNodeId
 
 			selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
+			console.log('selectedConditionIndex', selectedConditionIndex)
 
 			$focusedGrid = {
 				parentComponentId: id,
@@ -106,12 +109,16 @@
 		}
 	}
 
+	$: if (currentNodeId) {
+		outputs.currentNodeId.set(currentNodeId)
+		outputs.currentNodeIndex.set(nodes.findIndex((next) => next.id == currentNodeId))
+	}
+
 	$: if ($selectedComponent?.[0] === id && !$focusedGrid) {
 		$focusedGrid = {
 			parentComponentId: id,
 			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
 		}
-		outputs.currentNodeId.set(currentNodeId)
 	}
 </script>
 

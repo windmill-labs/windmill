@@ -189,10 +189,10 @@
 				addSubGrid()
 				if (branchInsert) {
 					if (parentIds.length === 1 && graphNode) {
-						console.log('A', parentIds)
+						// console.log('A', parentIds)
 						nodes = insertNode(nodes, parentIds[0], graphNode)
 					} else {
-						console.log('B', parentIds)
+						// console.log('B', parentIds)
 						// find parent with multiple next
 						const parentWithMultipleNext = nodes.find((node) => {
 							return node.next.length > 1 && parentIds.includes(node.id)

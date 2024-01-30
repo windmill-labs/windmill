@@ -58,7 +58,6 @@ export function insertNode(
 ) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
-	console.log('insertNode', parentId, sourceNode)
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,
