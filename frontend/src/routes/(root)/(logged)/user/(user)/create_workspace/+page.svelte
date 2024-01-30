@@ -56,7 +56,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted() }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
 			})
 		}
 		if (openAiKey != '') {
@@ -130,6 +130,7 @@
 
 	let auto_invite = false
 	let operatorOnly = false
+	let autoAdd = false
 </script>
 
 <CenteredModal title="New Workspace">
@@ -198,6 +199,9 @@
 			>An operator can only execute and view scripts/flows/apps from your workspace, and only those
 			that he has visibility on</Tooltip
 		>
+	</div>
+	<div class="flex items-center gap-1">
+		<Toggle disabled={!auto_invite} bind:checked={autoAdd} options={{ right: `Auto-add users` }} />
 	</div>
 	{#if isDomainAllowed == false}
 		<div class="text-tertiary text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>

@@ -28,12 +28,14 @@
 	let userFilter = ''
 	let auto_invite_domain: string | undefined
 	let operatorOnly: boolean | undefined = undefined
+	let autoAdd: boolean | undefined = undefined
 	let nbDisplayed = 30
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		auto_invite_domain = settings.auto_invite_domain
 		operatorOnly = settings.auto_invite_operator
+		autoAdd = settings.auto_add
 	}
 
 	async function listUsers(): Promise<void> {
@@ -267,6 +269,27 @@
 		{#if auto_invite_domain != undefined}
 			<Toggle
 				size="sm"
+				bind:checked={autoAdd}
+				options={{
+					right: `Auto-add users`
+				}}
+				on:change={async (e) => {
+					await removeAllInvitesFromDomain()
+					await WorkspaceService.editAutoInvite({
+						workspace: $workspaceStore ?? '',
+						requestBody: {
+							operator: operatorOnly ?? false,
+							invite_all: !isCloudHosted(),
+							auto_add: e.detail
+						}
+					})
+					loadSettings()
+					listInvites()
+					listUsers()
+				}}
+			/>
+			<Toggle
+				size="sm"
 				bind:checked={operatorOnly}
 				options={{
 					right: `Auto-invited users to join as operators`
@@ -276,7 +299,11 @@
 					await removeAllInvitesFromDomain()
 					await WorkspaceService.editAutoInvite({
 						workspace: $workspaceStore ?? '',
-						requestBody: { operator: e.detail, invite_all: !isCloudHosted() }
+						requestBody: {
+							operator: e.detail,
+							invite_all: !isCloudHosted(),
+							auto_add: autoAdd ?? false
+						}
 					})
 					loadSettings()
 					listInvites()
@@ -291,8 +318,12 @@
 				await WorkspaceService.editAutoInvite({
 					workspace: $workspaceStore ?? '',
 					requestBody: e.detail
-						? { operator: operatorOnly ?? false, invite_all: !isCloudHosted() }
-						: { operator: undefined }
+						? {
+								operator: operatorOnly ?? false,
+								invite_all: !isCloudHosted(),
+								auto_add: autoAdd ?? false
+						  }
+						: { operator: undefined, auto_add: undefined }
 				})
 				loadSettings()
 				listInvites()
