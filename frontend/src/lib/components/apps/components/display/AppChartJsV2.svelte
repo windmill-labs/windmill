@@ -88,12 +88,10 @@
 		datasets && xData && resolvedDatasets
 			? {
 					labels: resolvedXData,
-					datasets: resolvedDatasets.map((d, index) => {
-						return {
-							label: d.name,
-							data: resolvedDatasetsValues[index]
-						}
-					})
+					datasets: resolvedDatasets?.map((d, index) => ({
+						label: d.name,
+						data: Array.isArray(resolvedDatasetsValues[index]) ? resolvedDatasetsValues[index] : []
+					}))
 			  }
 			: result
 
