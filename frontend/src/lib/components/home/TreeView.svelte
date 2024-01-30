@@ -52,7 +52,7 @@
 
 				<div>
 					{#if depth === 0}f/{/if}{item.folderName}
-					<div class="text-2xs font-normal text-secondary">
+					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
 						({pluralize(item.items.length, ' item')})
 					</div>
 				</div>
@@ -118,7 +118,7 @@
 
 				<div>
 					u/{item.username}
-					<div class="text-2xs font-normal text-secondary"
+					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
 						>({pluralize(item.items.length, ' item')})</div
 					>
 				</div>

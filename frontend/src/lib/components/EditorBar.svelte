@@ -506,7 +506,7 @@
 					{#if !iconOnly}
 						Assistants
 					{/if}
-					<span class="ml-1 -my-1">
+					<span class="-my-1">
 						{#if lang == 'deno'}
 							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
 						{:else if lang == 'go'}

@@ -19,6 +19,7 @@
 	export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md'
 	export let perPage: number | undefined = undefined
 	export let shouldHidePagination: boolean = false
+	export let noBorder: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -27,7 +28,13 @@
 	})
 </script>
 
-<div class={twMerge('border h-full overflow-auto', rounded ? 'rounded-md' : '')}>
+<div
+	class={twMerge(
+		'h-full overflow-auto',
+		rounded ? 'rounded-md' : '',
+		noBorder ? 'border-0' : 'border'
+	)}
+>
 	<div class={twMerge('overflow-auto')}>
 		<table class={twMerge('min-w-full divide-y')}>
 			<slot />
