@@ -51,6 +51,7 @@
 	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
+	import SummaryGen from './copilot/SummaryGen.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -367,6 +368,8 @@
 	let dirtyPath = false
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' = 'metadata'
+
+	let summaryInput: HTMLInputElement | undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -405,23 +408,33 @@
 									</svelte:fragment>
 									<div class="flex flex-col gap-4">
 										<Label label="Summary">
-											<input
-												type="text"
-												autofocus
-												bind:value={script.summary}
-												placeholder="Short summary to be displayed when listed"
-												on:keyup={() => {
-													if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-														path?.setName(
-															script.summary
-																.toLowerCase()
-																.replace(/[^a-z0-9_]/g, '_')
-																.replace(/-+/g, '_')
-																.replace(/^-|-$/g, '')
-														)
-													}
-												}}
-											/>
+											<SummaryGen
+												bind:summary={script.summary}
+												lang={script.language}
+												code={script.content}
+												{summaryInput}
+												let:loading={genLoading}
+											>
+												<input
+													type="text"
+													autofocus
+													bind:value={script.summary}
+													bind:this={summaryInput}
+													class={genLoading ? '!pr-20' : '!pr-9'}
+													placeholder="Short summary to be displayed when listed"
+													on:keyup={() => {
+														if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
+															path?.setName(
+																script.summary
+																	.toLowerCase()
+																	.replace(/[^a-z0-9_]/g, '_')
+																	.replace(/-+/g, '_')
+																	.replace(/^-|-$/g, '')
+															)
+														}
+													}}
+												/>
+											</SummaryGen>
 										</Label>
 										<Label label="Path">
 											<Path
