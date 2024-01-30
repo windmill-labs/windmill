@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [1.255.0](https://github.com/windmill-labs/windmill/compare/v1.254.1...v1.255.0) (2024-01-29)
+
+
+### Features
+
+* **cli:** allow all sync options to be passable from wmill.yaml directly ([2a80df4](https://github.com/windmill-labs/windmill/commit/2a80df4a80cbd4ccecf2066e55efe092b070fefa))
+* **cli:** global generate-metadata + inherit deps from closest package.json/requirements.txt + bun settable as default ([#3102](https://github.com/windmill-labs/windmill/issues/3102)) ([49c1bc5](https://github.com/windmill-labs/windmill/commit/49c1bc50f3ae6aba42317c2a0ef181927e915d26))
+* **cli:** make --raw the default for cli sync ([28a1966](https://github.com/windmill-labs/windmill/commit/28a196657fa60d4db7c6528367e578b1202c5353))
+* **cli:** make default typescript configurable ([1f46bcb](https://github.com/windmill-labs/windmill/commit/1f46bcba72592e39820074d160381fe0ff42ac70))
+* Download s3 file as stream in Python and TS ([#3099](https://github.com/windmill-labs/windmill/issues/3099)) ([6160889](https://github.com/windmill-labs/windmill/commit/616088979378712eab5b3abbb646d3e688d2cece))
+* **frontend:** handle file default value ([#3095](https://github.com/windmill-labs/windmill/issues/3095)) ([94ddf80](https://github.com/windmill-labs/windmill/commit/94ddf803566e94c443f989fc0c7bde578b704786))
+* Passing HOME env var through to python workers ([#3092](https://github.com/windmill-labs/windmill/issues/3092)) ([ec911f6](https://github.com/windmill-labs/windmill/commit/ec911f6a5a68b9d4b2703bef8ebc3342c755a35a))
+* update openai models + increase length + improve code completion ([#3097](https://github.com/windmill-labs/windmill/issues/3097)) ([6d77578](https://github.com/windmill-labs/windmill/commit/6d77578590cc666272bb364d21b7f2a3fe4494ac))
+
+
+### Bug Fixes
+
+* **frontend:** various UI fix ([#3098](https://github.com/windmill-labs/windmill/issues/3098)) ([cbfa5ff](https://github.com/windmill-labs/windmill/commit/cbfa5ff8871097c4f292e32b850a6c10a0809575))
+* improve display result ([ff559ec](https://github.com/windmill-labs/windmill/commit/ff559ecdbdfedc09e17a1ccfc94d17d5b587c453))
+* improve schedule args clearing on script change ([59e0be7](https://github.com/windmill-labs/windmill/commit/59e0be77ad215e13dbd1e071766152c3fa676fde))
+* update deno to 1.38 -&gt; 1.40.2 ([a5d2536](https://github.com/windmill-labs/windmill/commit/a5d25362dbbe09c0c544ddddf0749936cdb8e317))
+* use extra headers when urlencoded ([#3103](https://github.com/windmill-labs/windmill/issues/3103)) ([8fcf119](https://github.com/windmill-labs/windmill/commit/8fcf119798c576a57e6dee3ed5119b7b5d1130f6))
+
 ## [1.254.1](https://github.com/windmill-labs/windmill/compare/v1.254.0...v1.254.1) (2024-01-27)
 
 

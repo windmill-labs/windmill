@@ -2218,7 +2218,7 @@ macro_rules! fetch_scalar_isolated {
 
 use sqlx::types::JsonRawValue;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct PushArgs<T> {
     #[serde(flatten)]
     pub extra: HashMap<String, Box<RawValue>>,
@@ -2289,7 +2289,7 @@ where
                 .into_iter()
                 .map(|(k, v)| (k, to_raw_value(&v)))
                 .collect::<HashMap<_, _>>();
-            return Ok(PushArgs { extra: HashMap::new(), args: Json(payload) });
+            return Ok(PushArgs { extra, args: Json(payload) });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
