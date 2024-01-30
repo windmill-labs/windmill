@@ -63,7 +63,7 @@
 			values['base_url'] = window.location.origin
 		}
 		if (values['retention_period_secs'] == undefined) {
-			values['retention_period_secs'] = 60 * 60 * 24 * 60
+			values['retention_period_secs'] = 60 * 60 * 24 * 30
 		}
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
@@ -368,7 +368,7 @@
 									{#if setting.ee_only != undefined && !$enterpriseLicense}
 										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 											<AlertTriangle size={16} />
-											EE only <Tooltip>{setting.ee_only}</Tooltip>
+											EE only {#if setting.ee_only != ''}<Tooltip>{setting.ee_only}</Tooltip>{/if}
 										</div>
 									{/if}
 									<label class="block pb-2">
@@ -455,7 +455,10 @@
 												</div>
 											{:else if setting.fieldType == 'seconds'}
 												<div>
-													<SecondsInput bind:seconds={values[setting.key]} />
+													<SecondsInput
+														disabled={true || (setting.ee_only != undefined && !$enterpriseLicense)}
+														bind:seconds={values[setting.key]}
+													/>
 												</div>
 											{/if}
 
