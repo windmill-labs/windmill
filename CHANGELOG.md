@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.258.0](https://github.com/windmill-labs/windmill/compare/v1.257.0...v1.258.0) (2024-01-30)
+
+
+### Features
+
+* Support sending SIGINT to jobs ([#3094](https://github.com/windmill-labs/windmill/issues/3094)) ([a719170](https://github.com/windmill-labs/windmill/commit/a719170a6ae125f03312fc1c12a73fd2f01a09c6))
+
+
+### Bug Fixes
+
+* improve array static editor ([ef17fd0](https://github.com/windmill-labs/windmill/commit/ef17fd0f5ea02df218200709f742de2c5ae4cc76))
+
 ## [1.257.0](https://github.com/windmill-labs/windmill/compare/v1.256.0...v1.257.0) (2024-01-30)
 
 
