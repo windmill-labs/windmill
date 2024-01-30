@@ -74,7 +74,7 @@ Generate a very short summary for the script below:
 	<slot {loading} />
 	<Button
 		on:click={loading ? () => abortController.abort() : generateSummary}
-		wrapperClasses="absolute right-1 top-1/2 -translate-y-1/2 "
+		wrapperClasses="absolute right-1.5 top-1/2 -translate-y-1/2 "
 		title="Generate Summary"
 		iconOnly={!loading}
 		variant="contained"
@@ -84,6 +84,6 @@ Generate a very short summary for the script below:
 		clickableWhileLoading
 		startIcon={{ icon: Wand2 }}
 	>
-		Stop</Button
-	>
+		Stop
+	</Button>
 </div>

@@ -420,7 +420,7 @@
 													autofocus
 													bind:value={script.summary}
 													bind:this={summaryInput}
-													class={genLoading ? '!pr-20' : '!pr-9'}
+													class={genLoading ? '!pr-20' : '!pr-10'}
 													placeholder="Short summary to be displayed when listed"
 													on:keyup={() => {
 														if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
