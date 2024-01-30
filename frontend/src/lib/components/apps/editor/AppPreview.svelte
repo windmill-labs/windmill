@@ -102,7 +102,8 @@
 		allIdsInPath,
 		darkMode,
 		cssEditorOpen: writable(false),
-		previewTheme: writable(undefined)
+		previewTheme: writable(undefined),
+		debuggingComponents: writable({})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined

@@ -11,6 +11,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ArrowLeft, ArrowRight } from 'lucide-svelte'
 	import { initOutput } from '../../editor/appUtils'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -18,8 +20,15 @@
 	export let render: boolean
 	export let nodes: DecisionTreeNode[]
 
-	const { app, focusedGrid, selectedComponent, connectingInput, componentControl, worldStore } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		focusedGrid,
+		selectedComponent,
+		connectingInput,
+		componentControl,
+		worldStore,
+		debuggingComponents
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 	let selectedConditionIndex = 0
@@ -195,15 +204,30 @@
 </div>
 
 <div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
+	{#if isDebugging($debuggingComponents, id)}
+		<Badge color="red" size="xs2">
+			{`Debugging. Actions are disabled.`}
+		</Badge>
+	{/if}
 	{#if nodes[0].id !== currentNodeId}
-		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
+		<Button
+			on:click={prev}
+			size="xs2"
+			color="light"
+			startIcon={{ icon: ArrowLeft }}
+			disabled={isDebugging($debuggingComponents, id)}
+		>
+			Prev
+		</Button>
 	{/if}
 	<Button
 		on:click={next}
 		size="xs2"
 		color="dark"
 		endIcon={{ icon: ArrowRight }}
-		disabled={isNextDisabled || currentNodeId === lastNodeId}
+		disabled={isNextDisabled ||
+			currentNodeId === lastNodeId ||
+			isDebugging($debuggingComponents, id)}
 	>
 		Next
 	</Button>

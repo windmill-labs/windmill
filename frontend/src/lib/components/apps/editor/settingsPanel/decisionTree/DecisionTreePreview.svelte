@@ -88,7 +88,7 @@
 			})
 		)
 	}
-	const { app, runnableComponents, componentControl } =
+	const { app, runnableComponents, componentControl, debuggingComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function buildEndNode() {
@@ -183,6 +183,8 @@
 				$selectedNodeId = detail
 				const index = nodes.findIndex((node) => node.id === detail)
 				$componentControl?.[component.id]?.setTab?.(index)
+
+				$debuggingComponents[component.id] = index
 
 				break
 			case 'nodeInsert': {

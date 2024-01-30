@@ -285,3 +285,7 @@ function getFirstNode(nodes: DecisionTreeNode[]): DecisionTreeNode | undefined {
 	// No other nodes has this node as next
 	return nodes.find((node) => !nodes.some((n) => n.next.some((next) => next.id === node.id)))
 }
+
+export function isDebugging(debuggingComponents: Record<string, number>, id: string): boolean {
+	return Object.keys(debuggingComponents).includes(id)
+}
