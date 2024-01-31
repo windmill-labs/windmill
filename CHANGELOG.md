@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.258.4](https://github.com/windmill-labs/windmill/compare/v1.258.3...v1.258.4) (2024-01-31)
+
+
+### Bug Fixes
+
+* improve git sync ([23f06d1](https://github.com/windmill-labs/windmill/commit/23f06d1a0424862afd6f733ed103f7a66f59dd12))
+* improve git sync ([cc0aec8](https://github.com/windmill-labs/windmill/commit/cc0aec87438ebe4aef6dae1464b9dc267da3ad97))
+
 ## [1.258.3](https://github.com/windmill-labs/windmill/compare/v1.258.2...v1.258.3) (2024-01-31)
 
 
