@@ -3,7 +3,7 @@ import { colors, getAvailablePort, log, open, Secret, Select } from "./deps.ts";
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
-  if (!Deno.isatty(Deno.stdin.rid)) {
+  if (!Deno.stdin.isTerminal) {
     log.info("Not a TTY, can't login interactively.");
     return undefined;
   }
