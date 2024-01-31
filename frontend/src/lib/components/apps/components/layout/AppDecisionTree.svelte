@@ -12,7 +12,7 @@
 	import { ArrowLeft, ArrowRight } from 'lucide-svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
+	import { getFirstNode, isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -32,7 +32,7 @@
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 	let selectedConditionIndex = 0
-	let currentNodeId = nodes[0].id
+	let currentNodeId = getFirstNode(nodes)?.id ?? ''
 
 	let outputs = initOutput($worldStore, id, {
 		currentNodeId,
@@ -50,7 +50,11 @@
 	}, resolvedNext || {})
 
 	$: if (!nodes.map((n) => n.id).includes(currentNodeId)) {
-		currentNodeId = nodes[0].id
+		const firstNode = getFirstNode(nodes)?.id
+
+		if (firstNode) {
+			currentNodeId = firstNode
+		}
 	}
 
 	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
@@ -99,7 +103,7 @@
 		} else {
 			// if no history, go to first node
 
-			const node = nodes[0]
+			const node = getFirstNode(nodes)
 
 			if (node) {
 				currentNodeId = node.id
@@ -214,7 +218,7 @@
 			{`Debugging. Actions are disabled.`}
 		</Badge>
 	{/if}
-	{#if nodes[0].id !== currentNodeId}
+	{#if getFirstNode(nodes)?.id !== currentNodeId}
 		<Button
 			on:click={prev}
 			size="xs2"

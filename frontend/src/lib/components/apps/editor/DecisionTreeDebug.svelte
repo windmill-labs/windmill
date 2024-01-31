@@ -26,6 +26,15 @@
 		},
 		currentNodeId
 	)
+
+	$: if (nodes[$debuggingComponents[id] ?? 0]?.id === undefined) {
+		currentNodeId = ''
+		$componentControl?.[id]?.setTab?.(0)
+
+		$debuggingComponents = Object.fromEntries(
+			Object.entries($debuggingComponents).filter(([key]) => key !== id)
+		)
+	}
 </script>
 
 <button

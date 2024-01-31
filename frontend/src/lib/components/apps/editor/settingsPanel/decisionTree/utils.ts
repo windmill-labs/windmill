@@ -38,15 +38,18 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode 
 
 		return nodes
 	} else {
-		const newNode: DecisionTreeNode = {
-			id: nextId,
-			label: nextId,
-			next: [{ id: nodes[0].id }],
-			allowed: createBooleanRC()
+		const firstNode = getFirstNode(nodes)
+
+		if (firstNode) {
+			const newNode: DecisionTreeNode = {
+				id: nextId,
+				label: nextId,
+				next: [{ id: firstNode.id, condition: createBooleanRC() }],
+				allowed: createBooleanRC()
+			}
+
+			nodes.push(newNode)
 		}
-
-		nodes.unshift(newNode)
-
 		return nodes
 	}
 }
@@ -281,7 +284,7 @@ export function getParents(nodes: DecisionTreeNode[], nodeId: string): string[] 
 	return parentIds
 }
 
-function getFirstNode(nodes: DecisionTreeNode[]): DecisionTreeNode | undefined {
+export function getFirstNode(nodes: DecisionTreeNode[]): DecisionTreeNode | undefined {
 	// No other nodes has this node as next
 	return nodes.find((node) => !nodes.some((n) => n.next.some((next) => next.id === node.id)))
 }

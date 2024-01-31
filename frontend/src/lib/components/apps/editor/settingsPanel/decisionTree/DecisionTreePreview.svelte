@@ -15,6 +15,7 @@
 		addNewBranch,
 		addNode,
 		findCollapseNode,
+		getFirstNode,
 		getParents,
 		insertNode,
 		removeBranch,
@@ -52,6 +53,12 @@
 	}
 
 	function buildStartNode() {
+		const firstNode = getFirstNode(nodes)
+
+		if (!firstNode) {
+			return
+		}
+
 		const startNodeConfig = {
 			id: 'start',
 			data: {
@@ -62,7 +69,7 @@
 							id: 'start',
 							label: 'Start',
 							next: {
-								id: nodes[0].id,
+								id: firstNode.id,
 								condition: {
 									type: 'evalv2',
 									expr: 'true',
@@ -80,11 +87,12 @@
 
 		const startNode = createNode(startNodeConfig)
 		displayedNodes.push(startNode)
+
 		edges.push(
 			createEdge({
-				id: `start-${nodes[0].id}`,
+				id: `start-${firstNode?.id}`,
 				source: 'start',
-				target: nodes[0].id
+				target: firstNode?.id
 			})
 		)
 	}
@@ -188,6 +196,7 @@
 				break
 			case 'nodeInsert': {
 				addSubGrid()
+
 				if (branchInsert) {
 					if (parentIds.length === 1 && graphNode) {
 						// console.log('A', parentIds)
@@ -453,7 +462,7 @@
 	})
 
 	$: if (nodes.length > 0 && !$selectedNodeId) {
-		$selectedNodeId = nodes[0].id
+		$selectedNodeId = getFirstNode(nodes)?.id
 	}
 </script>
 
