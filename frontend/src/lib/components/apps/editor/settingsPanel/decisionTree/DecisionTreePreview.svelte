@@ -15,6 +15,7 @@
 		addNewBranch,
 		addNode,
 		findCollapseNode,
+		getFirstNode,
 		getParents,
 		insertNode,
 		removeBranch,
@@ -52,6 +53,12 @@
 	}
 
 	function buildStartNode() {
+		const firstNode = getFirstNode(nodes)
+
+		if (!firstNode) {
+			return
+		}
+
 		const startNodeConfig = {
 			id: 'start',
 			data: {
@@ -62,7 +69,7 @@
 							id: 'start',
 							label: 'Start',
 							next: {
-								id: nodes[0].id,
+								id: firstNode.id,
 								condition: {
 									type: 'evalv2',
 									expr: 'true',
@@ -80,15 +87,16 @@
 
 		const startNode = createNode(startNodeConfig)
 		displayedNodes.push(startNode)
+
 		edges.push(
 			createEdge({
-				id: `start-${nodes[0].id}`,
+				id: `start-${firstNode?.id}`,
 				source: 'start',
-				target: nodes[0].id
+				target: firstNode?.id
 			})
 		)
 	}
-	const { app, runnableComponents, componentControl } =
+	const { app, runnableComponents, componentControl, debuggingComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function buildEndNode() {
@@ -183,16 +191,18 @@
 				$selectedNodeId = detail
 				const index = nodes.findIndex((node) => node.id === detail)
 				$componentControl?.[component.id]?.setTab?.(index)
+				$debuggingComponents[component.id] = index
 
 				break
 			case 'nodeInsert': {
 				addSubGrid()
+
 				if (branchInsert) {
 					if (parentIds.length === 1 && graphNode) {
-						console.log('A', parentIds)
+						// console.log('A', parentIds)
 						nodes = insertNode(nodes, parentIds[0], graphNode)
 					} else {
-						console.log('B', parentIds)
+						// console.log('B', parentIds)
 						// find parent with multiple next
 						const parentWithMultipleNext = nodes.find((node) => {
 							return node.next.length > 1 && parentIds.includes(node.id)
@@ -214,9 +224,11 @@
 
 			case 'delete': {
 				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
+
 				if (graphhNodeIndex > -1) {
 					deleteSubgrid(graphhNodeIndex)
 				}
+
 				nodes = removeNode(nodes, graphNode)
 				break
 			}
@@ -228,6 +240,7 @@
 			case 'removeBranch': {
 				nodes = removeBranch(nodes, graphNode, parentIds[0], (nodeId) => {
 					const index = nodes.findIndex((node) => node.id === nodeId)
+
 					deleteSubgrid(index)
 				})
 				break
@@ -449,7 +462,7 @@
 	})
 
 	$: if (nodes.length > 0 && !$selectedNodeId) {
-		$selectedNodeId = nodes[0].id
+		$selectedNodeId = getFirstNode(nodes)?.id
 	}
 </script>
 
