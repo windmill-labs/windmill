@@ -116,10 +116,15 @@
 
 	function onFocus(newIndex: number) {
 		selectedConditionIndex = newIndex
-		currentNodeId = nodes[selectedConditionIndex].id
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: selectedConditionIndex
+
+		const nodeId = nodes[newIndex]?.id
+
+		if (nodeId) {
+			currentNodeId = nodeId
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: selectedConditionIndex
+			}
 		}
 	}
 

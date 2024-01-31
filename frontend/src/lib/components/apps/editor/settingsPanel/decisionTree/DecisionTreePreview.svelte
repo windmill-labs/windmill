@@ -183,7 +183,6 @@
 				$selectedNodeId = detail
 				const index = nodes.findIndex((node) => node.id === detail)
 				$componentControl?.[component.id]?.setTab?.(index)
-
 				$debuggingComponents[component.id] = index
 
 				break
@@ -216,9 +215,11 @@
 
 			case 'delete': {
 				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
+
 				if (graphhNodeIndex > -1) {
 					deleteSubgrid(graphhNodeIndex)
 				}
+
 				nodes = removeNode(nodes, graphNode)
 				break
 			}
@@ -230,6 +231,7 @@
 			case 'removeBranch': {
 				nodes = removeBranch(nodes, graphNode, parentIds[0], (nodeId) => {
 					const index = nodes.findIndex((node) => node.id === nodeId)
+
 					deleteSubgrid(index)
 				})
 				break

@@ -19,9 +19,9 @@
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
-	const nameOverrides =
+	$: nameOverrides =
 		gridItem.data.type === 'decisiontreecomponent'
-			? gridItem.data.nodes.map((n) => n.label)
+			? gridItem.data.nodes.map((n, i) => `${n.label} (Tab index ${i})`)
 			: undefined
 
 	function getComponentNameById(componentId: string) {

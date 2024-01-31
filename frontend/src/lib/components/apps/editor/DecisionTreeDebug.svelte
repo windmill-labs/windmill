@@ -44,7 +44,7 @@
 			<div class="px-1">
 				{#if isDebugging($debuggingComponents, id)}
 					<div class="flex flex-row items-center gap-2">
-						{`Debugging node ${nodes[$debuggingComponents[id] ?? 0].id}`}
+						{`Debugging node ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
 						<button
 							on:click={() => {
 								$componentControl?.[id]?.setTab?.(0)
