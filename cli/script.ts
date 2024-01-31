@@ -196,6 +196,7 @@ export async function handleFile(
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     } else {
@@ -223,6 +224,7 @@ export async function handleFile(
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     }
@@ -624,7 +626,11 @@ async function generateMetadata(
     const elems = await elementsToMap(
       await FSFSElement(Deno.cwd()),
       (p, isD) => {
-        return (!isD && !exts.some((ext) => p.endsWith(ext))) || ignore(p, isD);
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          p.includes(".flow/")
+        );
       },
       false,
       {}

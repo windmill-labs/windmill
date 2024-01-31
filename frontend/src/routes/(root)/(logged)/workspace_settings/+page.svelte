@@ -766,9 +766,10 @@
 		{:else if tab == 'windmill_lfs'}
 			<PageHeader title="S3 Storage" primary={false} />
 			{#if !$enterpriseLicense}
-				<Alert type="info" title="S3 storage it limited to 20 files in Windmill CE">
-					Windmill S3 bucket browser will not work for buckets containing more than 20 files.
-					Consider upgrading to Windmill EE to use this feature with large buckets.
+				<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
+					Windmill S3 bucket browser will not work for buckets containing more than 20 files and
+					uploads are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature
+					with large buckets.
 				</Alert>
 			{/if}
 			<div class="mt-5 flex gap-1">
