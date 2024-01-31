@@ -795,6 +795,7 @@ async fn auto_add_user(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<()> {
     let mut username = email.split('@').next().unwrap().to_string();
+    let base_username = username.clone();
     let mut username_conflict = true;
     let mut i = 1;
     while username_conflict {
@@ -805,7 +806,7 @@ async fn auto_add_user(
             )));
         }
         if i > 1 {
-            username = format!("{}{}", username, i);
+            username = format!("{}{}", base_username, i)
         }
         username_conflict = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
