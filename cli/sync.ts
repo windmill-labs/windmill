@@ -404,7 +404,7 @@ async function compareDynFSElement(
       }
       return o;
     } else {
-      return o;
+      return yamlParse(v);
     }
   }
   for (const [k, v] of Object.entries(m1)) {
