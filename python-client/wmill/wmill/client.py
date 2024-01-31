@@ -445,14 +445,11 @@ class Windmill:
             # need a vanilla client b/c content-type is not application/json here
             response = httpx.post(
                 f"{self.base_url}/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                },
+                headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
                 params=query_params,
-                files={
-                    "file_upload": content_reader,
-                },
+                content=content_reader.read(),
                 verify=self.verify,
+                timeout=None,
             ).json()
         except Exception as e:
             raise Exception("Could not write file to S3") from e

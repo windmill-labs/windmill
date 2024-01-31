@@ -1,21 +1,22 @@
-use std::io::Read;
+use std::io::{self, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{cmp, future};
 
 use crate::{db::DB, resources::get_resource_value_interpolated_internal, users::Tokened};
 use axum::body::StreamBody;
-use axum::extract::Multipart;
+use axum::extract::{BodyStream, DefaultBodyLimit};
 use axum::headers::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::BoxError;
 use axum::{
+    body::Bytes,
     extract::{Path, Query},
     routing::{delete, get, post},
     Extension, Json, Router,
 };
-use bytes::Buf;
-use futures::StreamExt;
+use futures::{Stream, StreamExt, TryStreamExt};
 use hyper::http;
 use object_store::{ClientConfigKey, ObjectStore};
 use polars::{
@@ -31,7 +32,8 @@ use polars::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{copy, AsyncWriteExt};
+use tokio_util::io::StreamReader;
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::error::{Error, JsonResult};
 use windmill_common::worker::to_raw_value;
@@ -100,6 +102,7 @@ pub fn workspaced_service() -> Router {
             "/download_s3_file",
             get(download_s3_file).layer(cors.clone()),
         )
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // necessary for multipart upload
 }
 
 #[derive(Deserialize)]
@@ -783,7 +786,7 @@ async fn multipart_upload_s3_file(
     Tokened { token }: Tokened,
     Path(w_id): Path<String>,
     Query(query): Query<UploadFileQuery>,
-    mut file_payload: Multipart,
+    body: BodyStream,
 ) -> JsonResult<UploadFileResponse> {
     let file_key = match query.file_key.clone() {
         Some(fk) => fk,
@@ -827,43 +830,31 @@ async fn multipart_upload_s3_file(
     ))?;
     let s3_client = build_object_store_client(&s3_resource)?;
 
+    let body_with_io_error = body.map_err(|err| io::Error::new(io::ErrorKind::Other, err));
+    let body_reader = StreamReader::new(body_with_io_error);
+    futures::pin_mut!(body_reader);
+
     let path = object_store::path::Path::from(file_key.clone());
     let (multipart_id, mut parts_writer) = s3_client.put_multipart(&path).await.map_err(|err| {
         tracing::error!("Error initializing multipart upload: {:?}", err);
         Error::InternalErr(err.to_string())
     })?;
 
-    loop {
-        let next_field_resp = file_payload.next_field().await.map_err(|err| {
-            tracing::error!(
-                "Error reading multipart field, the transfer will be cancelled: {:?}",
-                err
-            );
+    copy(&mut body_reader, &mut parts_writer)
+        .await
+        .map_err(|err| {
             let _ = s3_client.abort_multipart(&path, &multipart_id);
+            tracing::error!("Error forwarding stream to object writer: {:?}", err);
             Error::InternalErr(err.to_string())
         })?;
 
-        if let Some(next_field) = next_field_resp {
-            let part_bytes = next_field.bytes().await.map_err(|err| {
-                tracing::error!("Error reading multipart field bytes: {:?}", err);
-                Error::InternalErr(err.to_string())
-            })?;
-            let field_content: &mut Vec<u8> = &mut Vec::new();
-            part_bytes.reader().read_to_end(field_content)?;
-            parts_writer.write(field_content).await.map_err(|err| {
-                tracing::error!("Error writing multipart field bytes: {:?}", err);
-                Error::InternalErr(err.to_string())
-            })?;
-        } else {
-            tracing::debug!("Next part was empty, ending the transfer");
-            break;
-        }
-    }
     parts_writer.flush().await.map_err(|err| {
+        let _ = s3_client.abort_multipart(&path, &multipart_id);
         tracing::error!("Error flushing multipart writer: {:?}", err);
         Error::InternalErr(err.to_string())
     })?;
     parts_writer.shutdown().await.map_err(|err| {
+        let _ = s3_client.abort_multipart(&path, &multipart_id);
         tracing::error!("Error closing multipart writer: {:?}", err);
         Error::InternalErr(err.to_string())
     })?;

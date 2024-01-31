@@ -10586,6 +10586,52 @@ paths:
           content:
             application/json:
               schema: {}
+  /w/{workspace}/job_helpers/multipart_upload_s3_file:
+    post:
+      summary: Upload file to S3 bucket using multipart upload
+      operationId: multipartFileUpload
+      tags:
+        - helpers
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Chunk upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                required:
+                  - file_key
   /w/{workspace}/job_helpers/download_s3_file:
     get:
       summary: Download file to S3 bucket

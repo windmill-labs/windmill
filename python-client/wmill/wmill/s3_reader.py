@@ -15,6 +15,7 @@ class S3BufferedReader(BufferedReader):
             "GET",
             f"/w/{workspace}/job_helpers/download_s3_file",
             params=params,
+            timeout=None,
         )
 
     def __enter__(self):

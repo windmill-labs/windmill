@@ -1,6 +1,6 @@
 use crate::error;
-use object_store::aws::AmazonS3Builder;
 use object_store::ObjectStore;
+use object_store::{aws::AmazonS3Builder, ClientOptions};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -82,6 +82,7 @@ pub fn build_object_store_client(
     let endpoint = render_endpoint(&s3_resource);
 
     let mut store_builder = AmazonS3Builder::new()
+        .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
         .with_region(s3_resource.region)
         .with_bucket_name(s3_resource.bucket)
         .with_endpoint(endpoint);
