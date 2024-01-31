@@ -78,11 +78,11 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Retention Period in secs',
 			key: 'retention_period_secs',
-			description: 'How long to keep the jobs data in the database.',
+			description: 'How long to keep the jobs data in the database (max 30 days on CE)',
 			fieldType: 'seconds',
 			placeholder: '30',
 			storage: 'setting',
-			ee_only: 'You can only adjust this setting in the EE version',
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
 		},
 		{

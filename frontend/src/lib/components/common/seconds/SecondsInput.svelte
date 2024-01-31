@@ -8,6 +8,8 @@
 	export let seconds = 0
 	export let hideDisplay = false
 	export let disabled = false
+	export let max: number | undefined = undefined
+
 	let day: TimeUnit = undefined
 	let hour: TimeUnit = undefined
 	let min: TimeUnit = undefined
@@ -38,6 +40,9 @@
 			(min || 0) * ONE_MINUTE_IN_SECONDS +
 			(sec || 0)
 		if (seconds < 0) seconds = 0
+		if (max && seconds > max) {
+			seconds = max
+		}
 	}
 </script>
 
