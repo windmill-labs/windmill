@@ -1,4 +1,4 @@
-FROM ghcr.io/windmill-labs/windmill-ee:main
+FROM ghcr.io/windmill-labs/windmill-ee:dev
 
 RUN apt-get update
 RUN apt-get install -y chromium
