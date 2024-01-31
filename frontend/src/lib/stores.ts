@@ -75,6 +75,7 @@ export const copilotInfo = writable<{
 })
 export const codeCompletionLoading = writable<boolean>(false)
 export const codeCompletionSessionEnabled = writable<boolean>(true)
+export const metadataCompletionEnabled = writable<boolean>(true)
 export const formatOnSave = writable<boolean>(true)
 
 type SQLBaseSchema = {
