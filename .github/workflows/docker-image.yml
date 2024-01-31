@@ -110,54 +110,6 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-  build_ee_cuda:
-    runs-on: ubicloud
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
-
-      - uses: depot/setup-action@v1
-
-      - name: Docker meta
-        id: meta-ee-public
-        uses: docker/metadata-action@v4
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
-          flavor: |
-            latest=false
-          tags: |
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Login to registry
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          build-args: |
-            features=enterprise
-            PYTHON_IMAGE=nvidia/cuda:12.2.2-base-ubuntu22.04
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-cuda:main
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
-
   build_ee_reports_privately:
     needs: [build_ee]
     runs-on: ubicloud
@@ -281,49 +233,49 @@ jobs:
             ${{ steps.extract.outputs.destination }}/*
             ${{ steps.extract-ee.outputs.destination }}/*
 
-  attach_arm64_binary_to_release:
-    needs: [build, build_ee]
-    runs-on: ubicoud
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
-    env:
-      ARCH: arm64
-    steps:
-      - uses: actions/checkout@v3
+  # attach_arm64_binary_to_release:
+  #   needs: [build, build_ee]
+  #   runs-on: ubicoud
+  #   if: ${{ startsWith(github.ref, 'refs/tags/') }}
+  #   env:
+  #     ARCH: arm64
+  #   steps:
+  #     - uses: actions/checkout@v3
 
-      - run: |
-          # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+  #     - run: |
+  #         # pulling docker image with desired arch so that actions-docker-extract doesn't do it
+  #         docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+  #         docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
 
-      - run: |
-          # Checks the image is in docker prior to running actions-docker-extract. It fails if not
-          # Also useful to visually check that the arch is the right opencontainers
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+  #     - run: |
+  #         # Checks the image is in docker prior to running actions-docker-extract. It fails if not
+  #         # Also useful to visually check that the arch is the right opencontainers
+  #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+  #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
 
-      - uses: shrink/actions-docker-extract@v3
-        id: extract
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          path: "/usr/src/app/windmill"
+  #     - uses: shrink/actions-docker-extract@v3
+  #       id: extract
+  #       with:
+  #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+  #         path: "/usr/src/app/windmill"
 
-      - uses: shrink/actions-docker-extract@v3
-        id: extract-ee
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-          path: "/usr/src/app/windmill"
+  #     - uses: shrink/actions-docker-extract@v3
+  #       id: extract-ee
+  #       with:
+  #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+  #         path: "/usr/src/app/windmill"
 
-      - name: Rename binary with corresponding architecture
-        run: |
-          mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}"
-          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}"
+  #     - name: Rename binary with corresponding architecture
+  #       run: |
+  #         mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}"
+  #         mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}"
 
-      - name: Attach binary to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ${{ steps.extract.outputs.destination }}/*
-            ${{ steps.extract-ee.outputs.destination }}/*
+  #     - name: Attach binary to release
+  #       uses: softprops/action-gh-release@v1
+  #       with:
+  #         files: |
+  #           ${{ steps.extract.outputs.destination }}/*
+  #           ${{ steps.extract-ee.outputs.destination }}/*
 
   publish_ecr_s3:
     needs: [build_ee]
@@ -432,3 +384,52 @@ jobs:
         run: |
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+
+  build_ee_cuda:
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    needs: [build_ee]
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
+
+      - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-cuda
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Login to registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publicly ee
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            features=enterprise,enterprise_saml,stripe
+            nsjail=true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
