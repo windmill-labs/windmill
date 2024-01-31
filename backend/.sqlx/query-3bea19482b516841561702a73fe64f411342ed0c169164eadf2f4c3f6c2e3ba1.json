@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1 OR auto_invite_domain = '*'",
+  "query": "SELECT workspace_id, auto_invite_operator, auto_add FROM workspace_settings WHERE auto_invite_domain = $1 OR auto_invite_domain = '*'",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "auto_invite_operator",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "auto_add",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      true,
       true
     ]
   },
-  "hash": "8c5e13df05fca96685deb44631b285568cb4f7d5b8b6a95f1f669c59f0355752"
+  "hash": "3bea19482b516841561702a73fe64f411342ed0c169164eadf2f4c3f6c2e3ba1"
 }

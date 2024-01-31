@@ -34,6 +34,7 @@ use chrono::Utc;
 #[cfg(feature = "stripe")]
 use chrono::{Datelike, TimeZone, Timelike};
 use magic_crypt::MagicCryptTrait;
+use regex::Regex;
 #[cfg(feature = "stripe")]
 use stripe::CustomerId;
 use uuid::Uuid;
@@ -153,6 +154,7 @@ pub struct WorkspaceSettings {
     pub slack_email: String,
     pub auto_invite_domain: Option<String>,
     pub auto_invite_operator: Option<bool>,
+    pub auto_add: Option<bool>,
     pub customer_id: Option<String>,
     pub plan: Option<String>,
     pub webhook: Option<String>,
@@ -209,6 +211,7 @@ struct EditDeployTo {
 struct EditAutoInvite {
     operator: Option<bool>,
     invite_all: Option<bool>,
+    auto_add: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -786,6 +789,64 @@ async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResul
     return Ok(Json(!BANNED_DOMAINS.contains(domain)));
 }
 
+async fn auto_add_user(
+    email: &str,
+    w_id: &str,
+    operator: &bool,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<()> {
+    let mut username = email
+        .split('@')
+        .next()
+        .unwrap()
+        .to_string()
+        .replace(".", "");
+
+    username = INVALID_USERNAME_CHARS
+        .replace_all(&mut username, "")
+        .to_string();
+
+    if username.is_empty() {
+        username = "user".to_string()
+    }
+
+    let base_username = username.clone();
+    let mut username_conflict = true;
+    let mut i = 1;
+    while username_conflict {
+        if i > 1000 {
+            return Err(Error::InternalErr(format!(
+                "too many username conflicts for {}",
+                email
+            )));
+        }
+        if i > 1 {
+            username = format!("{}{}", base_username, i)
+        }
+        username_conflict = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
+            &username,
+            &w_id
+        )
+        .fetch_one(&mut **tx)
+        .await?
+        .unwrap_or(false);
+        i += 1;
+    }
+
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, username, email, is_admin, operator) VALUES ($1, $2, $3, false, $4)",
+        &w_id,
+        &username,
+        &email,
+        &operator
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn edit_auto_invite(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -816,7 +877,7 @@ async fn edit_auto_invite(
 
     let mut tx = db.begin().await?;
 
-    if let Some(operator) = ea.operator {
+    if let (Some(operator), Some(auto_add)) = (ea.operator, ea.auto_add) {
         if BANNED_DOMAINS.contains(domain) {
             return Err(Error::BadRequest(format!(
                 "Domain {} is not allowed",
@@ -825,30 +886,46 @@ async fn edit_auto_invite(
         }
 
         sqlx::query!(
-            "UPDATE workspace_settings SET auto_invite_domain = $1, auto_invite_operator = $2 WHERE workspace_id = $3",
+            "UPDATE workspace_settings SET auto_invite_domain = $1, auto_invite_operator = $2, auto_add = $4 WHERE workspace_id = $3",
             domain,
             operator,
-            &w_id
+            &w_id,
+            auto_add,
         )
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query!(
-            "INSERT INTO workspace_invite
-        (workspace_id, email, is_admin, operator)
-        SELECT $1::text, email, false, $3 FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
-            SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
-        )
-        ON CONFLICT DO NOTHING",
-            &w_id,
-            &domain,
-            operator
-        )
-        .execute(&mut *tx)
-        .await?;
+        if auto_add {
+            let users = sqlx::query!(
+                "SELECT email FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
+                    SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
+                )",
+                &w_id,
+                domain
+            )
+            .fetch_all(&mut *tx).await?;
+
+            for user in users {
+                auto_add_user(&user.email, &w_id, &operator, &mut tx).await?;
+            }
+        } else {
+            sqlx::query!(
+                "INSERT INTO workspace_invite
+            (workspace_id, email, is_admin, operator)
+            SELECT $1::text, email, false, $3 FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
+                SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
+            )
+            ON CONFLICT DO NOTHING",
+                &w_id,
+                domain,
+                operator
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET auto_invite_domain = NULL, auto_invite_operator = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET auto_invite_domain = NULL, auto_invite_operator = NULL, auto_add = NULL WHERE workspace_id = $1",
             &w_id,
         )
         .execute(&mut *tx)
@@ -1301,6 +1378,8 @@ lazy_static::lazy_static! {
         }
     };
 
+    pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
+
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -1703,23 +1782,28 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
     let mut tx = db.begin().await?;
     let domain = email.split('@').last().unwrap();
     let workspaces = sqlx::query!(
-        "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1 OR auto_invite_domain = '*'",
+        "SELECT workspace_id, auto_invite_operator, auto_add FROM workspace_settings WHERE auto_invite_domain = $1 OR auto_invite_domain = '*'",
         domain
     )
     .fetch_all(&mut *tx)
     .await?;
     for r in workspaces {
-        sqlx::query!(
-            "INSERT INTO workspace_invite
-                (workspace_id, email, is_admin, operator)
-                VALUES ($1, $2, false, $3)
-                ON CONFLICT DO NOTHING",
-            r.workspace_id,
-            email,
-            r.auto_invite_operator
-        )
-        .execute(&mut *tx)
-        .await?;
+        if r.auto_add.is_some() && r.auto_add.unwrap() {
+            let operator = r.auto_invite_operator.unwrap_or(false);
+            auto_add_user(email, &r.workspace_id, &operator, &mut tx).await?;
+        } else {
+            sqlx::query!(
+                "INSERT INTO workspace_invite
+                    (workspace_id, email, is_admin, operator)
+                    VALUES ($1, $2, false, $3)
+                    ON CONFLICT DO NOTHING",
+                r.workspace_id,
+                email,
+                r.auto_invite_operator
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     }
     tx.commit().await?;
     Ok(())
