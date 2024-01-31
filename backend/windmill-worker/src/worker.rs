@@ -277,6 +277,11 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
+    pub static ref MAX_WAIT_FOR_SIGINT: u64 = std::env::var("MAX_WAIT_FOR_SIGINT")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or_else(|| 0);
+
     pub static ref MAX_WAIT_FOR_SIGTERM: u64 = std::env::var("MAX_WAIT_FOR_SIGTERM")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
@@ -3437,7 +3442,7 @@ async fn lock_modules(
     let mut new_flow_modules = Vec::new();
     for mut e in modules.into_iter() {
         let FlowModuleValue::RawScript {
-            lock: _,
+            lock,
             path,
             content,
             language,
@@ -3445,7 +3450,7 @@ async fn lock_modules(
             tag,
             concurrent_limit,
             concurrency_time_window_s,
-        } = e.value
+        } = e.value.clone()
         else {
             match e.value {
                 FlowModuleValue::ForloopFlow {
@@ -3541,7 +3546,10 @@ async fn lock_modules(
             new_flow_modules.push(e);
             continue;
         };
-
+        if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
+            new_flow_modules.push(e);
+            continue;
+        }
         let new_lock = capture_dependency_job(
             &job.id,
             &language,

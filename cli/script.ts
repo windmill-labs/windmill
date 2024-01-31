@@ -151,7 +151,6 @@ export async function handleFile(
           typed == undefined ||
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
-            (typed.is_template ?? false) === (remote.is_template ?? false) &&
             typed.kind == remote.kind &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
@@ -184,7 +183,6 @@ export async function handleFile(
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: remote.hash,
@@ -196,6 +194,7 @@ export async function handleFile(
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     } else {
@@ -211,7 +210,6 @@ export async function handleFile(
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: undefined,
@@ -223,6 +221,7 @@ export async function handleFile(
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     }
@@ -624,7 +623,11 @@ async function generateMetadata(
     const elems = await elementsToMap(
       await FSFSElement(Deno.cwd()),
       (p, isD) => {
-        return (!isD && !exts.some((ext) => p.endsWith(ext))) || ignore(p, isD);
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          p.includes(".flow/")
+        );
       },
       false,
       {}

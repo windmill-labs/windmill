@@ -24,6 +24,7 @@
 		field: string
 		headerName: string
 		editable: boolean
+		filter: boolean
 	}
 
 	export let value: Column | undefined
@@ -218,6 +219,23 @@
 					<option value="asc">Ascending</option>
 					<option value="desc">Descending</option>
 				</select>
+			</Label>
+
+			<Label label="Filter">
+				<svelte:fragment slot="header">
+					<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/filtering/">
+						Filtering allows you to limit the rows displayed in your grid to those that match
+						criteria you specify.
+					</Tooltip>
+				</svelte:fragment>
+				<Toggle
+					on:pointerdown={(e) => {
+						e?.stopPropagation()
+					}}
+					options={{ right: 'Enable filter' }}
+					bind:checked={value.filter}
+					size="xs"
+				/>
 			</Label>
 
 			<!--
