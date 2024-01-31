@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.258.2](https://github.com/windmill-labs/windmill/compare/v1.258.1...v1.258.2) (2024-01-31)
+
+
+### Bug Fixes
+
+* **cli:** push folders first + on_behalf_of stripped from metadata ([d2cbc7a](https://github.com/windmill-labs/windmill/commit/d2cbc7a41671e91e07fc1e81e966c51133abcc72))
+
+## [1.258.1](https://github.com/windmill-labs/windmill/compare/v1.258.0...v1.258.1) (2024-01-31)
+
+
+### Bug Fixes
+
+* **cli:** add support for restart_unless_cancelled in sync ([b4d0a3c](https://github.com/windmill-labs/windmill/commit/b4d0a3c4239973fa32e198b117c25e0d13a53b4c))
+* fix RETENTION period setting UI ([5cec2ed](https://github.com/windmill-labs/windmill/commit/5cec2edaefd908a5bf3c9853035e6e2d2466656d))
+
 ## [1.258.0](https://github.com/windmill-labs/windmill/compare/v1.257.0...v1.258.0) (2024-01-30)
 
 

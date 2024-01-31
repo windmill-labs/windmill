@@ -151,7 +151,6 @@ export async function handleFile(
           typed == undefined ||
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
-            (typed.is_template ?? false) === (remote.is_template ?? false) &&
             typed.kind == remote.kind &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
@@ -184,7 +183,6 @@ export async function handleFile(
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: remote.hash,
@@ -212,7 +210,6 @@ export async function handleFile(
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: undefined,
