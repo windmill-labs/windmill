@@ -10,7 +10,9 @@
 
 	const tabComponents = allItems($app.grid, $app.subgrids).filter(
 		(component) =>
-			component.data.type === 'tabscomponent' || component.data.type === 'conditionalwrapper'
+			component.data.type === 'tabscomponent' ||
+			component.data.type === 'conditionalwrapper' ||
+			component.data.type === 'decisiontreecomponent'
 	)
 </script>
 
