@@ -713,12 +713,12 @@ const command = new Command()
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
   .option(
-    "-i --includes <patterns...:file>",
-    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
   )
   .option(
-    "-e --excludes <patterns...:file>",
-    "Patterns to specify which file to NOT take into account."
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
   )
   .action(generateMetadata as any);
 
