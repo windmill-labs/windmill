@@ -86,7 +86,6 @@ tokenizers.workspace = true
 candle-core.workspace = true
 candle-transformers.workspace = true
 candle-nn.workspace = true
-aws-sdk-s3.workspace = true
 polars.workspace = true
 polars-io.workspace = true
 object_store.workspace = true

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { copyToClipboard, emptyString, pluralize, truncate } from '$lib/utils'
+	import { copyToClipboard, pluralize, truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
 	import { Badge } from '../common'
@@ -9,7 +9,6 @@
 	import Portal from 'svelte-portal'
 	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import { HelpersService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 
 	export let json: any
@@ -55,18 +54,6 @@
 			copyToClipboard(valueToCopy)
 		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
-	}
-
-	async function downloadS3File(fileKey: string | undefined) {
-		if (emptyString(fileKey)) {
-			return
-		}
-		const downloadUrl = await HelpersService.generateDownloadUrl({
-			workspace: $workspaceStore!,
-			fileKey: fileKey!
-		})
-		console.log('download URL ', downloadUrl.download_url)
-		window.open(downloadUrl.download_url, '_blank')
 	}
 
 	$: keyLimit = isArray ? 1 : 100
@@ -149,13 +136,12 @@
 			{#if level == 0 && topBrackets}
 				<span class="h-0">{closeBracket}</span>
 				{#if getTypeAsString(json) === 's3object'}
-					<button
-						class="text-secondary underline text-2xs whitespace-nowrap"
-						on:click={() => {
-							downloadS3File(json?.s3)
-						}}
-						><span class="flex items-center gap-1"><Download size={12} />download</span>
-					</button>
+					<a
+						href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}`}
+						download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
+					>
+						<span class="flex items-center gap-1"><Download size={12} />download</span>
+					</a>
 					<button
 						class="text-secondary underline text-2xs whitespace-nowrap ml-1"
 						on:click={() => {

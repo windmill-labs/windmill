@@ -275,18 +275,6 @@
 		drawer.openDrawer?.()
 	}
 
-	export async function downloadS3File(fileKey: string | undefined) {
-		if (fileKey === undefined) {
-			return
-		}
-		const downloadUrl = await HelpersService.generateDownloadUrl({
-			workspace: $workspaceStore!,
-			fileKey: fileKey
-		})
-		console.log('download URL ', downloadUrl.download_url)
-		window.open(downloadUrl.download_url, '_blank')
-	}
-
 	async function reloadContent() {
 		if (initialFileKey !== undefined) {
 			initialFileKeyInternalCopy = { ...initialFileKey }
@@ -508,9 +496,8 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											on:click={() => {
-												downloadS3File(fileMetadata?.fileKey)
-											}}
+											href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${fileMetadata?.fileKey}`}
+											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
 										/>

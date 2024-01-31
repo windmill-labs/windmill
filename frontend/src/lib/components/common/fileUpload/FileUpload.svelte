@@ -5,7 +5,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService, type UploadFilePart } from '$lib/gen'
+	import { HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -47,7 +47,6 @@
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
 		}
-
 		let path: string | undefined = undefined
 		let fileExtension: string | undefined = undefined
 		if (randomFileKey) {
@@ -63,7 +62,6 @@
 					  })) ?? fileToUploadKey
 					: fileToUploadKey
 		}
-
 		const uploadData: FileUploadData = {
 			name: fileToUpload.name,
 			size: fileToUpload.size,
@@ -72,97 +70,41 @@
 			path: path,
 			file: fileToUpload
 		}
-
 		$fileUploads = [...$fileUploads, uploadData]
-
-		let upload_id: string | undefined = undefined
-		let parts: UploadFilePart[] = []
-
-		let reader = fileToUpload?.stream().getReader()
-		let { value: chunk, done: readerDone } = await reader.read()
-		if (chunk === undefined || readerDone) {
-			sendUserToast('Error reading file, no data read', true)
+		try {
+			let response = await HelpersService.multipartFileUpload({
+				workspace: $workspaceStore!,
+				fileKey: path,
+				fileExtension: fileExtension,
+				s3ResourcePath:
+					customS3ResourcePath !== undefined ? customS3ResourcePath.split(':')[1] : undefined,
+				formData: {
+					file_upload: fileToUpload
+				}
+			})
+			uploadData.path = response.file_key
+		} catch (e) {
+			sendUserToast(e, true)
+			$fileUploads = $fileUploads.map((fileUpload) => {
+				if (fileUpload.name === uploadData.name) {
+					fileUpload.errorMessage = e
+					return fileUpload
+				}
+				return fileUpload
+			})
 			return
 		}
-
-		let fileUploadProgress = 0
-		while (true) {
-			const currentFileUpload = $fileUploads.find(
-				(fileUpload) => fileUpload.name === uploadData.name
-			)!
-
-			if (currentFileUpload.cancelled) {
-				return
+		dispatch('addition', { path: path })
+		sendUserToast('File upload finished!')
+		console.log(uploadData)
+		uploadData.progress = 100
+		$fileUploads = $fileUploads.map((fileUpload) => {
+			if (fileUpload.name === uploadData.name) {
+				return uploadData
 			}
-
-			let { value: chunk_2, done: readerDone } = await reader.read()
-			if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
-				// AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
-				chunk = new Uint8Array([...chunk, ...chunk_2])
-				continue
-			}
-
-			try {
-				let response = await HelpersService.multipartFileUpload({
-					workspace: $workspaceStore!,
-					requestBody: {
-						file_key: path,
-						file_extension: fileExtension,
-						part_content: Array.from(chunk),
-						upload_id: upload_id,
-						parts: parts,
-						is_final: readerDone,
-						cancel_upload: currentFileUpload.cancelled ?? false,
-						s3_resource_path:
-							customS3ResourcePath !== undefined ? customS3ResourcePath.split(':')[1] : undefined,
-						file_expiration: undefined
-					}
-				})
-				uploadData.path = response.file_key
-				path = response.file_key
-				upload_id = response.upload_id
-				parts = response.parts
-
-				// update upload progress
-				fileUploadProgress += (chunk.length * 100) / fileToUpload.size
-				uploadData.progress = fileUploadProgress
-				$fileUploads = $fileUploads.map((fileUpload) => {
-					if (fileUpload.name === uploadData.name) {
-						return uploadData
-					}
-					return fileUpload
-				})
-
-				if (response.is_done) {
-					if (currentFileUpload.cancelled) {
-						sendUserToast('File upload cancelled!')
-					} else {
-						dispatch('addition', { path: path })
-						sendUserToast('File upload finished!')
-					}
-
-					break
-				}
-				if (chunk_2 === undefined) {
-					sendUserToast(
-						'File upload is not finished, yet there is no more data to stream. This is unexpected',
-						true
-					)
-					return
-				}
-				chunk = chunk_2
-			} catch (e) {
-				sendUserToast(e, true)
-				$fileUploads = $fileUploads.map((fileUpload) => {
-					if (fileUpload.name === uploadData.name) {
-						fileUpload.errorMessage = e
-						return fileUpload
-					}
-					return fileUpload
-				})
-				return
-			}
-		}
+			return fileUpload
+		})
+		return
 	}
 
 	async function deleteFile(fileKey: string) {

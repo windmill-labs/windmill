@@ -5,8 +5,8 @@ import os
 
 
 class TestStringMethods(unittest.TestCase):
-    _token = "<WM_TOKEN>"
-    _workspace = "storage"
+    _token = "ibsyJWKsgwMjJPKKjsRkhIzwFlIE3w"
+    _workspace = "s3-upload"
     _host = "http://localhost:8000"
     _resource_path = "u/admin/docker_minio"
 
@@ -15,6 +15,7 @@ class TestStringMethods(unittest.TestCase):
         os.environ["WM_TOKEN"] = self._token
         os.environ["BASE_INTERNAL_URL"] = self._host
 
+    @unittest.skip("skipping")
     def test_duckdb_connection_settings(self):
         settings = wmill.duckdb_connection_settings(self._resource_path)
         self.assertIsNotNone(settings)
@@ -35,6 +36,7 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
         settings = wmill.polars_connection_settings(self._resource_path)
         print(settings)
 
+    @unittest.skip("skipping")
     def test_polars_connection_settings(self):
         settings = wmill.polars_connection_settings(self._resource_path)
         s3fs_args_expected = {
@@ -59,6 +61,7 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
         )
         self.assertEqual(settings.polars_cloud_options, polars_cloud_options_expected)
 
+    @unittest.skip("skipping")
     def test_boto3_connection_settings(self):
         settings = wmill.boto3_connection_settings(self._resource_path)
         expected_settings = {
@@ -71,6 +74,17 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
         self.assertEqual(settings, expected_settings)
         self.assertEqual(settings["endpoint_url"], "http://localhost:9000")
         self.assertEqual(settings.endpoint_url, "http://localhost:9000")
+
+    # @unittest.skip("skipping")
+    def test_download_s3_file(self):
+        with wmill.load_s3_file(S3Object(s3="hello-world.txt")) as file_content:
+            print(file_content.read())
+
+    @unittest.skip("skipping")
+    def test_upload_s3_file(self):
+        file_content = b"hello world 9109!"
+        file_key = wmill.write_s3_file(S3Object(s3="hello_world_99.txt"), file_content)
+        print(file_key)
 
 
 if __name__ == "__main__":

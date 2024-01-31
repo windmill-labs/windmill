@@ -374,7 +374,7 @@ class Windmill:
         except JSONDecodeError as e:
             raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
+    def load_s3_file_content(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns its content as bytes.
 
@@ -386,9 +386,10 @@ class Windmill:
         file_content = my_obj_content.decode("utf-8")
         '''
         """
-        return self.load_s3_file_reader(s3object, s3_resource_path).read()
+        with self.load_s3_file(s3object, s3_resource_path) as file_reader:
+            return file_reader.read()
 
-    def load_s3_file_reader(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
+    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
@@ -396,24 +397,17 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        my_obj_content_reader = client.load_s3_file_reader(s3_obj)
-        file_content = my_obj_content_reader.read().decode("utf-8")
+        with wmill.load_s3_file(s3object, s3_resource_path) as file_reader:
+            print(file_reader.read())
         '''
         """
-
-        result = S3BufferedReader(
-            workspace=f"{self.workspace}",
-            windmill_client=self.client,
-            file_key=s3object["s3"],
-            s3_resource_path=s3_resource_path,
-        )
-        return result
+        reader = S3BufferedReader(f"{self.workspace}", self.client, s3object["s3"], s3_resource_path)
+        return reader
 
     def write_s3_file(
         self,
         s3object: S3Object | None,
-        file_content: BufferedReader | bytes,
-        file_expiration: dt.datetime | None,
+        file_content: bytes,
         s3_resource_path: str | None,
     ) -> S3Object:
         """
@@ -441,38 +435,28 @@ class Windmill:
         else:
             raise Exception("Type of file_content not supported")
 
-        file_key = s3object["s3"] if s3object is not None else None
-        parts = []
-        upload_id = None
-        chunk = content_reader.read(5 * 1024 * 1024)
-        if len(chunk) == 0:
-            raise Exception("File content is empty, nothing to upload")
-        while True:
-            chunk_2 = content_reader.read(5 * 1024 * 1024)
-            reader_done = len(chunk_2) == 0
-            try:
-                response = self.post(
-                    f"/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
-                    json={
-                        "file_key": file_key,
-                        "part_content": [b for b in chunk],
-                        "upload_id": upload_id,
-                        "parts": parts,
-                        "is_final": reader_done,
-                        "cancel_upload": False,
-                        "s3_resource_path": s3_resource_path,
-                        "file_expiration": file_expiration.isoformat() if file_expiration else None,
-                    },
-                ).json()
-            except Exception as e:
-                raise Exception("Could not write file to S3") from e
-            parts = response["parts"]
-            upload_id = response["upload_id"]
-            file_key = response["file_key"]
-            if response["is_done"]:
-                break
-            chunk = chunk_2
-        return S3Object(s3=file_key)
+        query_params = {}
+        if s3object is not None and s3object["s3"] != "":
+            query_params["file_key"] = s3object["s3"]
+        if s3_resource_path is not None and s3_resource_path != "":
+            query_params["s3_resource_path"] = s3_resource_path
+
+        try:
+            # need a vanilla client b/c content-type is not application/json here
+            response = httpx.post(
+                f"{self.base_url}/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                },
+                params=query_params,
+                files={
+                    "file_upload": content_reader,
+                },
+                verify=self.verify,
+            ).json()
+        except Exception as e:
+            raise Exception("Could not write file to S3") from e
+        return S3Object(s3=response["file_key"])
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
@@ -744,15 +728,12 @@ def load_s3_file_reader(s3object: S3Object, s3_resource_path: str = "") -> Buffe
 def write_s3_file(
     s3object: S3Object | None,
     file_content: BufferedReader | bytes,
-    file_expiration: dt.datetime | None = None,
     s3_resource_path: str = "",
 ) -> S3Object:
     """
     Upload a file to S3
     """
-    return _client.write_s3_file(
-        s3object, file_content, file_expiration, s3_resource_path if s3_resource_path != "" else None
-    )
+    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None)
 
 
 @init_global_client
