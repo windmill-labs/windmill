@@ -2739,6 +2739,19 @@ This is a paragraph.
 				}
 			},
 			configuration: {
+				defaultValues: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'This will allow you to dynamically set the default values of the form.'
+				},
+				dynamicEnums: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'This will allow you to dynamically set the enum values of the form.'
+				},
+
 				displayType: {
 					fieldType: 'boolean',
 					type: 'static',
