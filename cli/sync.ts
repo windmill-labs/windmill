@@ -390,7 +390,7 @@ async function compareDynFSElement(
         }
       }
       return o;
-    } else if (k.endsWith("flow.yaml")) {
+    } else if (k.endsWith(".app.yaml")) {
       const o: any = yamlParse(v);
       const o2 = o["policy"];
 
@@ -402,6 +402,8 @@ async function compareDynFSElement(
           delete o2["on_behalf_of_email"];
         }
       }
+      return o;
+    } else {
       return o;
     }
   }
