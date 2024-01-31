@@ -12,6 +12,8 @@
 	export let displayType: boolean = true
 	export let largeGap: boolean = false
 	export let isValid: boolean = true
+	export let defaultValues: Record<string, any> = {}
+	export let dynamicEnums: Record<string, any> = {}
 
 	let inputCheck: { [id: string]: boolean } = {}
 	let errors: { [id: string]: string } = {}
@@ -44,7 +46,9 @@
 			const n = {}
 
 			;(schema.order as string[]).forEach((x) => {
-				n[x] = schema.properties[x]
+				if (schema.properties && schema.properties[x] != undefined) {
+					n[x] = schema.properties[x]
+				}
 			})
 
 			Object.keys(schema.properties ?? {})
@@ -70,8 +74,8 @@
 					type={schema.properties[argName].type}
 					required={schema.required?.includes(argName) ?? false}
 					pattern={schema.properties[argName].pattern}
-					defaultValue={schema.properties[argName].default}
-					enum_={schema.properties[argName].enum}
+					defaultValue={defaultValues?.[argName] ?? schema.properties[argName].default}
+					enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
 					format={schema.properties[argName].format}
 					contentEncoding={schema.properties[argName].contentEncoding}
 					customErrorMessage={schema.properties[argName].customErrorMessage}

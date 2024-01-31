@@ -151,7 +151,6 @@ export async function handleFile(
           typed == undefined ||
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
-            (typed.is_template ?? false) === (remote.is_template ?? false) &&
             typed.kind == remote.kind &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
@@ -184,7 +183,6 @@ export async function handleFile(
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: remote.hash,
@@ -212,7 +210,6 @@ export async function handleFile(
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
           parent_hash: undefined,
@@ -716,12 +713,12 @@ const command = new Command()
   .option("--lock-only", "re-generate only the lock")
   .option("--schema-only", "re-generate only script schema")
   .option(
-    "-i --includes <patterns...:file>",
-    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
   )
   .option(
-    "-e --excludes <patterns...:file>",
-    "Patterns to specify which file to NOT take into account."
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
   )
   .action(generateMetadata as any);
 

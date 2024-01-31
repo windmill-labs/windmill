@@ -66,7 +66,9 @@
 			const n = {}
 
 			;(schema.order as string[]).forEach((x) => {
-				n[x] = schema.properties[x]
+				if (schema.properties && schema.properties[x] != undefined) {
+					n[x] = schema.properties[x]
+				}
 			})
 
 			Object.keys(schema.properties ?? {})
@@ -240,7 +242,7 @@
 					index: index,
 					propertiesNumber: Object.entries(properties).length
 				}
-				if (property.type === 'object') {
+				if (property?.type === 'object') {
 					const newPath = [...path, name]
 					return [
 						displayInfo,

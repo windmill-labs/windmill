@@ -97,6 +97,11 @@
         "ordinal": 18,
         "name": "default_app",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 19,
+        "name": "auto_add",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -121,6 +126,7 @@
       false,
       true,
       false,
+      true,
       true,
       true,
       true

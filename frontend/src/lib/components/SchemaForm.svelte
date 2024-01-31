@@ -93,12 +93,14 @@
 	$: schema && reorder()
 
 	function reorder() {
-		console.log('reodering')
+		console.log('reordering')
 		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
 
 			;(schema.order as string[]).forEach((x) => {
-				n[x] = schema.properties[x]
+				if (schema.properties && schema.properties[x] != undefined) {
+					n[x] = schema.properties[x]
+				}
 			})
 
 			Object.keys(schema.properties ?? {})

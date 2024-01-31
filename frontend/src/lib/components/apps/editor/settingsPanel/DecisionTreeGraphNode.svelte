@@ -49,7 +49,7 @@
 			{node.label === '' ? `Tab: ${node.id}` : node.label}
 		</div>
 		<Badge color="indigo" small>
-			{index}
+			Tab index: {index}
 			<Tooltip>
 				You can manually select a node using the <b>setTab</b> function with this index in a frontend
 				runnable.
