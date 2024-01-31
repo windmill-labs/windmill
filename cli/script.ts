@@ -196,6 +196,7 @@ export async function handleFile(
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     } else {
@@ -223,6 +224,7 @@ export async function handleFile(
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     }
