@@ -117,7 +117,12 @@ pub async fn generate_deno_lock(
         .current_dir(job_dir)
         .args(vec![
             "cache",
-            "--unstable",
+            "--unstable-unsafe-proto",
+            "--unstable-bare-node-builtins",
+            "--unstable-webgpu",
+            "--unstable-ffi",
+            "--unstable-fs",
+            "--unstable-worker-options",
             "--lock=lock.json",
             "--lock-write",
             "--import-map",
@@ -278,7 +283,12 @@ run().catch(async (e) => {{
         args.push("--import-map");
         args.push(&import_map_path);
         args.push(&reload);
-        args.push("--unstable");
+        args.push("--unstable-unsafe-proto");
+        args.push("--unstable-bare-node-builtins");
+        args.push("--unstable-webgpu");
+        args.push("--unstable-ffi");
+        args.push("--unstable-fs");
+        args.push("--unstable-worker-options");
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
                 let _ = write_file(job_dir, "lock.json", &reqs).await?;
@@ -501,7 +511,12 @@ for await (const chunk of Deno.stdin.readable) {{
             "--import-map",
             &format!("{job_dir}/import_map.json"),
             &format!("--reload={base_internal_url}"),
-            "--unstable",
+            "--unstable-unsafe-proto",
+            "--unstable-bare-node-builtins",
+            "--unstable-webgpu",
+            "--unstable-ffi",
+            "--unstable-fs",
+            "--unstable-worker-options",
             "-A",
             &format!("{job_dir}/wrapper.ts"),
         ],
