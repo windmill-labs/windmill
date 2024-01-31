@@ -34,6 +34,7 @@ use chrono::Utc;
 #[cfg(feature = "stripe")]
 use chrono::{Datelike, TimeZone, Timelike};
 use magic_crypt::MagicCryptTrait;
+use regex::Regex;
 #[cfg(feature = "stripe")]
 use stripe::CustomerId;
 use uuid::Uuid;
@@ -800,11 +801,15 @@ async fn auto_add_user(
         .unwrap()
         .to_string()
         .replace(".", "");
-    username = if VALID_USERNAME.is_match(&username) {
-        username
-    } else {
-        "user".to_string()
-    };
+
+    username = INVALID_USERNAME_CHARS
+        .replace_all(&mut username, "")
+        .to_string();
+
+    if username.is_empty() {
+        username = "user".to_string()
+    }
+
     let base_username = username.clone();
     let mut username_conflict = true;
     let mut i = 1;
@@ -1372,6 +1377,8 @@ lazy_static::lazy_static! {
             Err(_) => true,
         }
     };
+
+    pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
 
 }
 
