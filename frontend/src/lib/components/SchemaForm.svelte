@@ -93,7 +93,7 @@
 	$: schema && reorder()
 
 	function reorder() {
-		console.log('reodering')
+		console.log('reordering')
 		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
 
