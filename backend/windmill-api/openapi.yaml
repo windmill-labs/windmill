@@ -7144,54 +7144,55 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/job_helpers/multipart_upload_s3_file:
-    post:
-      summary: Upload file to S3 bucket using multipart upload
-      operationId: multipartFileUpload
-      tags:
-        - helpers
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: file_key
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: file_extension
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: s3_resource_path
-          in: query
-          required: false
-          schema:
-            type: string
-      requestBody:
-        description: Query args for a multipart file upload to S3
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file_upload:
-                  type: string
-                  format: binary
-              required:
-                - file_upload
-      responses:
-        "200":
-          description: Chunk upload status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  file_key:
-                    type: string
-                required:
-                  - file_key
+  # open API generators like the one for rust don't support multipart/form-data
+  # /w/{workspace}/job_helpers/multipart_upload_s3_file:
+  #   post:
+  #     summary: Upload file to S3 bucket using multipart upload
+  #     operationId: multipartFileUpload
+  #     tags:
+  #       - helpers
+  #     parameters:
+  #       - $ref: "#/components/parameters/WorkspaceId"
+  #       - name: file_key
+  #         in: query
+  #         required: false
+  #         schema:
+  #           type: string
+  #       - name: file_extension
+  #         in: query
+  #         required: false
+  #         schema:
+  #           type: string
+  #       - name: s3_resource_path
+  #         in: query
+  #         required: false
+  #         schema:
+  #           type: string
+  #     requestBody:
+  #       description: Query args for a multipart file upload to S3
+  #       required: true
+  #       content:
+  #         multipart/form-data:
+  #           schema:
+  #             type: object
+  #             properties:
+  #               file_upload:
+  #                 type: string
+  #                 format: binary
+  #             required:
+  #               - file_upload
+  #     responses:
+  #       "200":
+  #         description: Chunk upload status
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: object
+  #               properties:
+  #                 file_key:
+  #                   type: string
+  #               required:
+  #                 - file_key
 
   /w/{workspace}/job_helpers/download_s3_file:
     get:

@@ -386,17 +386,28 @@ export async function writeS3File(
   }
 
   let path = s3object?.s3
-  let response = await HelpersService.multipartFileUpload({
-    workspace: getWorkspace(),
-    fileKey: path,
-    fileExtension: undefined,
-    s3ResourcePath: s3ResourcePath,
-    formData: {
-      file_upload: fileContentBlob
+
+  let params: Record<string, string> = {}
+  if (path !== undefined && path !== null && path !== '') {
+    params['file_key'] = path
+  }
+  if (s3ResourcePath !== undefined && s3ResourcePath !== null && s3ResourcePath !== '') {
+    params['s3_resource_path'] = s3ResourcePath
+  }
+  const formData = new FormData()
+  formData.append('file_upload', fileContentBlob)
+
+  const queryString = new URLSearchParams(params)
+  const workspace = getWorkspace()
+  const response = await fetch(
+    `/api/w/${workspace}/job_helpers/multipart_upload_s3_file?${queryString}`,
+    {
+      method: 'POST',
+      body: formData
     }
-  })
+  )
   return {
-    s3: response.file_key
+    s3: (await response.json()).file_key
   }
 }
 

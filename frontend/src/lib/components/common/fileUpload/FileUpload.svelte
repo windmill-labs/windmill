@@ -72,17 +72,28 @@
 		}
 		$fileUploads = [...$fileUploads, uploadData]
 		try {
-			let response = await HelpersService.multipartFileUpload({
-				workspace: $workspaceStore!,
-				fileKey: path,
-				fileExtension: fileExtension,
-				s3ResourcePath:
-					customS3ResourcePath !== undefined ? customS3ResourcePath.split(':')[1] : undefined,
-				formData: {
-					file_upload: fileToUpload
+			let params = {}
+			if (!emptyString(path)) {
+				params['file_key'] = path
+			}
+			if (!emptyString(fileExtension)) {
+				params['file_extension'] = fileExtension
+			}
+			if (!emptyString(customS3ResourcePath)) {
+				params['s3_resource_path'] = customS3ResourcePath?.split(':')[1]
+			}
+			const formData = new FormData()
+			formData.append('file_upload', fileToUpload)
+
+			const queryString = new URLSearchParams(params)
+			const response = await fetch(
+				`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${queryString}`,
+				{
+					method: 'POST',
+					body: formData
 				}
-			})
-			uploadData.path = response.file_key
+			)
+			uploadData.path = response.json().file_key
 		} catch (e) {
 			sendUserToast(e, true)
 			$fileUploads = $fileUploads.map((fileUpload) => {
