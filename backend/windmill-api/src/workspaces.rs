@@ -2073,11 +2073,10 @@ pub fn to_string_without_metadata<T>(value: &T, preserve_extra_perms: bool) -> R
 where
     T: ?Sized + Serialize,
 {
-    let value = serde_json::to_value(value).map_err(to_anyhow)?;
+    let mut value = serde_json::to_value(value).map_err(to_anyhow)?;
     value
-        .as_object()
+        .as_object_mut()
         .map(|obj| {
-            let mut obj = obj.clone();
             for key in [
                 "workspace_id",
                 "path",
@@ -2100,6 +2099,10 @@ where
                 }
             }
 
+            if let Some(o2) = obj.get_mut("policy").and_then(|x| x.as_object_mut()) {
+                o2.remove("on_behalf_of");
+                o2.remove("on_behalf_of_email");
+            }
             if !preserve_extra_perms && obj.contains_key("extra_perms") {
                 obj.remove("extra_perms");
             }

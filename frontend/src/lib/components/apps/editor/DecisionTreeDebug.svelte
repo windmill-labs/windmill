@@ -5,22 +5,43 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import type { DecisionTreeNode } from './component'
+	import { isDebugging } from './settingsPanel/decisionTree/utils'
+	import { X } from 'lucide-svelte'
 
 	export let nodes: DecisionTreeNode[] = []
 	export let id: string
 
-	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, debuggingComponents, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let isManuallySelected: boolean = false
-	let selected: number | null = null
+	let currentNodeId: string = ''
+
+	$worldStore.outputsById[id]?.currentNodeId?.subscribe(
+		{
+			id: id,
+			next: (value) => {
+				currentNodeId = value
+			}
+		},
+		currentNodeId
+	)
+
+	$: if (nodes[$debuggingComponents[id] ?? 0]?.id === undefined) {
+		currentNodeId = ''
+		$componentControl?.[id]?.setTab?.(0)
+
+		$debuggingComponents = Object.fromEntries(
+			Object.entries($debuggingComponents).filter(([key]) => key !== id)
+		)
+	}
 </script>
 
 <button
 	title={'Debug tabs'}
 	class={classNames(
 		'text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-		isManuallySelected
+		isDebugging($debuggingComponents, id)
 			? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
 			: 'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 	)}
@@ -30,12 +51,23 @@
 	<ButtonDropdown hasPadding={false}>
 		<svelte:fragment slot="buttonReplacement">
 			<div class="px-1">
-				{#if isManuallySelected}
-					<div>
-						{`Debugging node ${nodes[selected ?? 0].id}`}
+				{#if isDebugging($debuggingComponents, id)}
+					<div class="flex flex-row items-center gap-2">
+						{`Debugging node ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
+						<button
+							on:click={() => {
+								$componentControl?.[id]?.setTab?.(0)
+
+								$debuggingComponents = Object.fromEntries(
+									Object.entries($debuggingComponents).filter(([key]) => key !== id)
+								)
+							}}
+						>
+							<X size={14} />
+						</button>
 					</div>
 				{:else}
-					{`Debug nodes`}
+					{`Debug nodes (current node: ${currentNodeId})`}
 				{/if}
 			</div>
 		</svelte:fragment>
@@ -44,8 +76,8 @@
 				<MenuItem
 					on:click={() => {
 						$componentControl?.[id]?.setTab?.(index)
-						selected = index
-						isManuallySelected = true
+
+						$debuggingComponents[id] = index
 					}}
 				>
 					<div
@@ -59,8 +91,11 @@
 			{/each}
 			<MenuItem
 				on:click={() => {
-					$componentControl?.[id]?.setTab?.(-1)
-					isManuallySelected = false
+					$componentControl?.[id]?.setTab?.(0)
+
+					$debuggingComponents = Object.fromEntries(
+						Object.entries($debuggingComponents).filter(([key]) => key !== id)
+					)
 				}}
 			>
 				<div

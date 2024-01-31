@@ -10,6 +10,9 @@
 	import type { DecisionTreeNode } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ArrowLeft, ArrowRight } from 'lucide-svelte'
+	import { initOutput } from '../../editor/appUtils'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { getFirstNode, isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -17,12 +20,24 @@
 	export let render: boolean
 	export let nodes: DecisionTreeNode[]
 
-	const { app, focusedGrid, selectedComponent, connectingInput, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		focusedGrid,
+		selectedComponent,
+		connectingInput,
+		componentControl,
+		worldStore,
+		debuggingComponents
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 	let selectedConditionIndex = 0
-	let currentNodeId = nodes[0].id
+	let currentNodeId = getFirstNode(nodes)?.id ?? ''
+
+	let outputs = initOutput($worldStore, id, {
+		currentNodeId,
+		currentNodeIndex: selectedConditionIndex
+	})
 
 	$: resolvedConditions = nodes.reduce((acc, node) => {
 		acc[node.id] = acc[node.id] || []
@@ -35,7 +50,11 @@
 	}, resolvedNext || {})
 
 	$: if (!nodes.map((n) => n.id).includes(currentNodeId)) {
-		currentNodeId = nodes[0].id
+		const firstNode = getFirstNode(nodes)?.id
+
+		if (firstNode) {
+			currentNodeId = firstNode
+		}
 	}
 
 	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
@@ -81,15 +100,35 @@
 				parentComponentId: id,
 				subGridIndex: selectedConditionIndex
 			}
+		} else {
+			// if no history, go to first node
+
+			const node = getFirstNode(nodes)
+
+			if (node) {
+				currentNodeId = node.id
+
+				selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
+
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: selectedConditionIndex
+				}
+			}
 		}
 	}
 
 	function onFocus(newIndex: number) {
 		selectedConditionIndex = newIndex
-		currentNodeId = nodes[selectedConditionIndex].id
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: selectedConditionIndex
+
+		const nodeId = nodes[newIndex]?.id
+
+		if (nodeId) {
+			currentNodeId = nodeId
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: selectedConditionIndex
+			}
 		}
 	}
 
@@ -99,6 +138,11 @@
 				onFocus(conditionIndex)
 			}
 		}
+	}
+
+	$: if (currentNodeId) {
+		outputs.currentNodeId.set(currentNodeId)
+		outputs.currentNodeIndex.set(nodes.findIndex((next) => next.id == currentNodeId))
 	}
 
 	$: if ($selectedComponent?.[0] === id && !$focusedGrid) {
@@ -169,15 +213,30 @@
 </div>
 
 <div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
-	{#if nodes[0].id !== currentNodeId}
-		<Button on:click={prev} size="xs2" color="light" startIcon={{ icon: ArrowLeft }}>Prev</Button>
+	{#if isDebugging($debuggingComponents, id)}
+		<Badge color="red" size="xs2">
+			{`Debugging. Actions are disabled.`}
+		</Badge>
+	{/if}
+	{#if getFirstNode(nodes)?.id !== currentNodeId}
+		<Button
+			on:click={prev}
+			size="xs2"
+			color="light"
+			startIcon={{ icon: ArrowLeft }}
+			disabled={isDebugging($debuggingComponents, id)}
+		>
+			Prev
+		</Button>
 	{/if}
 	<Button
 		on:click={next}
 		size="xs2"
 		color="dark"
 		endIcon={{ icon: ArrowRight }}
-		disabled={isNextDisabled || currentNodeId === lastNodeId}
+		disabled={isNextDisabled ||
+			currentNodeId === lastNodeId ||
+			isDebugging($debuggingComponents, id)}
 	>
 		Next
 	</Button>

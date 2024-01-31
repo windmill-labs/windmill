@@ -260,6 +260,7 @@ export type AppViewerContext = {
 	darkMode: Writable<boolean>
 	cssEditorOpen: Writable<boolean>
 	previewTheme: Writable<string | undefined>
+	debuggingComponents: Writable<Record<string, number>>
 }
 
 export type AppEditorContext = {
