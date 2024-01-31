@@ -153,7 +153,8 @@
 		allIdsInPath: writable([]),
 		darkMode,
 		cssEditorOpen,
-		previewTheme
+		previewTheme,
+		debuggingComponents: writable({})
 	})
 
 	let scale = writable(100)

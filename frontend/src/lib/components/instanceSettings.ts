@@ -52,15 +52,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Retention Period in secs',
-			key: 'retention_period_secs',
-			description: 'How long to keep the jobs data in the database.',
-			fieldType: 'seconds',
-			placeholder: '60',
-			storage: 'setting',
-			cloudonly: false
-		},
-		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description: 'Default timeout for individual jobs',
@@ -84,14 +75,23 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'only needed to prepare upgrade to EE',
 			storage: 'setting'
 		},
-
+		{
+			label: 'Retention Period in secs',
+			key: 'retention_period_secs',
+			description: 'How long to keep the jobs data in the database (max 30 days on CE)',
+			fieldType: 'seconds',
+			placeholder: '30',
+			storage: 'setting',
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			cloudonly: false
+		},
 		{
 			label: 'Expose metrics',
 			description: 'Expose prometheus metrics for workers and servers on port 8001 at /metrics',
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: 'No workaround around this'
+			ee_only: ''
 		},
 		{
 			label: 'Azure OpenAI base path',
@@ -100,8 +100,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
-			ee_only:
-				'You can still set this setting by using OPENAI_AZURE_BASE_PATH as env variable to the server containers'
+			ee_only: ''
 		}
 	],
 	'SSO/OAuth': [

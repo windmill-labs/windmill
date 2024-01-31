@@ -340,7 +340,7 @@ pub async fn reload_retention_period_setting(db: &DB) {
         db,
         RETENTION_PERIOD_SECS_SETTING,
         "JOB_RETENTION_SECS",
-        60 * 60 * 24 * 60,
+        60 * 60 * 24 * 30,
         JOB_RETENTION_SECS.clone(),
         |x| x,
     )

@@ -381,8 +381,26 @@ async function compareDynFSElement(
   function parseYaml(k: string, v: string) {
     if (k.endsWith(".script.yaml")) {
       const o: any = yamlParse(v);
-      if (typeof o == "object" && Array.isArray(o?.["lock"])) {
-        o["lock"] = o["lock"].join("\n");
+      if (typeof o == "object") {
+        if (Array.isArray(o?.["lock"])) {
+          o["lock"] = o["lock"].join("\n");
+        }
+        if (o["is_template"] != undefined) {
+          delete o["is_template"];
+        }
+      }
+      return o;
+    } else if (k.endsWith(".app.yaml")) {
+      const o: any = yamlParse(v);
+      const o2 = o["policy"];
+
+      if (typeof o2 == "object") {
+        if (o2["on_behalf_of"] != undefined) {
+          delete o2["on_behalf_of"];
+        }
+        if (o2["on_behalf_of_email"] != undefined) {
+          delete o2["on_behalf_of_email"];
+        }
       }
       return o;
     } else {
@@ -411,7 +429,36 @@ async function compareDynFSElement(
     }
   }
 
+  changes.sort((a, b) =>
+    getOrderFromPath(a.path) == getOrderFromPath(b.path)
+      ? a.path.localeCompare(b.path)
+      : getOrderFromPath(a.path) - getOrderFromPath(b.path)
+  );
+
   return changes;
+}
+
+function getOrderFromPath(p: string) {
+  const typ = getTypeStrFromPath(p);
+  if (typ == "folder") {
+    return 0;
+  } else if (typ == "resource-type") {
+    return 1;
+  } else if (typ == "resource") {
+    return 2;
+  } else if (typ == "script") {
+    return 3;
+  } else if (typ == "flow") {
+    return 4;
+  } else if (typ == "app") {
+    return 5;
+  } else if (typ == "schedule") {
+    return 6;
+  } else if (typ == "variable") {
+    return 7;
+  } else {
+    return 8;
+  }
 }
 
 const isNotWmillFile = (p: string, isDirectory: boolean) => {
@@ -452,13 +499,10 @@ export async function ignoreF(wmillconf: {
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
-  if (wmillconf?.includes || wmillconf?.excludes) {
-    if (wmillconf?.excludes && !Array.isArray(wmillconf.includes)) {
-      throw new Error("wmill.yaml/includes must be an array");
-    }
-    if (wmillconf?.excludes && !Array.isArray(wmillconf.excludes)) {
-      throw new Error("wmill.yaml/excludes must be an array");
-    }
+  if (
+    (Array.isArray(wmillconf?.includes) && wmillconf?.includes?.length > 0) ||
+    (Array.isArray(wmillconf?.excludes) && wmillconf?.excludes?.length > 0)
+  ) {
     whitelist = {
       approve(file: string): boolean {
         return (
@@ -475,6 +519,7 @@ export async function ignoreF(wmillconf: {
         denies(file: string): boolean;
       }
     | undefined = undefined;
+
   try {
     const ignoreContent = await Deno.readTextFile(".wmillignore");
     const condensed = ignoreContent
@@ -490,7 +535,10 @@ export async function ignoreF(wmillconf: {
   } catch {}
 
   if (ign && whitelist) {
-    throw new Error("Cannot have both .wmillignore and wmill.yaml/includes");
+    log.error(
+      "Cannot have both .wmillignore and wmill.yaml/includes or excludes, ignoring .wmillignore"
+    );
+    ign = undefined;
   }
 
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
@@ -990,12 +1038,12 @@ const command = new Command()
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
   .option(
-    "-i --includes <patterns...:file>",
-    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
   )
   .option(
-    "-e --excludes <patterns...:file>",
-    "Patterns to specify which file to NOT take into account."
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
@@ -1024,12 +1072,12 @@ const command = new Command()
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
   .option(
-    "-i --includes <patterns...:file>",
-    "Patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
   )
   .option(
-    "-e --excludes <patterns...:file>",
-    "Patterns to specify which file to NOT take into account."
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
   )
   .option(
     "--message <message:string>",

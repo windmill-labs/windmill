@@ -3074,7 +3074,7 @@ This is a paragraph.
 	dbexplorercomponent: {
 		name: 'Database Studio',
 		icon: Database,
-		documentationLink: `${documentationBaseUrl}/dbexplorer`,
+		documentationLink: `${documentationBaseUrl}/database_studio`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }

@@ -14,19 +14,18 @@ function createBooleanRC(): RichConfiguration {
 export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode | undefined) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
-	const newNode: DecisionTreeNode = {
-		id: nextId,
-		label: nextId,
-		next: sourceNode ? sourceNode.next : [{ id: nodes[0].id }],
-		allowed: createBooleanRC()
-	}
-
 	if (sourceNode) {
-		let index = nodes.findIndex((n) => n.id === sourceNode.id)
-		nodes = [...nodes.slice(0, index), newNode, ...nodes.slice(index)]
+		const newNode: DecisionTreeNode = {
+			id: nextId,
+			label: nextId,
+			next: sourceNode.next,
+			allowed: createBooleanRC()
+		}
+
+		nodes.push(newNode)
 
 		nodes = nodes.map((node) => {
-			if (node.id === sourceNode.id) {
+			if (node.id === sourceNode?.id) {
 				node.next = [
 					{
 						id: newNode.id,
@@ -36,10 +35,23 @@ export function addNode(nodes: DecisionTreeNode[], sourceNode: DecisionTreeNode 
 			}
 			return node
 		})
+
+		return nodes
 	} else {
-		nodes = [newNode, ...nodes]
+		const firstNode = getFirstNode(nodes)
+
+		if (firstNode) {
+			const newNode: DecisionTreeNode = {
+				id: nextId,
+				label: nextId,
+				next: [{ id: firstNode.id, condition: createBooleanRC() }],
+				allowed: createBooleanRC()
+			}
+
+			nodes.push(newNode)
+		}
+		return nodes
 	}
-	return nodes
 }
 
 export function insertNode(
@@ -49,7 +61,6 @@ export function insertNode(
 ) {
 	const nextId = getNextId(nodes.map((node) => node.id))
 
-	console.log('insertNode', parentId, sourceNode)
 	const newNode: DecisionTreeNode = {
 		id: nextId,
 		label: nextId,
@@ -273,7 +284,11 @@ export function getParents(nodes: DecisionTreeNode[], nodeId: string): string[] 
 	return parentIds
 }
 
-function getFirstNode(nodes: DecisionTreeNode[]): DecisionTreeNode | undefined {
+export function getFirstNode(nodes: DecisionTreeNode[]): DecisionTreeNode | undefined {
 	// No other nodes has this node as next
 	return nodes.find((node) => !nodes.some((n) => n.next.some((next) => next.id === node.id)))
+}
+
+export function isDebugging(debuggingComponents: Record<string, number>, id: string): boolean {
+	return Object.keys(debuggingComponents).includes(id)
 }

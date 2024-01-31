@@ -156,17 +156,17 @@
 		} else {
 			value.push('')
 		}
-		componentInput = componentInput
 
 		if (componentInput.value) {
 			let value = componentInput.value[componentInput.value.length - 1]
-			if (value) {
+			if (value != undefined) {
 				items.push({
 					value,
 					id: generateRandomString()
 				})
 			}
 		}
+		componentInput = componentInput
 	}
 
 	function deleteElementByType(index: number) {
