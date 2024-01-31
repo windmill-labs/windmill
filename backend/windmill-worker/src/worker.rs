@@ -277,6 +277,11 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
+    pub static ref MAX_WAIT_FOR_SIGINT: u64 = std::env::var("MAX_WAIT_FOR_SIGINT")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or_else(|| 0);
+
     pub static ref MAX_WAIT_FOR_SIGTERM: u64 = std::env::var("MAX_WAIT_FOR_SIGTERM")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())

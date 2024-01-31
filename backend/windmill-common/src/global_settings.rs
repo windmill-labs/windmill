@@ -17,7 +17,7 @@ pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -70,6 +70,7 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "SMTP_TLS_IMPLICIT",
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
+    "MAX_WAIT_FOR_SIGINT",
     "MAX_WAIT_FOR_SIGTERM",
     "WORKER_GROUP",
 ];
