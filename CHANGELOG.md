@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.258.2](https://github.com/windmill-labs/windmill/compare/v1.258.1...v1.258.2) (2024-01-31)
+
+
+### Bug Fixes
+
+* **cli:** push folders first + on_behalf_of stripped from metadata ([d2cbc7a](https://github.com/windmill-labs/windmill/commit/d2cbc7a41671e91e07fc1e81e966c51133abcc72))
+
 ## [1.258.1](https://github.com/windmill-labs/windmill/compare/v1.258.0...v1.258.1) (2024-01-31)
 
 
