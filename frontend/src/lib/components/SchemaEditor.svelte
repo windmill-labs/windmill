@@ -242,7 +242,6 @@
 					index: index,
 					propertiesNumber: Object.entries(properties).length
 				}
-				console.log(name, property)
 				if (property?.type === 'object') {
 					const newPath = [...path, name]
 					return [
