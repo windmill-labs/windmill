@@ -794,7 +794,17 @@ async fn auto_add_user(
     operator: &bool,
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<()> {
-    let mut username = email.split('@').next().unwrap().to_string();
+    let mut username = email
+        .split('@')
+        .next()
+        .unwrap()
+        .to_string()
+        .replace(".", "");
+    username = if VALID_USERNAME.is_match(&username) {
+        username
+    } else {
+        "user".to_string()
+    };
     let base_username = username.clone();
     let mut username_conflict = true;
     let mut i = 1;
