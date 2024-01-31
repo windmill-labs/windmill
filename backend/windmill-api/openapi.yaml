@@ -1172,6 +1172,8 @@ paths:
                     type: string
                   auto_invite_operator:
                     type: boolean
+                  auto_add:
+                    type: boolean
                   plan:
                     type: string
                   customer_id:
@@ -1370,6 +1372,8 @@ paths:
                 operator:
                   type: boolean
                 invite_all:
+                  type: boolean
+                auto_add:
                   type: boolean
 
       responses:
