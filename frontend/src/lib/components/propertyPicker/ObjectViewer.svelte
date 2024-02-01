@@ -134,22 +134,25 @@
 				{/if}
 			</ul>
 			{#if level == 0 && topBrackets}
-				<span class="h-0">{closeBracket}</span>
-				{#if getTypeAsString(json) === 's3object'}
-					<a
-						href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}`}
-						download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
-					>
-						<span class="flex items-center gap-1"><Download size={12} />download</span>
-					</a>
-					<button
-						class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-						on:click={() => {
-							s3FileViewer?.open?.(json)
-						}}
-						><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
-					</button>
-				{/if}
+				<div class="flex">
+					<span class="h-0">{closeBracket}</span>
+					{#if getTypeAsString(json) === 's3object'}
+						<a
+							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
+							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}`}
+							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
+						>
+							<span class="flex items-center gap-1"><Download size={12} />download</span>
+						</a>
+						<button
+							class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+							on:click={() => {
+								s3FileViewer?.open?.(json)
+							}}
+							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</span>
 	{/if}
