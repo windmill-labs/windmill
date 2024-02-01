@@ -374,7 +374,7 @@ class Windmill:
         except JSONDecodeError as e:
             raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
 
-    def load_s3_file_content(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
+    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns its content as bytes.
 
@@ -386,10 +386,10 @@ class Windmill:
         file_content = my_obj_content.decode("utf-8")
         '''
         """
-        with self.load_s3_file(s3object, s3_resource_path) as file_reader:
+        with self.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             return file_reader.read()
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
+    def load_s3_file_reader(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
@@ -407,7 +407,7 @@ class Windmill:
     def write_s3_file(
         self,
         s3object: S3Object | None,
-        file_content: bytes,
+        file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
     ) -> S3Object:
         """
@@ -447,7 +447,7 @@ class Windmill:
                 f"{self.base_url}/w/{self.workspace}/job_helpers/upload_s3_file",
                 headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
                 params=query_params,
-                content=content_reader.read(),
+                content=content_reader,
                 verify=self.verify,
                 timeout=None,
             ).json()
@@ -714,11 +714,11 @@ def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
 
 
 @init_global_client
-def load_s3_file_content(s3object: S3Object, s3_resource_path: str = "") -> BufferedReader:
+def load_s3_file_reader(s3object: S3Object, s3_resource_path: str = "") -> BufferedReader:
     """
     Load the entire content of a file stored in S3
     """
-    return _client.load_s3_file_content(s3object, s3_resource_path if s3_resource_path != "" else None)
+    return _client.load_s3_file_reader(s3object, s3_resource_path if s3_resource_path != "" else None)
 
 
 @init_global_client
