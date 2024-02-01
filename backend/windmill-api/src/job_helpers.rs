@@ -355,7 +355,7 @@ async fn test_connection(
         .transpose()
         .map_err(|err| {
             tracing::error!("Error testing connection to S3 bucket: {:?}", err);
-            Error::InternalErr(err.to_string())
+            Error::InternalErr(format!("Error testing connection: {}", err.to_string()))
         })?;
     return Ok(Json(()));
 }
@@ -496,10 +496,10 @@ async fn load_file_metadata(
     let s3_client = build_object_store_client(&s3_resource)?;
 
     let path = object_store::path::Path::from(file_key.as_str());
-    let s3_object_metadata = s3_client
-        .head(&path)
-        .await
-        .map_err(|err| Error::InternalErr(err.to_string()))?;
+    let s3_object_metadata = s3_client.head(&path).await.map_err(|err| {
+        tracing::error!("Error loading file metadata: {:?}", err);
+        Error::InternalErr(format!("Error loading file metadata: {}", err.to_string()))
+    })?;
 
     let response = LoadFileMetadataResponse {
         mime_type: None,
@@ -578,10 +578,10 @@ async fn load_file_preview(
             query.file_size_in_bytes
         } else {
             let path = object_store::path::Path::from(file_key.clone());
-            let s3_object_metadata = s3_client
-                .head(&path)
-                .await
-                .map_err(|err| Error::InternalErr(err.to_string()))?;
+            let s3_object_metadata = s3_client.head(&path).await.map_err(|err| {
+                tracing::error!("Error loading file preview: {:?}", err);
+                Error::InternalErr(format!("Error loading file preview: {}", err.to_string()))
+            })?;
             Some(s3_object_metadata.size)
         };
 
@@ -664,8 +664,8 @@ async fn delete_s3_file(
     let path = object_store::path::Path::from(file_key.as_str());
 
     s3_client.delete(&path).await.map_err(|err| {
-        tracing::error!("{:?}", err);
-        Error::InternalErr(err.to_string())
+        tracing::error!("Error deleting file: {:?}", err);
+        Error::InternalErr(format!("Error deleting file: {}", err.to_string()))
     })?;
     return Ok(Json(()));
 }
@@ -697,9 +697,17 @@ async fn move_s3_file(
         .copy(&source_path, &dest_path)
         .await
         .map_err(|err| {
-            tracing::error!("{:?}", err);
-            Error::InternalErr(err.to_string())
+            tracing::error!("Error copying object: {:?}", err);
+            Error::InternalErr(format!("Error copying object: {}", err.to_string()))
         })?;
+
+    s3_client.delete(&source_path).await.map_err(|err| {
+        tracing::error!("Error removing object post copy: {:?}", err);
+        Error::InternalErr(format!(
+            "Error removing object post copy: {}",
+            err.to_string()
+        ))
+    })?;
     return Ok(Json(()));
 }
 
@@ -743,8 +751,8 @@ async fn download_s3_file(
 
     let path = object_store::path::Path::from(query.file_key);
     let s3_object = s3_client.get(&path).await.map_err(|err| {
-        tracing::warn!("Error fetching text file from S3: {:?}", err);
-        Error::InternalErr(err.to_string())
+        tracing::warn!("Error retrieving file from S3: {:?}", err);
+        Error::InternalErr(format!("Error retrieving file: {}", err.to_string()))
     })?;
     let body_stream = StreamBody::new(s3_object.into_stream());
     let mut headers = HeaderMap::new();
@@ -876,7 +884,10 @@ async fn upload_s3_file(
     let path = object_store::path::Path::from(file_key.clone());
     let (multipart_id, mut parts_writer) = s3_client.put_multipart(&path).await.map_err(|err| {
         tracing::error!("Error initializing multipart upload: {:?}", err);
-        Error::InternalErr(err.to_string())
+        Error::InternalErr(format!(
+            "Error initializing multipart upload: {}",
+            err.to_string()
+        ))
     })?;
     let mut progressed_body_reader = ProgressReadAdapter::new(&mut body_reader);
 
@@ -885,18 +896,24 @@ async fn upload_s3_file(
         .map_err(|err| {
             let _ = s3_client.abort_multipart(&path, &multipart_id);
             tracing::error!("Error forwarding stream to object writer: {:?}", err);
-            Error::InternalErr(err.to_string())
+            Error::InternalErr(format!("Error copying stream: {}", err.to_string()))
         })?;
 
     parts_writer.flush().await.map_err(|err| {
         let _ = s3_client.abort_multipart(&path, &multipart_id);
         tracing::error!("Error flushing multipart writer: {:?}", err);
-        Error::InternalErr(err.to_string())
+        Error::InternalErr(format!(
+            "Error flushing multipart writer: {}",
+            err.to_string()
+        ))
     })?;
     parts_writer.shutdown().await.map_err(|err| {
         let _ = s3_client.abort_multipart(&path, &multipart_id);
-        tracing::error!("Error closing multipart writer: {:?}", err);
-        Error::InternalErr(err.to_string())
+        tracing::error!("Error finishing multipart upload: {:?}", err);
+        Error::InternalErr(format!(
+            "Error finishing multipart upload: {}",
+            err.to_string()
+        ))
     })?;
     return Ok(Json(UploadFileResponse { file_key }));
 }
@@ -994,7 +1011,10 @@ async fn get_s3_resource<'c>(
     }
 
     let s3_resource = serde_json::from_value::<S3Resource>(s3_resource_value_raw.unwrap())
-        .map_err(|err| Error::InternalErr(err.to_string()))?;
+        .map_err(|err| {
+            tracing::error!("Error deserializing S3 resource: {:?}", err);
+            Error::InternalErr(format!("Error reading s3 resource: {}", err.to_string()))
+        })?;
     return Ok(Some(s3_resource));
 }
 
@@ -1094,13 +1114,15 @@ async fn read_s3_parquet_object_head(
                     .select(&[col("*")])
                     .limit(10) // for now read only first 10 lines
                     .collect()
-                    .map_err(|err| Error::InternalErr(err.to_string()))?;
+                    .map_err(|err| {
+                        Error::InternalErr(format!("Error querying dataset: {}", err.to_string()))
+                    })?;
                 return Ok(format!("{:?}", df).to_string());
             }
         }
     })
     .await
-    .map_err(|err| Error::InternalErr(err.to_string()))?;
+    .map_err(|err| Error::InternalErr(format!("Error reading dataset: {}", err.to_string())))?;
 
     return polars_df_result;
 }
@@ -1161,15 +1183,18 @@ async fn read_s3_parquet_chunk(
                 } else {
                     df
                 };
-                let df = df
-                    .collect()
-                    .map_err(|err| Error::InternalErr(err.to_string()))?;
+                let df = df.collect().map_err(|err| {
+                    Error::InternalErr(format!("Error collecting dataset: {}", err.to_string()))
+                })?;
                 return Ok(to_raw_value(&df));
             }
         }
     })
     .await
-    .map_err(|err| Error::InternalErr(err.to_string()))?;
+    .map_err(|err| {
+        tracing::error!("Error reading dataset: {:?}", err);
+        Error::InternalErr(format!("Error reading dataset: {}", err.to_string()))
+    })?;
 }
 async fn csv_file_preview_with_fallback(
     s3_client: Arc<dyn ObjectStore>,
@@ -1210,7 +1235,10 @@ async fn read_s3_csv_object_head(
     let s3_object = s3_client
         .get(&path)
         .await
-        .map_err(|err| Error::InternalErr(err.to_string()))?
+        .map_err(|err| {
+            tracing::error!("Error fetching CSV file: {:?}", err);
+            Error::InternalErr(format!("Error fetching CSV file: {}", err.to_string()))
+        })?
         .into_stream();
 
     // TODO: polars does not seem to support lazy csv reader, unfortunately. We can implement it ourselves if needed
@@ -1230,7 +1258,10 @@ async fn read_s3_csv_object_head(
         .with_separator(separator_final)
         .has_header(has_header.unwrap_or(true))
         .finish()
-        .map_err(|err| Error::InternalErr(err.to_string()))?;
+        .map_err(|err| {
+            tracing::error!("Error reading CSV file: {:?}", err);
+            Error::InternalErr(format!("Error reading CSV file: {}", err.to_string()))
+        })?;
 
     return Ok(format!("{:?}", csv_df).to_string());
 }
