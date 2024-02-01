@@ -444,7 +444,7 @@ class Windmill:
         try:
             # need a vanilla client b/c content-type is not application/json here
             response = httpx.post(
-                f"{self.base_url}/w/{self.workspace}/job_helpers/multipart_upload_s3_file",
+                f"{self.base_url}/w/{self.workspace}/job_helpers/upload_s3_file",
                 headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
                 params=query_params,
                 content=content_reader.read(),

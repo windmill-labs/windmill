@@ -7148,10 +7148,10 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/job_helpers/multipart_upload_s3_file:
+  /w/{workspace}/job_helpers/upload_s3_file:
     post:
-      summary: Upload file to S3 bucket using multipart upload
-      operationId: multipartFileUpload
+      summary: Upload file to S3 bucket
+      operationId: fileUpload
       tags:
         - helpers
       parameters:
@@ -7181,7 +7181,7 @@ paths:
               format: binary
       responses:
         "200":
-          description: Chunk upload status
+          description: File upload status
           content:
             application/json:
               schema:

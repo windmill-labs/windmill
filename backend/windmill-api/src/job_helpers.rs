@@ -93,10 +93,7 @@ pub fn workspaced_service() -> Router {
             delete(delete_s3_file).layer(cors.clone()),
         )
         .route("/move_s3_file", get(move_s3_file).layer(cors.clone()))
-        .route(
-            "/multipart_upload_s3_file",
-            post(multipart_upload_s3_file).layer(cors.clone()),
-        )
+        .route("/upload_s3_file", post(upload_s3_file).layer(cors.clone()))
         .route(
             "/download_s3_file",
             get(download_s3_file).layer(cors.clone()),
@@ -826,7 +823,7 @@ impl<R: AsyncRead> AsyncRead for ProgressReadAdapter<R> {
     }
 }
 
-async fn multipart_upload_s3_file(
+async fn upload_s3_file(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,

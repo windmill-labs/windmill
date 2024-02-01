@@ -353,10 +353,8 @@ export async function loadS3File(
 
   let fileContentBlob = await HelpersService.fileDownload({
     workspace: getWorkspace(),
-    requestBody: {
-      file_key: s3object.s3,
-      s3_resource_path: s3ResourcePath,
-    }
+    fileKey: s3object.s3,
+    s3ResourcePath: s3ResourcePath,
   })
   return fileContentBlob
 }
@@ -385,29 +383,15 @@ export async function writeS3File(
     fileContentBlob = fileContent as Blob
   }
 
-  let path = s3object?.s3
-
-  let params: Record<string, string> = {}
-  if (path !== undefined && path !== null && path !== '') {
-    params['file_key'] = path
-  }
-  if (s3ResourcePath !== undefined && s3ResourcePath !== null && s3ResourcePath !== '') {
-    params['s3_resource_path'] = s3ResourcePath
-  }
-  const formData = new FormData()
-  formData.append('file_upload', fileContentBlob)
-
-  const queryString = new URLSearchParams(params)
-  const workspace = getWorkspace()
-  const response = await fetch(
-    `/api/w/${workspace}/job_helpers/multipart_upload_s3_file?${queryString}`,
-    {
-      method: 'POST',
-      body: formData
-    }
-  )
+  const response = await HelpersService.fileUpload({
+    workspace: getWorkspace(),
+    fileKey: s3object?.s3,
+    fileExtension: undefined,
+    s3ResourcePath: s3ResourcePath,
+    requestBody: fileContentBlob,
+  })
   return {
-    s3: (await response.json()).file_key
+    s3: response.file_key
   }
 }
 

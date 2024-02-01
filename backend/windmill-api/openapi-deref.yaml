@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.258.1
+  version: 1.258.4
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1496,6 +1496,8 @@ paths:
                     type: string
                   auto_invite_operator:
                     type: boolean
+                  auto_add:
+                    type: boolean
                   plan:
                     type: string
                   customer_id:
@@ -1722,6 +1724,8 @@ paths:
                 operator:
                   type: boolean
                 invite_all:
+                  type: boolean
+                auto_add:
                   type: boolean
       responses:
         '200':
@@ -10586,10 +10590,10 @@ paths:
           content:
             application/json:
               schema: {}
-  /w/{workspace}/job_helpers/multipart_upload_s3_file:
+  /w/{workspace}/job_helpers/upload_s3_file:
     post:
-      summary: Upload file to S3 bucket using multipart upload
-      operationId: multipartFileUpload
+      summary: Upload file to S3 bucket
+      operationId: fileUpload
       tags:
         - helpers
       parameters:
@@ -10622,7 +10626,7 @@ paths:
               format: binary
       responses:
         '200':
-          description: Chunk upload status
+          description: File upload status
           content:
             application/json:
               schema:

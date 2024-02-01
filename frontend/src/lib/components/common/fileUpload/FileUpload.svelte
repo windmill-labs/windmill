@@ -146,7 +146,7 @@
 				})
 				xhr?.open(
 					'POST',
-					`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
+					`/api/w/${$workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
