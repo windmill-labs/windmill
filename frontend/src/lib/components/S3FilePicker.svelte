@@ -25,7 +25,7 @@
 	let deletionModalOpen = false
 	let fileDeletionInProgress = false
 
-	let fileListUnavailable = true
+	let fileListUnavailable: boolean | undefined = undefined
 
 	let moveModalOpen = false
 	let moveDestKey: string | undefined = undefined
@@ -63,7 +63,6 @@
 		}
 	> = {}
 	let displayedFileKeys: string[] = []
-	let paginationMarker: string | undefined = undefined
 
 	let listDivHeight: number = 0
 
@@ -85,13 +84,41 @@
 		  }
 		| undefined = undefined
 
+	let listMarkers: string[]
+	let page = 0
+
+	const maxKeys = 1000
+
+	let count = 0
+
+	let filter = ''
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	let firstLoad = true
+	$: filter != undefined && onFilterChange()
+
+	function onFilterChange() {
+		if (!firstLoad) {
+			timeout && clearTimeout(timeout)
+			timeout = setTimeout(() => {
+				page = 0
+				listMarkers = []
+				loadFiles()
+			}, 500)
+		} else {
+			firstLoad = false
+		}
+	}
+
 	async function loadFiles() {
 		fileListLoading = true
 		let availableFiles = await HelpersService.listStoredFiles({
 			workspace: $workspaceStore!,
-			maxKeys: 1000, // fixed pages of 1000 files for now
-			marker: paginationMarker
+			maxKeys: maxKeys, // fixed pages of 1000 files for now
+			marker: page == 0 ? undefined : listMarkers[page - 1],
+			prefix: filter.trim() != '' ? filter : undefined
 		})
+		console.log(availableFiles?.windmill_large_files?.length)
 		if (
 			availableFiles.restricted_access === null ||
 			availableFiles.restricted_access === undefined ||
@@ -134,10 +161,14 @@
 				}
 			}
 		}
-		displayedFileKeys = displayedFileKeys.sort()
-		if (availableFiles.next_marker !== undefined) {
-			paginationMarker = availableFiles.next_marker
+		if (listMarkers.length == page) {
+			count = availableFiles.windmill_large_files.length
+			const nextMarker =
+				availableFiles.windmill_large_files?.[availableFiles.windmill_large_files.length - 1]?.s3
+			if (nextMarker) listMarkers.push(nextMarker)
 		}
+		displayedFileKeys = displayedFileKeys.sort()
+
 		// before returning, un-collapse the folders containing the selected file (if any)
 		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
 			let split_path = selectedFileKey.s3.split('/')
@@ -268,23 +299,14 @@
 		}
 		displayedFileKeys = []
 		allFilesByKey = {}
-		paginationMarker = undefined
+		count = 0
+		page = 0
+		filter = ''
+		listMarkers = []
 		fileMetadata = undefined
 		filePreview = undefined
 		reloadContent()
 		drawer.openDrawer?.()
-	}
-
-	export async function downloadS3File(fileKey: string | undefined) {
-		if (fileKey === undefined) {
-			return
-		}
-		const downloadUrl = await HelpersService.generateDownloadUrl({
-			workspace: $workspaceStore!,
-			fileKey: fileKey
-		})
-		console.log('download URL ', downloadUrl.download_url)
-		window.open(downloadUrl.download_url, '_blank')
 	}
 
 	async function reloadContent() {
@@ -406,7 +428,7 @@
 				</Alert>
 			{/if}
 		{:else}
-			{#if fileListUnavailable}
+			{#if fileListUnavailable == true}
 				<div class="mb-2">
 					<Alert type="info" title="Access to S3 bucket restricted">
 						<p>
@@ -423,68 +445,93 @@
 					>
 				</div>
 			{/if}
-			<div class="flex flex-row border rounded-md h-full" bind:clientHeight={listDivHeight}>
+			<div class="flex flex-row border rounded-md h-full">
 				{#if !fileListUnavailable}
-					<div class="min-w-[30%] border-r">
+					<div class="min-w-[30%] border-r h-full flex flex-col">
+						<div class="w-12/12 pb-2 flex flex-row mb-1 gap-1">
+							<input type="text" placeholder="Folder prefix" bind:value={filter} class="text-2xl" />
+						</div>
 						{#if fileListLoading === false && displayedFileKeys.length === 0}
 							<div class="p-4 text-tertiary text-xs text-center italic">
-								No files in the workspace S3 bucket
+								No files in the workspace S3 bucket at that prefix
 							</div>
 						{:else}
-							<VirtualList
-								width="100%"
-								height={listDivHeight}
-								itemCount={displayedFileKeys.length}
-								itemSize={42}
-							>
-								<div slot="item" let:index let:style {style} class="hover:bg-surface-hover border">
-									{@const file_info = allFilesByKey[displayedFileKeys[index]]}
+							<div class="grow max-h-3/4" bind:clientHeight={listDivHeight}>
+								<VirtualList
+									width="100%"
+									height={listDivHeight}
+									itemCount={displayedFileKeys.length}
+									itemSize={42}
+								>
 									<div
-										on:click={() => selectItem(index)}
-										class={`flex flex-row h-full font-semibold text-xs items-center justify-start ${
-											selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
-												? 'bg-surface-hover'
-												: ''
-										} `}
+										slot="item"
+										let:index
+										let:style
+										{style}
+										class="hover:bg-surface-hover border"
 									>
+										{@const file_info = allFilesByKey[displayedFileKeys[index]]}
 										<div
-											class={`flex flex-row w-full ml-${
-												2 + file_info.nestingLevel
-											} gap-2 h-full items-center`}
+											on:click={() => selectItem(index)}
+											class={`flex flex-row h-full font-semibold text-xs items-center justify-start ${
+												selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
+													? 'bg-surface-hover'
+													: ''
+											} `}
 										>
-											{#if file_info.type === 'folder'}
-												{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-														size={16}
-													/>{/if}
-												<div class="truncate text-ellipsis w-56">
-													{file_info.display_name}
-												</div>
-											{:else}
-												<FileIcon size={16} />
-												<div class="truncate text-ellipsis w-56">
-													{file_info.display_name}
-												</div>
-											{/if}
+											<div
+												class={`flex flex-row w-full ml-${
+													2 + file_info.nestingLevel
+												} gap-2 h-full items-center`}
+											>
+												{#if file_info.type === 'folder'}
+													{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+															size={16}
+														/>{/if}
+													<div class="truncate text-ellipsis w-56">
+														{file_info.display_name}
+													</div>
+												{:else}
+													<FileIcon size={16} />
+													<div class="truncate text-ellipsis w-56">
+														{file_info.display_name}
+													</div>
+												{/if}
+											</div>
 										</div>
-									</div>
+									</div></VirtualList
+								>
+							</div>
+							<div
+								class="flex gap-2 text-2xs items-center text-secondary px-2 w-full h-max-[30px] pt-2 border-t"
+							>
+								<div>{count} items on this page</div>
+								<div>Page {page + 1}</div>
+
+								{#if count == maxKeys}
+									<button
+										class="text-secondary border p-1 underline text-2xs whitespace-nowrap text-center"
+										on:click={() => {
+											page -= 1
+											loadFiles()
+										}}
+										>Previous
+									</button>
+									<button
+										class="text-secondary border p-1 underline text-2xs whitespace-nowrap text-center"
+										on:click={() => {
+											page += 1
+											loadFiles()
+										}}
+										>Next
+									</button>
+								{/if}
+							</div>
+							{#if fileListLoading === true}
+								<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
+									<Loader2 size={12} class="animate-spin mr-1" /> Loading content
 								</div>
-								<div slot="footer">
-									{#if !emptyString(paginationMarker)}
-										<button
-											class="text-secondary underline text-2xs whitespace-nowrap text-center w-full"
-											on:click={loadFiles}
-											>More files in bucket. Click here to load more...
-										</button>
-									{/if}
-									{#if fileListLoading === true}
-										<div
-											class="flex text-secondary mt-1 text-xs justify-center items-center w-full"
-										>
-											<Loader2 size={12} class="animate-spin mr-1" /> Loading content
-										</div>
-									{/if}
-								</div>
-							</VirtualList>
+							{/if}
 						{/if}
 					</div>
 				{/if}
@@ -508,9 +555,8 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											on:click={() => {
-												downloadS3File(fileMetadata?.fileKey)
-											}}
+											href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${fileMetadata?.fileKey}`}
+											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
 										/>
