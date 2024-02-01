@@ -43,6 +43,7 @@
 		}
 	}
 
+	let xhr: XMLHttpRequest | undefined = undefined
 	async function uploadFileToS3(fileToUpload: File, fileToUploadKey: string) {
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
@@ -71,16 +72,88 @@
 			file: fileToUpload
 		}
 		$fileUploads = [...$fileUploads, uploadData]
+
+		// // Use a custom TransformStream to track upload progress
+		// const progressTrackingStream = new TransformStream({
+		// 	transform(chunk, controller) {
+		// 		controller.enqueue(chunk)
+		// 		bytesUploaded += chunk.byteLength
+		// 		console.log('upload progress:', bytesUploaded / totalBytes)
+		// 		uploadData.progress = (bytesUploaded / totalBytes) * 100
+		// 	},
+		// 	flush(controller) {
+		// 		console.log('completed stream')
+		// 	}
+		// })
+
 		try {
-			const response = await HelpersService.multipartFileUpload({
-				workspace: $workspaceStore!,
-				fileKey: path,
-				fileExtension: fileExtension,
-				s3ResourcePath: customS3ResourcePath?.split(':')[1],
-				requestBody: fileToUpload
-			})
+			// const response = await HelpersService.multipartFileUpload({
+			// 	workspace: $workspaceStore!,
+			// 	fileKey: path,
+			// 	fileExtension: fileExtension,
+			// 	s3ResourcePath: customS3ResourcePath?.split(':')[1],
+			// 	requestBody: fileToUpload.stream().pipeThrough(progressTrackingStream, {})
+			// })
+
+			const params = new URLSearchParams()
+			if (path) {
+				params.append('file_key', path)
+			}
+			if (customS3ResourcePath?.split(':')[1]) {
+				params.append('s3_resource_path', customS3ResourcePath?.split(':')[1])
+			}
+			if (fileExtension) {
+				params.append('file_extension', fileExtension)
+			}
+			// let response = await fetch(
+			// 	`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
+			// 	{
+			// 		method: 'POST',
+			// 		headers: {
+			// 			'Content-Type': 'application/octet-stream'
+			// 		},
+			// 		body: fileToUpload.stream().pipeThrough(progressTrackingStream, {}),
+			// 		duplex: 'half'
+			// 	}
+			// )
+
+			xhr = new XMLHttpRequest()
+			const response = (await new Promise((resolve, reject) => {
+				xhr?.upload.addEventListener('progress', (event) => {
+					if (event.lengthComputable) {
+						let progress = (event.loaded / event.total) * 100
+						if (progress == 100) {
+							progress = 99
+						}
+						console.log('upload progress:', progress)
+						uploadData.progress = progress
+						$fileUploads = $fileUploads
+					}
+				})
+				xhr?.addEventListener('loadend', () => {
+					if (xhr?.readyState === 4 && xhr?.status === 200) {
+						uploadData.progress = 100
+						resolve(JSON.parse(xhr.responseText))
+					} else {
+						if (xhr?.responseText == '') {
+							reject('An error occurred while uploading the file, see server logs')
+						} else {
+							reject(xhr?.responseText)
+						}
+					}
+				})
+				xhr?.open(
+					'POST',
+					`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
+					true
+				)
+				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
+				xhr?.send(fileToUpload)
+			})) as any
+
 			uploadData.path = response.file_key
 		} catch (e) {
+			console.error(e)
 			sendUserToast(e, true)
 			$fileUploads = $fileUploads.map((fileUpload) => {
 				if (fileUpload.name === uploadData.name) {
@@ -91,9 +164,9 @@
 			})
 			return
 		}
-		dispatch('addition', { path: path })
+		dispatch('addition', { path: uploadData.path })
 		sendUserToast('File upload finished!')
-		console.log(uploadData)
+
 		uploadData.progress = 100
 		$fileUploads = $fileUploads.map((fileUpload) => {
 			if (fileUpload.name === uploadData.name) {
@@ -148,6 +221,11 @@
 												return
 											}
 
+											if (xhr) {
+												xhr.abort()
+												xhr = undefined
+											}
+
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
 											)
@@ -169,6 +247,11 @@
 
 											if (!file) {
 												return
+											}
+
+											if (xhr) {
+												xhr.abort()
+												xhr = undefined
 											}
 
 											$fileUploads = $fileUploads.filter(
@@ -211,6 +294,10 @@
 
 											if (fileUpload.path) {
 												deleteFile(fileUpload.path)
+											}
+											if (xhr) {
+												xhr.abort()
+												xhr = undefined
 											}
 										}}
 										startIcon={{
