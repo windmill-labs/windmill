@@ -5,8 +5,8 @@ import os
 
 
 class TestStringMethods(unittest.TestCase):
-    _token = "821CIsMXdDMi9lV7z1cSYfNl9ldKsB"
-    _workspace = "s3-upload"
+    _token = "<WM_TOKEN>"
+    _workspace = "storage"
     _host = "http://localhost:8000"
     _resource_path = "u/admin/docker_minio"
 
