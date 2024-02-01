@@ -191,7 +191,7 @@
 	onDestroy(() => {
 		if (xhr) {
 			xhr?.abort
-			xhr - undefined
+			xhr = undefined
 		}
 	})
 </script>
