@@ -243,8 +243,6 @@ function createNewNode(nodes: DecisionTreeNode[], id: string) {
 export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeNode) {
 	const collapseNode = findCollapseNode(nodes, startNode.id)
 
-	debugger
-
 	if (!collapseNode) {
 		return nodes
 	}
@@ -261,8 +259,6 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 		}
 		return node
 	})
-
-	debugger
 
 	return nodes
 }
