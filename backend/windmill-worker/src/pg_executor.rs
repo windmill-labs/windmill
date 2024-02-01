@@ -27,6 +27,7 @@ use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
+use windmill_parser::Typ;
 use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::common::build_args_values;
@@ -175,7 +176,8 @@ pub async fn do_postgresql(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
                 .to_owned();
-            convert_val(value, arg_t)
+            let typ = &sig[i].typ;
+            convert_val(value, arg_t, typ)
         })
         .collect::<windmill_common::error::Result<Vec<_>>>()?;
 
@@ -304,18 +306,19 @@ impl ToSql for PgType {
     to_sql_checked!();
 }
 
-fn convert_val(value: &Value, arg_t: &String) -> windmill_common::error::Result<PgType> {
+fn convert_val(value: &Value, arg_t: &String, typ: &Typ) -> windmill_common::error::Result<PgType> {
     match value {
         Value::Array(vec) if arg_t.ends_with("[]") => {
             let arg_t = arg_t.trim_end_matches("[]").to_string();
             let mut result = vec![];
             for val in vec {
-                result.push(convert_val(val, &arg_t)?);
+                result.push(convert_val(val, &arg_t, typ)?);
             }
             Ok(PgType::Array(result))
         }
         Value::Null => Ok(PgType::None(None::<bool>)),
         Value::Bool(b) => Ok(PgType::Bool(b.clone())),
+        Value::Number(n) if matches!(typ, Typ::Str(_)) => Ok(PgType::String(n.to_string())),
         Value::Number(n) if n.is_i64() && arg_t == "char" => {
             Ok(PgType::I8(n.as_i64().unwrap() as i8))
         }
