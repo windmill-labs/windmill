@@ -87,7 +87,7 @@
 
 		if (result !== undefined) {
 			try {
-				let keys = typeof result == 'object' ? Object.keys(result) : []
+				let keys = result && typeof result == 'object' ? Object.keys(result) : []
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -189,7 +189,7 @@
 		return (
 			Array.isArray(json) &&
 			json.length > 0 &&
-			json.every((item) => typeof item === 'object' && Object.keys(item).length > 0)
+			json.every((item) => item && typeof item === 'object' && Object.keys(item).length > 0)
 		)
 	}
 
@@ -252,7 +252,7 @@
 					><slot name="copilot-fix" />
 				</div><div
 					class="py-3"
-				/>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+				/>{/if}{#if result && typeof result == 'object' && Object.keys(result).length > 0}<div
 					class="top-1 mb-2 w-full min-w-[400px] text-sm absolute"
 					>{#if !disableExpand}
 						<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2 z-10">
@@ -475,7 +475,7 @@
 			{:else if !forceJson && isTableDisplay && richRender}
 				<AutoDataTable objects={result} />
 			{:else if largeObject}
-				{#if typeof result == 'object' && 'filename' in result && 'file' in result}
+				{#if result && typeof result == 'object' && 'filename' in result && 'file' in result}
 					<div
 						><a
 							download={result.filename ?? result.file?.filename ?? 'windmill.file'}
