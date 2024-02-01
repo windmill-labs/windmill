@@ -364,6 +364,7 @@ async fn test_connection(
 struct ListStoredFilesQuery {
     pub max_keys: usize,
     pub marker: Option<String>,
+    pub prefix: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -396,14 +397,15 @@ async fn list_stored_files(
     ))?;
     let s3_client = build_object_store_client(&s3_resource)?;
 
+    let prefix = query.prefix.map(object_store::path::Path::from);
     let object_stream = if let Some(marker) = query.marker {
-        s3_client.list_with_offset(None, &object_store::path::Path::from(marker))
+        s3_client.list_with_offset(prefix.as_ref(), &object_store::path::Path::from(marker))
     } else {
-        s3_client.list(None)
+        s3_client.list(prefix.as_ref())
     };
 
     let stored_datasets = object_stream
-        .take((query.max_keys + 1) as usize)
+        .take((query.max_keys) as usize)
         .map(|obj| obj.map(|x| WindmillLargeFile { s3: x.location.to_string() }))
         .try_collect::<Vec<WindmillLargeFile>>()
         .await

@@ -6977,6 +6977,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: prefix
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: List of file keys
