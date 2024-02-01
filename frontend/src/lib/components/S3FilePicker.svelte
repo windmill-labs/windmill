@@ -118,7 +118,6 @@
 			marker: page == 0 ? undefined : listMarkers[page - 1],
 			prefix: filter.trim() != '' ? filter : undefined
 		})
-		console.log(availableFiles?.windmill_large_files?.length)
 		if (
 			availableFiles.restricted_access === null ||
 			availableFiles.restricted_access === undefined ||

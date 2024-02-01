@@ -7175,6 +7175,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
       requestBody:
         description: File content
         required: true
@@ -7210,6 +7215,11 @@ paths:
           schema:
             type: string
         - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
           in: query
           required: false
           schema:
@@ -9389,8 +9399,10 @@ components:
       properties:
         type:
           type: string
-          enum: ["S3Storage"]
+          enum: ["S3Storage", "AzureBlobStorage"]
         s3_resource_path:
+          type: string
+        azure_blob_resource_path:
           type: string
         public_resource:
           type: boolean

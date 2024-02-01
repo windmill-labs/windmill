@@ -22,7 +22,7 @@ use bytes::Bytes;
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
-use sql_builder::{bind::Bind, SqlBuilder};
+use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
@@ -223,8 +223,16 @@ async fn list_resources(
         .clone();
 
     if let Some(rt) = &lq.resource_type {
-        for rt in rt.split(',') {
-            sqlb.and_where_eq("resource_type", "?".bind(&rt));
+        let resource_type_filters = rt.split(',').collect::<Vec<&str>>();
+        if resource_type_filters.len() == 1 {
+            sqlb.and_where_eq("resource_type", "?".bind(rt));
+        } else {
+            let mut list = Vec::new();
+            for rt in resource_type_filters {
+                let quoted_value = quote(rt);
+                list.push(quoted_value);
+            }
+            sqlb.and_where_in("resource_type", list.as_slice());
         }
     }
     if let Some(rt) = &lq.resource_type_exclude {
