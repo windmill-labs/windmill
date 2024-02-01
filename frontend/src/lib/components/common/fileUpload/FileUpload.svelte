@@ -9,7 +9,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { emptyString } from '$lib/utils'
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
@@ -131,16 +131,18 @@
 					}
 				})
 				xhr?.addEventListener('loadend', () => {
-					if (xhr?.readyState === 4 && xhr?.status === 200) {
+					let response = xhr?.responseText
+					if (xhr?.readyState === 4 && xhr?.status === 200 && response) {
 						uploadData.progress = 100
-						resolve(JSON.parse(xhr.responseText))
+						resolve(JSON.parse(response))
 					} else {
-						if (xhr?.responseText == '') {
+						if (response) {
 							reject('An error occurred while uploading the file, see server logs')
 						} else {
-							reject(xhr?.responseText)
+							reject(response)
 						}
 					}
+					xhr = undefined
 				})
 				xhr?.open(
 					'POST',
@@ -185,6 +187,13 @@
 		dispatch('deletion', { path: fileKey })
 		sendUserToast('File deleted!')
 	}
+
+	onDestroy(() => {
+		if (xhr) {
+			xhr?.abort
+			xhr - undefined
+		}
+	})
 </script>
 
 <div class="w-full h-full p-2 flex flex-col">

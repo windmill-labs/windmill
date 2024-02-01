@@ -97,7 +97,7 @@ windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-api-client = { path = "./windmill-api-client" }
 
-axum = { version = "^0", features = ["headers", "multipart"] }
+axum = { version = "^0", features = ["headers"] }
 headers = "^0"
 hyper = { version = "^0", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
@@ -211,6 +211,7 @@ candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
 tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"] }
+pin-project = "1"
 
 polars = { version = "0.35.4", features = ["lazy", "parquet", "aws", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
 polars-io = { version = "0.35.4", features = ["csv"] }

@@ -1,4 +1,4 @@
-use std::io::{self, Read};
+use std::io::{self};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{cmp, future};
@@ -9,14 +9,12 @@ use axum::extract::{BodyStream, DefaultBodyLimit};
 use axum::headers::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::BoxError;
 use axum::{
-    body::Bytes,
     extract::{Path, Query},
     routing::{delete, get, post},
     Extension, Json, Router,
 };
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use hyper::http;
 use object_store::{ClientConfigKey, ObjectStore};
 use polars::{
@@ -779,6 +777,54 @@ struct UploadFileResponse {
     pub file_key: String,
 }
 
+use std::io::Result;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Duration;
+
+use pin_project::pin_project;
+use tokio::io::{AsyncRead, ReadBuf};
+use tokio::time::{interval, Interval};
+
+#[pin_project]
+pub struct ProgressReadAdapter<R: AsyncRead> {
+    #[pin]
+    inner: R,
+    interval: Interval,
+    interval_bytes: usize,
+}
+
+impl<R: AsyncRead> ProgressReadAdapter<R> {
+    pub fn new(inner: R) -> Self {
+        Self { inner, interval: interval(Duration::from_millis(100)), interval_bytes: 0 }
+    }
+}
+
+impl<R: AsyncRead> AsyncRead for ProgressReadAdapter<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<()>> {
+        let this = self.project();
+
+        let before = buf.filled().len();
+        let result = this.inner.poll_read(cx, buf);
+        let after = buf.filled().len();
+
+        *this.interval_bytes += after - before;
+        match this.interval.poll_tick(cx) {
+            Poll::Pending => {}
+            Poll::Ready(_) => {
+                tracing::info!("read {} bytes for s3 upload", *this.interval_bytes * 10);
+                *this.interval_bytes = 0;
+            }
+        };
+
+        result
+    }
+}
+
 async fn multipart_upload_s3_file(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -839,8 +885,9 @@ async fn multipart_upload_s3_file(
         tracing::error!("Error initializing multipart upload: {:?}", err);
         Error::InternalErr(err.to_string())
     })?;
+    let mut progressed_body_reader = ProgressReadAdapter::new(&mut body_reader);
 
-    copy(&mut body_reader, &mut parts_writer)
+    copy(&mut progressed_body_reader, &mut parts_writer)
         .await
         .map_err(|err| {
             let _ = s3_client.abort_multipart(&path, &multipart_id);
