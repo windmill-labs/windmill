@@ -13,7 +13,7 @@ export function makeQuery(
 
 	const filteredColumns = tableMetadata
 		.filter((x) => x != undefined)
-		.map((column) => `${column?.field}::text`)
+		.map((column) => `"${column?.field}"::text`)
 
 	let selectClause = filteredColumns.join(', ')
 
@@ -22,8 +22,8 @@ export function makeQuery(
 		.map(
 			(column) =>
 				`
-(CASE WHEN $4 = '${column.field}' AND $5 IS false THEN ${column.field}::text END),
-(CASE WHEN $4 = '${column.field}' AND $5 IS true THEN ${column.field}::text END) DESC`
+(CASE WHEN $4 = '${column.field}' AND $5 IS false THEN "${column.field}"::text END),
+(CASE WHEN $4 = '${column.field}' AND $5 IS true THEN "${column.field}"::text END) DESC`
 		)
 		.join(',\n')}`
 
@@ -34,11 +34,11 @@ export function makeQuery(
 -- $4 orderBy
 -- $5 is_desc
 
-SELECT ${selectClause} FROM ${table} WHERE `
+SELECT ${selectClause} FROM "${table}" WHERE `
 	if (whereClause) {
 		query += ` ${whereClause} AND `
 	}
-	query += ` ($3 = '' OR ${table}::text ILIKE '%' || $3 || '%')`
+	query += ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
 
 	query += ` ORDER BY ${orderBy}`
 	query += ` LIMIT $1::INT OFFSET $2::INT`
