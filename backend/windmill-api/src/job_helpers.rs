@@ -98,6 +98,14 @@ pub fn workspaced_service() -> Router {
             "/download_s3_file",
             get(download_s3_file).layer(cors.clone()),
         )
+        .route(
+            "/multipart_upload_s3_file",
+            post(multipart_upload_s3_file).layer(cors.clone()),
+        )
+        .route(
+            "/multipart_download_s3_file",
+            post(multipart_download_s3_file).layer(cors.clone()),
+        )
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // necessary for multipart upload
 }
 
@@ -719,6 +727,17 @@ struct DownloadFileQuery {
     pub s3_resource_path: Option<String>,
 }
 
+async fn multipart_download_s3_file(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Extension(_user_db): Extension<UserDB>,
+    Tokened { token: _token }: Tokened,
+    Path(_w_id): Path<String>,
+    Json(_value): Json<serde_json::Value>,
+) -> JsonResult<()> {
+    return Err(Error::BadRequest("This endpoint has been replaced by /download_s3_file. Please upgrade your client SDK to the latest version and migrate your code to the latest endpoints.".to_string()));
+}
+
 async fn download_s3_file(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -826,6 +845,17 @@ impl<R: AsyncRead> AsyncRead for ProgressReadAdapter<R> {
 
         result
     }
+}
+
+async fn multipart_upload_s3_file(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Extension(_user_db): Extension<UserDB>,
+    Tokened { token: _token }: Tokened,
+    Path(_w_id): Path<String>,
+    Json(_value): Json<serde_json::Value>,
+) -> JsonResult<()> {
+    return Err(Error::BadRequest("This endpoint has been replaced by /upload_s3_file. Please upgrade your client SDK to the latest version to migrate your code.".to_string()));
 }
 
 async fn upload_s3_file(
