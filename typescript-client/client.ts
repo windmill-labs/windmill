@@ -303,12 +303,12 @@ export async function denoS3LightClientSettings(
  * console.log(text);
  * ```
  */
-export async function loadS3FileContent(
+export async function loadS3File(
   s3object: S3Object,
   s3ResourcePath: string | undefined
 ): Promise<Uint8Array|undefined> {
   !clientSet && setClient();
-  const fileContentBlob = await loadS3File(s3object, s3ResourcePath)
+  const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath)
   if (fileContentBlob === undefined) {
     return undefined
   }
@@ -340,23 +340,32 @@ export async function loadS3FileContent(
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
  * 
  * ```typescript
- * let fileContentBlob = await wmill.loadS3File(inputFile)
+ * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
  * // if the content is plain text, the blob can be read directly:
- * console.log(fileContentBlob.text());
+ * console.log(await fileContentBlob.text());
  * ```
  */
-export async function loadS3File(
+export async function loadS3FileStream(
   s3object: S3Object,
   s3ResourcePath: string | undefined
 ): Promise<Blob|undefined> {
   !clientSet && setClient();
 
-  let fileContentBlob = await HelpersService.fileDownload({
-    workspace: getWorkspace(),
-    fileKey: s3object.s3,
-    s3ResourcePath: s3ResourcePath,
+  let params: Record<string, string> = {}
+  params["file_key"] = s3object.s3
+  if (s3ResourcePath !== undefined) {
+    params["s3_resource_path"] = s3ResourcePath
+  }
+  const queryParams = new URLSearchParams(params);
+
+  // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
+  const fileContentBlob = await fetch(`${OpenAPI.BASE}/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${OpenAPI.TOKEN}`,
+    },
   })
-  return fileContentBlob
+  return fileContentBlob.blob()
 }
 
 /**

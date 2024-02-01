@@ -5,8 +5,8 @@ import os
 
 
 class TestStringMethods(unittest.TestCase):
-    _token = "<WM_TOKEN>"
-    _workspace = "storage"
+    _token = "821CIsMXdDMi9lV7z1cSYfNl9ldKsB"
+    _workspace = "s3-upload"
     _host = "http://localhost:8000"
     _resource_path = "u/admin/docker_minio"
 
@@ -81,6 +81,11 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
             "region.csv", "wb"
         ) as output_file:
             output_file.write(file_content.read())
+
+    @unittest.skip("skipping")
+    def test_download_s3_file_content(self):
+        file_content = wmill.load_s3_file_content(S3Object(s3="region.csv"))
+        print(file_content)
 
     @unittest.skip("skipping")
     def test_upload_s3_file(self):
