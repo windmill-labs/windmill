@@ -2743,13 +2743,15 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'object',
 					value: {},
-					tooltip: 'This will allow you to dynamically set the default values of the form.'
+					tooltip:
+						'This enables setting default form values dynamically using an object: keys are field names, and values are the defaults.'
 				},
 				dynamicEnums: {
 					type: 'static',
 					fieldType: 'object',
 					value: {},
-					tooltip: 'This will allow you to dynamically set the enum values of the form.'
+					tooltip:
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
 				},
 
 				displayType: {
