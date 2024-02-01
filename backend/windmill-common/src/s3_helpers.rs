@@ -1,6 +1,8 @@
-use aws_config::{BehaviorVersion, Region};
-use aws_sdk_s3::config::Credentials;
+use crate::error;
+use object_store::ObjectStore;
+use object_store::{aws::AmazonS3Builder, ClientOptions};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
@@ -40,20 +42,20 @@ pub struct S3Object {
 }
 
 pub async fn get_etag_or_empty(s3_resource: &S3Resource, s3_object: S3Object) -> Option<String> {
-    let s3_client = build_s3_client(s3_resource);
+    let s3_client = build_object_store_client(s3_resource);
+    if s3_client.is_err() {
+        return None;
+    }
 
-    let s3_bucket = s3_resource.bucket.clone();
-    let s3_key = s3_object.s3;
-    let s3_object_metadata = s3_client
-        .head_object()
-        .bucket(s3_bucket)
-        .key(s3_key)
-        .send()
-        .await;
-    s3_object_metadata
+    let s3_key = object_store::path::Path::from(s3_object.s3);
+
+    return s3_client
+        .unwrap()
+        .head(&s3_key)
+        .await
         .ok()
-        .map(|res| res.e_tag().map(|et| et.to_string()))
-        .flatten()
+        .map(|meta| meta.e_tag)
+        .flatten();
 }
 
 pub fn render_endpoint(s3_resource: &S3Resource) -> String {
@@ -73,26 +75,39 @@ pub fn render_endpoint(s3_resource: &S3Resource) -> String {
     }
 }
 
-pub fn build_s3_client(s3_resource_ref: &S3Resource) -> aws_sdk_s3::Client {
+pub fn build_object_store_client(
+    s3_resource_ref: &S3Resource,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let s3_resource = s3_resource_ref.clone();
-
     let endpoint = render_endpoint(&s3_resource);
-    let mut s3_config_builder = aws_sdk_s3::Config::builder()
-        .endpoint_url(endpoint)
-        .behavior_version(BehaviorVersion::latest())
-        .region(Region::new(s3_resource.region));
-    if s3_resource.access_key.is_some() {
-        s3_config_builder = s3_config_builder.credentials_provider(Credentials::new(
-            s3_resource.access_key.unwrap_or_default(),
-            s3_resource.secret_key.unwrap_or_default(),
-            None,
-            None,
-            "s3_storage",
-        ));
+
+    let mut store_builder = AmazonS3Builder::new()
+        .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
+        .with_region(s3_resource.region)
+        .with_bucket_name(s3_resource.bucket)
+        .with_endpoint(endpoint);
+
+    if !s3_resource.use_ssl {
+        store_builder = store_builder.with_allow_http(true)
     }
-    if s3_resource.path_style {
-        s3_config_builder = s3_config_builder.force_path_style(true);
+
+    if let Some(key) = s3_resource.access_key {
+        store_builder = store_builder.with_access_key_id(key);
     }
-    let s3_config = s3_config_builder.build();
-    return aws_sdk_s3::Client::from_conf(s3_config);
+    if let Some(secret_key) = s3_resource.secret_key {
+        store_builder = store_builder.with_secret_access_key(secret_key);
+    }
+    if !s3_resource.path_style {
+        store_builder = store_builder.with_virtual_hosted_style_request(s3_resource.path_style);
+    }
+
+    let store = store_builder.build().map_err(|err| {
+        tracing::error!("Error building object store client: {:?}", err);
+        error::Error::InternalErr(format!(
+            "Error building object store client: {}",
+            err.to_string()
+        ))
+    })?;
+
+    return Ok(Arc::new(store));
 }

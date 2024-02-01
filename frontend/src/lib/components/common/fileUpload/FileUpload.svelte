@@ -5,11 +5,11 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService, type UploadFilePart } from '$lib/gen'
+	import { HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { emptyString } from '$lib/utils'
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
@@ -43,11 +43,11 @@
 		}
 	}
 
+	let xhr: XMLHttpRequest | undefined = undefined
 	async function uploadFileToS3(fileToUpload: File, fileToUploadKey: string) {
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
 		}
-
 		let path: string | undefined = undefined
 		let fileExtension: string | undefined = undefined
 		if (randomFileKey) {
@@ -63,7 +63,6 @@
 					  })) ?? fileToUploadKey
 					: fileToUploadKey
 		}
-
 		const uploadData: FileUploadData = {
 			name: fileToUpload.name,
 			size: fileToUpload.size,
@@ -72,97 +71,112 @@
 			path: path,
 			file: fileToUpload
 		}
-
 		$fileUploads = [...$fileUploads, uploadData]
 
-		let upload_id: string | undefined = undefined
-		let parts: UploadFilePart[] = []
+		// // Use a custom TransformStream to track upload progress
+		// const progressTrackingStream = new TransformStream({
+		// 	transform(chunk, controller) {
+		// 		controller.enqueue(chunk)
+		// 		bytesUploaded += chunk.byteLength
+		// 		console.log('upload progress:', bytesUploaded / totalBytes)
+		// 		uploadData.progress = (bytesUploaded / totalBytes) * 100
+		// 	},
+		// 	flush(controller) {
+		// 		console.log('completed stream')
+		// 	}
+		// })
 
-		let reader = fileToUpload?.stream().getReader()
-		let { value: chunk, done: readerDone } = await reader.read()
-		if (chunk === undefined || readerDone) {
-			sendUserToast('Error reading file, no data read', true)
+		try {
+			// const response = await HelpersService.multipartFileUpload({
+			// 	workspace: $workspaceStore!,
+			// 	fileKey: path,
+			// 	fileExtension: fileExtension,
+			// 	s3ResourcePath: customS3ResourcePath?.split(':')[1],
+			// 	requestBody: fileToUpload.stream().pipeThrough(progressTrackingStream, {})
+			// })
+
+			const params = new URLSearchParams()
+			if (path) {
+				params.append('file_key', path)
+			}
+			if (customS3ResourcePath?.split(':')[1]) {
+				params.append('s3_resource_path', customS3ResourcePath?.split(':')[1])
+			}
+			if (fileExtension) {
+				params.append('file_extension', fileExtension)
+			}
+			// let response = await fetch(
+			// 	`/api/w/${$workspaceStore}/job_helpers/multipart_upload_s3_file?${params.toString()}`,
+			// 	{
+			// 		method: 'POST',
+			// 		headers: {
+			// 			'Content-Type': 'application/octet-stream'
+			// 		},
+			// 		body: fileToUpload.stream().pipeThrough(progressTrackingStream, {}),
+			// 		duplex: 'half'
+			// 	}
+			// )
+
+			xhr = new XMLHttpRequest()
+			const response = (await new Promise((resolve, reject) => {
+				xhr?.upload.addEventListener('progress', (event) => {
+					if (event.lengthComputable) {
+						let progress = (event.loaded / event.total) * 100
+						if (progress == 100) {
+							progress = 99
+						}
+						console.log('upload progress:', progress)
+						uploadData.progress = progress
+						$fileUploads = $fileUploads
+					}
+				})
+				xhr?.addEventListener('loadend', () => {
+					let response = xhr?.responseText
+					if (xhr?.readyState === 4 && xhr?.status === 200 && response) {
+						uploadData.progress = 100
+						resolve(JSON.parse(response))
+					} else {
+						if (response) {
+							reject('An error occurred while uploading the file, see server logs')
+						} else {
+							reject(response)
+						}
+					}
+					xhr = undefined
+				})
+				xhr?.open(
+					'POST',
+					`/api/w/${$workspaceStore}/job_helpers/upload_s3_file?${params.toString()}`,
+					true
+				)
+				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
+				xhr?.send(fileToUpload)
+			})) as any
+
+			uploadData.path = response.file_key
+		} catch (e) {
+			console.error(e)
+			sendUserToast(e, true)
+			$fileUploads = $fileUploads.map((fileUpload) => {
+				if (fileUpload.name === uploadData.name) {
+					fileUpload.errorMessage = e
+					return fileUpload
+				}
+				return fileUpload
+			})
 			return
 		}
+		dispatch('addition', { path: uploadData.path })
+		sendUserToast('File upload finished!')
 
-		let fileUploadProgress = 0
-		while (true) {
-			const currentFileUpload = $fileUploads.find(
-				(fileUpload) => fileUpload.name === uploadData.name
-			)!
-
-			if (currentFileUpload.cancelled) {
-				return
+		uploadData.progress = 100
+		$fileUploads = $fileUploads.map((fileUpload) => {
+			if (fileUpload.name === uploadData.name) {
+				return uploadData
 			}
-
-			let { value: chunk_2, done: readerDone } = await reader.read()
-			if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
-				// AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
-				chunk = new Uint8Array([...chunk, ...chunk_2])
-				continue
-			}
-
-			try {
-				let response = await HelpersService.multipartFileUpload({
-					workspace: $workspaceStore!,
-					requestBody: {
-						file_key: path,
-						file_extension: fileExtension,
-						part_content: Array.from(chunk),
-						upload_id: upload_id,
-						parts: parts,
-						is_final: readerDone,
-						cancel_upload: currentFileUpload.cancelled ?? false,
-						s3_resource_path:
-							customS3ResourcePath !== undefined ? customS3ResourcePath.split(':')[1] : undefined,
-						file_expiration: undefined
-					}
-				})
-				uploadData.path = response.file_key
-				path = response.file_key
-				upload_id = response.upload_id
-				parts = response.parts
-
-				// update upload progress
-				fileUploadProgress += (chunk.length * 100) / fileToUpload.size
-				uploadData.progress = fileUploadProgress
-				$fileUploads = $fileUploads.map((fileUpload) => {
-					if (fileUpload.name === uploadData.name) {
-						return uploadData
-					}
-					return fileUpload
-				})
-
-				if (response.is_done) {
-					if (currentFileUpload.cancelled) {
-						sendUserToast('File upload cancelled!')
-					} else {
-						dispatch('addition', { path: path })
-						sendUserToast('File upload finished!')
-					}
-
-					break
-				}
-				if (chunk_2 === undefined) {
-					sendUserToast(
-						'File upload is not finished, yet there is no more data to stream. This is unexpected',
-						true
-					)
-					return
-				}
-				chunk = chunk_2
-			} catch (e) {
-				sendUserToast(e, true)
-				$fileUploads = $fileUploads.map((fileUpload) => {
-					if (fileUpload.name === uploadData.name) {
-						fileUpload.errorMessage = e
-						return fileUpload
-					}
-					return fileUpload
-				})
-				return
-			}
-		}
+			return fileUpload
+		})
+		return
 	}
 
 	async function deleteFile(fileKey: string) {
@@ -173,6 +187,13 @@
 		dispatch('deletion', { path: fileKey })
 		sendUserToast('File deleted!')
 	}
+
+	onDestroy(() => {
+		if (xhr) {
+			xhr?.abort
+			xhr = undefined
+		}
+	})
 </script>
 
 <div class="w-full h-full p-2 flex flex-col">
@@ -209,6 +230,11 @@
 												return
 											}
 
+											if (xhr) {
+												xhr.abort()
+												xhr = undefined
+											}
+
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
 											)
@@ -230,6 +256,11 @@
 
 											if (!file) {
 												return
+											}
+
+											if (xhr) {
+												xhr.abort()
+												xhr = undefined
 											}
 
 											$fileUploads = $fileUploads.filter(
@@ -272,6 +303,10 @@
 
 											if (fileUpload.path) {
 												deleteFile(fileUpload.path)
+											}
+											if (xhr) {
+												xhr.abort()
+												xhr = undefined
 											}
 										}}
 										startIcon={{

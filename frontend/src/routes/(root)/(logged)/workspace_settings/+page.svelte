@@ -772,51 +772,53 @@
 					with large buckets.
 				</Alert>
 			{/if}
-			<div class="mt-5 flex gap-1">
-				{#key s3ResourceSettings.s3ResourcePath}
-					<ResourcePicker resourceType="s3" bind:value={s3ResourceSettings.s3ResourcePath} />
-				{/key}
-				<Button
-					size="sm"
-					variant="contained"
-					color="dark"
-					disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
-					on:click={async () => {
-						if ($workspaceStore) {
-							s3FileViewer?.open?.(undefined)
-						}
-					}}>Browse content</Button
-				>
-			</div>
-			<div class="flex flex-col mt-5 mb-1 gap-1">
-				<Toggle
-					disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
-					bind:checked={s3ResourceSettings.publicResource}
-					options={{
-						right: 'S3 resource details can be accessed by all users of this workspace',
-						rightTooltip:
-							'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
-					}}
-				/>
-				{#if s3ResourceSettings.publicResource === true}
-					<Alert type="warning" title="S3 bucket content and resource details are shared">
-						S3 resource public access is ON, which means that the entire content of the S3 bucket
-						will be accessible to all the users of this workspace regardless of whether they have
-						access the resource or not. Similarly, certain Windmill SDK endpoints can be used in
-						scripts to access the resource details, including public and private keys.
-					</Alert>
-				{/if}
-			</div>
-			<div class="flex mt-5 mb-5 gap-1">
-				<Button
-					color="blue"
-					disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
-					on:click={() => {
-						editWindmillLFSSettings()
-						console.log('Saving S3 settings', s3ResourceSettings)
-					}}>Save S3 settings</Button
-				>
-			</div>
+			{#if s3ResourceSettings}
+				<div class="mt-5 flex gap-1">
+					{#key s3ResourceSettings.s3ResourcePath}
+						<ResourcePicker resourceType="s3" bind:value={s3ResourceSettings.s3ResourcePath} />
+					{/key}
+					<Button
+						size="sm"
+						variant="contained"
+						color="dark"
+						disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
+						on:click={async () => {
+							if ($workspaceStore) {
+								s3FileViewer?.open?.(undefined)
+							}
+						}}>Browse content (save first)</Button
+					>
+				</div>
+				<div class="flex flex-col mt-5 mb-1 gap-1">
+					<Toggle
+						disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
+						bind:checked={s3ResourceSettings.publicResource}
+						options={{
+							right: 'S3 resource details can be accessed by all users of this workspace',
+							rightTooltip:
+								'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
+						}}
+					/>
+					{#if s3ResourceSettings.publicResource === true}
+						<Alert type="warning" title="S3 bucket content and resource details are shared">
+							S3 resource public access is ON, which means that the entire content of the S3 bucket
+							will be accessible to all the users of this workspace regardless of whether they have
+							access the resource or not. Similarly, certain Windmill SDK endpoints can be used in
+							scripts to access the resource details, including public and private keys.
+						</Alert>
+					{/if}
+				</div>
+				<div class="flex mt-5 mb-5 gap-1">
+					<Button
+						color="blue"
+						disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
+						on:click={() => {
+							editWindmillLFSSettings()
+							console.log('Saving S3 settings', s3ResourceSettings)
+						}}>Save S3 settings</Button
+					>
+				</div>
+			{/if}
 		{:else if tab == 'git_sync'}
 			<PageHeader
 				title="Git sync"
