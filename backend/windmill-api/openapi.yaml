@@ -6977,6 +6977,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: prefix
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: List of file keys
@@ -7095,39 +7099,13 @@ paths:
           in: query
           schema:
             type: string
-            
+
       responses:
         "200":
           description: Parquet Preview
           content:
             application/json:
               schema: {}
-
-  /w/{workspace}/job_helpers/generate_download_url:
-    get:
-      summary: Generate a unique URL to download the file
-      operationId: generateDownloadUrl
-      tags:
-        - helpers
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: file_key
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Download URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  download_url:
-                    type: string
-                required:
-                  - download_url
 
   /w/{workspace}/job_helpers/delete_s3_file:
     delete:
@@ -7174,119 +7152,76 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/job_helpers/multipart_upload_s3_file:
+  /w/{workspace}/job_helpers/upload_s3_file:
     post:
-      summary: Upload file to S3 bucket using multipart upload
-      operationId: multipartFileUpload
+      summary: Upload file to S3 bucket
+      operationId: fileUpload
       tags:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
       requestBody:
-        description: Query args for a multipart file upload to S3
+        description: File content
         required: true
         content:
-          application/json:
+          application/octet-stream:
             schema:
-              type: object
-              properties:
-                file_key:
-                  type: string
-                file_extension:
-                  type: string
-                part_content:
-                  type: array
-                  items:
-                    type: integer
-                upload_id:
-                  type: string
-                parts:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/UploadFilePart"
-                is_final:
-                  type: boolean
-                cancel_upload:
-                  type: boolean
-                s3_resource_path:
-                  type: string
-                file_expiration:
-                  type: string
-                  format: date-time
-              required:
-                - part_content
-                - parts
-                - is_final
-                - cancel_upload
+              type: string
+              format: binary
       responses:
         "200":
-          description: Chunk upload status
+          description: File upload status
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  upload_id:
-                    type: string
-                  parts:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/UploadFilePart"
-                  is_done:
-                    type: boolean
                   file_key:
                     type: string
                 required:
                   - file_key
-                  - upload_id
-                  - parts
-                  - is_done
 
-  /w/{workspace}/job_helpers/multipart_download_s3_file:
-    post:
+  /w/{workspace}/job_helpers/download_s3_file:
+    get:
       summary: Download file to S3 bucket
-      operationId: multipartFileDownload
+      operationId: fileDownload
       tags:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: Query args for a multipart file upload to S3
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                file_key:
-                  type: string
-                part_number:
-                  type: integer
-                file_size:
-                  type: integer
-                s3_resource_path:
-                  type: string
-              required:
-                - file_key
-                - part_number
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Chunk of the downloaded file
           content:
-            application/json:
+            application/octet-stream:
               schema:
-                type: object
-                properties:
-                  file_size:
-                    type: integer
-                  part_content:
-                    type: array
-                    items:
-                      type: integer
-                  next_part_number:
-                    type: integer
-                required:
-                  - part_content
+                type: string
+                format: binary
 
   /w/{workspace}/job_metrics/get/{id}:
     post:

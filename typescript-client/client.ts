@@ -297,7 +297,7 @@ export async function denoS3LightClientSettings(
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
  * 
  * ```typescript
- * let fileContent = await wmill.loadS3File(inputFile)
+ * let fileContent = await wmill.loadS3FileContent(inputFile)
  * // if the file is a raw text file, it can be decoded and printed directly:
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
@@ -308,13 +308,13 @@ export async function loadS3File(
   s3ResourcePath: string | undefined
 ): Promise<Uint8Array|undefined> {
   !clientSet && setClient();
-  const fileContentStream = await loadS3FileStream(s3object, s3ResourcePath)
-  if (fileContentStream === undefined) {
+  const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath)
+  if (fileContentBlob === undefined) {
     return undefined
   }
 
   // we read the stream until completion and put the content in an Uint8Array
-  const reader = fileContentStream.getReader()
+  const reader = fileContentBlob.stream().getReader()
   const chunks: Uint8Array[] = [];
   while (true) {
     const {value: chunk, done} = await reader.read();
@@ -340,67 +340,32 @@ export async function loadS3File(
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
  * 
  * ```typescript
- * let fileContentStream = await wmill.loadS3FileStream(inputFile)
- * // Use a read to read the stream:
- * const chunks: Uint8Array[] = [];
- * const reader = fileContentStream.getReader()
- * while (true) {
- *   const {value, done} = await reader.read();
- *   if (done) {
- *     break;
- *   }
- *   chunks.push(chunk);
- * }
- * // then the chunks can be concatenated into a single Uint8Array and if the
- * // file is a raw text file, it can be decoded and printed directly:
- * const text = new TextDecoder().decode(fileContent)
- * console.log(text);
+ * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
+ * // if the content is plain text, the blob can be read directly:
+ * console.log(await fileContentBlob.text());
  * ```
  */
 export async function loadS3FileStream(
   s3object: S3Object,
   s3ResourcePath: string | undefined
-): Promise<ReadableStream|undefined> {
+): Promise<Blob|undefined> {
   !clientSet && setClient();
 
-  let part_number: number | undefined = 0
-  let file_total_size: number|undefined = undefined
-
-  let fetch = async function(controller: any) {
-    // console.log("fetching part", part_number)
-    if (part_number === undefined || part_number === null) {
-      // console.log("finished, closing")
-      controller.close()
-      return
-    }
-    let part_response = await HelpersService.multipartFileDownload({
-      workspace: getWorkspace(),
-      requestBody: {
-        file_key: s3object.s3,
-        part_number: part_number,
-        file_size: file_total_size,
-        s3_resource_path: s3ResourcePath,
-      }
-    })
-    
-    if (part_response.part_content.length > 0) {
-      // console.log("enqueueing part", part_number, part_response.part_content.length)
-      let chunk = new Uint8Array(part_response.part_content.length)
-      part_response.part_content.forEach((value: number, index: number) => {
-        chunk[index] = value
-      })
-      controller.enqueue(chunk)
-    }
-    part_number = part_response.next_part_number
-    file_total_size = part_response.file_size
+  let params: Record<string, string> = {}
+  params["file_key"] = s3object.s3
+  if (s3ResourcePath !== undefined) {
+    params["s3_resource_path"] = s3ResourcePath
   }
+  const queryParams = new URLSearchParams(params);
 
-  let fileContentStream = new ReadableStream({
-    async pull(controller) {
-      await fetch(controller)
-    }
+  // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
+  const fileContentBlob = await fetch(`${OpenAPI.BASE}/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${OpenAPI.TOKEN}`,
+    },
   })
-  return fileContentStream
+  return fileContentBlob.blob()
 }
 
 /**
@@ -414,68 +379,28 @@ export async function loadS3FileStream(
  */
 export async function writeS3File(
   s3object: S3Object | undefined,
-  fileContent: string | ReadableStream<Uint8Array>,
-  fileExpiration: Date | undefined,
+  fileContent: string | Blob,
   s3ResourcePath: string | undefined
 ): Promise<S3Object> {
   !clientSet && setClient();
-  let fileContentStream: ReadableStream<Uint8Array>
+  let fileContentBlob: Blob
   if (typeof fileContent === 'string') {
-    fileContentStream = new Blob([fileContent as string], {
+    fileContentBlob = new Blob([fileContent as string], {
       type: 'text/plain'
-    }).stream();
+    });
   } else {
-    fileContentStream = fileContent as ReadableStream<Uint8Array>
+    fileContentBlob = fileContent as Blob
   }
 
-  let path = s3object?.s3
-  let upload_id: string | undefined = undefined
-  let parts: any[] = []
-  const reader = fileContentStream.getReader()
-  let { value: chunk, done: readerDone } = await reader.read()
-  if (chunk === undefined || readerDone) {
-    throw Error('Error reading stream, no data read');
-  }
-
-  while (true) {
-    let { value: chunk_2, done: readerDone } = await reader.read()
-    if (!readerDone && chunk_2 !== undefined && chunk.length <= 5 * 1024 * 1024) {
-      // AWS enforces part to be bigger than 5MB, so we accumulate bytes until we reach that limit before triggering the request to the BE
-      chunk = new Uint8Array([...chunk, ...chunk_2])
-      continue
-    }
-    try {
-      let response: any = await HelpersService.multipartFileUpload({
-        workspace: getWorkspace(),
-        requestBody: {
-          file_key: path,
-          file_extension: undefined,
-          part_content: Array.from(chunk),
-          upload_id: upload_id,
-          parts: parts,
-          is_final: readerDone,
-          cancel_upload: false,
-          s3_resource_path: s3ResourcePath,
-          file_expiration: fileExpiration?.toString(),
-        }
-      })
-      path = response.file_key
-      upload_id = response.upload_id
-      parts = response.parts
-
-      if (response.is_done) {
-        break
-      }
-      if (chunk_2 === undefined) {
-        throw Error('File upload is not finished, yet there is no more data to stream. This is unexpected');
-      }
-      chunk = chunk_2
-    } catch (e) {
-      throw Error(`Unexpected error uploading data to S3 ${e}`);
-    }
-  }
+  const response = await HelpersService.fileUpload({
+    workspace: getWorkspace(),
+    fileKey: s3object?.s3,
+    fileExtension: undefined,
+    s3ResourcePath: s3ResourcePath,
+    requestBody: fileContentBlob,
+  })
   return {
-    s3: path as string
+    s3: response.file_key
   }
 }
 

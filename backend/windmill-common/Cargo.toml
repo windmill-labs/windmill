@@ -49,6 +49,5 @@ regex.workspace = true
 git-version.workspace = true
 cron.workspace = true
 tracing-loki = { version = "^0", optional = true }
-aws-sdk-s3.workspace = true
-aws-config.workspace = true
 magic-crypt.workspace = true
+object_store.workspace = true
