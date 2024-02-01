@@ -708,7 +708,7 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
 @init_global_client
 def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
     """
-    Load the content of a file stored in S3
+    Load the entire content of a file stored in S3 as bytes
     """
     return _client.load_s3_file(s3object, s3_resource_path if s3_resource_path != "" else None)
 
@@ -716,7 +716,7 @@ def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
 @init_global_client
 def load_s3_file_reader(s3object: S3Object, s3_resource_path: str = "") -> BufferedReader:
     """
-    Load the entire content of a file stored in S3
+    Load the content of a file stored in S3
     """
     return _client.load_s3_file_reader(s3object, s3_resource_path if s3_resource_path != "" else None)
 
