@@ -208,7 +208,7 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class="animate-spin mr-1" size={14} />
+				<Loader2 class={twMerge('animate-spin', !iconOnly ? 'mr-1' : '')} size={14} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{/if}

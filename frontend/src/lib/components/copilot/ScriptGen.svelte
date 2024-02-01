@@ -87,11 +87,13 @@
 			showDiff()
 			funcDesc = ''
 		} catch (err) {
-			if (err?.message) {
-				sendUserToast('Failed to generate code: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate code', true)
-				console.error(err)
+			if (!abortController?.signal.aborted) {
+				if (err?.message) {
+					sendUserToast('Failed to generate code: ' + err.message, true)
+				} else {
+					sendUserToast('Failed to generate code', true)
+					console.error(err)
+				}
 			}
 		} finally {
 			genLoading = false
@@ -266,7 +268,9 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3' : '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
+					btnClasses={genLoading
+						? '!px-3 z-[5000]'
+						: '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
 					nonCaptureEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : undefined}
 					bind:element={button}
