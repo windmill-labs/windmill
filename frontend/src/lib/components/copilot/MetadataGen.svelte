@@ -7,6 +7,7 @@
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
 	import Label from '../Label.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	type Config = {
 		system: string
@@ -67,7 +68,7 @@ The description should focus on what it does and should not contain what concept
 
 	let config: Config = configs[configName]
 
-	async function generateContent() {
+	async function generateContent(automatic = false) {
 		abortController = new AbortController()
 		loading = true
 		try {
@@ -92,7 +93,13 @@ The description should focus on what it does and should not contain what concept
 				}
 			}
 		} catch (err) {
-			console.error('Could not generate summary', err)
+			if (!abortController.signal.aborted) {
+				if (automatic) {
+					console.error('Could not generate summary ' + err)
+				} else {
+					sendUserToast('Could not generate summary: ' + err, true)
+				}
+			}
 		} finally {
 			loading = false
 		}
@@ -106,7 +113,7 @@ The description should focus on what it does and should not contain what concept
 		!content &&
 		!isInitialCode(code)
 	) {
-		generateContent()
+		generateContent(true)
 	}
 
 	const dispatch = createEventDispatcher()
@@ -130,8 +137,7 @@ The description should focus on what it does and should not contain what concept
 						</span> to cancel
 					</span>
 				{:else if !content && focused}
-					<span class="text-xs"
-						>
+					<span class="text-xs">
 						<span class="border px-1 py-0.5 rounded-md text-2xs text-bold bg-white text-black">
 							TAB
 						</span> to generate
