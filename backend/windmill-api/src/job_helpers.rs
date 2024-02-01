@@ -1,4 +1,5 @@
 use std::io::{self};
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{cmp, future};
@@ -457,7 +458,7 @@ struct LoadFilePreviewQuery {
     pub file_key: String,
 
     // The two options below are requested from s3 with an additional query is not set
-    pub file_size_in_bytes: Option<i64>,
+    pub file_size_in_bytes: Option<usize>,
     pub file_mime_type: Option<String>,
 
     // For CSV files, the separator needs to be specified
@@ -468,8 +469,8 @@ struct LoadFilePreviewQuery {
     // - CSVs: only the length will be taken into account, a CSV file larger than this will be truncated.
     //   Note that truncated CSV files might not be valid CSV files anymore, and therefore the preview might fail
     // - Parquet files: Parquet files are lazy-loaded. Therefore none of those params will be taken into account
-    pub read_bytes_from: i64,
-    pub read_bytes_length: i64,
+    pub read_bytes_from: usize,
+    pub read_bytes_length: usize,
 }
 
 #[derive(Serialize)]
@@ -589,7 +590,7 @@ async fn load_file_preview(
                 .head(&path)
                 .await
                 .map_err(|err| Error::InternalErr(err.to_string()))?;
-            Some(s3_object_metadata.size as i64)
+            Some(s3_object_metadata.size)
         };
 
     let file_chunk_length = if s3_object_content_length.is_some() {
@@ -1035,31 +1036,26 @@ fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
 async fn read_object_chunk(
     s3_client: Arc<dyn ObjectStore>,
     file_key: &str,
-    from_byte: i64,
-    length: i64,
+    from_byte: usize,
+    length: usize,
 ) -> error::Result<Vec<u8>> {
     let path = object_store::path::Path::from(file_key);
-    let s3_object = s3_client.get(&path).await.map_err(|err| {
-        tracing::warn!("Error fetching text file from S3: {:?}", err);
-        Error::InternalErr(err.to_string())
-    })?;
+    let s3_object = s3_client
+        .get_range(&path, Range { start: from_byte, end: from_byte + length })
+        .await
+        .map_err(|err| {
+            tracing::warn!("Error fetching text file from S3: {:?}", err);
+            Error::InternalErr(err.to_string())
+        })?;
 
-    let object_chunks = s3_object
-        .into_stream()
-        .skip(from_byte as usize)
-        .take(length as usize)
-        .filter(|obj| future::ready(obj.is_ok()))
-        .map(|obj| obj.unwrap())
-        .collect::<Vec<_>>()
-        .await;
-    return Ok(object_chunks.concat());
+    return Ok(s3_object.to_vec());
 }
 
 async fn read_s3_text_object_head(
     s3_client: Arc<dyn ObjectStore>,
     file_key: &str,
-    from_byte: i64,
-    length: i64,
+    from_byte: usize,
+    length: usize,
 ) -> error::Result<String> {
     let payload = read_object_chunk(s3_client, file_key, from_byte, length).await?;
     let file_header_str = String::from_utf8(payload).map_err(|err| {
@@ -1186,7 +1182,7 @@ async fn read_s3_parquet_chunk(
 async fn csv_file_preview_with_fallback(
     s3_client: Arc<dyn ObjectStore>,
     file_key: &str,
-    length: i64,
+    length: usize,
     separator: Option<String>,
     has_header: Option<bool>,
 ) -> error::Result<String> {
@@ -1205,7 +1201,7 @@ async fn csv_file_preview_with_fallback(
 async fn read_s3_csv_object_head(
     s3_client: Arc<dyn ObjectStore>,
     file_key: &str,
-    length: i64,
+    length: usize,
     separator: Option<String>,
     has_header: Option<bool>,
 ) -> error::Result<String> {
