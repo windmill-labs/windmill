@@ -814,11 +814,17 @@ pub struct ProgressReadAdapter<R: AsyncRead> {
     inner: R,
     interval: Interval,
     interval_bytes: usize,
+    total_bytes: usize,
 }
 
 impl<R: AsyncRead> ProgressReadAdapter<R> {
     pub fn new(inner: R) -> Self {
-        Self { inner, interval: interval(Duration::from_millis(100)), interval_bytes: 0 }
+        Self {
+            inner,
+            interval: interval(Duration::from_millis(100)),
+            interval_bytes: 0,
+            total_bytes: 0,
+        }
     }
 }
 
@@ -842,7 +848,15 @@ impl<R: AsyncRead> AsyncRead for ProgressReadAdapter<R> {
                 *this.interval_bytes = 0;
             }
         };
+        *this.total_bytes += *this.interval_bytes;
 
+        #[cfg(not(feature = "enterprise"))]
+        if *this.total_bytes > 50 * 1024 * 1024 {
+            let err = error::Error::BadRequest(
+                "Uploading files bigger than 50Mb is only permitted in Windmill EE".to_string(),
+            );
+            return Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionAborted, err)));
+        }
         result
     }
 }
