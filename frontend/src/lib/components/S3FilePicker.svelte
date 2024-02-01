@@ -25,7 +25,7 @@
 	let deletionModalOpen = false
 	let fileDeletionInProgress = false
 
-	let fileListUnavailable = true
+	let fileListUnavailable: boolean | undefined = undefined
 
 	let moveModalOpen = false
 	let moveDestKey: string | undefined = undefined
@@ -428,7 +428,7 @@
 				</Alert>
 			{/if}
 		{:else}
-			{#if fileListUnavailable}
+			{#if fileListUnavailable == true}
 				<div class="mb-2">
 					<Alert type="info" title="Access to S3 bucket restricted">
 						<p>
