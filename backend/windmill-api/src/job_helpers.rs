@@ -362,7 +362,7 @@ async fn test_connection(
 
 #[derive(Deserialize)]
 struct ListStoredFilesQuery {
-    pub max_keys: i32,
+    pub max_keys: usize,
     pub marker: Option<String>,
 }
 
@@ -396,26 +396,21 @@ async fn list_stored_files(
     ))?;
     let s3_client = build_object_store_client(&s3_resource)?;
 
-    let object_stream = s3_client.list(None);
+    let object_stream = if let Some(marker) = query.marker {
+        s3_client.list_with_offset(None, &object_store::path::Path::from(marker))
+    } else {
+        s3_client.list(None)
+    };
 
-    let query_marker_int = query
-        .marker
-        .or(Some("0".to_string()))
-        .map(|marker_str| marker_str.parse::<usize>().ok())
-        .flatten()
-        .unwrap_or(0);
-    let object_stream_skipped = object_stream.skip(query_marker_int);
-
-    let stored_datasets = object_stream_skipped
-        .take((query.max_keys + 1) as usize) // taking +1 here to check if there's more in the bucket and return the next_marker if needed
-        .filter(|obj| future::ready(obj.is_ok()))
-        .map(|obj| obj.ok().unwrap())
-        .map(|obj| WindmillLargeFile { s3: obj.location.to_string() })
-        .collect::<Vec<WindmillLargeFile>>()
-        .await;
+    let stored_datasets = object_stream
+        .take((query.max_keys + 1) as usize)
+        .map(|obj| obj.map(|x| WindmillLargeFile { s3: x.location.to_string() }))
+        .try_collect::<Vec<WindmillLargeFile>>()
+        .await
+        .map_err(|e| Error::InternalErr(format!("Error listring files: {e}",)))?;
 
     let next_marker = if stored_datasets.len() > query.max_keys as usize {
-        Some((query_marker_int + query.max_keys as usize).to_string())
+        Some((stored_datasets.last().unwrap().s3).clone())
     } else {
         None
     };
