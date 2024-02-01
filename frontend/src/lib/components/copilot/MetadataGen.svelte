@@ -131,7 +131,7 @@ The description should focus on what it does and should not contain what concept
 					</span>
 				{:else if !content && focused}
 					<span class="text-xs"
-						>0
+						>
 						<span class="border px-1 py-0.5 rounded-md text-2xs text-bold bg-white text-black">
 							TAB
 						</span> to generate
