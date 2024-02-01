@@ -2739,6 +2739,21 @@ This is a paragraph.
 				}
 			},
 			configuration: {
+				defaultValues: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'This enables setting default form values dynamically using an object: keys are field names, and values are the defaults.'
+				},
+				dynamicEnums: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+				},
+
 				displayType: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -3074,7 +3089,7 @@ This is a paragraph.
 	dbexplorercomponent: {
 		name: 'Database Studio',
 		icon: Database,
-		documentationLink: `${documentationBaseUrl}/dbexplorer`,
+		documentationLink: `${documentationBaseUrl}/database_studio`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }

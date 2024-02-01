@@ -51,6 +51,8 @@
 	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
+	import MetadataGen from './copilot/MetadataGen.svelte'
+	import MetadataGenToggle from './copilot/MetadataGenToggle.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -367,6 +369,8 @@
 	let dirtyPath = false
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' = 'metadata'
+
+	let descriptionTextArea: HTMLTextAreaElement | undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -393,6 +397,9 @@
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
+									<svelte:fragment slot="header">
+										<MetadataGenToggle />
+									</svelte:fragment>
 									<svelte:fragment slot="action">
 										<div class="flex flex-row items-center gap-2">
 											<ErrorHandlerToggleButton
@@ -404,25 +411,34 @@
 										</div>
 									</svelte:fragment>
 									<div class="flex flex-col gap-4">
-										<Label label="Summary">
+										<MetadataGen
+											label="Summary"
+											bind:content={script.summary}
+											lang={script.language}
+											code={script.content}
+											configName="summary"
+											let:updateFocus
+											on:change={() => {
+												if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
+													path?.setName(
+														script.summary
+															.toLowerCase()
+															.replace(/[^a-z0-9_]/g, '_')
+															.replace(/-+/g, '_')
+															.replace(/^-|-$/g, '')
+													)
+												}
+											}}
+										>
 											<input
 												type="text"
 												autofocus
+												on:focus={() => updateFocus(true)}
+												on:blur={() => updateFocus(false)}
 												bind:value={script.summary}
-												placeholder="Short summary to be displayed when listed"
-												on:keyup={() => {
-													if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-														path?.setName(
-															script.summary
-																.toLowerCase()
-																.replace(/[^a-z0-9_]/g, '_')
-																.replace(/-+/g, '_')
-																.replace(/^-|-$/g, '')
-														)
-													}
-												}}
+												placeholder={'Short summary to be displayed when listed'}
 											/>
-										</Label>
+										</MetadataGen>
 										<Label label="Path">
 											<Path
 												bind:this={path}
@@ -435,14 +451,25 @@
 												kind="script"
 											/>
 										</Label>
-										<Label label="Description">
+										<MetadataGen
+											bind:content={script.description}
+											lang={script.language}
+											code={script.content}
+											configName="description"
+											el={descriptionTextArea}
+											label="Description"
+											let:updateFocus
+										>
 											<textarea
+												on:focus={() => updateFocus(true)}
+												on:blur={() => updateFocus(false)}
 												use:autosize
+												bind:this={descriptionTextArea}
 												bind:value={script.description}
-												placeholder="Description displayed in the details page"
+												placeholder={'Description displayed in the details page'}
 												class="text-sm"
 											/>
-										</Label>
+										</MetadataGen>
 									</div>
 								</Section>
 

@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.258.4](https://github.com/windmill-labs/windmill/compare/v1.258.3...v1.258.4) (2024-01-31)
+
+
+### Bug Fixes
+
+* improve git sync ([23f06d1](https://github.com/windmill-labs/windmill/commit/23f06d1a0424862afd6f733ed103f7a66f59dd12))
+* improve git sync ([cc0aec8](https://github.com/windmill-labs/windmill/commit/cc0aec87438ebe4aef6dae1464b9dc267da3ad97))
+
+## [1.258.3](https://github.com/windmill-labs/windmill/compare/v1.258.2...v1.258.3) (2024-01-31)
+
+
+### Bug Fixes
+
+* **cli:** restore other files support ([7494e7e](https://github.com/windmill-labs/windmill/commit/7494e7ee2d7f56a95b6f976b9646c2bce3bdc22b))
+* **frontend:** Fix adding nodes to decision tree ([#3107](https://github.com/windmill-labs/windmill/issues/3107)) ([740801f](https://github.com/windmill-labs/windmill/commit/740801f4a73849919419ee96f4fc090eef855a17))
+* improve git sync ([b063164](https://github.com/windmill-labs/windmill/commit/b0631648c3899134e668c30b890efc40aa2c0c49))
+* improve git sync ([1c4129c](https://github.com/windmill-labs/windmill/commit/1c4129c4f68f690eac6bffe9016bc8506bb9cf37))
+
 ## [1.258.2](https://github.com/windmill-labs/windmill/compare/v1.258.1...v1.258.2) (2024-01-31)
 
 
