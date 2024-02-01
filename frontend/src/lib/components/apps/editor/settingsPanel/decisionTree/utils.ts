@@ -73,8 +73,7 @@ export function insertNode(
 		allowed: createBooleanRC()
 	}
 
-	let index = nodes.findIndex((n) => n.id === sourceNode.id)
-	nodes = [...nodes.slice(0, index), newNode, ...nodes.slice(index)]
+	nodes = [...nodes, newNode]
 
 	nodes = nodes.map((node) => {
 		if (node.id === parentId) {
@@ -244,6 +243,8 @@ function createNewNode(nodes: DecisionTreeNode[], id: string) {
 export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeNode) {
 	const collapseNode = findCollapseNode(nodes, startNode.id)
 
+	debugger
+
 	if (!collapseNode) {
 		return nodes
 	}
@@ -260,6 +261,8 @@ export function addNewBranch(nodes: DecisionTreeNode[], startNode: DecisionTreeN
 		}
 		return node
 	})
+
+	debugger
 
 	return nodes
 }
