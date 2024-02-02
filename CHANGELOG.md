@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.260.1](https://github.com/windmill-labs/windmill/compare/v1.260.0...v1.260.1) (2024-02-02)
+
+
+### Bug Fixes
+
+* retrigger release ([160f91e](https://github.com/windmill-labs/windmill/commit/160f91e0be87a6ccf59eb99589ac7f73fa43d10c))
+
 ## [1.260.0](https://github.com/windmill-labs/windmill/compare/v1.259.2...v1.260.0) (2024-02-02)
 
 
