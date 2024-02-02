@@ -11,10 +11,11 @@
 		OpenAPI,
 		Preview,
 		type OpenFlow,
-		type FlowModule
+		type FlowModule,
+		SettingsService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
@@ -126,7 +127,13 @@
 		}
 	}
 
+	async function setEnterpriseLicense() {
+		if (!$enterpriseLicense) {
+			$enterpriseLicense = await SettingsService.getLicenseId()
+		}
+	}
 	onMount(() => {
+		setEnterpriseLicense()
 		window.addEventListener('message', el, false)
 		document.addEventListener('keydown', (e) => {
 			const obj = {
