@@ -1,4 +1,4 @@
-from io import BufferedReader
+from io import BufferedReader, BytesIO
 from json import JSONDecodeError
 
 import httpx
@@ -39,10 +39,18 @@ class S3BufferedReader(BufferedReader):
                     break
                 read_result.append(b)
 
-        return b''.join(read_result)
+        return b"".join(read_result)
 
     def read1(self, size=-1):
         return self.read(size)
 
     def __exit__(self, *args):
         self._context_manager.__exit__(*args)
+
+
+def bytes_generator(buffered_reader: BufferedReader | BytesIO):
+    while True:
+        byte = buffered_reader.read(1)
+        if not byte:
+            break
+        yield byte
