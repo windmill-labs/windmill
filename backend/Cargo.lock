@@ -3751,7 +3751,7 @@ dependencies = [
  "smtp-proto",
  "tokio",
  "tokio-rustls 0.25.0",
- "webpki-roots 0.26.0",
+ "webpki-roots 0.26.1",
 ]
 
 [[package]]
@@ -5881,7 +5881,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 0.25.3",
+ "webpki-roots 0.25.4",
  "winreg",
 ]
 
@@ -6169,7 +6169,7 @@ dependencies = [
  "log",
  "ring 0.17.7",
  "rustls-pki-types",
- "rustls-webpki 0.102.1",
+ "rustls-webpki 0.102.2",
  "subtle",
  "zeroize",
 ]
@@ -6197,9 +6197,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e9d979b3ce68192e42760c7810125eb6cf2ea10efae545a156063e61f314e2a"
+checksum = "0a716eb65e3158e90e17cd93d855216e27bde02745ab842f2cab4a39dba1bacf"
 
 [[package]]
 name = "rustls-webpki"
@@ -6213,9 +6213,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.102.1"
+version = "0.102.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef4ca26037c909dedb327b48c3327d0ba91d3dd3c4e05dad328f210ffb68e95b"
+checksum = "faaa0a62740bedb9b2ef5afa303da42764c012f743917351dc9a237ea1663610"
 dependencies = [
  "ring 0.17.7",
  "rustls-pki-types",
@@ -7071,7 +7071,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid 1.7.0",
- "webpki-roots 0.25.3",
+ "webpki-roots 0.25.4",
 ]
 
 [[package]]
@@ -8727,7 +8727,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "webpki-roots 0.25.3",
+ "webpki-roots 0.25.4",
 ]
 
 [[package]]
@@ -9019,15 +9019,15 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.25.3"
+version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1778a42e8b3b90bff8d0f5032bf22250792889a5cdc752aa0020c84abe3aaf10"
+checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de2cfda980f21be5a7ed2eadb3e6fe074d56022bea2cdeb1a62eb220fc04188"
+checksum = "b3de34ae270483955a94f4b21bdaaeb83d508bb84a01435f393818edb0012009"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -9087,7 +9087,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -9123,7 +9123,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9197,7 +9197,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9215,7 +9215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "chrono",
  "serde",
@@ -9228,7 +9228,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -9261,7 +9261,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "rsmq_async",
  "serde",
@@ -9275,7 +9275,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -9283,7 +9283,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9294,7 +9294,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9306,7 +9306,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9317,7 +9317,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9328,7 +9328,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9345,7 +9345,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9356,7 +9356,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9374,7 +9374,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9392,7 +9392,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9425,7 +9425,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.260.0"
+version = "1.260.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9631,9 +9631,9 @@ checksum = "dff9641d1cd4be8d1a070daf9e3773c5f67e78b4d9d42263020c057706765c04"
 
 [[package]]
 name = "winnow"
-version = "0.5.36"
+version = "0.5.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "818ce546a11a9986bc24f93d0cdf38a8a1a400f1473ea8c82e59f6e0ffab9249"
+checksum = "a7cad8365489051ae9f054164e459304af2e7e9bb407c958076c8bf4aef52da5"
 dependencies = [
  "memchr",
 ]
