@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.259.2](https://github.com/windmill-labs/windmill/compare/v1.259.1...v1.259.2) (2024-02-02)
+
+
+### Bug Fixes
+
+* **frontend:** Fix dt branch ([#3124](https://github.com/windmill-labs/windmill/issues/3124)) ([fc8ef58](https://github.com/windmill-labs/windmill/commit/fc8ef5867acc7e4a62c8d8e378d179a240c02a66))
+* Python buffered reader ([#3136](https://github.com/windmill-labs/windmill/issues/3136)) ([86aa6d0](https://github.com/windmill-labs/windmill/commit/86aa6d0f0dee237c10ace4a278b9a0dc03460f03))
+
 ## [1.259.1](https://github.com/windmill-labs/windmill/compare/v1.259.0...v1.259.1) (2024-02-02)
 
 
