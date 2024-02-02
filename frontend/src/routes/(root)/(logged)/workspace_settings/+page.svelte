@@ -59,7 +59,8 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let s3ResourceSettings: {
-		s3ResourcePath: string | undefined
+		resourceType: 's3' | 'azure_blob'
+		resourcePath: string | undefined
 		publicResource: boolean | undefined
 	}
 	let gitSyncSettings: {
@@ -175,16 +176,22 @@
 	}
 
 	async function editWindmillLFSSettings(): Promise<void> {
-		if (!emptyString(s3ResourceSettings.s3ResourcePath)) {
-			let resourcePathWithPrefix = `$res:${s3ResourceSettings.s3ResourcePath}`
+		if (!emptyString(s3ResourceSettings.resourcePath)) {
+			let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
+			let params = {
+				public_resource: s3ResourceSettings.publicResource
+			}
+			if (s3ResourceSettings.resourceType === 'azure_blob') {
+				params['type'] = LargeFileStorage.type.AZURE_BLOB_STORAGE
+				params['azure_blob_resource_path'] = resourcePathWithPrefix
+			} else {
+				params['type'] = LargeFileStorage.type.S3STORAGE
+				params['s3_resource_path'] = resourcePathWithPrefix
+			}
 			await WorkspaceService.editLargeFileStorageConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					large_file_storage: {
-						type: LargeFileStorage.type.S3STORAGE,
-						s3_resource_path: resourcePathWithPrefix,
-						public_resource: s3ResourceSettings.publicResource
-					}
+					large_file_storage: params
 				}
 			})
 			sendUserToast(`Large file storage settings updated`)
@@ -284,16 +291,25 @@
 		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
-		s3ResourceSettings =
-			settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE
-				? {
-						s3ResourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
-						publicResource: settings.large_file_storage?.public_resource
-				  }
-				: {
-						s3ResourcePath: undefined,
-						publicResource: undefined
-				  }
+		if (settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE) {
+			s3ResourceSettings = {
+				resourceType: 's3',
+				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
+				publicResource: settings.large_file_storage?.public_resource
+			}
+		} else if (settings.large_file_storage?.type === LargeFileStorage.type.AZURE_BLOB_STORAGE) {
+			s3ResourceSettings = {
+				resourceType: 'azure_blob',
+				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
+				publicResource: settings.large_file_storage?.public_resource
+			}
+		} else {
+			s3ResourceSettings = {
+				resourceType: 's3',
+				resourcePath: undefined,
+				publicResource: undefined
+			}
+		}
 		if (
 			settings.git_sync !== undefined &&
 			settings.git_sync !== null &&
@@ -774,14 +790,18 @@
 			{/if}
 			{#if s3ResourceSettings}
 				<div class="mt-5 flex gap-1">
-					{#key s3ResourceSettings.s3ResourcePath}
-						<ResourcePicker resourceType="s3" bind:value={s3ResourceSettings.s3ResourcePath} />
+					{#key s3ResourceSettings.resourcePath}
+						<ResourcePicker
+							resourceType="s3,azure_blob"
+							bind:value={s3ResourceSettings.resourcePath}
+							bind:valueType={s3ResourceSettings.resourceType}
+						/>
 					{/key}
 					<Button
 						size="sm"
 						variant="contained"
 						color="dark"
-						disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
+						disabled={emptyString(s3ResourceSettings.resourcePath)}
 						on:click={async () => {
 							if ($workspaceStore) {
 								s3FileViewer?.open?.(undefined)
@@ -791,7 +811,7 @@
 				</div>
 				<div class="flex flex-col mt-5 mb-1 gap-1">
 					<Toggle
-						disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
+						disabled={emptyString(s3ResourceSettings.resourcePath)}
 						bind:checked={s3ResourceSettings.publicResource}
 						options={{
 							right: 'S3 resource details can be accessed by all users of this workspace',
@@ -811,7 +831,7 @@
 				<div class="flex mt-5 mb-5 gap-1">
 					<Button
 						color="blue"
-						disabled={emptyString(s3ResourceSettings.s3ResourcePath)}
+						disabled={emptyString(s3ResourceSettings.resourcePath)}
 						on:click={() => {
 							editWindmillLFSSettings()
 							console.log('Saving S3 settings', s3ResourceSettings)

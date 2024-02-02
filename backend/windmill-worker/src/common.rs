@@ -9,7 +9,10 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::s3_helpers::{get_etag_or_empty, LargeFileStorage, S3Object, S3Resource};
+use windmill_common::s3_helpers::{
+    get_etag_or_empty, AzureBlobResource, LargeFileStorage, ObjectStoreResource, S3Object,
+    S3Resource,
+};
 use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
@@ -935,7 +938,7 @@ async fn get_workspace_s3_resource_path(
     client: &AuthedClient,
     workspace_id: &str,
     job_id: &Uuid,
-) -> Option<S3Resource> {
+) -> Option<ObjectStoreResource> {
     let raw_lfs_opt = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         workspace_id
@@ -947,14 +950,32 @@ async fn get_workspace_s3_resource_path(
     .map(|val| serde_json::from_value::<LargeFileStorage>(val).ok())
     .flatten();
 
-    if let Some(LargeFileStorage::S3Storage(s3_storage)) = raw_lfs_opt {
-        let resource_path = s3_storage.s3_resource_path.trim_start_matches("$res:");
-        client
-            .get_resource_value_interpolated::<S3Resource>(&resource_path, Some(job_id.to_string()))
-            .await
-            .ok()
-    } else {
-        return None;
+    match raw_lfs_opt {
+        Some(LargeFileStorage::S3Storage(s3_storage)) => {
+            let resource_path = s3_storage.s3_resource_path.trim_start_matches("$res:");
+            let s3_resource = client
+                .get_resource_value_interpolated::<S3Resource>(
+                    &resource_path,
+                    Some(job_id.to_string()),
+                )
+                .await
+                .ok();
+            s3_resource.map(|resource| ObjectStoreResource::S3Resource(resource))
+        }
+        Some(LargeFileStorage::AzureBlobStorage(azure_blob_storage)) => {
+            let resource_path = azure_blob_storage
+                .azure_blob_resource_path
+                .trim_start_matches("$res:");
+            let azure_blob_resource = client
+                .get_resource_value_interpolated::<AzureBlobResource>(
+                    &resource_path,
+                    Some(job_id.to_string()),
+                )
+                .await
+                .ok();
+            azure_blob_resource.map(|resource| ObjectStoreResource::AzureBlobResource(resource))
+        }
+        None => None,
     }
 }
 
@@ -1031,19 +1052,20 @@ pub async fn get_cached_resource_value_if_valid(
             return None;
         }
         let s3_etags = cached_resource.s3_etags.unwrap_or_default();
-        let s3_resource_opt: Option<S3Resource> = if s3_etags.is_empty() {
+        let object_store_resource_opt: Option<ObjectStoreResource> = if s3_etags.is_empty() {
             None
         } else {
             get_workspace_s3_resource_path(db, &client, workspace_id, job_id).await
         };
-        if !s3_etags.is_empty() && s3_resource_opt.is_none() {
+        if !s3_etags.is_empty() && object_store_resource_opt.is_none() {
             tracing::warn!("Cached result references s3 files that are not retrievable anymore because the workspace S3 resource can't be fetched. Cache will be invalidated");
             return None;
         }
         for (s3_file_key, s3_file_etag) in s3_etags {
-            if let Some(s3_resource) = s3_resource_opt.clone() {
+            if let Some(object_store_resource) = object_store_resource_opt.clone() {
                 let etag =
-                    get_etag_or_empty(&s3_resource, S3Object { s3: s3_file_key.clone() }).await;
+                    get_etag_or_empty(&object_store_resource, S3Object { s3: s3_file_key.clone() })
+                        .await;
                 if etag.is_none() || etag.clone().unwrap() != s3_file_etag {
                     tracing::warn!("S3 file etag for '{}' has changed. Value from cache is {:?} while current value from S3 is {:?}. Cache will be invalidated", s3_file_key.clone(), s3_file_etag, etag);
                     return None;
