@@ -14,7 +14,6 @@
 	import {
 		addNewBranch,
 		addNode,
-		findCollapseNode,
 		getFirstNode,
 		getParents,
 		insertNode,
@@ -252,17 +251,16 @@
 	}
 
 	function buildGraphNodes() {
-		let branchCount = 1
-
 		nodes?.forEach((graphNode, index) => {
 			const parentIds = getParents(nodes, graphNode.id)
 			const parentNext = nodes.find((node) => node.id == parentIds[0])?.next
 			const hasParentBranches = parentNext ? parentNext.length > 1 : false
 
 			if (hasParentBranches) {
+				const positionRelativeToParent = parentNext?.findIndex((next) => next.id == graphNode.id)
 				const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
-				const collapseNode = findCollapseNode(nodes, parentIds[0])
 
+				// We create a header node for the branch, which will be the parent of the actual node
 				displayedNodes.push(
 					createNode({
 						id: branchHeaderId,
@@ -273,7 +271,9 @@
 									node: graphNode,
 									canDelete: true,
 									label:
-										collapseNode === graphNode.id ? 'Default branch' : `Branch ${branchCount++}`
+										positionRelativeToParent === 0
+											? 'Default branch'
+											: `Branch ${positionRelativeToParent}`
 								},
 								cb: (e: string, detail: any) => {
 									nodeCallbackHandler(e, detail, graphNode, parentIds, true)
@@ -288,6 +288,7 @@
 					graphNode.next.length === 0 ||
 					(graphNode.next.length === 1 && getParents(nodes, graphNode.next[0].id).length > 1)
 
+				// We create the actual node
 				displayedNodes.push(
 					createNode({
 						id: graphNode.id,
@@ -314,6 +315,7 @@
 					})
 				)
 
+				// Edge between branch header and node
 				edges.push(
 					createEdge({
 						id: `${graphNode.id}-${branchHeaderId}`,
