@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.259.1](https://github.com/windmill-labs/windmill/compare/v1.259.0...v1.259.1) (2024-02-02)
+
+
+### Bug Fixes
+
+* **python:** fix python reader ([583e942](https://github.com/windmill-labs/windmill/commit/583e942174673ec40f263a932912fac7ec00c383))
+
 ## [1.259.0](https://github.com/windmill-labs/windmill/compare/v1.258.4...v1.259.0) (2024-02-01)
 
 
