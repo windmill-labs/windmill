@@ -69,6 +69,7 @@
 	import AppAgCharts from '../../components/display/charts/AppAgCharts.svelte'
 	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
 	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
+	import AppAlert from '../../components/display/AppAlert.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -745,6 +746,14 @@
 				nodes={component.nodes}
 				customCss={component.customCss}
 				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'alertcomponent'}
+			<AppAlert
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
 				{render}
 			/>
 		{/if}

@@ -67,7 +67,8 @@ const display: ComponentSet = {
 		'jobidlogcomponent',
 		'jobidflowstatuscomponent',
 		'statcomponent',
-		'menucomponent'
+		'menucomponent',
+		'alertcomponent'
 	]
 } as const
 
