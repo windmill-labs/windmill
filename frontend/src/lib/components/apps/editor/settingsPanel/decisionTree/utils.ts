@@ -73,8 +73,7 @@ export function insertNode(
 		allowed: createBooleanRC()
 	}
 
-	let index = nodes.findIndex((n) => n.id === sourceNode.id)
-	nodes = [...nodes.slice(0, index), newNode, ...nodes.slice(index)]
+	nodes = [...nodes, newNode]
 
 	nodes = nodes.map((node) => {
 		if (node.id === parentId) {
