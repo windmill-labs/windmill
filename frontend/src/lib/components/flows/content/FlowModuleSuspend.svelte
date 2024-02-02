@@ -139,6 +139,7 @@
 									}
 								} else if (!e.detail) {
 									flowModule.suspend.user_groups_required = undefined
+									flowModule.suspend.self_approval_disabled = false
 								}
 							}
 						}}
@@ -147,7 +148,7 @@
 					<Toggle
 						options={{
 							right: 'Disable self-approval',
-							rightTooltip: 'The user who triggered the flow will not be able to approve it'
+							rightTooltip: 'The user who triggered the flow will not be allowed to approve it'
 						}}
 						checked={Boolean(flowModule.suspend.self_approval_disabled)}
 						disabled={!Boolean(flowModule.suspend.user_auth_required)}

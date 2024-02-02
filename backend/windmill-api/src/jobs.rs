@@ -1362,7 +1362,7 @@ fn conditionally_require_authed_user(
             if !authed.is_admin {
                 if approval_conditions.self_approval_disabled && authed.email.eq(trigger_email) {
                     return Err(Error::PermissionDenied(
-                        "Self approval is disabled for this flow step".to_string(),
+                        "Self-approval is disabled for this flow step".to_string(),
                     ));
                 }
 
