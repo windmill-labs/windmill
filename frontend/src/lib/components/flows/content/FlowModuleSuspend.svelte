@@ -139,17 +139,33 @@
 									}
 								} else if (!e.detail) {
 									flowModule.suspend.user_groups_required = undefined
+									flowModule.suspend.self_approval_disabled = false
 								}
 							}
 						}}
 					/>
+
+					<Toggle
+						options={{
+							right: 'Disable self-approval',
+							rightTooltip: 'The user who triggered the flow will not be allowed to approve it'
+						}}
+						checked={Boolean(flowModule.suspend.self_approval_disabled)}
+						disabled={!Boolean(flowModule.suspend.user_auth_required)}
+						on:change={(e) => {
+							if (flowModule.suspend) {
+								flowModule.suspend.self_approval_disabled = e.detail
+							}
+						}}
+					/>
+
 					<div class="mb-4" />
 
-					<span class="text-xs font-bold"
-						>Require approvers to be members of one of the following user groups (leave empty for
-						any)
-					</span>
-					{#if allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
+					{#if Boolean(flowModule.suspend.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
+						<span class="text-xs font-bold"
+							>Require approvers to be members of one of the following user groups (leave empty for
+							any)
+						</span>
 						<div class="border">
 							<PropPickerWrapper
 								{result}

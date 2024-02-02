@@ -1362,6 +1362,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
             if user_auth_required {
+                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
                 let mut user_groups_required: Vec<String> = Vec::new();
                 if suspend.user_groups_required.is_some() {
                     match suspend.user_groups_required.unwrap() {
@@ -1405,6 +1406,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let approval_conditions = ApprovalConditions {
                     user_auth_required: user_auth_required,
                     user_groups_required: user_groups_required,
+                    self_approval_disabled: self_approval_disabled,
                 };
                 sqlx::query(
                     "UPDATE queue

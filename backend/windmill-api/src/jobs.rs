@@ -1013,7 +1013,12 @@ pub async fn resume_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    conditionally_require_authed_user(authed.clone(), flow_status)?;
+
+    let trigger_email = match &parent_flow {
+        Job::CompletedJob(job) => &job.email,
+        Job::QueuedJob(job) => &job.email,
+    };
+    conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -1199,7 +1204,11 @@ pub async fn cancel_suspended_job(
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    conditionally_require_authed_user(authed, flow_status)?;
+    let trigger_email = match &parent_flow {
+        Job::CompletedJob(job) => &job.email,
+        Job::QueuedJob(job) => &job.email,
+    };
+    conditionally_require_authed_user(authed, flow_status, trigger_email)?;
 
     let (mut tx, cjob) = windmill_queue::cancel_job(
         &whom,
@@ -1289,7 +1298,12 @@ pub async fn get_suspended_job_flow(
         .iter()
         .find(|p| p.job() == Some(job))
         .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
-    conditionally_require_authed_user(authed, flow_status.clone())?;
+
+    let trigger_email = match &flow {
+        Job::CompletedJob(job) => &job.email,
+        Job::QueuedJob(job) => &job.email,
+    };
+    conditionally_require_authed_user(authed, flow_status.clone(), trigger_email)?;
 
     let approvers_from_status = match flow_module_status {
         FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
@@ -1322,6 +1336,7 @@ pub async fn get_suspended_job_flow(
 fn conditionally_require_authed_user(
     authed: Option<ApiAuthed>,
     flow_status: FlowStatus,
+    trigger_email: &str,
 ) -> error::Result<()> {
     let approval_conditions_opt = flow_status.approval_conditions;
 
@@ -1336,29 +1351,34 @@ fn conditionally_require_authed_user(
             "Approvals for logged in users is an enterprise only feature".to_string(),
         ));
         #[cfg(feature = "enterprise")]
-        if authed.is_none() {
-            return Err(Error::NotAuthorized(
-                "Only logged in users can approve this flow step".to_string(),
-            ));
-        }
-    }
-    if authed.is_some() && !authed.as_ref().unwrap().username.eq("admin") {
-        if !approval_conditions.user_groups_required.is_empty() {
-            #[cfg(not(feature = "enterprise"))]
-            return Err(Error::BadRequest(
-                "Approvals for users in certain user groups is an enterprise only feature"
-                    .to_string(),
-            ));
-            #[cfg(feature = "enterprise")]
-            {
-                for required_group in approval_conditions.user_groups_required.iter() {
-                    if authed.as_ref().unwrap().groups.contains(&required_group) {
-                        return Ok(());
+        {
+            if authed.is_none() {
+                return Err(Error::NotAuthorized(
+                    "Only logged in users can approve this flow step".to_string(),
+                ));
+            }
+
+            let authed = authed.unwrap();
+            if !authed.is_admin {
+                if approval_conditions.self_approval_disabled && authed.email.eq(trigger_email) {
+                    return Err(Error::PermissionDenied(
+                        "Self-approval is disabled for this flow step".to_string(),
+                    ));
+                }
+
+                if !approval_conditions.user_groups_required.is_empty() {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        for required_group in approval_conditions.user_groups_required.iter() {
+                            if authed.groups.contains(&required_group) {
+                                return Ok(());
+                            }
+                        }
+                        let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
+                            approval_conditions.user_groups_required.join(", "));
+                        return Err(Error::PermissionDenied(error_msg));
                     }
                 }
-                let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
-                    approval_conditions.user_groups_required.join(", "));
-                return Err(Error::PermissionDenied(error_msg));
             }
         }
     }
