@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Wand2 } from 'lucide-svelte'
+	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingCompletion } from './lib'
 	import Popup from '../common/popup/Popup.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { copilotInfo } from '$lib/stores'
 
 	export let schedule: string
 
@@ -67,34 +68,47 @@
 			on:click={genLoading ? () => abortController?.abort() : undefined}
 		/>
 	</svelte:fragment>
-	<div class="flex w-96">
-		<input
-			bind:this={instructionsField}
-			type="text"
-			placeholder="CRON schedule description"
-			bind:value={instructions}
-			on:keypress={({ key }) => {
-				if (key === 'Enter' && instructions.length > 0) {
+	{#if $copilotInfo.exists_openai_resource_path}
+		<div class="flex w-96">
+			<input
+				bind:this={instructionsField}
+				type="text"
+				placeholder="CRON schedule description"
+				bind:value={instructions}
+				on:keypress={({ key }) => {
+					if (key === 'Enter' && instructions.length > 0) {
+						close(instructionsField || null)
+						generateCron()
+					}
+				}}
+			/>
+			<Button
+				size="xs"
+				color="dark"
+				variant="contained"
+				buttonType="button"
+				btnClasses="!p-1 !w-[38px] !ml-2"
+				title="Generate CRON schedule from prompt"
+				aria-label="Generate"
+				iconOnly
+				on:click={() => {
 					close(instructionsField || null)
 					generateCron()
-				}
-			}}
-		/>
-		<Button
-			size="xs"
-			color="dark"
-			variant="contained"
-			buttonType="button"
-			btnClasses="!p-1 !w-[38px] !ml-2"
-			title="Generate CRON schedule from prompt"
-			aria-label="Generate"
-			iconOnly
-			on:click={() => {
-				close(instructionsField || null)
-				generateCron()
-			}}
-			disabled={instructions.length == 0}
-			startIcon={{ icon: Wand2 }}
-		/>
-	</div>
+				}}
+				disabled={instructions.length == 0}
+				startIcon={{ icon: Wand2 }}
+			/>
+		</div>
+	{:else}
+		<div class="block text-primary">
+			<p class="text-sm"
+				>Enable Windmill AI in the <a
+					href="/workspace_settings?tab=openai"
+					target="_blank"
+					class="inline-flex flex-row items-center gap-1"
+					>workspace settings <ExternalLink size={16} /></a
+				></p
+			>
+		</div>
+	{/if}
 </Popup>

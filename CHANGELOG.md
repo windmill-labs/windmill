@@ -1,6 +1,33 @@
 # Changelog
 
 
+## [1.259.1](https://github.com/windmill-labs/windmill/compare/v1.259.0...v1.259.1) (2024-02-02)
+
+
+### Bug Fixes
+
+* **python:** fix python reader ([583e942](https://github.com/windmill-labs/windmill/commit/583e942174673ec40f263a932912fac7ec00c383))
+
+## [1.259.0](https://github.com/windmill-labs/windmill/compare/v1.258.4...v1.259.0) (2024-02-01)
+
+
+### Features
+
+* ai cron ([#3128](https://github.com/windmill-labs/windmill/issues/3128)) ([c4308de](https://github.com/windmill-labs/windmill/commit/c4308de7206a200a588f98f947fc532189c92ef0))
+* auto-add users ([#3114](https://github.com/windmill-labs/windmill/issues/3114)) ([6b772dd](https://github.com/windmill-labs/windmill/commit/6b772dd2a7b7e5c9b58777a3e3e99f8b46775e93))
+* **frontend:** add support for dynamic default values + enums ([#3109](https://github.com/windmill-labs/windmill/issues/3109)) ([ba10432](https://github.com/windmill-labs/windmill/commit/ba104324805edbced9c2adfbeccf8d83b91ea62d))
+* generate script summary ([#3110](https://github.com/windmill-labs/windmill/issues/3110)) ([1446cb4](https://github.com/windmill-labs/windmill/commit/1446cb45adbbb4fa59ca2ca98e9d7dd37af26a76))
+* migrate s3 client to object_store ([#3116](https://github.com/windmill-labs/windmill/issues/3116)) ([5dabe22](https://github.com/windmill-labs/windmill/commit/5dabe22935134984d017c20f4ce44389a67b5e4a))
+
+
+### Bug Fixes
+
+* **frontend:** fix DB studio when columns have space in their names ([#3126](https://github.com/windmill-labs/windmill/issues/3126)) ([8a8a30c](https://github.com/windmill-labs/windmill/commit/8a8a30c5ecf894945f812561ad0f79db7a75d541))
+* **frontend:** fix schema form toolips ([#3123](https://github.com/windmill-labs/windmill/issues/3123)) ([5a6fc48](https://github.com/windmill-labs/windmill/commit/5a6fc4891f36f200f60e97ae168516fedd6d4411))
+* handle array of null in display result ([e185eb3](https://github.com/windmill-labs/windmill/commit/e185eb37caf603d10a4e6084e6151d74735bd17b))
+* metadata gen typo ([#3125](https://github.com/windmill-labs/windmill/issues/3125)) ([c926e71](https://github.com/windmill-labs/windmill/commit/c926e714dc5d683208171c5c7308ba6da2f04204))
+* pg coerce nb to string ([#3127](https://github.com/windmill-labs/windmill/issues/3127)) ([b9d5506](https://github.com/windmill-labs/windmill/commit/b9d550679339f6fafc173fe68ab40730dc84376e))
+
 ## [1.258.4](https://github.com/windmill-labs/windmill/compare/v1.258.3...v1.258.4) (2024-01-31)
 
 
