@@ -30,16 +30,16 @@ class S3BufferedReader(BufferedReader):
         read_result = []
         if size < 0:
             for b in self._iterator:
-                read_result += b
+                read_result.append(b)
         else:
             for i in range(size):
                 try:
                     b = self._iterator.__next__()
                 except StopIteration:
                     break
-                read_result += b
+                read_result.append(b)
 
-        return bytes(read_result)
+        return b''.join(read_result)
 
     def read1(self, size=-1):
         return self.read(size)
