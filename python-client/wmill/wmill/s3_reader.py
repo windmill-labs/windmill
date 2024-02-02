@@ -39,7 +39,7 @@ class S3BufferedReader(BufferedReader):
                     break
                 read_result.append(b)
 
-        return bytes(read_result)
+        return b''.join(read_result)
 
     def read1(self, size=-1):
         return self.read(size)
