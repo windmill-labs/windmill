@@ -52,6 +52,7 @@ pub struct RetryStatus {
 pub struct ApprovalConditions {
     pub user_auth_required: bool,
     pub user_groups_required: Vec<String>,
+    pub self_approval_disabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

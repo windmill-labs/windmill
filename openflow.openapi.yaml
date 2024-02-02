@@ -133,6 +133,8 @@ components:
               type: boolean
             user_groups_required:
               $ref: "#/components/schemas/InputTransform"
+            self_approval_disabled:
+              type: boolean
         priority:
           type: number
 
