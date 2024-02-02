@@ -84,13 +84,7 @@ let command: any = new Command()
     "upgrade",
     new UpgradeCommand({
       main: "main.ts",
-      args: [
-        "--allow-net",
-        "--allow-read",
-        "--allow-write",
-        "--allow-env",
-        "--unstable",
-      ],
+      args: ["--allow-net", "--allow-read", "--allow-write", "--allow-env"],
       provider: new DenoLandProvider({ name: "wmill" }),
     })
   )
