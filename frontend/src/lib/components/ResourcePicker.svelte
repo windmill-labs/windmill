@@ -15,6 +15,7 @@
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
+	export let valueType: string | undefined = undefined
 	export let resourceType: string | undefined = undefined
 	export let disablePortal = false
 	export let showSchemaExplorer = false
@@ -23,7 +24,8 @@
 		initialValue || value
 			? {
 					value: value ?? initialValue,
-					label: value ?? initialValue
+					label: value ?? initialValue,
+					type: valueType
 			  }
 			: undefined
 
@@ -39,12 +41,13 @@
 			.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
 			.map((x) => ({
 				value: x.path,
-				label: x.path
+				label: x.path,
+				type: x.resource_type
 			}))
 
 		// TODO check if this is needed
 		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
-			nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
+			nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 		}
 		collection = nc
 	}
@@ -68,7 +71,12 @@
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		value = e.detail
-		valueSelect = { value: e.detail, label: e.detail }
+		valueType = collection.find((x) => x?.value == value)?.type
+		valueSelect = {
+			value: e.detail,
+			label: e.detail,
+			type: valueType ?? ''
+		}
 	}}
 	newPageOAuth
 	bind:this={appConnect}
@@ -80,7 +88,8 @@
 		await loadResources(resourceType)
 		if (e.detail) {
 			value = e.detail
-			valueSelect = { value: e.detail, label: e.detail }
+			valueType = collection.find((x) => x?.value == value)?.type
+			valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
 		}
 	}}
 />
@@ -91,10 +100,12 @@
 			value={valueSelect}
 			on:change={(e) => {
 				value = e.detail.value
+				valueType = e.detail.type
 				valueSelect = e.detail
 			}}
 			on:clear={() => {
 				value = undefined
+				valueType = undefined
 				valueSelect = undefined
 			}}
 			items={collection}

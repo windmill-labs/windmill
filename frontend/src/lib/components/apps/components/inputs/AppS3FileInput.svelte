@@ -118,7 +118,8 @@
 		pathTransformer={resolvedConfig?.type?.configuration?.s3?.pathTemplate}
 		allowMultiple={resolvedConfigS3.allowMultiple}
 		containerText={resolvedConfigS3.text}
-		customS3ResourcePath={resolvedConfigS3.resource}
+		customResourcePath={resolvedConfigS3.resource}
+		customResourceType="s3"
 		customClass={css?.container?.class}
 		customStyle={css?.container?.style}
 		on:addition={(evt) => {

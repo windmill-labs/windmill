@@ -15,7 +15,8 @@
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
 	export let containerText: string = 'Drag and drop files here or click to browse'
-	export let customS3ResourcePath: string | undefined = undefined
+	export let customResourcePath: string | undefined = undefined
+	export let customResourceType: 's3' | 'azure_blob' | undefined = undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
 	export let customClass: string = ''
 	export let customStyle: string = ''
 	export let randomFileKey: boolean = false
@@ -99,8 +100,9 @@
 			if (path) {
 				params.append('file_key', path)
 			}
-			if (customS3ResourcePath?.split(':')[1]) {
-				params.append('s3_resource_path', customS3ResourcePath?.split(':')[1])
+			if (customResourcePath?.split(':')[1]) {
+				params.append('s3_resource_path', customResourcePath?.split(':')[1])
+				params.append('resource_type', customResourceType === 'azure_blob' ? 'AzureBlob' : 'S3')
 			}
 			if (fileExtension) {
 				params.append('file_extension', fileExtension)
