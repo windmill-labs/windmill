@@ -427,11 +427,11 @@ class Windmill:
             client.write_s3_file(s3_obj, my_file)
         '''
         """
-        content_reader: BufferedReader | BytesIO
+        # httpx accepts either bytes or "a bytes generator" as content. If it's a BufferedReader, we need to convert it to a generator
         if isinstance(file_content, BufferedReader):
-            content_reader = file_content
+            content_payload = bytes_generator(file_content)
         elif isinstance(file_content, bytes):
-            content_reader = BytesIO(file_content)
+            content_payload = file_content
         else:
             raise Exception("Type of file_content not supported")
 
@@ -447,7 +447,7 @@ class Windmill:
                 f"{self.base_url}/w/{self.workspace}/job_helpers/upload_s3_file",
                 headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
                 params=query_params,
-                content=bytes_generator(content_reader),
+                content=content_payload,
                 verify=self.verify,
                 timeout=None,
             ).json()
