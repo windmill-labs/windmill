@@ -14,7 +14,7 @@ from typing import Dict, Any, Union, Literal
 
 import httpx
 
-from .s3_reader import S3BufferedReader
+from .s3_reader import S3BufferedReader, bytes_generator
 from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
 
 _client: "Windmill | None" = None
@@ -447,7 +447,7 @@ class Windmill:
                 f"{self.base_url}/w/{self.workspace}/job_helpers/upload_s3_file",
                 headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
                 params=query_params,
-                content=content_reader,
+                content=bytes_generator(content_reader),
                 verify=self.verify,
                 timeout=None,
             ).json()
