@@ -93,7 +93,7 @@
 						updateFlowModuleById($flowStore, id, (module) => {
 							if (module.value.type === 'forloopflow') {
 								if (module.value.iterator.type === 'javascript') {
-									module.value.iterator.expr = 'results.a'
+									module.value.iterator.expr = '[1,2,3]'
 								}
 							}
 						})
@@ -112,7 +112,7 @@
 				popover: {
 					title: 'Iterator expression',
 					description:
-						'We can refer to the result of previous steps using the results object: results.a',
+						'We can refer to the result of previous steps using the results object: results.a or use static values like [1,2,3] in this case.',
 					onNextClick: () => {
 						updateFlowModuleById($flowStore, id, (module) => {
 							const newId = nextId($flowStateStore, $flowStore)
@@ -243,6 +243,37 @@
 							driver.moveNext()
 
 							updateProgress(1)
+						})
+					}
+				}
+			},
+			{
+				element: '#flow-editor-test-flow',
+				popover: {
+					title: 'Test your flow',
+					description: 'We can now test our flow',
+					onNextClick: () => {
+						clickButtonBySelector('#flow-editor-test-flow')
+
+						setTimeout(() => {
+							driver.moveNext()
+						})
+					}
+				}
+			},
+
+			{
+				element: '#flow-editor-test-flow-drawer',
+				popover: {
+					title: 'Test your flow',
+					description: 'Finally we can test our flow, and view the results!',
+					onNextClick: () => {
+						clickButtonBySelector('#flow-editor-test-flow-drawer')
+
+						setTimeout(() => {
+							driver.moveNext()
+
+							updateProgress(0)
 						})
 					}
 				}
