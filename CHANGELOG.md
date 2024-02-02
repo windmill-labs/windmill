@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.260.0](https://github.com/windmill-labs/windmill/compare/v1.259.2...v1.260.0) (2024-02-02)
+
+
+### Features
+
+* disable self approval toggle ([#3137](https://github.com/windmill-labs/windmill/issues/3137)) ([017d9b8](https://github.com/windmill-labs/windmill/commit/017d9b86707c8c11d41dec7532c440cc79801167))
+
 ## [1.259.2](https://github.com/windmill-labs/windmill/compare/v1.259.1...v1.259.2) (2024-02-02)
 
 
