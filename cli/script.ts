@@ -411,7 +411,12 @@ async function run(
             id,
           })
         ).result ?? {};
-      log.info(result);
+
+      if (opts.silent) {
+        console.log(result);
+      } else {
+        log.info(result);
+      }
 
       break;
     } catch {
