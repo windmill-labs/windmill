@@ -250,6 +250,7 @@ lazy_static::lazy_static! {
     pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
+
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
