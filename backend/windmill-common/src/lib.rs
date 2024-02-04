@@ -42,7 +42,7 @@ pub mod workspaces;
 pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
-pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
+pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
 
 lazy_static::lazy_static! {
     pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")

@@ -21,12 +21,14 @@ pub fn global_service() -> Router {
     Router::new()
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Serialize)]
 pub struct ConcurrencyGroups {
     concurrency_id: String,
     job_uuids: Vec<String>,
 }
 
+#[cfg(feature = "enterprise")]
 async fn list_concurrency_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -66,6 +68,7 @@ async fn list_concurrency_groups(
     return Ok(Json(concurrency_groups));
 }
 
+#[cfg(feature = "enterprise")]
 async fn delete_concurrency_group(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
