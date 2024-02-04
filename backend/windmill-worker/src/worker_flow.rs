@@ -43,13 +43,13 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, handle_maybe_scheduled_job, CanceledBy,
-    PushIsolationLevel, WrappedError,
+    add_completed_job, add_completed_job_error, get_queued_job, handle_maybe_scheduled_job,
+    CanceledBy, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
-use windmill_queue::{canceled_job_to_result, get_queued_job, push, QueueTransaction};
+use windmill_queue::{canceled_job_to_result, get_queued_job_tx, push, QueueTransaction};
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion<
@@ -231,11 +231,9 @@ pub async fn update_flow_status_after_job_completion_internal<
 
         let (mut stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
             //do not stop early if module is a flow step
-            let mut tx = db.begin().await?;
-            let flow_job = get_queued_job(flow, w_id, &mut tx)
+            let flow_job = get_queued_job(flow, w_id, db)
                 .await?
                 .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
-            tx.commit().await?;
             let module = get_module(&flow_job, module_index);
             if module.is_some_and(|x| matches!(x.value, FlowModuleValue::Flow { .. })) {
                 (false, false)
@@ -524,7 +522,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .context("remove flow status retry")?;
         }
 
-        let flow_job = get_queued_job(flow, w_id, tx.transaction_mut())
+        let flow_job = get_queued_job_tx(flow, w_id, tx.transaction_mut())
             .await?
             .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
