@@ -738,7 +738,7 @@ async fn cancel_all(
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut jobs = sqlx::query!(
-        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL RETURNING id, running",
+        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL RETURNING id, running, is_flow_step",
         w_id,
         authed.username
     )
@@ -747,7 +747,7 @@ async fn cancel_all(
 
     let username = authed.username;
     for j in jobs.iter() {
-        if !j.running {
+        if !j.running && !j.is_flow_step.unwrap_or(false) {
             let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
             let mut tx = db.begin().await?;
             let job_running = get_queued_job(j.id, &w_id, &mut tx).await?;
