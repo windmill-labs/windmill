@@ -54,11 +54,13 @@ pub fn workspaced_service() -> Router {
     Router::new().route("/token/:audience", post(gen_token))
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct Keys {
     private_key: String,
 }
 
+#[cfg(feature = "enterprise")]
 async fn gen_pems(db: &DB) -> anyhow::Result<Keys> {
     let private_key_cmd = Command::new("openssl")
         .arg("genrsa")
