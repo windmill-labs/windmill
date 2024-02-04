@@ -522,6 +522,8 @@ Windmill Community Edition {GIT_VERSION}
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
+    tracing::info!("Exiting connection pool");
+    db.close().await;
     Ok(())
 }
 
