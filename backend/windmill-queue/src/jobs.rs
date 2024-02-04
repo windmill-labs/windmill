@@ -3036,7 +3036,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         root_job,
         tag,
         concurrent_limit,
-        concurrency_time_window_s,
+        if concurrent_limit.is_some() {  concurrency_time_window_s } else { None },
         custom_timeout,
         flow_step_id,
         cache_ttl,
