@@ -11,7 +11,7 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use tokio::time::Instant;
-use windmill_common::flow_status::RestartedFrom;
+use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::variables::get_workspace_key;
 
 use crate::db::ApiAuthed;
@@ -206,6 +206,7 @@ pub fn global_service() -> Router {
         )
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route(
@@ -434,6 +435,59 @@ pub async fn get_path_tag_limits_cache_for_hash(
         script.delete_after_use,
         script.timeout,
     ))
+}
+
+async fn get_flow_job_debug_info(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Response> {
+    let job = get_queued_job(id, w_id.as_str(), &db).await?;
+    if let Some(job) = job {
+        let is_flow = &job.job_kind == &JobKind::FlowPreview || &job.job_kind == &JobKind::Flow;
+        if job.is_flow_step || !is_flow {
+            return Err(error::Error::BadRequest(
+                "This endpoint is only for root flow jobs".to_string(),
+            ));
+        }
+        let mut jobs = HashMap::new();
+        jobs.insert("root_job".to_string(), job.clone());
+
+        let mut job_ids = vec![];
+        let jobs_with_root = sqlx::query_scalar!(
+            "SELECT id FROM queue WHERE workspace_id = $1 and root_job = $2",
+            &w_id,
+            &job.id,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for job in jobs_with_root {
+            job_ids.push(job);
+        }
+
+        let leaf_jobs: HashMap<String, JobResult> = job
+            .leaf_jobs
+            .and_then(|x| serde_json::from_value(x).ok())
+            .unwrap_or_else(HashMap::new);
+        for job in leaf_jobs.iter() {
+            match job.1 {
+                JobResult::ListJob(jobs) => job_ids.extend(jobs.to_owned()),
+                JobResult::SingleJob(job) => job_ids.push(job.clone()),
+            }
+        }
+        for job_id in job_ids {
+            let job = get_queued_job(job_id, w_id.as_str(), &db).await?;
+            if let Some(job) = job {
+                jobs.insert(job.id.to_string(), job);
+            }
+        }
+        Ok(Json(jobs).into_response())
+    } else {
+        Err(error::Error::NotFound(format!(
+            "QueuedJob {} not found",
+            id
+        )))
+    }
 }
 
 async fn get_job(
@@ -749,9 +803,7 @@ async fn cancel_all(
     for j in jobs.iter() {
         if !j.running && !j.is_flow_step.unwrap_or(false) {
             let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
-            let mut tx = db.begin().await?;
-            let job_running = get_queued_job(j.id, &w_id, &mut tx).await?;
-            tx.commit().await?;
+            let job_running = get_queued_job(j.id, &w_id, &db).await?;
 
             if let Some(job_running) = job_running {
                 let add_job = add_completed_job_error(
@@ -1495,6 +1547,19 @@ impl Job {
                 .as_ref()
                 .map(|rf| serde_json::from_str(rf.0.get()).ok())
                 .flatten(),
+        }
+    }
+    pub fn is_flow_step(&self) -> bool {
+        match self {
+            Job::QueuedJob(job) => job.is_flow_step,
+            Job::CompletedJob(job) => job.is_flow_step,
+        }
+    }
+
+    pub fn job_kind(&self) -> &JobKind {
+        match self {
+            Job::QueuedJob(job) => &job.job_kind,
+            Job::CompletedJob(job) => &job.job_kind,
         }
     }
 }

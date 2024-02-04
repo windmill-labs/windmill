@@ -131,7 +131,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job_running = get_queued_job(id, &w_id, &mut tx).await?;
+    let job_running = get_queued_job_tx(id, &w_id, &mut tx).await?;
 
     if job_running.is_none() {
         return Ok((tx, None));
@@ -2166,7 +2166,7 @@ pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<boo
     .unwrap_or(false))
 }
 
-pub async fn get_queued_job<'c>(
+pub async fn get_queued_job_tx<'c>(
     id: Uuid,
     w_id: &str,
     tx: &mut Transaction<'c, Postgres>,
@@ -2178,6 +2178,22 @@ pub async fn get_queued_job<'c>(
     .bind(id)
     .bind(w_id)
     .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(row) = r {
+        Ok(Some(QueuedJob::from_row(&row)?.to_owned()))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn get_queued_job(id: Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
+    let r = sqlx::query(
+        "SELECT *
+            FROM queue WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(id)
+    .bind(w_id)
+    .fetch_optional(db)
     .await?;
     if let Some(row) = r {
         Ok(Some(QueuedJob::from_row(&row)?.to_owned()))

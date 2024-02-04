@@ -208,9 +208,7 @@ pub async fn gen_token(
             job.unwrap()
         }
     };
-    let mut tx = db.begin().await?;
-    let job = get_queued_job(job_id, &w_id, &mut tx).await?;
-    tx.commit().await?;
+    let job = get_queued_job(job_id, &w_id, &db).await?;
 
     let job = job.ok_or_else(|| anyhow::anyhow!("Queued job {} not found", job_id))?;
     let issue_url = format!("{}/api/oidc/", crate::BASE_URL.read().await.clone());

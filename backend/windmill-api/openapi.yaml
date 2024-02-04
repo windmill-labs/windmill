@@ -5032,6 +5032,23 @@ paths:
                   mem_peak:
                     type: integer
 
+  /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
+    get:
+      summary: get flow debug info
+      operationId: getFlowDebugInfo
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: flow debug info details
+          content:
+            application/json:
+              schema: {}
+
+
   /w/{workspace}/jobs_u/completed/get/{id}:
     get:
       summary: get completed job
