@@ -244,7 +244,7 @@ declare function validateAll(id: string, key: number): void;
  */
 declare function clearFiles(id: string): void;
 
-/**  Send a toast messag
+/**  Send a toast message
  * @param message message to send
  */
 declare function sendToast(message: string, error: boolean): void;
