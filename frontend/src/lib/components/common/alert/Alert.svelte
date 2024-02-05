@@ -29,7 +29,7 @@
 	export let descriptionClass: string | undefined = undefined
 	export let descriptionStyle: string | undefined = undefined
 
-	let isCollapsed = true
+	export let isCollapsed = true
 
 	const icons: Record<AlertType, any> = {
 		info: Info,

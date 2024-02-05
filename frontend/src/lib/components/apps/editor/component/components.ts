@@ -3251,6 +3251,11 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				initiallyCollapsed: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

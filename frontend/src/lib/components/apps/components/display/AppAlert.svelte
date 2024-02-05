@@ -71,6 +71,7 @@
 				titleStyle={css?.title?.style}
 				descriptionClass={css?.description?.class}
 				descriptionStyle={css?.description?.style}
+				isCollapsed={resolvedConfig.initiallyCollapsed}
 			>
 				{resolvedConfig.description}
 			</Alert>
