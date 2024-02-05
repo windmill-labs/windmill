@@ -45,7 +45,8 @@ import {
 	Menu,
 	Network,
 	Database,
-	UploadCloud
+	UploadCloud,
+	AlertTriangle
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -204,6 +205,8 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 	nodes: DecisionTreeNode[]
 }
 
+export type AlertComponent = BaseComponent<'alertcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -271,6 +274,7 @@ export type TypedComponent =
 	| S3FileInputComponent
 	| AgChartsComponent
 	| AgChartsComponentEe
+	| AlertComponent
 	| DateSliderComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
@@ -3243,6 +3247,75 @@ This is a paragraph.
 				}
 			},
 			componentInput: undefined
+		}
+	},
+	alertcomponent: {
+		name: 'Alert',
+		icon: AlertTriangle,
+		documentationLink: `${documentationBaseUrl}/alert`,
+		dims: '2:1-4:5' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			background: { class: '', style: '' },
+			icon: { class: '', style: '' },
+			title: { class: '', style: '' },
+			description: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				type: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: 'info', label: 'Info' },
+						{ value: 'success', label: 'Success' },
+						{ value: 'warning', label: 'Warning' },
+						{ value: 'error', label: 'Error' }
+					],
+					value: 'info'
+				},
+				title: {
+					type: 'static',
+					value: 'Title',
+					fieldType: 'text'
+				},
+				description: {
+					type: 'static',
+					value: 'Description',
+					fieldType: 'text'
+				},
+				notRounded: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				tooltip: {
+					type: 'static',
+					value: '',
+					fieldType: 'text'
+				},
+				size: {
+					type: 'static',
+					value: 'sm',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'xs', label: 'Extra Small' },
+						{ value: 'sm', label: 'Small' }
+					]
+				},
+				collapsible: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				initiallyCollapsed: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				}
+			}
 		}
 	}
 } as const
