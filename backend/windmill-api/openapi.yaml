@@ -4980,6 +4980,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
+  /w/{workspace}/jobs_u/get_root_job_id/{id}:
+    get:
+      summary: get root job id
+      operationId: getRootJobId
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: get root job id
+          content:
+            application/json:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
       summary: get job logs

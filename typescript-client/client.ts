@@ -96,6 +96,18 @@ export async function getResource(
 }
 
 /**
+ * Get a resource value by path
+ * @param jobId job id to get the root job id from (default to current job)
+ * @returns root job id
+ */
+export async function getRootJobId(jobId?: string): Promise<string> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  jobId = jobId ?? getEnv("WM_JOB_ID");
+  return await JobService.getRootJobId({ workspace, id: jobId });
+}
+
+/**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`
  * @returns resource value
@@ -295,7 +307,7 @@ export async function denoS3LightClientSettings(
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
+ *
  * ```typescript
  * let fileContent = await wmill.loadS3FileContent(inputFile)
  * // if the file is a raw text file, it can be decoded and printed directly:
@@ -306,39 +318,39 @@ export async function denoS3LightClientSettings(
 export async function loadS3File(
   s3object: S3Object,
   s3ResourcePath: string | undefined
-): Promise<Uint8Array|undefined> {
+): Promise<Uint8Array | undefined> {
   !clientSet && setClient();
-  const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath)
+  const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath);
   if (fileContentBlob === undefined) {
-    return undefined
+    return undefined;
   }
 
   // we read the stream until completion and put the content in an Uint8Array
-  const reader = fileContentBlob.stream().getReader()
+  const reader = fileContentBlob.stream().getReader();
   const chunks: Uint8Array[] = [];
   while (true) {
-    const {value: chunk, done} = await reader.read();
+    const { value: chunk, done } = await reader.read();
     if (done) {
       break;
     }
     chunks.push(chunk);
   }
   let fileContentLength = 0;
-  chunks.forEach(item => {
+  chunks.forEach((item) => {
     fileContentLength += item.length;
   });
   let fileContent = new Uint8Array(fileContentLength);
   let offset = 0;
-  chunks.forEach(chunk => {
+  chunks.forEach((chunk) => {
     fileContent.set(chunk, offset);
     offset += chunk.length;
   });
-  return fileContent
+  return fileContent;
 }
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
+ *
  * ```typescript
  * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
  * // if the content is plain text, the blob can be read directly:
@@ -348,29 +360,34 @@ export async function loadS3File(
 export async function loadS3FileStream(
   s3object: S3Object,
   s3ResourcePath: string | undefined
-): Promise<Blob|undefined> {
+): Promise<Blob | undefined> {
   !clientSet && setClient();
 
-  let params: Record<string, string> = {}
-  params["file_key"] = s3object.s3
+  let params: Record<string, string> = {};
+  params["file_key"] = s3object.s3;
   if (s3ResourcePath !== undefined) {
-    params["s3_resource_path"] = s3ResourcePath
+    params["s3_resource_path"] = s3ResourcePath;
   }
   const queryParams = new URLSearchParams(params);
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
-  const fileContentBlob = await fetch(`${OpenAPI.BASE}/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${OpenAPI.TOKEN}`,
-    },
-  })
-  return fileContentBlob.blob()
+  const fileContentBlob = await fetch(
+    `${
+      OpenAPI.BASE
+    }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${OpenAPI.TOKEN}`,
+      },
+    }
+  );
+  return fileContentBlob.blob();
 }
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
+ *
  * ```typescript
  * const s3object = await writeS3File(s3Object, "Hello Windmill!")
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
@@ -383,13 +400,13 @@ export async function writeS3File(
   s3ResourcePath: string | undefined
 ): Promise<S3Object> {
   !clientSet && setClient();
-  let fileContentBlob: Blob
-  if (typeof fileContent === 'string') {
+  let fileContentBlob: Blob;
+  if (typeof fileContent === "string") {
     fileContentBlob = new Blob([fileContent as string], {
-      type: 'text/plain'
+      type: "text/plain",
     });
   } else {
-    fileContentBlob = fileContent as Blob
+    fileContentBlob = fileContent as Blob;
   }
 
   const response = await HelpersService.fileUpload({
@@ -398,10 +415,10 @@ export async function writeS3File(
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
-  })
+  });
   return {
-    s3: response.file_key
-  }
+    s3: response.file_key,
+  };
 }
 
 /**
