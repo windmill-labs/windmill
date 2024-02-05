@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.261.0](https://github.com/windmill-labs/windmill/compare/v1.260.1...v1.261.0) (2024-02-05)
+
+
+### Features
+
+* add flow debug info endpoint + button ([608c759](https://github.com/windmill-labs/windmill/commit/608c7597aedfb896376b2272e45a30a9e7545b58))
+* add nobypassrls migration ([97d1349](https://github.com/windmill-labs/windmill/commit/97d134994edca26156aa3de85c5e9651e605dc5a))
+
+
+### Bug Fixes
+
+* add support for ephemeral tokens ([95952da](https://github.com/windmill-labs/windmill/commit/95952da387fa9954292932588bd1c106e811e59a))
+* decrease database connections of workers to 3 ([2c4eb46](https://github.com/windmill-labs/windmill/commit/2c4eb46e65dfed981c0fce1acf35ea36225c6063))
+
 ## [1.260.1](https://github.com/windmill-labs/windmill/compare/v1.260.0...v1.260.1) (2024-02-02)
 
 
