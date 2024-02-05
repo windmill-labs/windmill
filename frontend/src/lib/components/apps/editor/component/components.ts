@@ -84,6 +84,7 @@ export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
@@ -270,6 +271,7 @@ export type TypedComponent =
 	| S3FileInputComponent
 	| AgChartsComponent
 	| AgChartsComponentEe
+	| DateSliderComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2041,6 +2043,62 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				}
+			}
+		}
+	},
+	dateslidercomponent: {
+		name: 'Date Slider',
+		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}/slider`,
+		dims: '3:1-4:1' as AppComponentDimensions,
+		customCss: {
+			bar: { style: '', class: '' },
+			handle: { style: '', class: '' },
+			limits: { class: '', style: '' },
+			value: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				min: {
+					type: 'static',
+					value: '',
+					fieldType: 'date'
+				},
+				max: {
+					type: 'static',
+					value: '',
+					fieldType: 'date'
+				},
+				defaultValue: {
+					type: 'static',
+					value: '',
+					fieldType: 'date'
+				},
+				step: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number',
+					tooltip: 'Number of days between each date suggestion'
+				},
+				vertical: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text',
+					tooltip: 'See date-fns format for more information',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
 				}
 			}
 		}
