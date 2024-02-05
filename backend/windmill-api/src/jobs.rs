@@ -450,7 +450,7 @@ async fn get_flow_job_debug_info(
             ));
         }
         let mut jobs = HashMap::new();
-        jobs.insert("root_job".to_string(), job.clone());
+        jobs.insert("root_job".to_string(), Job::QueuedJob(job.clone()));
 
         let mut job_ids = vec![];
         let jobs_with_root = sqlx::query_scalar!(
@@ -476,9 +476,9 @@ async fn get_flow_job_debug_info(
             }
         }
         for job_id in job_ids {
-            let job = get_queued_job(job_id, w_id.as_str(), &db).await?;
-            if let Some(job) = job {
-                jobs.insert(job.id.to_string(), job);
+            let job = get_job_internal(&db, w_id.as_str(), job_id).await;
+            if let Ok(job) = job {
+                jobs.insert(job.id().to_string(), job);
             }
         }
         Ok(Json(jobs).into_response())
@@ -1560,6 +1560,13 @@ impl Job {
         match self {
             Job::QueuedJob(job) => &job.job_kind,
             Job::CompletedJob(job) => &job.job_kind,
+        }
+    }
+
+    pub fn id(&self) -> Uuid {
+        match self {
+            Job::QueuedJob(job) => job.id,
+            Job::CompletedJob(job) => job.id,
         }
     }
 }
