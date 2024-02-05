@@ -221,6 +221,11 @@ class Windmill:
     def get_job(self, job_id: str) -> dict:
         return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
 
+    def get_root_job_id(self, job_id: str | None = None) -> dict:
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+        return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
+
+
     def get_id_token(self, audience: str) -> dict:
         return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
 
@@ -571,6 +576,10 @@ def deprecate(in_favor_of: str):
 @init_global_client
 def get_workspace() -> str:
     return _client.workspace
+
+@init_global_client
+def get_root_job_id(job_id: str | None = None) -> str:
+    return _client.get_root_job_id(job_id)
 
 
 @init_global_client

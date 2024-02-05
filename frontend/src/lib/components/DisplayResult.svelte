@@ -108,7 +108,11 @@
 				}
 
 				if (keys.length != 0) {
-					if (keys.length == 1 && keys[0] == 'table-row') {
+					if (Array.isArray(result) && result.every((elt) => inferResultKind(elt) === 's3object')) {
+						return 's3object-list'
+					} else if (isRectangularArray(result)) {
+						return 'table-col'
+					} else if (keys.length == 1 && keys[0] == 'table-row') {
 						return 'table-row'
 					} else if (
 						(keys.length == 1 && keys[0] == 'table-col') ||
@@ -140,7 +144,6 @@
 							a.href = 'data:application/octet-stream;base64,' + result.file
 							a.download = result.filename
 							a.click()
-							console.log('autodownload', result.file, result.filename)
 						}
 						return 'file'
 					} else if (
@@ -154,13 +157,6 @@
 					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
 						return 'markdown'
 					}
-				} else if (
-					Array.isArray(result) &&
-					result.every((elt) => inferResultKind(elt) === 's3object')
-				) {
-					return 's3object-list'
-				} else if (isRectangularArray(result)) {
-					return 'table-col'
 				}
 			} catch (err) {}
 		} else {
