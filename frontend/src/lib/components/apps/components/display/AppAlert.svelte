@@ -63,6 +63,14 @@
 				tooltip={resolvedConfig.tooltip}
 				size={resolvedConfig.size}
 				collapsible={resolvedConfig.collapsible}
+				bgClass={css?.background?.class}
+				bgStyle={css?.background?.style}
+				iconClass={css?.icon?.class}
+				iconStyle={css?.icon?.style}
+				titleClass={css?.title?.class}
+				titleStyle={css?.title?.style}
+				descriptionClass={css?.description?.class}
+				descriptionStyle={css?.description?.style}
 			>
 				{resolvedConfig.description}
 			</Alert>

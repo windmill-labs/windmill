@@ -3195,9 +3195,13 @@ This is a paragraph.
 		name: 'Alert',
 		icon: AlertTriangle,
 		documentationLink: `${documentationBaseUrl}/alert`,
-		dims: '2:1-3:1' as AppComponentDimensions,
+		dims: '2:1-4:5' as AppComponentDimensions,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			background: { class: '', style: '' },
+			icon: { class: '', style: '' },
+			title: { class: '', style: '' },
+			description: { class: '', style: '' }
 		},
 		initialData: {
 			verticalAlignment: 'center',

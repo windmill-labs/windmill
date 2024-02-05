@@ -763,6 +763,10 @@ export const quickStyleProperties: Record<
 	},
 	dbexplorercomponent: {},
 	alertcomponent: {
-		container: containerDefaultProps
+		container: containerDefaultProps,
+		background: containerDefaultProps,
+		icon: containerDefaultProps,
+		title: containerDefaultProps,
+		description: containerDefaultProps
 	}
 }

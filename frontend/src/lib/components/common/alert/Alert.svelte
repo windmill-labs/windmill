@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import type { AlertType } from './model'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import {
@@ -20,6 +19,15 @@
 	export let documentationLink: string | undefined = undefined
 	export let size: 'xs' | 'sm' = 'sm'
 	export let collapsible: boolean = false
+
+	export let bgClass: string | undefined = undefined
+	export let bgStyle: string | undefined = undefined
+	export let iconClass: string | undefined = undefined
+	export let iconStyle: string | undefined = undefined
+	export let titleClass: string | undefined = undefined
+	export let titleStyle: string | undefined = undefined
+	export let descriptionClass: string | undefined = undefined
+	export let descriptionStyle: string | undefined = undefined
 
 	let isCollapsed = true
 
@@ -65,25 +73,34 @@
 </script>
 
 <div
-	class={classNames(
+	class={twMerge(
 		notRounded ? '' : 'rounded-md',
 		size === 'sm' ? 'p-4' : 'p-2',
 		classes[type].bgClass,
+		bgClass,
 		$$props.class
 	)}
+	style={bgStyle}
 >
 	<div class="flex">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
-			<svelte:component this={icons[type]} class={classes[type].iconClass} size={16} />
+			<svelte:component
+				this={icons[type]}
+				class={twMerge(classes[type].iconClass, iconClass)}
+				style={iconStyle}
+				size={16}
+			/>
 		</div>
 		<div class={twMerge('ml-2 w-full')}>
 			<div class={twMerge('w-full flex flex-row items-center justify-between h-8')}>
 				<span
-					class={classNames(
+					class={twMerge(
 						size === 'sm' ? 'text-sm' : 'text-xs',
 						'font-medium',
-						classes[type].titleClass
+						classes[type].titleClass,
+						titleClass
 					)}
+					style={titleStyle}
 				>
 					{title}
 					{#if tooltip != '' || documentationLink}
@@ -104,10 +121,12 @@
 			{#if $$slots.default && !isCollapsed}
 				<div transition:slide|local={{ duration: 200 }} class="mt-2">
 					<div
-						class={classNames(
+						class={twMerge(
 							size === 'sm' ? 'text-sm' : 'text-xs',
-							classes[type].descriptionClass
+							classes[type].descriptionClass,
+							descriptionClass
 						)}
+						style={descriptionStyle}
 					>
 						<slot />
 					</div>
@@ -116,10 +135,12 @@
 			{#if $$slots.default && !collapsible}
 				<div class="mt-2">
 					<div
-						class={classNames(
+						class={twMerge(
 							size === 'sm' ? 'text-sm' : 'text-xs',
-							classes[type].descriptionClass
+							classes[type].descriptionClass,
+							descriptionClass
 						)}
+						style={descriptionStyle}
 					>
 						<slot />
 					</div>
