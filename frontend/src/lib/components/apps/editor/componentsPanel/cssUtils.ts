@@ -194,7 +194,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['rangecomponent', 'slidercomponent'],
+		components: ['rangecomponent', 'slidercomponent', 'dateslidercomponent'],
 		selectors: [
 			{ selector: '.wm-slider-bar', comment: 'Slider bar', customCssKey: 'bar' },
 			{ selector: '.wm-slider-handle', comment: 'Slider handle', customCssKey: 'handle' },
