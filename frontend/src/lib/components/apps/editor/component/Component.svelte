@@ -69,6 +69,7 @@
 	import AppAgCharts from '../../components/display/charts/AppAgCharts.svelte'
 	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
 	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
+	import AppAlert from '../../components/display/AppAlert.svelte'
 	import AppDateSliderInput from '../../components/inputs/AppDateSliderInput.svelte'
 
 	export let component: AppComponent
@@ -754,6 +755,14 @@
 				nodes={component.nodes}
 				customCss={component.customCss}
 				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'alertcomponent'}
+			<AppAlert
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
 				{render}
 			/>
 		{/if}

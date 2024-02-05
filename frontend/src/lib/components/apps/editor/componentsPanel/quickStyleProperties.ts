@@ -767,5 +767,12 @@ export const quickStyleProperties: Record<
 	decisiontreecomponent: {
 		container: containerDefaultProps
 	},
-	dbexplorercomponent: {}
+	dbexplorercomponent: {},
+	alertcomponent: {
+		container: containerDefaultProps,
+		background: containerDefaultProps,
+		icon: containerDefaultProps,
+		title: containerDefaultProps,
+		description: containerDefaultProps
+	}
 }
