@@ -19,9 +19,10 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Ban, Check, ExternalLink, HistoryIcon, Wand2, X, ZapIcon } from 'lucide-svelte'
+	import { Ban, Bot, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
+	import { twMerge } from 'tailwind-merge'
 
 	// props
 	export let iconOnly: boolean = false
@@ -97,6 +98,7 @@
 			}
 		} finally {
 			genLoading = false
+			blockPopupOpen = false
 		}
 	}
 
@@ -270,22 +272,31 @@
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={genLoading
 						? '!px-3 z-[5000]'
-						: '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
+						: '!px-2  bg-sky-50 dark:bg-gray-700 dark:hover:bg-surface-hover'}
 					nonCaptureEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : undefined}
 					bind:element={button}
 					iconOnly
 					title="Generate code from Prompt"
-					startIcon={{ icon: genLoading ? Ban : Wand2 }}
+					startIcon={genLoading
+						? { icon: Ban }
+						: { icon: Wand2, classes: 'text-sky-900 dark:text-sky-200 ' }}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses={'!font-medium ' + (genLoading ? 'z-[5000]' : '')}
+					btnClasses={twMerge(
+						'!font-medium',
+						genLoading
+							? 'z-[5000]'
+							: 'text-sky-900 dark:text-sky-200 bg-sky-50 dark:bg-gray-700 dark:hover:bg-surface-hover'
+					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={genLoading ? undefined : { icon: Wand2 }}
+					startIcon={genLoading
+						? undefined
+						: { icon: Wand2, classes: 'text-sky-900 dark:text-sky-200' }}
 					propagateEvent
 					on:click={genLoading
 						? () => abortController?.abort()
@@ -299,6 +310,7 @@
 								}
 						  }}
 					bind:element={button}
+					{iconOnly}
 				>
 					{#if genLoading}
 						<WindmillIcon
@@ -310,7 +322,7 @@
 						/>
 						Stop
 					{:else}
-						AI
+						AI Gen
 					{/if}
 				</Button>
 			{/if}
@@ -335,7 +347,7 @@
 						</ToggleButtonGroup>
 
 						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							GPT-4 Turbo<ZapIcon size={14} />
+							GPT-4 Turbo<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96">
@@ -356,7 +368,7 @@
 							size="xs"
 							color="blue"
 							buttonType="button"
-							btnClasses="!p-1 !w-[38px] !ml-2"
+							btnClasses="!p-1 !w-[38px] !ml-2 text-sky-900 dark:text-sky-200 bg-sky-100 dark:bg-gray-700 hover:bg-surface-hover dark:hover:bg-surface-hover"
 							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
