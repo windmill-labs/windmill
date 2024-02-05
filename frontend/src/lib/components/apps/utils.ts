@@ -199,7 +199,6 @@ declare function recompute(id: string): void;
 */
 declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
 
-
 /** set value of a component
  * @param id component's id
  * @param value value to set
@@ -245,6 +244,10 @@ declare function validateAll(id: string, key: number): void;
  */
 declare function clearFiles(id: string): void;
 
+/**  Display a toast message
+ * @param message message to display
+ */
+declare function showToast(message: string, error: boolean): void;
 `
 		: ''
 }

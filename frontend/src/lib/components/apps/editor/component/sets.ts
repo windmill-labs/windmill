@@ -40,6 +40,7 @@ const inputs: ComponentSet = {
 		'numberinputcomponent',
 		'currencycomponent',
 		'slidercomponent',
+		'dateslidercomponent',
 		'rangecomponent',
 		'dateinputcomponent',
 		'fileinputcomponent',

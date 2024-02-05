@@ -70,6 +70,7 @@
 	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
 	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
 	import AppAlert from '../../components/display/AppAlert.svelte'
+	import AppDateSliderInput from '../../components/inputs/AppDateSliderInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -509,6 +510,14 @@
 			/>
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'dateslidercomponent'}
+			<AppDateSliderInput
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				id={component.id}
