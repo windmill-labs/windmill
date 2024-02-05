@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{Pool, Postgres};
+use sqlx::{migrate::Migrate, pool::PoolConnection, Executor, Pool, Postgres};
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
@@ -14,8 +14,85 @@ use windmill_common::{
 
 pub type DB = Pool<Postgres>;
 
+struct CustomMigrator {
+    inner: PoolConnection<Postgres>,
+}
+impl Migrate for CustomMigrator {
+    fn ensure_migrations_table(
+        &mut self,
+    ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
+        self.inner.ensure_migrations_table()
+    }
+
+    fn dirty_version(
+        &mut self,
+    ) -> futures::prelude::future::BoxFuture<'_, Result<Option<i64>, sqlx::migrate::MigrateError>>
+    {
+        self.inner.dirty_version()
+    }
+
+    fn list_applied_migrations(
+        &mut self,
+    ) -> futures::prelude::future::BoxFuture<
+        '_,
+        Result<Vec<sqlx::migrate::AppliedMigration>, sqlx::migrate::MigrateError>,
+    > {
+        self.inner.list_applied_migrations()
+    }
+
+    fn lock(
+        &mut self,
+    ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
+        tracing::info!("Started locking PG for migration purposes");
+        let r = self.inner.lock();
+        tracing::info!("Locked PG for migration purposes");
+        r
+    }
+
+    fn unlock(
+        &mut self,
+    ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
+        tracing::info!("Started unlocking PG for migration purposes");
+        let r = self.inner.unlock();
+        tracing::info!("Unlocked PG for migration purposes");
+        r
+    }
+
+    fn apply<'e: 'm, 'm>(
+        &'e mut self,
+        migration: &'m sqlx::migrate::Migration,
+    ) -> futures::prelude::future::BoxFuture<
+        'm,
+        Result<std::time::Duration, sqlx::migrate::MigrateError>,
+    > {
+        tracing::info!(
+            "Started applying migration {}: {}",
+            migration.version,
+            migration.description
+        );
+        let r = self.inner.apply(migration);
+        tracing::info!("Finished applying migration {}", migration.version);
+        r
+    }
+
+    fn revert<'e: 'm, 'm>(
+        &'e mut self,
+        migration: &'m sqlx::migrate::Migration,
+    ) -> futures::prelude::future::BoxFuture<
+        'm,
+        Result<std::time::Duration, sqlx::migrate::MigrateError>,
+    > {
+        self.inner.revert(migration)
+    }
+}
+
 pub async fn migrate(db: &DB) -> Result<(), Error> {
-    match sqlx::migrate!("../migrations").run(db).await {
+    let migrator = db.acquire().await?;
+    let mut custom_migrator = CustomMigrator { inner: migrator };
+    match sqlx::migrate!("../migrations")
+        .run_direct(&mut custom_migrator)
+        .await
+    {
         Ok(_) => Ok(()),
         Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
             tracing::error!("Database had been applied more migrations than this container. 
@@ -26,6 +103,39 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         Err(err) => Err(err),
     }?;
 
+    if let Err(e) = windmill_migrations(&mut custom_migrator, db).await {
+        tracing::error!("Could not apply windmill custom migrations: {e}")
+    }
+
+    Ok(())
+}
+
+async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(), Error> {
+    if std::env::var("MIGRATION_NO_BYPASSRLS").is_ok() {
+        #[cfg(feature = "enterprise")]
+        {
+            migrator.lock().await?;
+            let mut tx = db.begin().await?;
+            let has_done_migration = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'bypassrls_1')",
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false);
+
+            if !has_done_migration {
+                let query = include_str!("../../custom_migrations/bypassrls_1.sql");
+                tracing::info!("Applying bypassrls_1.sql");
+                tx.execute_many(query);
+                tracing::info!("Applied bypassrls_1.sql");
+                sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1')")
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+            }
+            migrator.unlock().await?;
+        }
+    }
     Ok(())
 }
 

@@ -1,0 +1,14 @@
+CREATE POLICY admin_policy ON account TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON app TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON audit TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON capture TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON completed_job TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON flow TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON folder TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON queue TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON raw_app TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON resource TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON schedule TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON script TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON usr_to_group TO windmill_admin USING (true);
+CREATE POLICY admin_policy ON variable TO windmill_admin USING (true);
