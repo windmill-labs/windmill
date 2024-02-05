@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.262.1](https://github.com/windmill-labs/windmill/compare/v1.262.0...v1.262.1) (2024-02-05)
+
+
+### Bug Fixes
+
+* add get_root_job_id typescript-client ([9877c5f](https://github.com/windmill-labs/windmill/commit/9877c5fd9da0b912a90efc0bfdc3a0ba08b04bfc))
+
 ## [1.262.0](https://github.com/windmill-labs/windmill/compare/v1.261.0...v1.262.0) (2024-02-05)
 
 
