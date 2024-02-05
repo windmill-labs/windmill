@@ -844,6 +844,25 @@ async fn auto_add_user(
     .execute(&mut **tx)
     .await?;
 
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        &w_id,
+        username,
+        "all",
+    )
+    .execute(&mut **tx)
+    .await?;
+    audit_log(
+        &mut **tx,
+        &username,
+        "users.auto_invite_add",
+        ActionKind::Create,
+        &w_id,
+        Some(email),
+        None,
+    )
+    .await?;
     Ok(())
 }
 
