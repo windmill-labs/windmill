@@ -104,6 +104,9 @@ export async function getRootJobId(jobId?: string): Promise<string> {
   !clientSet && setClient();
   const workspace = getWorkspace();
   jobId = jobId ?? getEnv("WM_JOB_ID");
+  if (jobId === undefined) {
+    throw Error("Job ID not set");
+  }
   return await JobService.getRootJobId({ workspace, id: jobId });
 }
 
