@@ -244,8 +244,8 @@ declare function validateAll(id: string, key: number): void;
  */
 declare function clearFiles(id: string): void;
 
-/**  Send a toast message
- * @param message message to send
+/**  Display a toast message
+ * @param message message to display
  */
 declare function showToast(message: string, error: boolean): void;
 `
