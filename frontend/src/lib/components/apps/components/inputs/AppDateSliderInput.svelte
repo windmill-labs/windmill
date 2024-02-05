@@ -16,6 +16,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { parseISO, format as formatDateFns } from 'date-fns'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -38,18 +39,26 @@
 		listInputs?.remove(id)
 	})
 
-	let values: [number] = [resolvedConfig.defaultValue ?? 0]
+	let values: [number] = [
+		resolvedConfig.defaultValue
+			? new Date(resolvedConfig.defaultValue).getTime()
+			: new Date().getTime()
+	]
 
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	function handleDefault() {
-		values = [resolvedConfig?.defaultValue ?? 0]
+		values = [
+			resolvedConfig.defaultValue
+				? new Date(resolvedConfig.defaultValue).getTime()
+				: new Date().getTime()
+		]
 	}
 
 	let slider: HTMLElement
 
 	const outputs = initOutput($worldStore, id, {
-		result: (0 as number) || null
+		result: ('' as string) || null
 	})
 
 	$componentControl[id] = {
@@ -60,16 +69,26 @@
 
 	$: values && handleValues()
 
+	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
+		if (formatString === '') {
+			formatString = 'dd.MM.yyyy'
+		}
+
+		try {
+			const isoDate = parseISO(dateString)
+			return formatDateFns(isoDate, formatString)
+		} catch (error) {
+			return 'Error formatting date:' + error.message
+		}
+	}
+
 	function handleValues() {
-		// Disallow 'e' character in numbers
-		// if(value && value.toString().includes('e')) {
-		// 	value = +value.toString().replaceAll('e', '')
-		// }
-		const num = isNaN(+values[0]) ? null : +values[0]
-		outputs?.result.set(num)
+		const dateString = values[0] ? new Date(values[0]).toISOString() : new Date().toISOString()
+
+		outputs?.result.set(formatDate(dateString, resolvedConfig.outputFormat))
 
 		if (iterContext && listInputs) {
-			listInputs.set(id, num)
+			listInputs.set(id, formatDate(dateString, resolvedConfig.outputFormat))
 		}
 	}
 
@@ -135,10 +154,12 @@
 		class="flex {resolvedConfig.vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1"
 	>
 		<span
-			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
+			class={twMerge(css?.limits?.class, 'font-mono whitespace-nowrap  wm-slider-limits')}
 			style={css?.limits?.style ?? ''}
 		>
-			{resolvedConfig.vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
+			{resolvedConfig?.min
+				? new Date(resolvedConfig?.min).toDateString()
+				: new Date().toDateString()}
 		</span>
 		<div
 			class={twMerge(
@@ -155,24 +176,30 @@
 				vertical={resolvedConfig.vertical}
 				bind:slider
 				bind:values
-				step={resolvedConfig.step}
-				min={+(resolvedConfig?.min ?? 0)}
-				max={+(resolvedConfig?.max ?? 0)}
+				step={(resolvedConfig.step ?? 1) * 1000 * 60 * 60 * 24}
+				min={resolvedConfig?.min ? new Date(resolvedConfig?.min).getTime() : new Date().getTime()}
+				max={resolvedConfig?.max ? new Date(resolvedConfig?.max).getTime() : new Date().getTime()}
 				disabled={resolvedConfig.disabled}
 			/>
 		</div>
 		<span
-			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
+			class={twMerge(css?.limits?.class, 'font-mono whitespace-nowrap wm-slider-limits')}
 			style={css?.limits?.style ?? ''}
 		>
-			{resolvedConfig.vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
+			{resolvedConfig?.max
+				? new Date(resolvedConfig?.max).toDateString()
+				: new Date().toDateString()}
 		</span>
 		<span class="mx-2">
 			<span
-				class={twMerge(spanClass, css?.value?.class ?? '', 'font-mono wm-slider-value')}
+				class={twMerge(
+					spanClass,
+					css?.value?.class ?? '',
+					'font-mono  whitespace-nowrap  wm-slider-value'
+				)}
 				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
 			>
-				{values[0]}
+				{values[0] ? new Date(values[0]).toDateString() : new Date().toDateString()}
 			</span>
 		</span>
 	</div>

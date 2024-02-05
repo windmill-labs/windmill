@@ -2048,7 +2048,7 @@ This is a paragraph.
 		}
 	},
 	dateslidercomponent: {
-		name: 'Slider',
+		name: 'Date Slider',
 		icon: SlidersHorizontal,
 		documentationLink: `${documentationBaseUrl}/slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
@@ -2064,24 +2064,24 @@ This is a paragraph.
 			configuration: {
 				min: {
 					type: 'static',
-					value: 0,
-					fieldType: 'number'
+					value: '',
+					fieldType: 'date'
 				},
 				max: {
 					type: 'static',
-					value: 42,
-					fieldType: 'number'
+					value: '',
+					fieldType: 'date'
 				},
 				defaultValue: {
 					type: 'static',
-					value: 20,
-					fieldType: 'number'
+					value: '',
+					fieldType: 'date'
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					tooltip: 'Spread between each number suggestion'
+					tooltip: 'Number of days between each date suggestion'
 				},
 				vertical: {
 					type: 'static',
@@ -2092,6 +2092,13 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text',
+					tooltip: 'See date-fns format for more information',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
 				}
 			}
 		}
