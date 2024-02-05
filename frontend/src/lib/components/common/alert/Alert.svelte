@@ -131,8 +131,7 @@
 						<slot />
 					</div>
 				</div>
-			{/if}
-			{#if $$slots.default && !collapsible}
+			{:else if $$slots.default && !collapsible}
 				<div class="mt-2">
 					<div
 						class={twMerge(
