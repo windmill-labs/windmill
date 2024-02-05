@@ -57,7 +57,7 @@ function make_context_evaluator(
 	invalidate,
 	validateAll,
 	clearFiles,
-	sendToast
+	showToast
 ) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
