@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.262.0](https://github.com/windmill-labs/windmill/compare/v1.261.0...v1.262.0) (2024-02-05)
+
+
+### Features
+
+* **frontend:** add support for toasts in frontend scripts ([#3147](https://github.com/windmill-labs/windmill/issues/3147)) ([81174ab](https://github.com/windmill-labs/windmill/commit/81174abf5a9353535df3c7a8ce92a4e354689af5))
+* **frontend:** alert component ([#3140](https://github.com/windmill-labs/windmill/issues/3140)) ([2637fa2](https://github.com/windmill-labs/windmill/commit/2637fa23bbae00b17bc08c31dc8a751b8c1581a7))
+* **frontend:** App date slider component ([#3146](https://github.com/windmill-labs/windmill/issues/3146)) ([4c37479](https://github.com/windmill-labs/windmill/commit/4c37479b67b7515b905c7f043c4646fa0b3c80ec))
+
+
+### Bug Fixes
+
+* add get_root_job_id ([60f3a9f](https://github.com/windmill-labs/windmill/commit/60f3a9fa6b54ca5f62d10a82d974e78f2faaa198))
+* auto-add user add user to the group all ([c067a87](https://github.com/windmill-labs/windmill/commit/c067a875710e2fa217d7c973e5d4d109d5bf0aa5))
+* go preload wmill dependencies ([#3148](https://github.com/windmill-labs/windmill/issues/3148)) ([364284c](https://github.com/windmill-labs/windmill/commit/364284cf4121eca0fdb24d130cdf73b156c16886))
+* go preload wmill dependencies ([#3149](https://github.com/windmill-labs/windmill/issues/3149)) ([9c9e543](https://github.com/windmill-labs/windmill/commit/9c9e5439968b0f141b8c6b90ced558f8c93f48ca))
+* go preload wmill dependencies ([#3150](https://github.com/windmill-labs/windmill/issues/3150)) ([40c3b91](https://github.com/windmill-labs/windmill/commit/40c3b916d86a810ff7de57bc77f40c78131a784c))
+* remove duplicated on deployment management UI ([6c184eb](https://github.com/windmill-labs/windmill/commit/6c184eb4e4da3af83792b56fb1cd987a53037356))
+* scheduling of flows is done immediately ([a89f681](https://github.com/windmill-labs/windmill/commit/a89f6817f0af971c0ba85f5ce2bedda51126f0e0))
+
 ## [1.261.0](https://github.com/windmill-labs/windmill/compare/v1.260.1...v1.261.0) (2024-02-05)
 
 
