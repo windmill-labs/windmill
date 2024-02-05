@@ -84,6 +84,7 @@ export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
@@ -270,6 +271,7 @@ export type TypedComponent =
 	| S3FileInputComponent
 	| AgChartsComponent
 	| AgChartsComponentEe
+	| DateSliderComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1997,6 +1999,55 @@ This is a paragraph.
 		}
 	},
 	slidercomponent: {
+		name: 'Slider',
+		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}/slider`,
+		dims: '3:1-4:1' as AppComponentDimensions,
+		customCss: {
+			bar: { style: '', class: '' },
+			handle: { style: '', class: '' },
+			limits: { class: '', style: '' },
+			value: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				min: {
+					type: 'static',
+					value: 0,
+					fieldType: 'number'
+				},
+				max: {
+					type: 'static',
+					value: 42,
+					fieldType: 'number'
+				},
+				defaultValue: {
+					type: 'static',
+					value: 20,
+					fieldType: 'number'
+				},
+				step: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number',
+					tooltip: 'Spread between each number suggestion'
+				},
+				vertical: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				}
+			}
+		}
+	},
+	dateslidercomponent: {
 		name: 'Slider',
 		icon: SlidersHorizontal,
 		documentationLink: `${documentationBaseUrl}/slider`,

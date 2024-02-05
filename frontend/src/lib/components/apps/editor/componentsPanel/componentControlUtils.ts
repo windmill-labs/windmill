@@ -113,6 +113,7 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'multiselectcomponent':
 		case 'selectcomponent':
 		case 'slidercomponent':
+		case 'dateslidercomponent':
 		case 'quillcomponent':
 		case 'textcomponent':
 		case 'textareainputcomponent':
