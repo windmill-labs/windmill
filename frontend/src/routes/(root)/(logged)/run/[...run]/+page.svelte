@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job, ScriptService, Script } from '$lib/gen'
-	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
+	import { canWrite, copyToClipboard, displayDate, emptyString, truncateHash } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
@@ -19,7 +19,9 @@
 		TimerOff,
 		Trash,
 		XCircle,
-		Code2
+		Code2,
+		ClipboardCopy,
+		MoreVertical
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -36,7 +38,16 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { ActionRow, Button, Popup, Skeleton, Tab, Alert, MenuItem } from '$lib/components/common'
+	import {
+		ActionRow,
+		Button,
+		Popup,
+		Skeleton,
+		Tab,
+		Alert,
+		MenuItem,
+		DrawerContent
+	} from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -50,6 +61,9 @@
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import Portal from 'svelte-portal'
 	import MemoryFootprintViewer from '$lib/components/MemoryFootprintViewer.svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import { json } from 'svelte-highlight/languages'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -166,7 +180,39 @@
 
 	let notfound = false
 	let forceCancel = false
+
+	let debugViewer: Drawer
+	let debugContent: any = undefined
+	async function debugInfo() {
+		if (job?.id) {
+			debugContent = await JobService.getFlowDebugInfo({ workspace: $workspaceStore!, id: job?.id })
+			debugViewer?.openDrawer()
+		} else {
+			sendUserToast('Job has no id', true)
+		}
+	}
 </script>
+
+{#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
+	<Drawer bind:this={debugViewer} size="800px">
+		<DrawerContent title="Debug Detail" on:close={debugViewer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<Button
+					on:click={() => copyToClipboard(JSON.stringify(debugContent, null, 4))}
+					color="light"
+					size="xs"
+				>
+					<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
+				</Button>
+			</svelte:fragment>
+			<pre
+				><code class="text-2xs p-2">
+					<Highlight language={json} code={JSON.stringify(debugContent, null, 4)} />
+			</code></pre
+			>
+		</DrawerContent>
+	</Drawer>
+{/if}
 
 <TestJobLoader
 	on:done={() => (viewTab = 'result')}
@@ -256,6 +302,22 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
+				<div class="inline">
+					<ButtonDropdown hasPadding={false}>
+						<svelte:fragment slot="buttonReplacement">
+							<Button nonCaptureEvent size="xs" color="light">
+								<div class="flex flex-row items-center">
+									<MoreVertical size={14} />
+								</div>
+							</Button>
+						</svelte:fragment>
+						<svelte:fragment slot="items">
+							<MenuItem on:click={debugInfo}>Show Flow Debug Info</MenuItem>
+						</svelte:fragment>
+					</ButtonDropdown>
+				</div>
+			{/if}
 			{#if persistentScriptDefinition !== undefined}
 				<Button
 					color="blue"

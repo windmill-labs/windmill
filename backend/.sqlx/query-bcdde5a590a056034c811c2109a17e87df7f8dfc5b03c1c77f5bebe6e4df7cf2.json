@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'bypassrls_1')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bcdde5a590a056034c811c2109a17e87df7f8dfc5b03c1c77f5bebe6e4df7cf2"
+}

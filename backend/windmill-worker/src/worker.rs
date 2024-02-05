@@ -250,6 +250,7 @@ lazy_static::lazy_static! {
     pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
+
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
@@ -2264,23 +2265,21 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
 
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
-                if let Ok(mut tx) = db.begin().await {
-                    if let Ok(Some(parent_job)) =
-                        get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
-                    {
-                        let e = json!({"message": err.to_string(), "name": "InternalErr"});
-                        let _ = add_completed_job_error(
-                            db,
-                            &parent_job,
-                            format!("Unexpected error during flow job error handling:\n{err}"),
-                            mem_peak,
-                            canceled_by.clone(),
-                            e,
-                            rsmq,
-                            worker_name,
-                        )
-                        .await;
-                    }
+                if let Ok(Some(parent_job)) =
+                    get_queued_job(parent_job_id, &job.workspace_id, &db).await
+                {
+                    let e = json!({"message": err.to_string(), "name": "InternalErr"});
+                    let _ = add_completed_job_error(
+                        db,
+                        &parent_job,
+                        format!("Unexpected error during flow job error handling:\n{err}"),
+                        mem_peak,
+                        canceled_by.clone(),
+                        e,
+                        rsmq,
+                        worker_name,
+                    )
+                    .await;
                 }
             }
         }

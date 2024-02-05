@@ -54,11 +54,13 @@ pub fn workspaced_service() -> Router {
     Router::new().route("/token/:audience", post(gen_token))
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct Keys {
     private_key: String,
 }
 
+#[cfg(feature = "enterprise")]
 async fn gen_pems(db: &DB) -> anyhow::Result<Keys> {
     let private_key_cmd = Command::new("openssl")
         .arg("genrsa")
@@ -206,9 +208,7 @@ pub async fn gen_token(
             job.unwrap()
         }
     };
-    let mut tx = db.begin().await?;
-    let job = get_queued_job(job_id, &w_id, &mut tx).await?;
-    tx.commit().await?;
+    let job = get_queued_job(job_id, &w_id, &db).await?;
 
     let job = job.ok_or_else(|| anyhow::anyhow!("Queued job {} not found", job_id))?;
     let issue_url = format!("{}/api/oidc/", crate::BASE_URL.read().await.clone());

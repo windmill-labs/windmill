@@ -37,6 +37,8 @@ lazy_static::lazy_static! {
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
+    static ref EPHEMERAL_TOKEN_CMD: Option<String> = std::env::var("EPHEMERAL_TOKEN_CMD").ok();
+
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
@@ -64,6 +66,27 @@ pub async fn create_dependencies_dir(job_dir: &str) {
         .create(&format!("{job_dir}/dependencies"))
         .await
         .expect("could not create dependencies dir");
+}
+
+#[inline(always)]
+pub fn handle_ephemeral_token(x: String) -> String {
+    #[cfg(feature = "enterprise")]
+    {
+        if let Some(full_cmd) = EPHEMERAL_TOKEN_CMD.as_ref() {
+            let mut splitted = full_cmd.split(" ");
+            let cmd = splitted.next().unwrap();
+            let args = splitted.collect::<Vec<&str>>();
+            let output = std::process::Command::new(cmd)
+                .args(args)
+                .output()
+                .map(|x| String::from_utf8(x.stdout).unwrap())
+                .unwrap_or_else(|e| panic!("failed to execute  replace_ephemeral command: {}", e));
+            let r = x.replace("EPHEMERAL_TOKEN", &output.trim());
+            tracing::debug!("replaced ephemeral token: '{}'", r);
+            return r;
+        }
+    }
+    x
 }
 
 pub async fn pip_compile(
@@ -128,11 +151,16 @@ pub async fn pip_compile(
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
-    let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+    let pip_extra_index_url = PIP_EXTRA_INDEX_URL
+        .read()
+        .await
+        .clone()
+        .map(handle_ephemeral_token);
     if let Some(url) = pip_extra_index_url.as_ref() {
         args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
     }
-    if let Some(url) = PIP_INDEX_URL.as_ref() {
+    let pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
+    if let Some(url) = pip_index_url.as_ref() {
         args.extend(["--index-url", url, "--no-emit-index-url"]);
     }
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
@@ -658,13 +686,21 @@ pub async fn handle_python_reqs(
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
     let pip_extra_index_url;
+    let pip_index_url;
 
     if !*DISABLE_NSJAIL {
-        pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+        pip_extra_index_url = PIP_EXTRA_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+
         if let Some(url) = pip_extra_index_url.as_ref() {
             vars.push(("EXTRA_INDEX_URL", url));
         }
-        if let Some(url) = PIP_INDEX_URL.as_ref() {
+
+        pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
+        if let Some(url) = pip_index_url.as_ref() {
             vars.push(("INDEX_URL", url));
         }
         if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
@@ -768,11 +804,18 @@ pub async fn handle_python_reqs(
                 "-t",
                 venv_p.as_str(),
             ];
-            let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+            let pip_extra_index_url = PIP_EXTRA_INDEX_URL
+                .read()
+                .await
+                .clone()
+                .map(handle_ephemeral_token);
+
             if let Some(url) = pip_extra_index_url.as_ref() {
                 command_args.extend(["--extra-index-url", url]);
             }
-            if let Some(url) = PIP_INDEX_URL.as_ref() {
+            let pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
+
+            if let Some(url) = pip_index_url.as_ref() {
                 command_args.extend(["--index-url", url]);
             }
             if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {

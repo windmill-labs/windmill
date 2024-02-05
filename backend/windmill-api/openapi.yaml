@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.259.2
+  version: 1.261.0
   title: Windmill API
 
   contact:
@@ -5032,6 +5032,23 @@ paths:
                   mem_peak:
                     type: integer
 
+  /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
+    get:
+      summary: get flow debug info
+      operationId: getFlowDebugInfo
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: flow debug info details
+          content:
+            application/json:
+              schema: {}
+
+
   /w/{workspace}/jobs_u/completed/get/{id}:
     get:
       summary: get completed job
@@ -7175,6 +7192,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
       requestBody:
         description: File content
         required: true
@@ -7210,6 +7232,11 @@ paths:
           schema:
             type: string
         - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
           in: query
           required: false
           schema:
@@ -9389,8 +9416,10 @@ components:
       properties:
         type:
           type: string
-          enum: ["S3Storage"]
+          enum: ["S3Storage", "AzureBlobStorage"]
         s3_resource_path:
+          type: string
+        azure_blob_resource_path:
           type: string
         public_resource:
           type: boolean

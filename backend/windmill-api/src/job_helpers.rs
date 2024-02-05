@@ -17,6 +17,7 @@ use axum::{
 };
 use futures::{StreamExt, TryStreamExt};
 use hyper::http;
+use object_store::azure::AzureConfigKey;
 use object_store::{ClientConfigKey, ObjectStore};
 use polars::{
     io::{
@@ -35,6 +36,7 @@ use tokio::io::{copy, AsyncWriteExt};
 use tokio_util::io::StreamReader;
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::error::{Error, JsonResult};
+use windmill_common::s3_helpers::{AzureBlobResource, ObjectStoreResource};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     db::UserDB,
@@ -160,7 +162,7 @@ async fn duckdb_connection_settings_v2(
     Path(w_id): Path<String>,
     Json(query): Json<DuckdbConnectionSettingsQueryV2>,
 ) -> JsonResult<DuckdbConnectionSettingsResponse> {
-    let s3_resource_opt = match query.s3_resource_path {
+    let object_store_resource_opt = match query.s3_resource_path {
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
@@ -168,6 +170,7 @@ async fn duckdb_connection_settings_v2(
                 Some(user_db),
                 &token,
                 &w_id,
+                StorageResourceType::S3, // for now we only support S3 for duckdb
                 s3_resource_path.as_str(),
             )
             .await?
@@ -178,14 +181,21 @@ async fn duckdb_connection_settings_v2(
             s3_resource_opt
         }
     };
-    let s3_resource = s3_resource_opt.ok_or(Error::NotFound(
+    let object_store_resource = object_store_resource_opt.ok_or(Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
     ))?;
-    return duckdb_connection_settings(
-        Path(w_id),
-        Json(DuckdbConnectionSettingsQuery { s3_resource }),
-    )
-    .await;
+    match object_store_resource {
+        ObjectStoreResource::S3Resource(s3_resource) => {
+            duckdb_connection_settings(
+                Path(w_id),
+                Json(DuckdbConnectionSettingsQuery { s3_resource }),
+            )
+            .await
+        }
+        ObjectStoreResource::AzureBlobResource(_) => Err(Error::BadConfig(
+            "DuckDB only works with an S3 storage, Azure Blob is not supported yet".to_string(),
+        )),
+    }
 }
 
 #[derive(Deserialize)]
@@ -205,7 +215,7 @@ async fn polars_connection_settings(
     let s3_resource = query.s3_resource;
 
     let response = S3fsArgs {
-        endpoint_url: render_endpoint(&s3_resource),
+        endpoint_url: render_endpoint(s3_resource.endpoint, s3_resource.use_ssl, s3_resource.port),
         key: s3_resource.access_key,
         secret: s3_resource.secret_key,
         use_ssl: s3_resource.use_ssl,
@@ -257,7 +267,7 @@ async fn polars_connection_settings_v2(
     Path(w_id): Path<String>,
     Json(query): Json<PolarsConnectionSettingsQueryV2>,
 ) -> JsonResult<PolarsConnectionSettingsResponse> {
-    let s3_resource_opt = match query.s3_resource_path {
+    let object_store_resource_opt = match query.s3_resource_path {
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
@@ -265,6 +275,7 @@ async fn polars_connection_settings_v2(
                 Some(user_db),
                 &token,
                 &w_id,
+                StorageResourceType::S3, // for now we only support S3 for polars
                 s3_resource_path.as_str(),
             )
             .await?
@@ -275,9 +286,17 @@ async fn polars_connection_settings_v2(
             s3_resource_opt
         }
     };
-    let s3_resource = s3_resource_opt.ok_or(Error::NotFound(
+    let object_store_resource = object_store_resource_opt.ok_or(Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
     ))?;
+
+    let s3_resource = match object_store_resource {
+        ObjectStoreResource::S3Resource(s3_resource) => Ok(s3_resource),
+        ObjectStoreResource::AzureBlobResource(_) => Err(Error::BadConfig(
+            "Polars only works with an S3 storage, Azure Blob is not supported yet".to_string(),
+        )),
+    }?;
+
     let s3fs = polars_connection_settings(
         Path(w_id),
         Json(PolarsConnectionSettingsQuery { s3_resource: s3_resource.clone() }),
@@ -287,7 +306,11 @@ async fn polars_connection_settings_v2(
     let response = PolarsConnectionSettingsResponse {
         s3fs_args: s3fs,
         storage_options: PolarsStorageOptions {
-            aws_endpoint_url: render_endpoint(&s3_resource),
+            aws_endpoint_url: render_endpoint(
+                s3_resource.endpoint,
+                s3_resource.use_ssl,
+                s3_resource.port,
+            ),
             aws_access_key_id: s3_resource.access_key,
             aws_secret_access_key: s3_resource.secret_key,
             aws_region: s3_resource.region,
@@ -310,7 +333,7 @@ async fn s3_resource_info(
     Path(w_id): Path<String>,
     Json(query): Json<S3ResourceInfoQuery>,
 ) -> JsonResult<S3Resource> {
-    let s3_resource_opt = match query.s3_resource_path {
+    let object_store_resource_opt = match query.s3_resource_path {
         Some(s3_resource_path) => {
             get_s3_resource(
                 &authed,
@@ -318,6 +341,7 @@ async fn s3_resource_info(
                 Some(user_db),
                 &token,
                 &w_id,
+                StorageResourceType::S3,
                 s3_resource_path.as_str(),
             )
             .await?
@@ -328,10 +352,13 @@ async fn s3_resource_info(
             s3_resource_opt
         }
     };
-    let s3_resource = s3_resource_opt.ok_or(Error::NotFound(
+    let object_store_resource = object_store_resource_opt.ok_or(Error::NotFound(
         "No datasets storage resource defined at the workspace level".to_string(),
     ))?;
-    return Ok(Json(s3_resource));
+    match object_store_resource {
+        ObjectStoreResource::S3Resource(s3_resource) => Ok(Json(s3_resource)),
+        ObjectStoreResource::AzureBlobResource(_) => Err(Error::BadConfig("Requested S3 resource info but the resource path pointed to an Azure Blob resource type".to_string()))
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -724,6 +751,8 @@ async fn move_s3_file(
 #[derive(Deserialize)]
 struct DownloadFileQuery {
     pub file_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_type: Option<StorageResourceType>,
     pub s3_resource_path: Option<String>,
 }
 
@@ -754,6 +783,7 @@ async fn download_s3_file(
                 Some(user_db),
                 &token,
                 &w_id,
+                query.resource_type.unwrap_or(StorageResourceType::S3),
                 s3_resource_path.as_str(),
             )
             .await?
@@ -785,6 +815,8 @@ async fn download_s3_file(
 struct UploadFileQuery {
     pub file_key: Option<String>, // if none, the file will be placed in windmill_uploads/ with a random name.
     pub file_extension: Option<String>, // preferred extension for the file in case a random name has to be generated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_type: Option<StorageResourceType>,
     pub s3_resource_path: Option<String>, // custom S3 resource to use for this upload. It None, the workspace S3 resource will be used
 }
 
@@ -907,6 +939,7 @@ async fn upload_s3_file(
                 Some(user_db),
                 &token,
                 &w_id,
+                query.resource_type.unwrap_or(StorageResourceType::S3),
                 s3_resource_path.as_str(),
             )
             .await?
@@ -975,7 +1008,7 @@ async fn get_workspace_s3_resource<'c>(
     user_db: Option<UserDB>,
     token: &str,
     w_id: &str,
-) -> error::Result<(Option<bool>, Option<S3Resource>)> {
+) -> error::Result<(Option<bool>, Option<ObjectStoreResource>)> {
     let raw_lfs_opt = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -1000,37 +1033,46 @@ async fn get_workspace_s3_resource<'c>(
             "Could not deserialize LargeFileStorage value found in database".to_string(),
         )
     })?;
-    let s3_lfs = match large_file_storage {
-        LargeFileStorage::S3Storage(s3_lfs) => s3_lfs,
+    let (resource_type, public_resource, resource_path) = match large_file_storage {
+        LargeFileStorage::S3Storage(s3_lfs) => (
+            StorageResourceType::S3,
+            s3_lfs.public_resource,
+            s3_lfs.s3_resource_path,
+        ),
+        LargeFileStorage::AzureBlobStorage(azure_lfs) => (
+            StorageResourceType::AzureBlob,
+            azure_lfs.public_resource,
+            azure_lfs.azure_blob_resource_path,
+        ),
     };
 
     // if the resource is declared public, we replace user_db with None such that the resource info will be
     // retrieved using `db` (and ACLs will be bypassed)
-    let effective_user_db = if user_db.is_some() && s3_lfs.public_resource.unwrap_or(false) {
+    let effective_user_db = if user_db.is_some() && public_resource.unwrap_or(false) {
         None
     } else {
         user_db
     };
 
-    let stripped_resource_path = match s3_lfs.s3_resource_path.strip_prefix("$res:") {
-        Some(stripped) => stripped,
-        None => s3_lfs.s3_resource_path.as_str(),
-    };
+    let stripped_resource_path = resource_path
+        .strip_prefix("$res:")
+        .unwrap_or(resource_path.as_str());
     let s3_resource = match get_s3_resource(
         authed,
         db,
         effective_user_db,
         token,
         w_id,
+        resource_type,
         stripped_resource_path,
     )
     .await
     {
         Ok(s3_resource) => Ok(s3_resource),
-        Err(Error::NotAuthorized(_)) if !s3_lfs.public_resource.unwrap_or(false) => Ok(None),
+        Err(Error::NotAuthorized(_)) if !public_resource.unwrap_or(false) => Ok(None),
         Err(err) => Err(err),
     };
-    return s3_resource.map(|res| (s3_lfs.public_resource, res));
+    return s3_resource.map(|res| (public_resource, res));
 }
 
 async fn get_s3_resource<'c>(
@@ -1039,14 +1081,15 @@ async fn get_s3_resource<'c>(
     user_db: Option<UserDB>,
     token: &str,
     w_id: &str,
-    s3_resource_path: &str,
-) -> error::Result<Option<S3Resource>> {
+    resource_type: StorageResourceType,
+    resource_path: &str,
+) -> error::Result<Option<ObjectStoreResource>> {
     let s3_resource_value_raw = get_resource_value_interpolated_internal(
         authed,
         user_db,
         db,
         w_id,
-        s3_resource_path,
+        resource_path,
         None,
         token,
     )
@@ -1056,39 +1099,101 @@ async fn get_s3_resource<'c>(
         return Err(Error::NotFound("Resource not found".to_string()));
     }
 
-    let s3_resource = serde_json::from_value::<S3Resource>(s3_resource_value_raw.unwrap())
-        .map_err(|err| {
-            tracing::error!("Error deserializing S3 resource: {:?}", err);
-            Error::InternalErr(format!("Error reading s3 resource: {}", err.to_string()))
-        })?;
-    return Ok(Some(s3_resource));
+    let object_store_resource = match resource_type {
+        StorageResourceType::S3 => {
+            let s3_resource = serde_json::from_value::<S3Resource>(s3_resource_value_raw.unwrap())
+                .map_err(|err| {
+                    tracing::error!("Error deserializing S3 resource: {:?}", err);
+                    Error::InternalErr(format!("Error reading s3 resource: {}", err.to_string()))
+                })?;
+            ObjectStoreResource::S3Resource(s3_resource)
+        }
+        StorageResourceType::AzureBlob => {
+            let azure_blob_resource =
+                serde_json::from_value::<AzureBlobResource>(s3_resource_value_raw.unwrap())
+                    .map_err(|err| {
+                        tracing::error!("Error deserializing S3 resource: {:?}", err);
+                        Error::InternalErr(format!(
+                            "Error reading s3 resource: {}",
+                            err.to_string()
+                        ))
+                    })?;
+            ObjectStoreResource::AzureBlobResource(azure_blob_resource)
+        }
+    };
+    return Ok(Some(object_store_resource));
 }
 
-fn build_polars_s3_config(s3_resource_ref: &S3Resource) -> CloudOptions {
-    let s3_resource = s3_resource_ref.to_owned();
-    let mut s3_configs: Vec<(AmazonS3ConfigKey, String)> = vec![
-        (AmazonS3ConfigKey::Region, s3_resource.region),
-        (AmazonS3ConfigKey::Bucket, s3_resource.bucket),
-        (
-            AmazonS3ConfigKey::Endpoint,
-            render_endpoint(s3_resource_ref),
-        ),
-        (
-            AmazonS3ConfigKey::Client(ClientConfigKey::AllowHttp),
-            (!s3_resource.use_ssl).to_string(),
-        ),
-        (
-            AmazonS3ConfigKey::VirtualHostedStyleRequest,
-            (!s3_resource.path_style).to_string(),
-        ),
-    ];
-    if let Some(access_key) = s3_resource.access_key {
-        s3_configs.push((AmazonS3ConfigKey::AccessKeyId, access_key));
+#[derive(Deserialize)]
+pub enum StorageResourceType {
+    S3,
+    AzureBlob,
+}
+
+fn build_polars_s3_config(object_store_resource_ref: &ObjectStoreResource) -> CloudOptions {
+    match object_store_resource_ref {
+        ObjectStoreResource::S3Resource(s3_resource_ref) => {
+            let s3_resource = s3_resource_ref.to_owned();
+            let mut s3_configs: Vec<(AmazonS3ConfigKey, String)> = vec![
+                (AmazonS3ConfigKey::Region, s3_resource.region),
+                (AmazonS3ConfigKey::Bucket, s3_resource.bucket),
+                (
+                    AmazonS3ConfigKey::Endpoint,
+                    render_endpoint(s3_resource.endpoint, s3_resource.use_ssl, s3_resource.port),
+                ),
+                (
+                    AmazonS3ConfigKey::Client(ClientConfigKey::AllowHttp),
+                    (!s3_resource.use_ssl).to_string(),
+                ),
+                (
+                    AmazonS3ConfigKey::VirtualHostedStyleRequest,
+                    (!s3_resource.path_style).to_string(),
+                ),
+            ];
+            if let Some(access_key) = s3_resource.access_key {
+                if access_key != "" {
+                    s3_configs.push((AmazonS3ConfigKey::AccessKeyId, access_key));
+                }
+            }
+            if let Some(secret_key) = s3_resource.secret_key {
+                if secret_key != "" {
+                    s3_configs.push((AmazonS3ConfigKey::SecretAccessKey, secret_key));
+                }
+            }
+            CloudOptions::default().with_aws(s3_configs)
+        }
+        ObjectStoreResource::AzureBlobResource(azure_blob_resource) => {
+            let azure_blob_resource = azure_blob_resource.to_owned();
+            let mut azure_blob_configs: Vec<(AzureConfigKey, String)> = vec![
+                (
+                    AzureConfigKey::AccountName,
+                    azure_blob_resource.account_name,
+                ),
+                (
+                    AzureConfigKey::ContainerName,
+                    azure_blob_resource.container_name,
+                ),
+                (
+                    AzureConfigKey::Client(ClientConfigKey::AllowHttp),
+                    (!azure_blob_resource.use_ssl).to_string(),
+                ),
+            ];
+            if let Some(endpoint) = azure_blob_resource.endpoint {
+                if endpoint != "" {
+                    azure_blob_configs.push((
+                        AzureConfigKey::Endpoint,
+                        render_endpoint(endpoint, azure_blob_resource.use_ssl, None),
+                    ))
+                }
+            }
+            if let Some(access_key) = azure_blob_resource.access_key {
+                if access_key != "" {
+                    azure_blob_configs.push((AzureConfigKey::AccessKey, access_key));
+                }
+            }
+            CloudOptions::default().with_azure(azure_blob_configs)
+        }
     }
-    if let Some(secret_key) = s3_resource.secret_key {
-        s3_configs.push((AmazonS3ConfigKey::SecretAccessKey, secret_key));
-    }
-    return CloudOptions::default().with_aws(s3_configs);
 }
 
 async fn read_object_chunk(
@@ -1128,10 +1233,10 @@ async fn read_s3_text_object_head(
 }
 
 async fn read_s3_parquet_object_head(
-    s3_resource_ref: &S3Resource,
+    object_store_resource_ref: &ObjectStoreResource,
     file_key: &str,
 ) -> error::Result<String> {
-    let s3_cloud_config = build_polars_s3_config(s3_resource_ref);
+    let polars_cloud_config = build_polars_s3_config(object_store_resource_ref);
 
     let args: ScanArgsParquet = ScanArgsParquet {
         n_rows: Some(1),
@@ -1142,14 +1247,19 @@ async fn read_s3_parquet_object_head(
         low_memory: false,
         use_statistics: false,
         hive_partitioning: false,
-        cloud_options: Some(s3_cloud_config),
+        cloud_options: Some(polars_cloud_config),
     };
 
-    let file_key_clone = file_key.to_string();
-    let s3_bucket_clone = s3_resource_ref.bucket.to_string();
+    let file_key_prefixed = match object_store_resource_ref {
+        ObjectStoreResource::S3Resource(s3_resource) => {
+            format!("s3://{}/{}", s3_resource.bucket, file_key).to_string()
+        }
+        ObjectStoreResource::AzureBlobResource(azure_blob_resource) => {
+            format!("az://{}/{}", azure_blob_resource.container_name, file_key).to_string()
+        }
+    };
     let polars_df_result = tokio::task::spawn_blocking(move || {
-        let s3_file_key = format!("s3://{}/{}", s3_bucket_clone, file_key_clone);
-        let lzdf_result = LazyFrame::scan_parquet(s3_file_key, args);
+        let lzdf_result = LazyFrame::scan_parquet(file_key_prefixed, args);
         match lzdf_result {
             Err(err) => {
                 tracing::warn!("Error fetching parquet file from S3: {:?}", err);
@@ -1174,14 +1284,14 @@ async fn read_s3_parquet_object_head(
 }
 
 async fn read_s3_parquet_chunk(
-    s3_resource_ref: &S3Resource,
+    object_store_resource_ref: &ObjectStoreResource,
     file_key: &str,
     limit: Option<u32>,
     offset: Option<i64>,
     sort: Option<(String, bool)>,
     search: Option<(String, String)>,
 ) -> error::Result<Box<RawValue>> {
-    let s3_cloud_config = build_polars_s3_config(s3_resource_ref);
+    let s3_cloud_config = build_polars_s3_config(object_store_resource_ref);
 
     let args: ScanArgsParquet = ScanArgsParquet {
         n_rows: None,
@@ -1195,11 +1305,16 @@ async fn read_s3_parquet_chunk(
         cloud_options: Some(s3_cloud_config),
     };
 
-    let file_key_clone = file_key.to_string();
-    let s3_bucket_clone = s3_resource_ref.bucket.to_string();
+    let file_key_prefixed = match object_store_resource_ref {
+        ObjectStoreResource::S3Resource(s3_resource) => {
+            format!("s3://{}/{}", s3_resource.bucket, file_key).to_string()
+        }
+        ObjectStoreResource::AzureBlobResource(azure_blob_resource) => {
+            format!("az://{}/{}", azure_blob_resource.container_name, file_key).to_string()
+        }
+    };
     return tokio::task::spawn_blocking(move || {
-        let s3_file_key = format!("s3://{}/{}", s3_bucket_clone, file_key_clone);
-        let lzdf_result = LazyFrame::scan_parquet(s3_file_key, args);
+        let lzdf_result = LazyFrame::scan_parquet(file_key_prefixed, args);
         match lzdf_result {
             Err(err) => {
                 tracing::warn!("Error fetching parquet file from S3: {:?}", err);
@@ -1243,26 +1358,33 @@ async fn read_s3_parquet_chunk(
     })?;
 }
 async fn csv_file_preview_with_fallback(
-    s3_client: Arc<dyn ObjectStore>,
+    object_store_client: Arc<dyn ObjectStore>,
     file_key: &str,
     length: usize,
     separator: Option<String>,
     has_header: Option<bool>,
 ) -> error::Result<String> {
-    match read_s3_csv_object_head(s3_client.clone(), &file_key, length, separator, has_header).await
+    match read_s3_csv_object_head(
+        object_store_client.clone(),
+        &file_key,
+        length,
+        separator,
+        has_header,
+    )
+    .await
     {
         Ok(csv_preview) => Ok(csv_preview),
         Err(_) => {
             // fallback to default text file preview is the CSV could not be parsed. It's a text file after all
             let raw_text =
-                read_s3_text_object_head(s3_client.clone(), &file_key, 0, length).await?;
+                read_s3_text_object_head(object_store_client.clone(), &file_key, 0, length).await?;
             return Ok(raw_text);
         }
     }
 }
 
 async fn read_s3_csv_object_head(
-    s3_client: Arc<dyn ObjectStore>,
+    object_store_client: Arc<dyn ObjectStore>,
     file_key: &str,
     length: usize,
     separator: Option<String>,
@@ -1278,7 +1400,7 @@ async fn read_s3_csv_object_head(
     }?;
 
     let path = object_store::path::Path::from(file_key);
-    let s3_object = s3_client
+    let stored_object = object_store_client
         .get(&path)
         .await
         .map_err(|err| {
@@ -1290,7 +1412,7 @@ async fn read_s3_csv_object_head(
     // TODO: polars does not seem to support lazy csv reader, unfortunately. We can implement it ourselves if needed
     // Right now it's fine b/c we limit the download from AWS to 32MB. We should recommend users to use parquet
     // for larger files
-    let file_content_bytes = s3_object
+    let file_content_bytes = stored_object
         .take(length as usize)
         .filter(|obj| future::ready(obj.is_ok()))
         .map(|obj| obj.unwrap())

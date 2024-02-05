@@ -2040,6 +2040,11 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: false
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

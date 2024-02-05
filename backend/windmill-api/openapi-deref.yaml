@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.258.4
+  version: 1.259.1
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1524,7 +1524,10 @@ paths:
                         type: string
                         enum:
                           - S3Storage
+                          - AzureBlobStorage
                       s3_resource_path:
+                        type: string
+                      azure_blob_resource_path:
                         type: string
                       public_resource:
                         type: boolean
@@ -10376,6 +10379,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: prefix
+          in: query
+          schema:
+            type: string
       responses:
         '200':
           description: List of file keys
@@ -10616,6 +10623,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
       requestBody:
         description: File content
         required: true
@@ -10653,6 +10665,11 @@ paths:
           schema:
             type: string
         - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
           in: query
           required: false
           schema:
