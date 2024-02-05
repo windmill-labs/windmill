@@ -200,7 +200,7 @@ RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
     curl nodejs npm; fi
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\"\nwmill \"github.com/windmill-labs/windmill-go-client\")\nfunc main() { v := wmill.GetStatePath()\n fmt.Println(v) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
+RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\"\nwmill \"github.com/windmill-labs/windmill-go-client\")\nfunc main() { v := wmill.GetStatePath()\n fmt.Println(v) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
 ENV TZ=Etc/UTC
 
