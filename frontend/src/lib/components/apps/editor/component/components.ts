@@ -2054,7 +2054,7 @@ This is a paragraph.
 	dateslidercomponent: {
 		name: 'Date Slider',
 		icon: SlidersHorizontal,
-		documentationLink: `${documentationBaseUrl}/slider`,
+		documentationLink: `${documentationBaseUrl}/date_slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
 		customCss: {
 			bar: { style: '', class: '' },
