@@ -419,6 +419,7 @@
 											configName="summary"
 											let:updateFocus
 											let:active
+											let:classNames
 											focused
 											on:change={() => {
 												if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
@@ -435,6 +436,7 @@
 											<input
 												type="text"
 												autofocus
+												class={classNames}
 												on:focus={() => updateFocus(true)}
 												on:blur={() => updateFocus(false)}
 												bind:value={script.summary}
@@ -462,10 +464,12 @@
 											label="Description"
 											let:updateFocus
 											let:active
+											let:classNames
 										>
 											<textarea
 												on:focus={() => updateFocus(true)}
 												on:blur={() => updateFocus(false)}
+												class={classNames}
 												use:autosize
 												bind:this={descriptionTextArea}
 												bind:value={script.description}

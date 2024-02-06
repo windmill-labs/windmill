@@ -63,6 +63,7 @@ The description should focus on what it does and should not contain what concept
 	let active = false
 	let loading = false
 	let abortController = new AbortController()
+	let manualDisabled = false
 
 	export let focused = false
 	const updateFocus = (val) => {
@@ -128,7 +129,10 @@ The description should focus on what it does and should not contain what concept
 		$copilotInfo.exists_openai_resource_path &&
 		$metadataCompletionEnabled &&
 		!content &&
-		(loading || focused || !!generatedContent)
+		(loading || focused || !!generatedContent) &&
+		!manualDisabled
+
+	$: focused && (manualDisabled = false)
 
 	onDestroy(() => {
 		abortController.abort()
@@ -154,17 +158,21 @@ The description should focus on what it does and should not contain what concept
 						event.preventDefault()
 						generateContent()
 					}
-				} else if (event.key === 'Escape' && loading) {
+				} else if (event.key === 'Escape') {
 					event.preventDefault()
 					event.stopPropagation()
-					abortController.abort()
+					if (loading) {
+						abortController.abort()
+					} else {
+						manualDisabled = true
+					}
 				}
 			}}
 		>
 			<div
 				class={'absolute left-0.5  flex flex-row pl-1 gap-2 items-start top-[0.3rem] pointer-events-none'}
 			>
-				{#if $copilotInfo.exists_openai_resource_path && $metadataCompletionEnabled && !content && (loading || focused || generatedContent)}
+				{#if active}
 					<span
 						class="absolute text-xs text-sky-900 bg-sky-100 dark:text-sky-200 dark:bg-gray-700 p-1 rounded-md flex flex-row items-center justify-center gap-2 w-32 shrink-0"
 					>
@@ -196,7 +204,7 @@ The description should focus on what it does and should not contain what concept
 					</span>
 				{/if}
 			</div>
-			<slot {updateFocus} {active} />
+			<slot {updateFocus} {active} classNames={active && !generatedContent ? '!pl-[8.7rem]' : ''} />
 		</div>
 	</Label>
 </div>
