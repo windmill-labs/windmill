@@ -2,7 +2,10 @@ module github.com/windmill-labs/windmill-go-client
 
 go 1.19
 
-require github.com/deepmap/oapi-codegen v1.15.0
+require (
+	github.com/deepmap/oapi-codegen v1.15.0
+	github.com/stretchr/testify v1.8.4
+)
 
 require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
@@ -16,6 +19,7 @@ require (
 	github.com/bytedance/sonic v1.10.0-rc3 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
 	github.com/chenzhuoyu/iasm v0.9.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/flosch/pongo2/v4 v4.0.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
@@ -51,6 +55,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/schollz/closestmatch v2.1.0+incompatible // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
