@@ -96,6 +96,7 @@
 
 	async function deleteScript(hash: string): Promise<void> {
 		try {
+			debugger
 			await ScriptService.deleteScriptByHash({ workspace: $workspaceStore!, hash })
 			loadScript(hash)
 		} catch (err) {
@@ -391,7 +392,7 @@
 			label: 'Delete',
 			Icon: Trash,
 			onclick: async () => {
-				deleteScript(script.path)
+				deleteScript(script.hash)
 			},
 			color: 'red'
 		})
