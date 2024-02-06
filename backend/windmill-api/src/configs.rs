@@ -14,6 +14,7 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self},
     DB,
@@ -72,14 +73,26 @@ async fn update_config(
         ));
     }
 
+    let mut tx = db.begin().await?;
     sqlx::query!(
         "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
         &name,
         config
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "worker_config.update",
+        ActionKind::Update,
+        "global",
+        Some(&name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(format!("Updated config {name}"))
 }
 
@@ -90,10 +103,23 @@ async fn delete_config(
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
 
+    let mut tx = db.begin().await?;
+
     let deleted = sqlx::query!("DELETE FROM config WHERE name = $1 RETURNING name", name)
         .fetch_all(&db)
         .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "worker_config.delete",
+        ActionKind::Delete,
+        "global",
+        Some(&name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
     if deleted.len() == 0 {
         return Err(error::Error::NotFound(format!(
             "Config {name} not found",
