@@ -42,11 +42,11 @@ func GetVariable(path string) (string, error) {
 		return "", err
 	}
 	res, err := client.Client.GetVariableValueWithResponse(context.Background(), client.Workspace, path)
-	if res.StatusCode()/100 != 2 {
-		return "", errors.New(string(res.Body))
-	}
 	if err != nil {
 		return "", err
+	}
+	if res.StatusCode()/100 != 2 {
+		return "", errors.New(string(res.Body))
 	}
 	return *res.JSON200, nil
 }
@@ -58,28 +58,50 @@ func GetResource(path string) (interface{}, error) {
 	}
 	params := api.GetResourceValueInterpolatedParams{}
 	res, err := client.Client.GetResourceValueInterpolatedWithResponse(context.Background(), client.Workspace, path, &params)
-	if res.StatusCode()/100 != 2 {
-		return nil, errors.New(string(res.Body))
-	}
 	if err != nil {
 		return nil, err
+	}
+	if res.StatusCode()/100 != 2 {
+		return nil, errors.New(string(res.Body))
 	}
 	return *res.JSON200, nil
 }
 
-func SetResource(path string, value interface{}) error {
+func SetResource(path string, value interface{}, resourceTypeOpt ...string) error {
 	client, err := GetClient()
-	res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, &api.CreateResourceParams{
-		UpdateIfExists: newBool(true),
-	}, api.CreateResource{Value: &value, Path: path})
-
 	if err != nil {
 		return err
 	}
-	if res.StatusCode()/100 != 2 {
-		return errors.New(string(res.Body))
+	params := api.GetResourceValueInterpolatedParams{}
+	getRes, getErr := client.Client.GetResourceValueInterpolatedWithResponse(context.Background(), client.Workspace, path, &params)
+	if getErr != nil {
+		return getErr
 	}
-
+	if getRes.StatusCode() == 404 {
+		resourceType := "any"
+		if len(resourceTypeOpt) > 0 {
+			resourceType = resourceTypeOpt[0]
+		}
+		res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, &api.CreateResourceParams{
+			UpdateIfExists: newBool(true),
+		}, api.CreateResource{Value: &value, Path: path, ResourceType: resourceType})
+		if err != nil {
+			return err
+		}
+		if res.StatusCode()/100 != 2 {
+			return errors.New(string(res.Body))
+		}
+	} else {
+		res, err := client.Client.UpdateResourceValueWithResponse(context.Background(), client.Workspace, path, api.UpdateResourceValueJSONRequestBody{
+			Value: &value,
+		})
+		if err != nil {
+			return err
+		}
+		if res.StatusCode()/100 != 2 {
+			return errors.New(string(res.Body))
+		}
+	}
 	return nil
 }
 
@@ -96,20 +118,20 @@ func SetVariable(path string, value string) error {
 	if res.StatusCode()/100 != 2 {
 		f = true
 	}
-  if f == true {
-    res, err := client.Client.CreateVariableWithResponse(context.Background(), client.Workspace, &api.CreateVariableParams{}, 
-      api.CreateVariableJSONRequestBody{
-        Path: path,
-        Value: value,
-    })
+	if f {
+		res, err := client.Client.CreateVariableWithResponse(context.Background(), client.Workspace, &api.CreateVariableParams{},
+			api.CreateVariableJSONRequestBody{
+				Path:  path,
+				Value: value,
+			})
 
-    if err != nil {
-      return err
-    }
-    if res.StatusCode()/100 != 2 {
-      return errors.New(string(res.Body))
-    }
-  }
+		if err != nil {
+			return err
+		}
+		if res.StatusCode()/100 != 2 {
+			return errors.New(string(res.Body))
+		}
+	}
 	return nil
 }
 
