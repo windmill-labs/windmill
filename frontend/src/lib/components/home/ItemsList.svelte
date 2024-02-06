@@ -397,7 +397,7 @@
 			<div class="mt-10" />
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2">
+			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
@@ -411,7 +411,6 @@
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
-						wrapperClasses="mt-1"
 						btnClasses="py-0 h-6"
 						size="xs"
 						variant="border"
