@@ -681,7 +681,7 @@
 		{/if}
 
 		{#if showClear}
-			<button type="button" class="icon clear-select" on:click={handleClear}>
+			<button type="button" class="icon clear-select" on:click|stopPropagation={handleClear}>
 				<slot name="clear-icon">
 					<ClearIcon />
 				</slot>
