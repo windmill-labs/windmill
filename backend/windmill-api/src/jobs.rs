@@ -204,6 +204,7 @@ pub fn global_service() -> Router {
             "/get_flow/:job_id/:resume_id/:secret",
             get(get_suspended_job_flow),
         )
+        .route("/get_root_job_id/:id", get(get_root_job))
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
@@ -237,6 +238,26 @@ async fn get_result_by_id(
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
     let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id, json_path).await?;
     Ok(Json(res))
+}
+
+async fn get_root_job(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> windmill_common::error::JsonResult<String> {
+    let res = compute_root_job_for_flow(&db, &w_id, id).await?;
+    Ok(Json(res))
+}
+
+async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let mut job = get_queued_job(job_id, w_id, db).await?;
+    while let Some(j) = job {
+        if let Some(uuid) = j.parent_job {
+            job = get_queued_job(uuid, w_id, db).await?;
+        } else {
+            return Ok(j.id.to_string());
+        }
+    }
+    Ok(job_id.to_string())
 }
 
 async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {

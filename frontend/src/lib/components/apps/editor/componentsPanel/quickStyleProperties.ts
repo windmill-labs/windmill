@@ -633,6 +633,12 @@ export const quickStyleProperties: Record<
 		limits: [typographyGrouping],
 		values: [typographyGrouping]
 	},
+	dateslidercomponent: {
+		handles: sliderDefaultProps,
+		bar: sliderDefaultProps,
+		limits: [typographyGrouping],
+		values: [typographyGrouping]
+	},
 	displaycomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
@@ -761,5 +767,12 @@ export const quickStyleProperties: Record<
 	decisiontreecomponent: {
 		container: containerDefaultProps
 	},
-	dbexplorercomponent: {}
+	dbexplorercomponent: {},
+	alertcomponent: {
+		container: containerDefaultProps,
+		background: containerDefaultProps,
+		icon: containerDefaultProps,
+		title: containerDefaultProps,
+		description: containerDefaultProps
+	}
 }

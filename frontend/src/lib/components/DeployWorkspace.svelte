@@ -70,13 +70,19 @@
 		}
 
 		const allDeps = await getDependencies(kind, path)
-		for (const dep of allDeps) {
+		let sortedSet: { kind: Kind; path: string }[] = []
+		allDeps.forEach((x) => {
+			if (!sortedSet.find((y) => y.kind == x.kind && y.path == x.path)) {
+				sortedSet.push(x)
+			}
+		})
+		for (const dep of sortedSet) {
 			allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = await checkAlreadyExists(
 				dep.kind,
 				dep.path
 			)
 		}
-		dependencies = allDeps.map((x) => ({
+		dependencies = sortedSet.map((x) => ({
 			...x,
 			include:
 				x.kind != 'variable' &&

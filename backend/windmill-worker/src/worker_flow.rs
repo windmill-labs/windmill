@@ -562,21 +562,6 @@ pub async fn update_flow_status_after_job_completion_internal<
             false => false,
         };
 
-        if old_status.step == 0
-            && !flow_job.is_flow_step
-            && flow_job.schedule_path.is_some()
-            && flow_job.script_path.is_some()
-        {
-            tx = handle_maybe_scheduled_job(
-                tx,
-                db,
-                flow_job.schedule_path.as_ref().unwrap(),
-                flow_job.script_path.as_ref().unwrap(),
-                &w_id,
-            )
-            .await?;
-        }
-
         tx.commit().await?;
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow status updated");
 
@@ -1051,6 +1036,31 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
+
+    if !flow_job.is_flow_step
+        && flow_job.schedule_path.is_some()
+        && flow_job.script_path.is_some()
+        && status.step == 0
+    {
+        let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+
+        match handle_maybe_scheduled_job(
+            tx,
+            db,
+            flow_job.schedule_path.as_ref().unwrap(),
+            flow_job.script_path.as_ref().unwrap(),
+            &flow_job.workspace_id,
+        )
+        .await
+        {
+            Ok(tx) => {
+                tx.commit().await?;
+            }
+            Err(e) => {
+                tracing::error!("Error during handle_maybe_scheduled_job: {e}");
+            }
+        }
+    }
 
     push_next_flow_job(
         flow_job,
