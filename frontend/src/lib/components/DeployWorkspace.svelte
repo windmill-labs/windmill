@@ -440,7 +440,7 @@
 						x.value.hash = undefined
 					}
 				})
-				return flow.value
+				return { summary: flow.summary, description: flow.description, value: flow.value }
 			} else if (kind == 'script') {
 				const script = await ScriptService.getScriptByPath({
 					workspace: workspace,
@@ -559,7 +559,7 @@
 				{@const statusPath = computeStatusPath(kind, path)}
 				<div class="col-span-1 truncate text-secondary text-sm pt-0.5">{kind}</div><div
 					class="col-span-5 truncate font-semibold">{path}</div
-				><div class="col-span-1"><Toggle size="xs" bind:checked={include} /></div><div
+				><div class="col-span-1 pt-1.5"><Toggle size="xs" bind:checked={include} /></div><div
 					class="col-span-1"
 				>
 					{#if allAlreadyExists[statusPath] == false}
