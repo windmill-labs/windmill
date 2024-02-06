@@ -120,7 +120,6 @@ const portalDivs = ['app-editor-select']
 
 export function clickOutside(node: Node, capture?: boolean): { destroy(): void } {
 	const handleClick = (event: MouseEvent) => {
-		// Assert event.target as HTMLElement
 		const target = event.target as HTMLElement
 
 		if (node && !node.contains(target) && !event.defaultPrevented) {
