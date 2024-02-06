@@ -134,16 +134,11 @@ export function clickOutside(node: Node, capture?: boolean): { destroy(): void }
 		}
 	}
 
-	document.addEventListener(
-		'click',
-		(event) => {
-			handleClick(event as MouseEvent) // Ensure the event is treated as a MouseEvent
-		},
-		capture ?? false
-	)
+	document.addEventListener('click', handleClick, capture ?? true)
+
 	return {
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? false)
+			document.removeEventListener('click', handleClick, capture ?? true)
 		}
 	}
 }
