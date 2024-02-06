@@ -11,6 +11,7 @@
 		href?: string
 		disabled?: boolean
 		type?: 'action' | 'delete'
+		hide?: boolean | undefined
 	}
 
 	export let items: Item[] | (() => Item[]) = []
@@ -18,9 +19,9 @@
 
 	function computeItems(): Item[] {
 		if (typeof items === 'function') {
-			return items()
+			return (items() ?? []).filter((item) => !item.hide)
 		} else {
-			return items
+			return items.filter((item) => !item.hide)
 		}
 	}
 </script>

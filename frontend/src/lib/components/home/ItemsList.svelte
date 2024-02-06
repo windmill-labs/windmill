@@ -14,7 +14,7 @@
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
+	import { Code2, FoldVertical, LayoutDashboard, SearchCode, UnfoldVertical } from 'lucide-svelte'
 
 	export let filter = ''
 	export let subtab: 'flow' | 'script' | 'app' = 'script'
@@ -411,11 +411,15 @@
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
-						wrapperClasses="mb-0.5"
-						size="xs2"
-						variant="contained"
+						wrapperClasses="mt-1"
+						btnClasses="py-0 h-6"
+						size="xs"
+						variant="border"
 						color="light"
 						on:click={() => (collapseAll = !collapseAll)}
+						startIcon={{
+							icon: collapseAll ? UnfoldVertical : FoldVertical
+						}}
 					>
 						{#if collapseAll}
 							Expand all

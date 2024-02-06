@@ -6,9 +6,9 @@
 	import JsonEditor from './settingsPanel/inputEditor/JsonEditor.svelte'
 	import { AppService, DraftService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Globe, Loader2, Save } from 'lucide-svelte'
 
 	let jsonViewerDrawer: Drawer
 
@@ -86,9 +86,14 @@
 		{/if}
 
 		<svelte:fragment slot="actions">
-			<Button on:click={saveDraft} startIcon={{ icon: Save }}>Save as draft</Button>
-
-			<Button on:click={saveApp} startIcon={{ icon: Save }}>Deploy</Button>
+			{#if !$userStore?.operator}
+				<Button on:click={saveDraft} startIcon={{ icon: Save }} color="dark" size="xs">
+					Save as draft
+				</Button>
+				<Button on:click={saveApp} startIcon={{ icon: Globe }} color="dark" size="xs">
+					Deploy
+				</Button>
+			{/if}
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
