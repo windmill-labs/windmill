@@ -302,7 +302,7 @@
 		{#if meta != undefined}
 			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
-				<label class="block">
+				<div class="block">
 					<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
 
 					<ToggleButtonGroup
@@ -342,7 +342,7 @@
 							label="Folder"
 						/>
 					</ToggleButtonGroup>
-				</label>
+				</div>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
 						<span class="text-secondary text-sm">User</span>
