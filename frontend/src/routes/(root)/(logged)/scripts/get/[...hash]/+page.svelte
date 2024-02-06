@@ -391,7 +391,7 @@
 			label: 'Delete',
 			Icon: Trash,
 			onclick: async () => {
-				deleteScript(script.path)
+				deleteScript(script.hash)
 			},
 			color: 'red'
 		})
