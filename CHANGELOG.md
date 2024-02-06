@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.263.0](https://github.com/windmill-labs/windmill/compare/v1.262.1...v1.263.0) (2024-02-06)
+
+
+### Features
+
+* **frontend:** add status when a flow setting is enabled ([#3161](https://github.com/windmill-labs/windmill/issues/3161)) ([8a8c1d3](https://github.com/windmill-labs/windmill/commit/8a8c1d3c3f6ad6053fbd107a0f0e85d70f4215ac))
+* new ai design ([#3152](https://github.com/windmill-labs/windmill/issues/3152)) ([58d3484](https://github.com/windmill-labs/windmill/commit/58d34845a05cd215f682bc9081b0cb883d174676))
+
+
+### Bug Fixes
+
+* add ping since to list workers ([557d0bc](https://github.com/windmill-labs/windmill/commit/557d0bcbef185aaef90d4058d9f01fa567bef349))
+* **frontend:** fix dateslider doclink ([#3159](https://github.com/windmill-labs/windmill/issues/3159)) ([bc75a5a](https://github.com/windmill-labs/windmill/commit/bc75a5acbce89d3ff4332ecbe7b98c63d5e55e1b))
+* **frontend:** Fix operators actions + small UI fixes ([#3157](https://github.com/windmill-labs/windmill/issues/3157)) ([4faedfe](https://github.com/windmill-labs/windmill/commit/4faedfe58926cfa770857a514d08749f3e40d17e))
+* go client sets resource properly ([#3160](https://github.com/windmill-labs/windmill/issues/3160)) ([057b415](https://github.com/windmill-labs/windmill/commit/057b415e9ab5a2e5789be7181c86e885edd86c7f))
+* increase default max conn of a worker to 4 ([887bf68](https://github.com/windmill-labs/windmill/commit/887bf6872b5b5438ca5f33ec5dda5162c1c4b132))
+* scim added users are now auto-added/invited ([1352add](https://github.com/windmill-labs/windmill/commit/1352add8c65de5266d40baf3d9058a6f4ea3d9b0))
+
 ## [1.262.1](https://github.com/windmill-labs/windmill/compare/v1.262.0...v1.262.1) (2024-02-05)
 
 
