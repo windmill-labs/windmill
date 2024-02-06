@@ -223,7 +223,9 @@ async function run() {{
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
 }}
-run().catch(async (e) => {{
+try {{
+    await run();
+}} catch(e) {{
     let err = {{ message: e.message, name: e.name, stack: e.stack }};
     let step_id = Deno.env.get("WM_FLOW_STEP_ID");
     if (step_id) {{
@@ -231,7 +233,7 @@ run().catch(async (e) => {{
     }}
     await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
-}});
+}}
     "#,
         );
         write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
