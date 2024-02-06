@@ -28,7 +28,7 @@
 
 	export let noEditor: boolean
 
-	const { selectedId, flowStore, initialPath, previewArgs, pathStore } =
+	const { selectedId, flowStore, initialPath, previewArgs, pathStore, schedule } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
@@ -52,14 +52,20 @@
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>
 				{#if !noEditor}
-					<Tab value="settings-schedule">Schedule</Tab>
+					<Tab value="settings-schedule" active={$schedule.enabled}>Schedule</Tab>
 				{/if}
-				<Tab value="settings-same-worker">Shared Directory</Tab>
-				<Tab value="settings-early-stop">Early Stop</Tab>
-				<Tab value="settings-early-return">Early Return</Tab>
+				<Tab value="settings-same-worker" active={$flowStore.value.same_worker}>
+					Shared Directory
+				</Tab>
+				<Tab value="settings-early-stop" active={Boolean($flowStore.value.skip_expr)}>
+					Early Stop
+				</Tab>
+				<Tab value="settings-early-return" active={Boolean($flowStore.value.early_return)}>
+					Early Return
+				</Tab>
 				<Tab value="settings-worker-group">Worker Group</Tab>
 				<Tab value="settings-concurrency">Concurrency</Tab>
-				<Tab value="settings-cache">Cache</Tab>
+				<Tab value="settings-cache" active={Boolean($flowStore.value.cache_ttl)}>Cache</Tab>
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full overflow-auto">

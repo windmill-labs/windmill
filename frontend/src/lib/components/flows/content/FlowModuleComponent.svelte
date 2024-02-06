@@ -346,14 +346,16 @@
 								/>
 							{:else if selected === 'advanced'}
 								<Tabs bind:selected={advancedSelected}>
-									<Tab value="retries">Retries</Tab>
+									<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
 									{#if !$selectedId.includes('failure')}
 										<Tab value="runtime">Runtime</Tab>
-										<Tab value="cache">Cache</Tab>
-										<Tab value="early-stop">Early Stop</Tab>
-										<Tab value="suspend">Suspend</Tab>
-										<Tab value="sleep">Sleep</Tab>
-										<Tab value="mock">Mock</Tab>
+										<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
+										<Tab value="early-stop" active={Boolean(flowModule.stop_after_if)}>
+											Early Stop
+										</Tab>
+										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
+										<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
+										<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
 										{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
 											<Tab value="s3">S3</Tab>
