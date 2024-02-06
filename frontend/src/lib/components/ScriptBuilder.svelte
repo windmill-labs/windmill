@@ -418,6 +418,9 @@
 											code={script.content}
 											configName="summary"
 											let:updateFocus
+											let:active
+											let:classNames
+											focused
 											on:change={() => {
 												if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
 													path?.setName(
@@ -433,10 +436,11 @@
 											<input
 												type="text"
 												autofocus
+												class={classNames}
 												on:focus={() => updateFocus(true)}
 												on:blur={() => updateFocus(false)}
 												bind:value={script.summary}
-												placeholder={'Short summary to be displayed when listed'}
+												placeholder={!active ? 'Short summary to be displayed when listed' : ''}
 											/>
 										</MetadataGen>
 										<Label label="Path">
@@ -459,15 +463,17 @@
 											el={descriptionTextArea}
 											label="Description"
 											let:updateFocus
+											let:active
+											let:classNames
 										>
 											<textarea
 												on:focus={() => updateFocus(true)}
 												on:blur={() => updateFocus(false)}
+												class={classNames}
 												use:autosize
 												bind:this={descriptionTextArea}
 												bind:value={script.description}
-												placeholder={'Description displayed in the details page'}
-												class="text-sm"
+												placeholder={!active ? 'Description displayed in the details page' : ''}
 											/>
 										</MetadataGen>
 									</div>

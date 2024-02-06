@@ -4,6 +4,7 @@
 	import { formatOnSave } from '$lib/stores'
 	import Popover from './Popover.svelte'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import PaintbrushOff from './icons/PaintbrushOff.svelte'
 
 	const SETTING_NAME = 'formatOnSave'
 	function loadSetting() {
@@ -23,8 +24,12 @@
 		>{$formatOnSave ? 'Disable' : 'Enable'} auto-formatting</svelte:fragment
 	>
 	<Button
+		size="xs"
 		color="light"
-		startIcon={{ icon: Paintbrush, classes: !$formatOnSave ? 'text-red-400' : '' }}
+		startIcon={{
+			icon: !$formatOnSave ? PaintbrushOff : Paintbrush
+		}}
+		btnClasses="text-tertiary"
 		on:click={() => {
 			storeSetting()
 		}}

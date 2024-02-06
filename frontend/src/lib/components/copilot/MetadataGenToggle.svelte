@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { ExternalLink, ZapIcon, ZapOffIcon } from 'lucide-svelte'
+	import { ExternalLink, Sparkles, ZapOffIcon } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
 	import Popover from '../Popover.svelte'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import SparklesOffIcon from '../icons/SparklesOffIcon.svelte'
 
 	const SETTING_NAME = 'metadataCompletionEnabled'
 	function loadSetting() {
@@ -21,16 +22,21 @@
 {#if $copilotInfo.exists_openai_resource_path}
 	<Popover>
 		<svelte:fragment slot="text"
-			>{$metadataCompletionEnabled ? 'Disable' : 'Enable'} metadata completion (applies only to you)</svelte:fragment
+			>Metadata completion: {$metadataCompletionEnabled ? 'disabled' : 'enabled'} (applies only to you)</svelte:fragment
 		>
 		<Button
+			size="xs"
 			color="light"
 			startIcon={{
-				icon: $metadataCompletionEnabled ? ZapIcon : ZapOffIcon
+				icon: $metadataCompletionEnabled ? Sparkles : SparklesOffIcon,
+				classes: $metadataCompletionEnabled
+					? 'text-sky-900 dark:text-sky-200'
+					: 'text-sky-900/50 dark:text-sky-200/50'
 			}}
 			on:click={() => {
 				storeSetting()
 			}}
+			btnClasses={$metadataCompletionEnabled ? 'bg-sky-100 dark:bg-gray-700' : ''}
 		/>
 	</Popover>
 {:else}

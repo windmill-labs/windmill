@@ -10,6 +10,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let copilotLoading: boolean
 	export let copilotStatus: string
@@ -33,7 +34,12 @@
 	<ManualPopover bind:this={copilotPopover}>
 		<Button
 			size="xs"
-			btnClasses={$currentStepStore !== undefined ? 'z-[901]' : ''}
+			btnClasses={twMerge(
+				$currentStepStore !== undefined ? 'z-[901]' : '',
+				copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
+					? ''
+					: 'bg-sky-100 dark:bg-gray-700 text-sky-900 dark:text-sky-200 dark:hover:bg-surface-hover'
+			)}
 			on:click={() => {
 				if (copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')) {
 					abortController?.abort()
@@ -119,6 +125,7 @@
 				startIcon={{
 					icon: Wand2
 				}}
+				btnClasses="bg-sky-100 dark:bg-gray-700 text-sky-900 dark:text-sky-200 dark:hover:bg-surface-hover"
 				color={'light'}
 				variant={'border'}
 				nonCaptureEvent
