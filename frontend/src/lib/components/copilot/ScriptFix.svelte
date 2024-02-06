@@ -59,11 +59,13 @@
 			await sleep(300)
 			showDiff()
 		} catch (err) {
-			if (err?.message) {
-				sendUserToast('Failed to generate code: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate code', true)
-				console.error(err)
+			if (!abortController?.signal.aborted) {
+				if (err?.message) {
+					sendUserToast('Failed to generate code: ' + err.message, true)
+				} else {
+					sendUserToast('Failed to generate code', true)
+					console.error(err)
+				}
 			}
 			closePopup()
 		} finally {
@@ -165,6 +167,9 @@
 						startIcon={genLoading ? undefined : { icon: Wand2 }}
 						nonCaptureEvent={!genLoading}
 						on:click={genLoading ? () => abortController?.abort() : undefined}
+						btnClasses={genLoading
+							? ''
+							: 'text-sky-900 bg-sky-100 dark:text-sky-200 dark:bg-gray-700 hover:bg-surface-hover dark:hover:bg-surface-hover'}
 						>{#if genLoading}
 							<WindmillIcon
 								white

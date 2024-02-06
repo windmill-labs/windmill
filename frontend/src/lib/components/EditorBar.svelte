@@ -522,7 +522,7 @@
 				</Button>
 			{/if}
 			{#if collabMode}
-				<div class="flex items-center px-1">
+				<div class="flex items-center px-3">
 					<Toggle
 						options={{ right: '' }}
 						size="xs"
@@ -531,13 +531,13 @@
 					/>
 					<Popover>
 						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
-						<Users class="ml-1" size={12} />
+						<Users class="ml-1 text-tertiary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							on:click={() => dispatch('collabPopup')}><Link size={12} /></button
+							on:click={() => dispatch('collabPopup')}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
@@ -555,35 +555,13 @@
 				</div>
 			{/if}
 
-			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
-
-			<CodeCompletionStatus />
-
 			<FormatOnSave />
-			<!-- <Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
-			>
-				<Button
-					btnClasses="!font-medium"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={editor?.format}
-					{iconOnly}
-					startIcon={{ icon: faBroom }}
-				>
-					Format ({getModifierKey()}+S)
-				</Button>
-				<svelte:fragment slot="text">
-					Format <Kbd class="!text-gray-800">{getModifierKey()}</Kbd> + <Kbd class="!text-gray-800">
-						S
-					</Kbd>
-				</svelte:fragment>
-			</Popover> -->
+
+			<div class="flex flex-row gap-1">
+				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+
+				<CodeCompletionStatus />
+			</div>
 		</div>
 	</div>
 
