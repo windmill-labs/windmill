@@ -40,6 +40,7 @@ const inputs: ComponentSet = {
 		'numberinputcomponent',
 		'currencycomponent',
 		'slidercomponent',
+		'dateslidercomponent',
 		'rangecomponent',
 		'dateinputcomponent',
 		'fileinputcomponent',
@@ -67,7 +68,8 @@ const display: ComponentSet = {
 		'jobidlogcomponent',
 		'jobidflowstatuscomponent',
 		'statcomponent',
-		'menucomponent'
+		'menucomponent',
+		'alertcomponent'
 	]
 } as const
 

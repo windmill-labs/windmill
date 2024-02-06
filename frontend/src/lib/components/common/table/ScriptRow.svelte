@@ -183,7 +183,8 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/scripts/add?template=${script.path}`
+						href: `/scripts/add?template=${script.path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Move/Rename',
@@ -191,7 +192,8 @@
 						action: () => {
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
-						disabled: !owner || script.archived
+						disabled: !owner || script.archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Deploy to staging/prod',
@@ -199,7 +201,8 @@
 						action: () => {
 							deploymentDrawer.openDrawer(script.path, 'script')
 						},
-						disabled: script.archived
+						disabled: script.archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'View runs',
@@ -209,7 +212,8 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${script.path}`
+						href: `/audit_logs?resource=${script.path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Schedule',
@@ -217,7 +221,8 @@
 						action: () => {
 							scheduleEditor.openNew(false, script.path)
 						},
-						disabled: script.archived
+						disabled: script.archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: owner ? 'Share' : 'See Permissions',
@@ -225,7 +230,8 @@
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
 						},
-						disabled: script.archived
+						disabled: script.archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Copy path',
@@ -243,7 +249,8 @@
 								: script.path && archiveScript(script.path)
 						},
 						type: 'delete',
-						disabled: !owner
+						disabled: !owner,
+						hide: $userStore?.operator
 					},
 
 					...(script.has_draft
@@ -260,7 +267,8 @@
 										dispatch('change')
 									},
 									type: DELETE,
-									disabled: !owner
+									disabled: !owner,
+									hide: $userStore?.operator
 								}
 						  ]
 						: []),
@@ -279,7 +287,8 @@
 										}
 									},
 									type: dlt,
-									disabled: !script.canWrite
+									disabled: !script.canWrite,
+									hide: $userStore?.operator
 								}
 						  ]
 						: [])

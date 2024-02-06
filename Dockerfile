@@ -178,13 +178,13 @@ RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
     'amd64') \
-    targz='go1.21.5.linux-amd64.tar.gz'; \
+    targz='go1.21.6.linux-amd64.tar.gz'; \
     ;; \
     'arm64') \
-    targz='go1.21.5.linux-arm64.tar.gz'; \
+    targz='go1.21.6.linux-arm64.tar.gz'; \
     ;; \
     'armhf') \
-    targz='go1.21.5.linux-armv6l.tar.gz'; \
+    targz='go1.21.6.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
@@ -200,7 +200,7 @@ RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
     curl nodejs npm; fi
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm &&  printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
+RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\"\nwmill \"github.com/windmill-labs/windmill-go-client\")\nfunc main() { v := wmill.GetStatePath()\n fmt.Println(v) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
 ENV TZ=Etc/UTC
 

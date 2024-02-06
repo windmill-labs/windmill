@@ -146,7 +146,8 @@
 								}
 							},
 							type: 'delete',
-							disabled: !owner
+							disabled: !owner,
+							hide: $userStore?.operator
 						}
 					]
 				}
@@ -154,7 +155,8 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/flows/add?template=${path}`
+						href: `/flows/add?template=${path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'View runs',
@@ -164,7 +166,8 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${path}`
+						href: `/audit_logs?resource=${path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Move/Rename',
@@ -172,7 +175,8 @@
 						action: () => {
 							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
-						disabled: !owner || archived
+						disabled: !owner || archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Copy path',
@@ -187,7 +191,8 @@
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'flow')
 						},
-						disabled: archived
+						disabled: archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Schedule',
@@ -195,14 +200,16 @@
 						action: () => {
 							scheduleEditor?.openNew(true, path)
 						},
-						disabled: archived
+						disabled: archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: owner ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
-						}
+						},
+						hide: $userStore?.operator
 					},
 					{
 						displayName: archived ? 'Unarchive' : 'Archive',
@@ -211,7 +218,8 @@
 							path && archiveFlow(path, !archived)
 						},
 						type: 'delete',
-						disabled: !owner
+						disabled: !owner,
+						hide: $userStore?.operator
 					},
 					...(has_draft
 						? [
@@ -227,7 +235,8 @@
 										dispatch('change')
 									},
 									type: DELETE,
-									disabled: !owner
+									disabled: !owner,
+									hide: $userStore?.operator
 								}
 						  ]
 						: []),
@@ -245,7 +254,8 @@
 							}
 						},
 						type: 'delete',
-						disabled: !owner
+						disabled: !owner,
+						hide: $userStore?.operator
 					}
 				]
 			}}

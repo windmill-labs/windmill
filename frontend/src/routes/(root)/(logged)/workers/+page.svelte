@@ -19,17 +19,16 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
-	let filteredWorkers: WorkerPing[] = []
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
 	let intervalId: NodeJS.Timeout | undefined
 
 	const splitter = '_%%%_'
 	let globalCache = false
-	$: filteredWorkers = (workers ?? []).filter((x) => (x.last_ping ?? 0) < 300)
+
 	$: groupedWorkers = groupBy(
 		groupBy(
-			filteredWorkers,
+			workers ?? [],
 			(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
 			(wp: WorkerPing) => wp.worker
 		),
@@ -41,7 +40,7 @@
 
 	async function loadWorkers(): Promise<void> {
 		try {
-			workers = await WorkerService.listWorkers({ perPage: 1000 })
+			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
 			timeSinceLastPing = 0
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
