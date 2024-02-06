@@ -48,18 +48,28 @@ struct EnableWorkerQuery {
     disable: bool,
 }
 
+#[derive(Deserialize)]
+pub struct ListWorkerQuery {
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+    pub ping_since: Option<i32>,
+}
+
 async fn list_worker_pings(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Query(pagination): Query<Pagination>,
+    Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let (per_page, offset) = paginate(pagination);
+    let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group, wm_version FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group, wm_version FROM worker_ping
+         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
+         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
+        query.ping_since,
         per_page as i64,
         offset as i64
     )

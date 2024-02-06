@@ -41,7 +41,7 @@
 
 	async function loadWorkers(): Promise<void> {
 		try {
-			workers = await WorkerService.listWorkers({ perPage: 1000 })
+			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
 			timeSinceLastPing = 0
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
