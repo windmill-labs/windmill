@@ -520,10 +520,14 @@
 					/>
 				{/if}
 				{#if itemKind == 'flow'}
-					<Toggle options={{ right: 'no overlap of flows' }} bind:checked={no_flow_overlap} />
+					<Toggle
+						options={{ right: 'no overlap of flows' }}
+						bind:checked={no_flow_overlap}
+						class="mt-2"
+					/>
 				{/if}
 				{#if itemKind == 'script'}
-					<div class="flex gap-2 items-center">
+					<div class="flex gap-2 items-center mt-2">
 						<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
 							>Currently, overlapping scripts' executions is not supported. The next execution will
 							be scheduled only after the previous iteration has completed.</Tooltip

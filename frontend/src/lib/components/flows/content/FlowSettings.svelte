@@ -284,6 +284,7 @@
 								options={{
 									right: 'Shared Directory on `./shared`'
 								}}
+								class="mt-2"
 							/>
 						</Section>
 					</TabContent>
