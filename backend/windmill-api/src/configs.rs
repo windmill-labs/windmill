@@ -15,7 +15,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
-    db::UserDB,
     error::{self},
     DB,
 };
@@ -87,13 +86,9 @@ async fn update_config(
 async fn delete_config(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     authed: ApiAuthed,
 ) -> error::Result<String> {
-    let tx = user_db.begin(&authed).await?;
-
     require_super_admin(&db, &authed.email).await?;
-    tx.commit().await?;
 
     let deleted = sqlx::query!("DELETE FROM config WHERE name = $1 RETURNING name", name)
         .fetch_all(&db)

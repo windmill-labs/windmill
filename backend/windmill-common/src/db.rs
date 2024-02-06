@@ -68,12 +68,19 @@ impl UserDB {
     where
         T: Authable,
     {
-        let mut tx = self.db.begin().await?;
         let user = if authed.is_admin() {
             "windmill_admin"
         } else {
             "windmill_user"
         };
+
+        let (folders_write, folders_read): &(Vec<_>, Vec<_>) =
+            &authed.folders().into_iter().partition(|x| x.1);
+
+        let mut folders_read = folders_read.clone();
+        folders_read.extend(folders_write.clone());
+
+        let mut tx = self.db.begin().await?;
 
         sqlx::query(&format!("SET LOCAL ROLE {}", user))
             .execute(&mut *tx)
@@ -105,11 +112,6 @@ impl UserDB {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let (folders_write, folders_read): &(Vec<_>, Vec<_>) =
-            &authed.folders().into_iter().partition(|x| x.1);
-
-        let mut folders_read = folders_read.clone();
-        folders_read.extend(folders_write.clone());
         sqlx::query!(
             "SELECT set_config('session.folders_read', $1, true)",
             folders_read
