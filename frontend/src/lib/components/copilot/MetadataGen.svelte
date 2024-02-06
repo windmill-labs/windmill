@@ -6,7 +6,7 @@
 	import type { ChatCompletionMessageParam } from 'openai/resources'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
 	import Label from '../Label.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	type Config = {
@@ -58,10 +58,14 @@ The description should focus on what it does and should not contain what concept
 	export let el: HTMLElement | undefined = undefined
 	export let label: string
 
+	let generatedContent = ''
+	let genEl: HTMLElement | undefined = undefined
+	let active = false
 	let loading = false
 	let abortController = new AbortController()
+	let manualDisabled = false
 
-	let focused = false
+	export let focused = false
 	const updateFocus = (val) => {
 		focused = val
 	}
@@ -83,13 +87,12 @@ The description should focus on what it does and should not contain what concept
 				}
 			]
 			const response = await getCompletion(messages, abortController)
-			content = ''
+			generatedContent = ''
 			for await (const chunk of response) {
 				const toks = chunk.choices[0]?.delta?.content || ''
-				content += toks
-				if (el !== undefined) {
-					el.style.height = 'auto'
-					el.style.height = el.scrollHeight + 'px'
+				generatedContent += toks
+				if (el !== undefined && genEl !== undefined) {
+					el.style.height = Math.max(genEl.scrollHeight + 34, 58) + 'px'
 				}
 			}
 		} catch (err) {
@@ -121,46 +124,87 @@ The description should focus on what it does and should not contain what concept
 	$: if (content) {
 		dispatch('change', { content })
 	}
+
+	$: active =
+		$copilotInfo.exists_openai_resource_path &&
+		$metadataCompletionEnabled &&
+		!content &&
+		(loading || focused || !!generatedContent) &&
+		!manualDisabled
+
+	$: focused && (manualDisabled = false)
+
+	onDestroy(() => {
+		abortController.abort()
+	})
 </script>
 
 <div class="relative">
 	<div class="flex flex-row" />
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<Label {label}>
-		<div slot="header" class="flex flex-row pl-1 gap-2 items-center">
-			{#if $copilotInfo.exists_openai_resource_path && $metadataCompletionEnabled}
-				{#if loading}
-					<Loader2 class="animate-spin text-gray-400" size={18} />
-					<span class="text-xs">
-						<span class="border px-1 py-0.5 rounded-md text-2xs text-bold bg-white text-black">
-							ESC
-						</span> to cancel
-					</span>
-				{:else if !content && focused}
-					<span class="text-xs">
-						<span class="border px-1 py-0.5 rounded-md text-2xs text-bold bg-white text-black">
-							TAB
-						</span> to generate
-					</span>
-				{/if}
-			{/if}
-		</div>
 		<div
+			class="relative"
 			on:keydown={(event) => {
 				if (!$copilotInfo.exists_openai_resource_path || !$metadataCompletionEnabled) {
 					return
 				}
-				if (event.key === 'Tab' && !loading && !content) {
-					event.preventDefault()
-					generateContent()
-				} else if (event.key === 'Escape' && loading) {
+				if (event.key === 'Tab') {
+					if (!loading && generatedContent) {
+						event.preventDefault()
+						content = generatedContent
+						generatedContent = ''
+					} else if (!loading && !content) {
+						event.preventDefault()
+						generateContent()
+					}
+				} else if (event.key === 'Escape') {
 					event.preventDefault()
 					event.stopPropagation()
-					abortController.abort()
+					if (loading) {
+						abortController.abort()
+					} else {
+						manualDisabled = true
+					}
 				}
 			}}
 		>
-			<slot {updateFocus} />
+			<div
+				class={'absolute left-0.5  flex flex-row pl-1 gap-2 items-start top-[0.3rem] pointer-events-none'}
+			>
+				{#if active}
+					<span
+						class="absolute text-xs text-sky-900 bg-sky-100 dark:text-sky-200 dark:bg-gray-700 p-1 rounded-md flex flex-row items-center justify-center gap-2 w-32 shrink-0"
+					>
+						{#if loading}
+							<Loader2 class="animate-spin text-gray-500 dark:text-gray-400" size={16} />
+						{/if}
+						<div>
+							<span class="px-1 py-0.5 rounded-md text-2xs text-bold bg-white dark:bg-surface">
+								{#if loading}
+									ESC
+								{:else}
+									TAB
+								{/if}
+							</span>
+							{#if loading}
+								to cancel
+							{:else if generatedContent}
+								to accept
+							{:else}
+								to generate
+							{/if}
+						</div>
+					</span>
+					<span
+						class="text-sm leading-6 indent-[8.5rem] text-gray-500 dark:text-gray-400 pr-1"
+						bind:this={genEl}
+					>
+						{generatedContent}
+					</span>
+				{/if}
+			</div>
+			<slot {updateFocus} {active} classNames={active && !generatedContent ? '!pl-[8.7rem]' : ''} />
 		</div>
 	</Label>
 </div>
