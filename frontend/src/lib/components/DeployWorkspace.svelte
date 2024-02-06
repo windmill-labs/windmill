@@ -55,6 +55,7 @@
 			notSet = true
 		}
 	})
+
 	$: workspaceToDeployTo && reload(initialPath)
 
 	async function reload(path: string) {
@@ -65,6 +66,7 @@
 			seeTarget = true
 		} catch {
 			seeTarget = false
+			return
 		}
 
 		const allDeps = await getDependencies(kind, path)

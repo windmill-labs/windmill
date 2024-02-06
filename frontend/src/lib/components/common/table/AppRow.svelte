@@ -21,12 +21,13 @@
 		History,
 		Pen,
 		Share,
-		Trash
+		Trash,
+		Clipboard
 	} from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { DELETE } from '$lib/utils'
+	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 
@@ -142,10 +143,11 @@
 								}
 							},
 							type: 'delete',
-							disabled: !canWrite
+							disabled: !canWrite,
+							hide: $userStore?.operator
 						},
 						{
-							displayName: 'View/Edit JSON',
+							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
 							icon: File,
 							action: () => {
 								loadAppJson()
@@ -157,7 +159,8 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/apps/add?template=${path}`
+						href: `/apps/add?template=${path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Move/Rename',
@@ -165,17 +168,19 @@
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'app')
 						},
-						disabled: !canWrite
+						disabled: !canWrite,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Deploy to staging/prod',
 						icon: Globe,
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'app')
-						}
+						},
+						hide: $userStore?.operator
 					},
 					{
-						displayName: 'View/Edit JSON',
+						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
 						icon: FileJson,
 						action: () => {
 							loadAppJson()
@@ -184,13 +189,22 @@
 					{
 						displayName: 'Deployments',
 						icon: History,
-						action: () => loadDeployements()
+						action: () => loadDeployements(),
+						hide: $userStore?.operator
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
+						},
+						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Copy path',
+						icon: Clipboard,
+						action: () => {
+							copyToClipboard(path)
 						}
 					},
 					...(execution_mode == 'anonymous'
@@ -226,7 +240,8 @@
 										dispatch('change')
 									},
 									type: DELETE,
-									disabled: !canWrite
+									disabled: !canWrite,
+									hide: $userStore?.operator
 								}
 						  ]
 						: []),
@@ -247,7 +262,8 @@
 							}
 						},
 						type: 'delete',
-						disabled: !canWrite
+						disabled: !canWrite,
+						hide: $userStore?.operator
 					}
 				]
 			}}
