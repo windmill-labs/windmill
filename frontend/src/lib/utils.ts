@@ -116,18 +116,34 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
+const portalDivs = ['app-editor-select']
+
 export function clickOutside(node: Node, capture?: boolean): { destroy(): void } {
 	const handleClick = (event: MouseEvent) => {
-		if (node && !node.contains(<HTMLElement>event.target) && !event.defaultPrevented) {
-			node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
+		// Assert event.target as HTMLElement
+		const target = event.target as HTMLElement
+
+		if (node && !node.contains(target) && !event.defaultPrevented) {
+			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+
+			const parent = target.closest(portalDivsSelector)
+
+			if (!parent) {
+				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
+			}
 		}
 	}
 
-	document.addEventListener('click', handleClick, capture ?? true)
-
+	document.addEventListener(
+		'click',
+		(event) => {
+			handleClick(event as MouseEvent) // Ensure the event is treated as a MouseEvent
+		},
+		capture ?? false
+	)
 	return {
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? true)
+			document.removeEventListener('click', handleClick, capture ?? false)
 		}
 	}
 }
