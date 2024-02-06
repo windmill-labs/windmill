@@ -1522,17 +1522,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let target = &format!("{job_dir}/shared");
 
                     if same_worker && job.parent_job.is_some() {
-                        let parent_flow = job.parent_job.unwrap();
-                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                        DirBuilder::new()
-                            .recursive(true)
-                            .create(&parent_shared_dir)
-                            .await
-                            .expect("could not create parent shared dir");
+                        if tokio::fs::metadata(target).await.is_err() {
+                            let parent_flow = job.parent_job.unwrap();
+                            let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                            DirBuilder::new()
+                                .recursive(true)
+                                .create(&parent_shared_dir)
+                                .await
+                                .expect("could not create parent shared dir");
 
-                        symlink(&parent_shared_dir, target)
-                            .await
-                            .expect("could not symlink target");
+                            symlink(&parent_shared_dir, target)
+                                .await
+                                .expect("could not symlink target");
+                        }
                     } else {
                         DirBuilder::new()
                             .recursive(true)
