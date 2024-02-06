@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { ZapIcon, ZapOffIcon } from 'lucide-svelte'
+	import { SparklesIcon } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { codeCompletionLoading, copilotInfo, codeCompletionSessionEnabled } from '$lib/stores'
 	import Popover from '../Popover.svelte'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import SparklesOffIcon from '../icons/SparklesOffIcon.svelte'
 
 	const SETTING_NAME = 'codeCompletionSessionEnabled'
 	function loadSetting() {
@@ -21,19 +22,26 @@
 {#if $copilotInfo.exists_openai_resource_path && $copilotInfo.code_completion_enabled}
 	<Popover>
 		<svelte:fragment slot="text"
-			>{$codeCompletionSessionEnabled ? 'Disable' : 'Enable'} code completion (applies only to you)</svelte:fragment
+			>Code completion: {$codeCompletionSessionEnabled ? 'disabled' : 'enabled'} (applies only to you)</svelte:fragment
 		>
 		<Button
 			color="light"
+			size="xs"
 			loading={$codeCompletionLoading}
 			startIcon={$codeCompletionLoading
 				? undefined
 				: {
-						icon: $codeCompletionSessionEnabled ? ZapIcon : ZapOffIcon
+						icon: $codeCompletionSessionEnabled ? SparklesIcon : SparklesOffIcon,
+						classes: $codeCompletionSessionEnabled
+							? 'text-sky-900 dark:text-sky-200'
+							: 'text-sky-900/50 dark:text-sky-200/50'
 				  }}
 			on:click={() => {
 				storeSetting()
 			}}
+			btnClasses={$codeCompletionSessionEnabled
+				? 'bg-sky-50 dark:bg-gray-700 dark:hover:bg-surface-hover'
+				: ''}
 		/>
 	</Popover>
 {:else}
@@ -44,7 +52,7 @@
 		<Button
 			color="light"
 			startIcon={{
-				icon: ZapOffIcon
+				icon: SparklesOffIcon
 			}}
 			disabled
 		/>
