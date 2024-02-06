@@ -190,11 +190,15 @@ pub async fn create_user(
     Extension(db): Extension<DB>,
     Json(body): Json<CreateUser>,
 ) -> Result<JsonScim<serde_json::Value>> {
+    use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
+
     tracing::info!("SCIM creating user: {:?}", body);
+    let email = body.userName.clone();
     sqlx::query!(
         "INSERT INTO password (email, login_type, verified) VALUES ($1, 'saml', true) ON CONFLICT DO NOTHING",
-        body.userName,
+        &email,
     ).execute(&db).await?;
+    invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
     Ok(JsonScim(json!({
         "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
         "id": body.userName,
