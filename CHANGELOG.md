@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.263.1](https://github.com/windmill-labs/windmill/compare/v1.263.0...v1.263.1) (2024-02-06)
+
+
+### Bug Fixes
+
+* **frontend:** fix toggles margins ([#3165](https://github.com/windmill-labs/windmill/issues/3165)) ([a352d85](https://github.com/windmill-labs/windmill/commit/a352d85b0ba4756226b98032e0879a9f91bb20e4))
+* improve ts wrappers ([#3163](https://github.com/windmill-labs/windmill/issues/3163)) ([0fc2221](https://github.com/windmill-labs/windmill/commit/0fc22213e45691e5d42dacdbf903ae0416a9d599))
+
 ## [1.263.0](https://github.com/windmill-labs/windmill/compare/v1.262.1...v1.263.0) (2024-02-06)
 
 
