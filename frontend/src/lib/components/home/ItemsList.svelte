@@ -397,7 +397,7 @@
 			<div class="mt-10" />
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2">
+			<div class="flex w-full flex-row-reverse gap-2 mt-2">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
