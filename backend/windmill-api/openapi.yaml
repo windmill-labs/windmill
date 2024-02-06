@@ -6338,6 +6338,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: ping_since
+          in: query
+          required: false
+          description: number of seconds the worker must have had a last ping more recent of (default to 300)
+          schema:
+            type: integer
       responses:
         "200":
           description: a list of workers

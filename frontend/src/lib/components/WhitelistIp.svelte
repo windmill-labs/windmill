@@ -4,7 +4,7 @@
 
 	let ips: string[] | undefined = undefined
 
-	WorkerService.listWorkers({}).then((workers) => {
+	WorkerService.listWorkers({ pingSince: 300 }).then((workers) => {
 		ips = [
 			...new Set(
 				workers
