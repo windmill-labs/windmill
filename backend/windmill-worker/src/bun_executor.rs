@@ -483,7 +483,9 @@ async function run() {{
     await fs.writeFile("result.json", res_json);
     process.exit(0);
 }}
-run().catch(async (e) => {{
+try {{
+    await run();
+}} catch(e) {{
     let err = {{ message: e.message, name: e.name, stack: e.stack }};
     let step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
@@ -491,7 +493,7 @@ run().catch(async (e) => {{
     }}
     await fs.writeFile("result.json", JSON.stringify(err));
     process.exit(1);
-}});
+}}
     "#,
         );
         write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
@@ -707,7 +709,15 @@ plugin(p)
                 .stderr(Stdio::piped());
             bun_cmd
         };
-        start_child_process(cmd, &*BUN_PATH).await?
+        start_child_process(
+            cmd,
+            if annotation.nodejs_mode {
+                &*NODE_PATH
+            } else {
+                &*BUN_PATH
+            },
+        )
+        .await?
     };
 
     handle_child(
