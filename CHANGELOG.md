@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.264.0](https://github.com/windmill-labs/windmill/compare/v1.263.1...v1.264.0) (2024-02-07)
+
+
+### Features
+
+* violet ai branding + flow summary ([#3171](https://github.com/windmill-labs/windmill/issues/3171)) ([91743c3](https://github.com/windmill-labs/windmill/commit/91743c3cfbce22a72ca33feef4cd2fa4714a4282))
+
+
+### Bug Fixes
+
+* add audit logs to worker configs ([cd78c67](https://github.com/windmill-labs/windmill/commit/cd78c6766d2c92ba7759faf768ff93788ec6b7d8))
+* export base64 from typescript client ([0af0aae](https://github.com/windmill-labs/windmill/commit/0af0aae0b537ec2b24205745d4d4d1dcfda1901c))
+* **frontend:** Fix delete script ([#3166](https://github.com/windmill-labs/windmill/issues/3166)) ([83b8d62](https://github.com/windmill-labs/windmill/commit/83b8d628f006533eb23bf223e4a2bcd17155dcf2))
+* Main compile breaks ([#3169](https://github.com/windmill-labs/windmill/issues/3169)) ([6edc4c4](https://github.com/windmill-labs/windmill/commit/6edc4c4fc822763992e33ab2dbeafbfeee0de1c8))
+* only create shared dir symlink if not exists ([75e210b](https://github.com/windmill-labs/windmill/commit/75e210bfc7f7b6e32acdad74e222be3b28062cd1))
+* SAML redirect uses SAMLRequest in URL ([#3168](https://github.com/windmill-labs/windmill/issues/3168)) ([812516b](https://github.com/windmill-labs/windmill/commit/812516bb06539cc408d2c46366f9adaa7925261d))
+
 ## [1.263.1](https://github.com/windmill-labs/windmill/compare/v1.263.0...v1.263.1) (2024-02-06)
 
 
