@@ -65,7 +65,7 @@ pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
                 ..ContactPerson::default()
             })
             .idp_metadata(idp_metadata)
-            .acs_url(acs_url)
+            .acs_url(acs_url.clone())
             .build()?;
 
         tracing::info!("SAML Configured - ACS url is {}", acs_url);
