@@ -13,6 +13,7 @@
 
 	export let selected: any
 	export let noWFull: boolean = false
+	export let disabled: boolean = false
 
 	const dispatch = createEventDispatcher()
 	const selectedContent = writable(selected)
@@ -33,7 +34,12 @@
 	})
 </script>
 
-<TabGroup class={twMerge(`h-8 flex ${noWFull ? '' : 'w-full'}`, $$props.class)}>
+<TabGroup
+	class={twMerge(
+		`h-8 flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
+		$$props.class
+	)}
+>
 	<TabList class="flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ">
 		<slot />
 	</TabList>
