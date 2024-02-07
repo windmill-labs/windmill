@@ -77,7 +77,7 @@ pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
 
 #[cfg(not(feature = "enterprise_saml"))]
 pub async fn generate_redirect_url(
-    service_provider: Arc<ServiceProviderExt>,
+    _service_provider: Arc<ServiceProviderExt>,
 ) -> anyhow::Result<Option<String>> {
     return Ok(None);
 }
