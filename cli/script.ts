@@ -72,7 +72,7 @@ async function push(opts: PushOptions, filePath: string) {
 
   await requireLogin(opts);
   const globalDeps = await findGlobalDeps();
-  await handleFile(filePath, workspace, [], undefined, false, opts, globalDeps);
+  await handleFile(filePath, workspace, [], undefined, opts, globalDeps);
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
