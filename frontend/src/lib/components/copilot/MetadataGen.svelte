@@ -175,7 +175,8 @@ Generate a description for the flow below:
 		!manualDisabled &&
 		((config.placeholderName === 'code' && !!code) ||
 			(config.placeholderName === 'flow' &&
-				Array.isArray(flow?.modules) &&
+				!!flow &&
+				Array.isArray(flow.modules) &&
 				flow.modules.length > 0))
 
 	$: focused && (manualDisabled = false)
