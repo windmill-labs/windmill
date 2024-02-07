@@ -111,6 +111,7 @@
 	export let listenEmptyChanges = false
 	export let small = false
 	export let scriptLang: Preview.language
+	export let disabled: boolean = false
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -1215,7 +1216,7 @@
 </script>
 
 <EditorTheme />
-<div bind:this={divEl} class="{$$props.class} editor" />
+<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
 
 <style global lang="postcss">
 	.editor {
