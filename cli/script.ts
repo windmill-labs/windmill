@@ -211,7 +211,7 @@ export async function handleFile(
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           kind: typed?.kind,
-          lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
+          lock: lockfileUseArray ? typed?.lock?.split("\n") : typed?.lock,
           parent_hash: undefined,
           schema: typed?.schema,
           tag: typed?.tag,
