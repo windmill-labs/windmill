@@ -66,7 +66,7 @@ mod oidc;
 mod openai;
 mod raw_apps;
 mod resources;
-mod saml;
+mod saml_ee;
 mod schedule;
 mod scim;
 mod scripts;
@@ -160,7 +160,7 @@ pub async fn run_server(
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    let sp_extension = Arc::new(saml::build_sp_extension().await?);
+    let sp_extension = Arc::new(saml_ee::build_sp_extension().await?);
 
     let embeddings_db = if server_mode {
         Some(load_embeddings_db(&db))
@@ -232,7 +232,7 @@ pub async fn run_server(
                 .nest("/oidc", oidc::global_service())
                 .nest(
                     "/saml",
-                    saml::global_service().layer(Extension(Arc::clone(&sp_extension))),
+                    saml_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
                 )
                 .nest(
                     "/scim",

@@ -6298,8 +6298,7 @@ dependencies = [
 [[package]]
 name = "samael"
 version = "0.0.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b75583aad4a51c50fc0af69c230d18078c9d5a69a98d0f6013d01053acf744f4"
+source = "git+https://github.com/gbouv/samael?rev=2344211ed0ac041a86222b38b928adfc1030cb94#2344211ed0ac041a86222b38b928adfc1030cb94"
 dependencies = [
  "base64 0.21.7",
  "bindgen",
