@@ -35,7 +35,6 @@
 		Settings,
 		X
 	} from 'lucide-svelte'
-	import autosize from 'svelte-autosize'
 	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -369,8 +368,6 @@
 	let dirtyPath = false
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' = 'metadata'
-
-	let descriptionTextArea: HTMLTextAreaElement | undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -411,38 +408,31 @@
 										</div>
 									</svelte:fragment>
 									<div class="flex flex-col gap-4">
-										<MetadataGen
-											label="Summary"
-											bind:content={script.summary}
-											lang={script.language}
-											code={script.content}
-											configName="summary"
-											let:updateFocus
-											let:active
-											let:classNames
-											focused
-											on:change={() => {
-												if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-													path?.setName(
-														script.summary
-															.toLowerCase()
-															.replace(/[^a-z0-9_]/g, '_')
-															.replace(/-+/g, '_')
-															.replace(/^-|-$/g, '')
-													)
-												}
-											}}
-										>
-											<input
-												type="text"
-												autofocus
-												class={classNames}
-												on:focus={() => updateFocus(true)}
-												on:blur={() => updateFocus(false)}
-												bind:value={script.summary}
-												placeholder={!active ? 'Short summary to be displayed when listed' : ''}
+										<Label label="Summary">
+											<MetadataGen
+												label="Summary"
+												bind:content={script.summary}
+												lang={script.language}
+												code={script.content}
+												promptConfigName="summary"
+												generateOnAppear
+												on:change={() => {
+													if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
+														path?.setName(
+															script.summary
+																.toLowerCase()
+																.replace(/[^a-z0-9_]/g, '_')
+																.replace(/-+/g, '_')
+																.replace(/^-|-$/g, '')
+														)
+													}
+												}}
+												elementProps={{
+													type: 'text',
+													placeholder: 'Short summary to be displayed when listed'
+												}}
 											/>
-										</MetadataGen>
+										</Label>
 										<Label label="Path">
 											<Path
 												bind:this={path}
@@ -455,27 +445,18 @@
 												kind="script"
 											/>
 										</Label>
-										<MetadataGen
-											bind:content={script.description}
-											lang={script.language}
-											code={script.content}
-											configName="description"
-											el={descriptionTextArea}
-											label="Description"
-											let:updateFocus
-											let:active
-											let:classNames
-										>
-											<textarea
-												on:focus={() => updateFocus(true)}
-												on:blur={() => updateFocus(false)}
-												class={classNames}
-												use:autosize
-												bind:this={descriptionTextArea}
-												bind:value={script.description}
-												placeholder={!active ? 'Description displayed in the details page' : ''}
+										<Label label="Description">
+											<MetadataGen
+												bind:content={script.description}
+												lang={script.language}
+												code={script.content}
+												promptConfigName="description"
+												elementType="textarea"
+												elementProps={{
+													placeholder: 'Description displayed'
+												}}
 											/>
-										</MetadataGen>
+										</Label>
 									</div>
 								</Section>
 

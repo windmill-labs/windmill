@@ -56,13 +56,13 @@
 >
 	<svelte:fragment slot="button">
 		<Button
-			color={genLoading ? 'red' : 'dark'}
+			color={genLoading ? 'red' : 'light'}
 			size="xs"
 			nonCaptureEvent={!genLoading}
 			startIcon={{ icon: Wand2 }}
 			iconOnly
 			title="AI Assistant"
-			btnClasses="min-h-[30px] text-sky-900 dark:text-sky-200 bg-sky-100 dark:bg-gray-700 hover:bg-surface-hover dark:hover:bg-surface-hover"
+			btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 			loading={genLoading}
 			clickableWhileLoading
 			on:click={genLoading ? () => abortController?.abort() : undefined}
@@ -84,10 +84,10 @@
 			/>
 			<Button
 				size="xs"
-				color="dark"
+				color="light"
 				variant="contained"
 				buttonType="button"
-				btnClasses="!p-1 !w-[38px] !ml-2 text-sky-900 dark:text-sky-200 bg-sky-100 dark:bg-gray-700 hover:bg-surface-hover dark:hover:bg-surface-hover"
+				btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 				title="Generate CRON schedule from prompt"
 				aria-label="Generate"
 				iconOnly

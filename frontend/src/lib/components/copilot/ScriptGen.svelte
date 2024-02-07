@@ -270,9 +270,7 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading
-						? '!px-3 z-[5000]'
-						: '!px-2  bg-sky-50 dark:bg-gray-700 dark:hover:bg-surface-hover'}
+					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
 					nonCaptureEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : undefined}
 					bind:element={button}
@@ -280,23 +278,19 @@
 					title="Generate code from Prompt"
 					startIcon={genLoading
 						? { icon: Ban }
-						: { icon: Wand2, classes: 'text-sky-900 dark:text-sky-200 ' }}
+						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading
-							? 'z-[5000]'
-							: 'text-sky-900 dark:text-sky-200 bg-sky-50 dark:bg-gray-700 dark:hover:bg-surface-hover'
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={genLoading
-						? undefined
-						: { icon: Wand2, classes: 'text-sky-900 dark:text-sky-200' }}
+					startIcon={genLoading ? undefined : { icon: Wand2 }}
 					propagateEvent
 					on:click={genLoading
 						? () => abortController?.abort()
@@ -366,9 +360,9 @@
 						/>
 						<Button
 							size="xs"
-							color="blue"
+							color="light"
 							buttonType="button"
-							btnClasses="!p-1 !w-[38px] !ml-2 text-sky-900 dark:text-sky-200 bg-sky-100 dark:bg-gray-700 hover:bg-surface-hover dark:hover:bg-surface-hover"
+							btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
