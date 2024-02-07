@@ -53,6 +53,7 @@ pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
         // let pub_key = openssl::x509::X509::from_pem("")?;
         // let private_key = openssl::rsa::Rsa::private_key_from_pem("")?;
 
+        let acs_url = format!("{}/api/saml/acs", BASE_URL.read().await.clone());
         let sp = ServiceProviderBuilder::default()
             .entity_id("windmill".to_string())
             // .key(private_key)
@@ -64,9 +65,10 @@ pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
                 ..ContactPerson::default()
             })
             .idp_metadata(idp_metadata)
-            .acs_url(format!("{}/api/saml/acs", BASE_URL.read().await.clone()))
+            .acs_url(acs_url)
             .build()?;
 
+        tracing::info!("SAML Configured - ACS url is {}", acs_url);
         Ok(ServiceProviderExt(Some(sp)))
     } else {
         Ok(ServiceProviderExt(None))
@@ -101,7 +103,7 @@ pub async fn generate_redirect_url(
             .map_err(|e| anyhow::anyhow!(e.to_string()))?
             .map(|u| u.to_string());
 
-        tracing::info!(
+        tracing::debug!(
             "SAML Configured, sso login link at: {:?}",
             redirect_url.clone()
         );
