@@ -81,7 +81,6 @@ export async function handleScriptMetadata(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  lockfileUseArray: boolean,
   globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
@@ -91,7 +90,6 @@ export async function handleScriptMetadata(
       workspace,
       alreadySynced,
       message,
-      lockfileUseArray,
       undefined,
       globalDeps
     );
@@ -105,7 +103,6 @@ export async function handleFile(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  lockfileUseArray: boolean,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined,
   globalDeps: GlobalDeps
 ): Promise<boolean> {
@@ -184,7 +181,7 @@ export async function handleFile(
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           kind: typed?.kind,
-          lock: lockfileUseArray ? typed?.lock.split("\n") : typed?.lock,
+          lock: typed?.lock,
           parent_hash: remote.hash,
           schema: typed?.schema,
           tag: typed?.tag,
@@ -211,7 +208,7 @@ export async function handleFile(
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           kind: typed?.kind,
-          lock: lockfileUseArray ? typed?.lock?.split("\n") : typed?.lock,
+          lock: typed?.lock,
           parent_hash: undefined,
           schema: typed?.schema,
           tag: typed?.tag,
