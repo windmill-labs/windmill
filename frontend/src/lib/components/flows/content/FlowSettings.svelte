@@ -11,7 +11,6 @@
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import autosize from 'svelte-autosize'
 	import Slider from '$lib/components/Slider.svelte'
 	import { enterpriseLicense, workerTags, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -25,6 +24,8 @@
 	import Label from '$lib/components/Label.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
+	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
+	import MetadataGenToggle from '$lib/components/copilot/MetadataGenToggle.svelte'
 
 	export let noEditor: boolean
 
@@ -69,192 +70,202 @@
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full overflow-auto">
-						<div class="h-full gap-8 flex flex-col">
-							<Label label="Summary">
-								<input
-									type="text"
-									autofocus
-									bind:value={$flowStore.summary}
-									placeholder="Short summary to be displayed when listed"
-									id="flow-summary"
-									on:keyup={() => {
-										if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
-											path?.setName(
-												$flowStore.summary
-													.toLowerCase()
-													.replace(/[^a-z0-9_]/g, '_')
-													.replace(/-+/g, '_')
-													.replace(/^-|-$/g, '')
-											)
-										}
-									}}
-								/>
-							</Label>
-
-							{#if !noEditor}
-								<Label label="Path">
-									<Path
-										autofocus={false}
-										bind:this={path}
-										bind:dirty={dirtyPath}
-										bind:path={$pathStore}
-										{initialPath}
-										namePlaceholder="flow"
-										kind="flow"
-									/>
-								</Label>
-							{/if}
-
-							<Label label="Description">
-								<textarea
-									use:autosize
-									type="text"
-									class="text-sm"
-									id="inp"
-									bind:value={$flowStore.description}
-									placeholder="What this flow does and how to use it."
-									rows="3"
-								/>
-							</Label>
-
-							<!-- TODO: Add EE-only badge when we have it -->
-							<Toggle
-								disabled={!$enterpriseLicense || isCloudHosted()}
-								checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
-								on:change={() => {
-									if ($flowStore.value.priority) {
-										$flowStore.value.priority = undefined
-									} else {
-										$flowStore.value.priority = 100
-									}
-								}}
-								options={{
-									right: `Label as high priority`,
-									rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
-										!$enterpriseLicense
-											? 'This is a feature only available on enterprise edition.'
-											: ''
-									}`
-								}}
-							>
-								<svelte:fragment slot="right">
-									<input
-										type="number"
-										class="!w-16 ml-4"
-										disabled={$flowStore.value.priority === undefined}
-										bind:value={$flowStore.value.priority}
-										on:focus
+						<Section label="Metadata">
+							<svelte:fragment slot="header">
+								<MetadataGenToggle />
+							</svelte:fragment>
+							<div class="h-full gap-8 flex flex-col">
+								<Label label="Summary">
+									<MetadataGen
+										bind:content={$flowStore.summary}
+										promptConfigName="flowSummary"
+										flow={$flowStore.value}
 										on:change={() => {
-											if ($flowStore.value.priority && $flowStore.value.priority > 100) {
-												$flowStore.value.priority = 100
-											} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
-												$flowStore.value.priority = 0
+											if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
+												path?.setName(
+													$flowStore.summary
+														.toLowerCase()
+														.replace(/[^a-z0-9_]/g, '_')
+														.replace(/-+/g, '_')
+														.replace(/^-|-$/g, '')
+												)
 											}
 										}}
+										elementProps={{
+											type: 'text',
+											id: 'flow-summary',
+											placeholder: 'Short summary to be displayed when listed'
+										}}
 									/>
-								</svelte:fragment>
-							</Toggle>
+								</Label>
 
-							<div class="flex flex-row items-center gap-1">
-								<ErrorHandlerToggleButton
-									kind="flow"
-									scriptOrFlowPath={$pathStore}
-									bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
-									iconOnly={false}
-								/>
-							</div>
+								{#if !noEditor}
+									<Label label="Path">
+										<Path
+											autofocus={false}
+											bind:this={path}
+											bind:dirty={dirtyPath}
+											bind:path={$pathStore}
+											{initialPath}
+											namePlaceholder="flow"
+											kind="flow"
+										/>
+									</Label>
+								{/if}
 
-							<Slider text="How to trigger flows?">
-								<div class="text-sm text-tertiary border p-4 mb-20">
-									On-demand:
-									<ul class="pt-4">
-										<li>
-											1. <a
-												href="https://www.windmill.dev/docs/core_concepts/auto_generated_uis"
-												target="_blank">Auto-generated UIs</a
-											>
-										</li>
-										<li>
-											2. <a href="/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
-										</li>
-										<li>
-											3. <a href="/schedules" target="_blank">Scheduling</a>
-										</li>
-										<li>
-											4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
-												>Windmill CLI</a
-											>
-										</li>
-										<br />
-										<li class="mt-2">
-											<div class="flex flex-col gap-2">
-												<p> From external events: </p>
-											</div>
-										</li>
-										<li class="mt-2">
-											5. Send a <a
-												href="https://www.windmill.dev/docs/core_concepts/webhooks"
-												target="_blank">webhook</a
-											>
-											after each event:
-											<ul class="list-disc pl-4"
-												><li
-													>Async <Tooltip
-														>Return an uuid instantly that you can use to fetch status and result</Tooltip
-													>:
-													<a
-														on:click={(e) => {
-															e.preventDefault()
-															copyToClipboard(url)
-														}}
-														href={url}
-														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-													>
-														{url}
-														<span class="text-secondary ml-2">
-															<Clipboard />
-														</span>
-													</a>
-												</li>
-												<li
-													>Sync <Tooltip>Wait for result within a timeout of 20s</Tooltip>:
-													<a
-														on:click={(e) => {
-															e.preventDefault()
-															copyToClipboard(syncedUrl)
-														}}
-														href={syncedUrl}
-														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-													>
-														{syncedUrl}
-														<span class="text-secondary ml-2">
-															<Clipboard />
-														</span>
-													</a>
-												</li>
-											</ul></li
-										>
-										<br />
-										<li>
-											6. Use a <a
-												href="https://www.windmill.dev/docs/flows/flow_trigger"
-												target="_blank">trigger script</a
-											>
-											and schedule this flow to run as frequently as needed and compare a state persisted
-											in Windmill to the state of the external system. If a difference is detected, then
-											the rest of the flow is triggered. Oftentimes, the second step of a flow is a for-loop
-											that will iterate over every elements. When using a trigger, a default schedule
-											will be created.
-											<img
-												class="shadow-lg border rounded"
-												alt="static button"
-												src="/trigger_button.png"
-											/>
-										</li></ul
-									>
+								<Label label="Description">
+									<MetadataGen
+										bind:content={$flowStore.description}
+										promptConfigName="flowDescription"
+										flow={$flowStore.value}
+										class="w-full"
+										elementType="textarea"
+										elementProps={{
+											id: 'inp',
+											placeholder: 'What this flow does and how to use it.'
+										}}
+									/>
+								</Label>
+
+								<!-- TODO: Add EE-only badge when we have it -->
+								<Toggle
+									disabled={!$enterpriseLicense || isCloudHosted()}
+									checked={$flowStore.value.priority !== undefined && $flowStore.value.priority > 0}
+									on:change={() => {
+										if ($flowStore.value.priority) {
+											$flowStore.value.priority = undefined
+										} else {
+											$flowStore.value.priority = 100
+										}
+									}}
+									options={{
+										right: `Label as high priority`,
+										rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. ${
+											!$enterpriseLicense
+												? 'This is a feature only available on enterprise edition.'
+												: ''
+										}`
+									}}
+								>
+									<svelte:fragment slot="right">
+										<input
+											type="number"
+											class="!w-16 ml-4"
+											disabled={$flowStore.value.priority === undefined}
+											bind:value={$flowStore.value.priority}
+											on:focus
+											on:change={() => {
+												if ($flowStore.value.priority && $flowStore.value.priority > 100) {
+													$flowStore.value.priority = 100
+												} else if ($flowStore.value.priority && $flowStore.value.priority < 0) {
+													$flowStore.value.priority = 0
+												}
+											}}
+										/>
+									</svelte:fragment>
+								</Toggle>
+
+								<div class="flex flex-row items-center gap-1">
+									<ErrorHandlerToggleButton
+										kind="flow"
+										scriptOrFlowPath={$pathStore}
+										bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
+										iconOnly={false}
+									/>
 								</div>
-							</Slider>
-						</div>
+
+								<Slider text="How to trigger flows?">
+									<div class="text-sm text-tertiary border p-4 mb-20">
+										On-demand:
+										<ul class="pt-4">
+											<li>
+												1. <a
+													href="https://www.windmill.dev/docs/core_concepts/auto_generated_uis"
+													target="_blank">Auto-generated UIs</a
+												>
+											</li>
+											<li>
+												2. <a href="/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
+											</li>
+											<li>
+												3. <a href="/schedules" target="_blank">Scheduling</a>
+											</li>
+											<li>
+												4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
+													>Windmill CLI</a
+												>
+											</li>
+											<br />
+											<li class="mt-2">
+												<div class="flex flex-col gap-2">
+													<p> From external events: </p>
+												</div>
+											</li>
+											<li class="mt-2">
+												5. Send a <a
+													href="https://www.windmill.dev/docs/core_concepts/webhooks"
+													target="_blank">webhook</a
+												>
+												after each event:
+												<ul class="list-disc pl-4"
+													><li
+														>Async <Tooltip
+															>Return an uuid instantly that you can use to fetch status and result</Tooltip
+														>:
+														<a
+															on:click={(e) => {
+																e.preventDefault()
+																copyToClipboard(url)
+															}}
+															href={url}
+															class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+														>
+															{url}
+															<span class="text-secondary ml-2">
+																<Clipboard />
+															</span>
+														</a>
+													</li>
+													<li
+														>Sync <Tooltip>Wait for result within a timeout of 20s</Tooltip>:
+														<a
+															on:click={(e) => {
+																e.preventDefault()
+																copyToClipboard(syncedUrl)
+															}}
+															href={syncedUrl}
+															class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+														>
+															{syncedUrl}
+															<span class="text-secondary ml-2">
+																<Clipboard />
+															</span>
+														</a>
+													</li>
+												</ul></li
+											>
+											<br />
+											<li>
+												6. Use a <a
+													href="https://www.windmill.dev/docs/flows/flow_trigger"
+													target="_blank">trigger script</a
+												>
+												and schedule this flow to run as frequently as needed and compare a state persisted
+												in Windmill to the state of the external system. If a difference is detected,
+												then the rest of the flow is triggered. Oftentimes, the second step of a flow
+												is a for-loop that will iterate over every elements. When using a trigger, a
+												default schedule will be created.
+												<img
+													class="shadow-lg border rounded"
+													alt="static button"
+													src="/trigger_button.png"
+												/>
+											</li></ul
+										>
+									</div>
+								</Slider>
+							</div>
+						</Section>
 					</TabContent>
 					<TabContent value="settings-schedule" class="p-4 h-full overflow-scroll">
 						<Alert

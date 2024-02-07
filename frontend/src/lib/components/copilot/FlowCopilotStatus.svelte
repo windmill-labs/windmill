@@ -38,7 +38,7 @@
 				$currentStepStore !== undefined ? 'z-[901]' : '',
 				copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
 					? ''
-					: 'bg-sky-100 dark:bg-gray-700 text-sky-900 dark:text-sky-200 dark:hover:bg-surface-hover'
+					: '!text-violet-800 !dark:text-violet-400'
 			)}
 			on:click={() => {
 				if (copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')) {
@@ -72,7 +72,7 @@
 				? 'Stop'
 				: $currentStepStore !== undefined && $currentStepStore !== 'Input'
 				? 'Exit'
-				: 'AI Flow Builder'}
+				: 'AI Builder'}
 		</Button>
 		<div slot="content" class="text-sm flex flex-row items-center z-[901]">
 			<span class="font-semibold">
@@ -125,12 +125,12 @@
 				startIcon={{
 					icon: Wand2
 				}}
-				btnClasses="bg-sky-100 dark:bg-gray-700 text-sky-900 dark:text-sky-200 dark:hover:bg-surface-hover"
+				btnClasses="text-violet-800 dark:text-violet-400"
 				color={'light'}
 				variant={'border'}
 				nonCaptureEvent
 			>
-				AI
+				AI Builder
 			</Button>
 		</svelte:fragment>
 		<div class="block text-primary">
