@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.265.0](https://github.com/windmill-labs/windmill/compare/v1.264.0...v1.265.0) (2024-02-07)
+
+
+### Features
+
+* Worker env variables are hidden to developers in the config panel ([#3175](https://github.com/windmill-labs/windmill/issues/3175)) ([126aa60](https://github.com/windmill-labs/windmill/commit/126aa60a9da2595f7f64a6e14b2467ac933acd22))
+
+
+### Bug Fixes
+
+* **frontend:** handle not found folder in FolderEditor ([#3170](https://github.com/windmill-labs/windmill/issues/3170)) ([284e43c](https://github.com/windmill-labs/windmill/commit/284e43c0644b05784497a2494de3a0e59f897dd4))
+* improve agent policies ([73ff48b](https://github.com/windmill-labs/windmill/commit/73ff48bc8356c3c205f6a74eba7ad1c99c68e097))
+
 ## [1.264.0](https://github.com/windmill-labs/windmill/compare/v1.263.1...v1.264.0) (2024-02-07)
 
 
