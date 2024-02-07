@@ -25,7 +25,6 @@
 	) {
 		error = 'This ID is already in use'
 	} else {
-		id = value
 		error = ''
 	}
 
@@ -33,12 +32,20 @@
 		if (error != '') {
 			return
 		}
-		dispatch('change', id)
-		input.blur()
+		if (value != id) {
+			dispatch('change', value)
+		}
+		blockOpen = false
 	}
+
+	let blockOpen = false
 </script>
 
-<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+<Popup
+	let:close
+	bind:blockOpen
+	floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+>
 	<svelte:fragment slot="button">
 		<button
 			on:click={() => {
@@ -62,7 +69,10 @@
 				on:click|stopPropagation={() => {}}
 				on:keydown|stopPropagation
 				on:keypress|stopPropagation={({ key }) => {
-					if (key === 'Enter') save()
+					if (key === 'Enter') {
+						save()
+						close(null)
+					}
 				}}
 			/>
 			<Button
@@ -72,7 +82,10 @@
 				btnClasses="!p-1 !w-[34px] !ml-1"
 				aria-label="Save ID"
 				disabled={error != ''}
-				on:click={save}
+				on:click={() => {
+					save()
+					close(null)
+				}}
 			>
 				<ArrowRight size={18} />
 			</Button>

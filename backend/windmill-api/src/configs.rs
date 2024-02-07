@@ -35,11 +35,48 @@ struct Config {
     config: serde_json::Value,
 }
 
-async fn list_worker_groups(Extension(db): Extension<DB>) -> error::JsonResult<Vec<Config>> {
-    let rows = sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
+async fn list_worker_groups(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<Vec<Config>> {
+    let configs_raw = sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
         .fetch_all(&db)
         .await?;
-    Ok(Json(rows))
+    let configs = if !authed.is_admin {
+        let mut obfuscated_configs: Vec<Config> = vec![];
+        for config in configs_raw {
+            let config_value_opt = config.config.as_object().map(|obj| obj.to_owned());
+            if let Some(mut config_value) = config_value_opt {
+                if let Some(env_var_map) = config_value
+                    .get("env_vars_static")
+                    .map(|obj| obj.as_object())
+                    .flatten()
+                {
+                    let mut new_env_var_map: serde_json::Map<String, serde_json::Value> =
+                        serde_json::Map::new();
+                    for (key, value) in env_var_map {
+                        new_env_var_map.insert(
+                            key.to_owned(),
+                            // we know the value is a string here, so we to_string() it and take -2 to remove the quotes
+                            serde_json::json!("*".repeat(value.to_string().len() - 2)),
+                        );
+                    }
+                    config_value.insert(
+                        "env_vars_static".to_string(),
+                        serde_json::Value::Object(new_env_var_map),
+                    );
+                }
+                obfuscated_configs.push(Config {
+                    name: config.name,
+                    config: serde_json::Value::Object(config_value),
+                })
+            }
+        }
+        obfuscated_configs
+    } else {
+        configs_raw
+    };
+    Ok(Json(configs))
 }
 
 async fn get_config(
