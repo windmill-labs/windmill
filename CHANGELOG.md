@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.265.1](https://github.com/windmill-labs/windmill/compare/v1.265.0...v1.265.1) (2024-02-07)
+
+
+### Bug Fixes
+
+* graphql web worker ([#3177](https://github.com/windmill-labs/windmill/issues/3177)) ([361ea76](https://github.com/windmill-labs/windmill/commit/361ea7627982f36797138f58fe8ad9c503729e34))
+
 ## [1.265.0](https://github.com/windmill-labs/windmill/compare/v1.264.0...v1.265.0) (2024-02-07)
 
 
