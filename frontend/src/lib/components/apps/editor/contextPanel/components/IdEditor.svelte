@@ -35,17 +35,10 @@
 		if (value != id) {
 			dispatch('change', value)
 		}
-		blockOpen = false
 	}
-
-	let blockOpen = false
 </script>
 
-<Popup
-	let:close
-	bind:blockOpen
-	floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
->
+<Popup let:close floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
 	<svelte:fragment slot="button">
 		<button
 			on:click={() => {
