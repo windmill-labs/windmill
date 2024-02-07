@@ -806,15 +806,6 @@ async function push(opts: GlobalOptions & SyncOptions) {
 
   log.info(colors.gray("Remote version: " + version));
 
-  const reducedVersion = version
-    .split(" v")[1]
-    .split("-")[0]
-    .split(".")
-    .map((v) => parseInt(v));
-  const lockfileUseArray =
-    reducedVersion[1] < 246 ||
-    reducedVersion[1] == 246 ||
-    reducedVersion[2] < 5;
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
@@ -851,7 +842,6 @@ async function push(opts: GlobalOptions & SyncOptions) {
             workspace,
             alreadySynced,
             opts.message,
-            lockfileUseArray,
             globalDeps
           )
         ) {
@@ -865,7 +855,6 @@ async function push(opts: GlobalOptions & SyncOptions) {
             workspace,
             alreadySynced,
             opts.message,
-            lockfileUseArray,
             opts,
             globalDeps
           )
@@ -906,7 +895,6 @@ async function push(opts: GlobalOptions & SyncOptions) {
             workspace,
             alreadySynced,
             opts.message,
-            lockfileUseArray,
             opts,
             globalDeps
           )
