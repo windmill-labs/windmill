@@ -42,8 +42,16 @@ pub struct ServiceProviderExt();
 #[cfg(feature = "enterprise_saml")]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 
+#[cfg(not(feature = "enterprise_saml"))]
+pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
+    return Ok(ServiceProviderExt());
+}
+
 #[cfg(feature = "enterprise_saml")]
 pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return Ok(ServiceProviderExt(None));
+    }
     if let Some(url_metadata) = std::env::var("SAML_METADATA").ok() {
         //todo restrict for non ee
 
