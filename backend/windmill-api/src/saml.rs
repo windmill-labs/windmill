@@ -12,7 +12,6 @@ use axum::response::Redirect;
 use axum::{routing::post, Router};
 #[cfg(feature = "enterprise_saml")]
 use axum::{Extension, Form};
-#[cfg(feature = "enterprise_saml")]
 use std::sync::Arc;
 
 #[cfg(feature = "enterprise_saml")]
@@ -43,10 +42,8 @@ pub struct ServiceProviderExt();
 #[cfg(feature = "enterprise_saml")]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 
-pub struct SamlSsoLogin(pub Option<String>);
-
 #[cfg(feature = "enterprise_saml")]
-pub async fn build_sp_extension() -> anyhow::Result<(ServiceProviderExt, SamlSsoLogin)> {
+pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
     if let Some(url_metadata) = std::env::var("SAML_METADATA").ok() {
         //todo restrict for non ee
 
@@ -56,13 +53,7 @@ pub async fn build_sp_extension() -> anyhow::Result<(ServiceProviderExt, SamlSso
         // let pub_key = openssl::x509::X509::from_pem("")?;
         // let private_key = openssl::rsa::Rsa::private_key_from_pem("")?;
 
-        let url = idp_metadata
-            .idp_sso_descriptors
-            .clone()
-            .unwrap_or_default()
-            .get(0)
-            .and_then(|x| x.single_sign_on_services.get(0).map(|x| x.location.clone()));
-
+        let acs_url = format!("{}/api/saml/acs", BASE_URL.read().await.clone());
         let sp = ServiceProviderBuilder::default()
             .entity_id("windmill".to_string())
             // .key(private_key)
@@ -74,13 +65,51 @@ pub async fn build_sp_extension() -> anyhow::Result<(ServiceProviderExt, SamlSso
                 ..ContactPerson::default()
             })
             .idp_metadata(idp_metadata)
-            .acs_url(format!("{}/api/saml/acs", BASE_URL.read().await.clone()))
+            .acs_url(acs_url.clone())
             .build()?;
 
-        tracing::info!("SAML Configured, sso login link at: {:?}", url);
-        Ok((ServiceProviderExt(Some(sp)), SamlSsoLogin(url)))
+        tracing::info!("SAML Configured - ACS url is {}", acs_url);
+        Ok(ServiceProviderExt(Some(sp)))
     } else {
-        Ok((ServiceProviderExt(None), SamlSsoLogin(None)))
+        Ok(ServiceProviderExt(None))
+    }
+}
+
+#[cfg(not(feature = "enterprise_saml"))]
+pub async fn generate_redirect_url(
+    _service_provider: Arc<ServiceProviderExt>,
+) -> anyhow::Result<Option<String>> {
+    return Ok(None);
+}
+
+#[cfg(feature = "enterprise_saml")]
+pub async fn generate_redirect_url(
+    service_provider: Arc<ServiceProviderExt>,
+) -> anyhow::Result<Option<String>> {
+    if let Some(sp) = &service_provider.0 {
+        let url = sp
+            .idp_metadata
+            .idp_sso_descriptors
+            .clone()
+            .unwrap_or_default()
+            .get(0)
+            .and_then(|x| x.single_sign_on_services.get(0).map(|x| x.location.clone()));
+
+        let authn_req = sp
+            .make_authentication_request(url.unwrap_or_default().as_str())
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let redirect_url = authn_req
+            .redirect(BASE_URL.read().await.clone().as_str())
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            .map(|u| u.to_string());
+
+        tracing::debug!(
+            "SAML Configured, sso login link at: {:?}",
+            redirect_url.clone()
+        );
+        Ok(redirect_url)
+    } else {
+        Ok(None)
     }
 }
 
