@@ -12,7 +12,6 @@ use axum::response::Redirect;
 use axum::{routing::post, Router};
 #[cfg(feature = "enterprise_saml")]
 use axum::{Extension, Form};
-#[cfg(feature = "enterprise_saml")]
 use std::sync::Arc;
 
 #[cfg(feature = "enterprise_saml")]
@@ -72,6 +71,13 @@ pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
     } else {
         Ok(ServiceProviderExt(None))
     }
+}
+
+#[cfg(not(feature = "enterprise_saml"))]
+pub async fn generate_redirect_url(
+    service_provider: Arc<ServiceProviderExt>,
+) -> anyhow::Result<Option<String>> {
+    return Ok(None);
 }
 
 #[cfg(feature = "enterprise_saml")]

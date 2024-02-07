@@ -41,9 +41,7 @@ use windmill_common::utils::{not_found_if_none, now_from_db};
 use windmill_common::variables::build_crypt;
 
 use crate::db::ApiAuthed;
-#[cfg(feature = "enterprise_saml")]
-use crate::saml::generate_redirect_url;
-use crate::saml::ServiceProviderExt;
+use crate::saml::{generate_redirect_url, ServiceProviderExt};
 use crate::users::{login_externally, LoginUserInfo};
 use crate::webhook_util::{InstanceEvent, WebhookShared};
 use crate::{db::DB, variables::encrypt, workspaces::WorkspaceSettings};
@@ -451,12 +449,9 @@ struct Logins {
 async fn list_logins(
     Extension(sso): Extension<Arc<ServiceProviderExt>>,
 ) -> error::JsonResult<Logins> {
-    #[cfg(feature = "enterprise_saml")]
     let saml_redirect_opt = generate_redirect_url(sso)
         .await
         .map_err(|e| Error::InternalErr(e.to_string()))?;
-    #[cfg(not(feature = "enterprise_saml"))]
-    let saml_redirect_opt = None::<String>;
     Ok(Json(Logins {
         oauth: OAUTH_CLIENTS
             .read()
