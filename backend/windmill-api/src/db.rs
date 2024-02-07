@@ -116,7 +116,7 @@ async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(
         {
             migrator.lock().await?;
             let has_done_migration = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'bypassrls_1')",
+                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'bypassrls_1-2')",
             )
             .fetch_one(db)
             .await?
@@ -126,9 +126,9 @@ async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(
                 let query = include_str!("../../custom_migrations/bypassrls_1.sql");
                 tracing::info!("Applying bypassrls_1.sql");
                 let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-                tx.execute_many(query);
+                tx.execute(query).await?;
                 tracing::info!("Applied bypassrls_1.sql");
-                sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1')")
+                sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1-2')")
                     .execute(&mut *tx)
                     .await?;
                 tx.commit().await?;
