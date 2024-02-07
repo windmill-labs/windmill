@@ -14,25 +14,44 @@ use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, D
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
 
-    pub static ref DEFAULT_TAGS : Vec<String> = vec![
-        "deno".to_string(),
-        "python3".to_string(),
-        "go".to_string(),
-        "bash".to_string(),
-        "powershell".to_string(),
-        "nativets".to_string(),
-        "mysql".to_string(),
-        "graphql".to_string(),
-        "bun".to_string(),
-        "postgresql".to_string(),
-        "bigquery".to_string(),
-        "snowflake".to_string(),
-        "mssql".to_string(),
-        "graphql".to_string(),
-        "dependency".to_string(),
-        "flow".to_string(),
-        "hub".to_string(),
-        "other".to_string()];
+    // "deno".to_string(),
+    // "python3".to_string(),
+    // "go".to_string(),
+    // "bash".to_string(),
+    // "powershell".to_string(),
+    // "nativets".to_string(),
+    // "mysql".to_string(),
+    // "graphql".to_string(),
+    // "bun".to_string(),
+    // "postgresql".to_string(),
+    // "bigquery".to_string(),
+    // "snowflake".to_string(),
+    // "mssql".to_string(),
+    // "graphql".to_string(),
+    // "dependency".to_string(),
+    // "flow".to_string(),
+    // "hub".to_string(),
+    // "other".to_string()
+    pub static ref DEFAULT_TAGS_HM: HashMap<String, String> = HashMap::from([(
+        "deno".to_string(), "deno".to_string()),
+        ("python3".to_string(), "python3".to_string()),
+        ("go".to_string(), "go".to_string()),
+        ("bash".to_string(), "bash".to_string()),
+        ("powershell".to_string(), "powershell".to_string()),
+        ("nativets".to_string(), "nativets".to_string()),
+        ("mysql".to_string(), "mysql".to_string()),
+        ("graphql".to_string(), "graphql".to_string()),
+        ("bun".to_string(), "bun".to_string()),
+        ("postgresql".to_string(), "postgresql".to_string()),
+        ("bigquery".to_string(), "bigquery".to_string()),
+        ("snowflake".to_string(), "snowflake".to_string()),
+        ("mssql".to_string(), "mssql".to_string()),
+        ("graphql".to_string(), "graphql".to_string()),
+        ("dependency".to_string(), "dependency".to_string()),
+        ("flow".to_string(), "flow".to_string()),
+        ("hub".to_string(), "hub".to_string()),
+        ("other".to_string(), "other".to_string())]);
+
 
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
@@ -236,7 +255,7 @@ pub async fn load_worker_config(
                     .map(|x| x.split(',').map(|x| x.to_string()).collect())
             }
         })
-        .unwrap_or_else(|| DEFAULT_TAGS.clone());
+        .unwrap_or_else(|| DEFAULT_TAGS_HM.values().cloned().collect_vec());
 
     let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
     let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);

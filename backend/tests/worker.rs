@@ -979,7 +979,7 @@ fn spawn_test_worker(
         let base_internal_url = format!("http://localhost:{}", port);
         {
         let mut wc = WORKER_CONFIG.write().await;
-        (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+        (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS_HM.values().cloned().collect();
         (*wc).priority_tags_sorted = vec![PriorityTags { priority: 0, tags: (*wc).worker_tags.clone()} ]
         }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
