@@ -1,23 +1,27 @@
 <script lang="ts">
 	import { getCompletion } from './lib'
-	import type { NewScript } from '$lib/gen'
 	import { isInitialCode } from '$lib/script_helpers'
-	import { Loader2 } from 'lucide-svelte'
+	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import type { ChatCompletionMessageParam } from 'openai/resources'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
-	import Label from '../Label.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { twMerge } from 'tailwind-merge'
+	import autosize from 'svelte-autosize'
+	import type { FlowValue } from '$lib/gen'
+	import YAML from 'yaml'
 
-	type Config = {
+	type PromptConfig = {
 		system: string
 		user: string
-		mode: 'automatic' | 'manual'
+		placeholderName: 'code' | 'flow'
 	}
 
-	const configs: {
-		summary: Config
-		description: Config
+	const promptConfigs: {
+		summary: PromptConfig
+		description: PromptConfig
+		flowSummary: PromptConfig
+		flowDescription: PromptConfig
 	} = {
 		summary: {
 			system: `
@@ -26,56 +30,94 @@ The summaries need to be as short as possible (maximum 8 words) and only give a 
 Examples: List the commits of a GitHub repository, Divide a number by 16, etc..
 `,
 			user: `
-		Generate a very short summary for the script below:
-\'\'\'{lang}
+Generate a very short summary for the script below:
+\'\'\'code
 {code}
 \`\`\`
 `,
-			mode: 'automatic'
+			placeholderName: 'code'
 		},
 		description: {
 			system: `
 You are a helpful AI assistant. You generate descriptions from scripts.
-These descriptions are used to explain to other users what the script does, on particular on the input and what it returns.
-Descriptions should contain a maximum of 4-5 sentences.
-The description should focus on what it does and should not contain what concepts it uses (e.g. function named main, export an async function, etc...)
+These descriptions are used to explain to other users what the script does and how to use it.
+Be as short as possible to give a global idea, maximum 3-4 sentences.
+All scripts export an asynchronous function called main, do not include it in the description.
+Do not describe how to call it either.
 `,
 			user: `
-		Generate a description for the script below:
-\'\'\'{lang}
+Generate a description for the script below:
+\'\'\'code
 {code}
 \`\`\`
 `,
-			mode: 'manual'
+			placeholderName: 'code'
+		},
+		flowSummary: {
+			system: `
+			You are a helpful AI assistant. You generate very brief summaries from scripts.
+The summaries need to be as short as possible (maximum 8 words) and only give a global idea. Do not use any punctation. Avoid using prepositions and articles.
+`,
+			user: `
+Summarize the flow below in one very short sentence without punctation:
+{flow}`,
+			placeholderName: 'flow'
+		},
+		flowDescription: {
+			system: `
+You are a helpful AI assistant. You generate descriptions from flow.
+These descriptions are used to explain to other users what the flow does and how to use it.
+Be as short as possible to give a global idea, maximum 3-4 sentences.
+Do not include line breaks.
+`,
+			user: `
+Generate a description for the flow below:
+{flow}`,
+			placeholderName: 'flow'
 		}
 	}
 
+	function removeLocks(obj: any) {
+		if (obj && typeof obj === 'object') {
+			delete obj.lock
+			for (const key in obj) {
+				removeLocks(obj[key])
+			}
+		}
+		return obj
+	}
+
 	export let content: string | undefined
-	export let code: string
-	export let lang: NewScript.language
-	export let configName: keyof typeof configs
+	export let code: string | undefined = undefined
+	export let flow: FlowValue | undefined = undefined
+	export let promptConfigName: keyof typeof promptConfigs
+	export let generateOnAppear: boolean = false
+	export let elementType: 'input' | 'textarea' = 'input'
+	export let elementProps: Record<string, any> = {}
 
-	export let el: HTMLElement | undefined = undefined
-	export let label: string
-
+	let el: HTMLElement | undefined
 	let generatedContent = ''
-	let genEl: HTMLElement | undefined = undefined
 	let active = false
 	let loading = false
 	let abortController = new AbortController()
 	let manualDisabled = false
+	let width = 0
+	let genHeight = 0
 
-	export let focused = false
-	const updateFocus = (val) => {
-		focused = val
-	}
-
-	let config: Config = configs[configName]
+	let focused = false
+	let config: PromptConfig = promptConfigs[promptConfigName]
 
 	async function generateContent(automatic = false) {
 		abortController = new AbortController()
 		loading = true
 		try {
+			const placeholderContent = flow ? YAML.stringify(removeLocks(flow)) : code
+
+			if (!placeholderContent) {
+				sendUserToast('Could not generate summary: no content to generate from', true)
+				return
+			}
+			// return
 			const messages: ChatCompletionMessageParam[] = [
 				{
 					role: 'system',
@@ -83,7 +125,7 @@ The description should focus on what it does and should not contain what concept
 				},
 				{
 					role: 'user',
-					content: config.user.replace('{lang}', lang).replace('{code}', code)
+					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
 			const response = await getCompletion(messages, abortController)
@@ -91,9 +133,6 @@ The description should focus on what it does and should not contain what concept
 			for await (const chunk of response) {
 				const toks = chunk.choices[0]?.delta?.content || ''
 				generatedContent += toks
-				if (el !== undefined && genEl !== undefined) {
-					el.style.height = Math.max(genEl.scrollHeight + 34, 58) + 'px'
-				}
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -111,11 +150,14 @@ The description should focus on what it does and should not contain what concept
 	if (
 		$copilotInfo.exists_openai_resource_path &&
 		$metadataCompletionEnabled &&
-		config.mode === 'automatic' &&
-		code &&
+		generateOnAppear &&
 		!content &&
+		code &&
 		!isInitialCode(code)
 	) {
+		setTimeout(() => {
+			el?.focus()
+		}, 0)
 		generateContent(true)
 	}
 
@@ -130,81 +172,119 @@ The description should focus on what it does and should not contain what concept
 		$metadataCompletionEnabled &&
 		!content &&
 		(loading || focused || !!generatedContent) &&
-		!manualDisabled
+		!manualDisabled &&
+		((config.placeholderName === 'code' && !!code) ||
+			(config.placeholderName === 'flow' &&
+				Array.isArray(flow?.modules) &&
+				flow.modules.length > 0))
 
 	$: focused && (manualDisabled = false)
+
+	$: if (content) {
+		abortController.abort()
+		generatedContent = ''
+	} else {
+		manualDisabled = false
+	}
+
+	$: if (elementType === 'textarea' && el !== undefined && !content) {
+		el.style.height = Math.max(genHeight + 34, 58) + 'px'
+	}
 
 	onDestroy(() => {
 		abortController.abort()
 	})
 </script>
 
-<div class="relative">
-	<div class="flex flex-row" />
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<Label {label}>
-		<div
-			class="relative"
-			on:keydown={(event) => {
-				if (!$copilotInfo.exists_openai_resource_path || !$metadataCompletionEnabled) {
-					return
-				}
-				if (event.key === 'Tab') {
-					if (!loading && generatedContent) {
-						event.preventDefault()
-						content = generatedContent
-						generatedContent = ''
-					} else if (!loading && !content) {
-						event.preventDefault()
-						generateContent()
-					}
-				} else if (event.key === 'Escape') {
-					event.preventDefault()
-					event.stopPropagation()
-					if (loading) {
-						abortController.abort()
-					} else {
-						manualDisabled = true
-					}
-				}
-			}}
-		>
-			<div
-				class={'absolute left-0.5  flex flex-row pl-1 gap-2 items-start top-[0.3rem] pointer-events-none'}
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div
+	class={twMerge('relative', $$props.class)}
+	bind:clientWidth={width}
+	on:keydown={(event) => {
+		if (!$copilotInfo.exists_openai_resource_path || !$metadataCompletionEnabled) {
+			return
+		}
+		if (event.key === 'Tab') {
+			if (manualDisabled) {
+				event.preventDefault()
+				manualDisabled = false
+			} else if (!loading && generatedContent) {
+				event.preventDefault()
+				content = generatedContent
+				generatedContent = ''
+			} else if (!loading && !content) {
+				event.preventDefault()
+				generateContent()
+			}
+		} else if (event.key === 'Escape' && !manualDisabled) {
+			event.preventDefault()
+			event.stopPropagation()
+			if (loading) {
+				abortController.abort()
+			} else {
+				manualDisabled = true
+				generatedContent = ''
+			}
+		} else if (event.key === 'Backspace' && !loading && !content) {
+			manualDisabled = true
+			generatedContent = ''
+		}
+	}}
+>
+	<div
+		class={'absolute left-[0.5rem] top-[0.3rem] flex flex-row  gap-2 items-start  pointer-events-none'}
+	>
+		{#if active}
+			<span
+				class="absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0"
 			>
-				{#if active}
-					<span
-						class="absolute text-xs text-sky-900 bg-sky-100 dark:text-sky-200 dark:bg-gray-700 p-1 rounded-md flex flex-row items-center justify-center gap-2 w-32 shrink-0"
-					>
-						{#if loading}
-							<Loader2 class="animate-spin text-gray-500 dark:text-gray-400" size={16} />
-						{/if}
-						<div>
-							<span class="px-1 py-0.5 rounded-md text-2xs text-bold bg-white dark:bg-surface">
-								{#if loading}
-									ESC
-								{:else}
-									TAB
-								{/if}
-							</span>
-							{#if loading}
-								to cancel
-							{:else if generatedContent}
-								to accept
-							{:else}
-								to generate
-							{/if}
-						</div>
-					</span>
-					<span
-						class="text-sm leading-6 indent-[8.5rem] text-gray-500 dark:text-gray-400 pr-1"
-						bind:this={genEl}
-					>
-						{generatedContent}
-					</span>
-				{/if}
+				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
+					{#if loading}
+						ESC
+					{:else}
+						TAB
+					{/if}
+					{#if loading}
+						<Loader2 class="animate-spin" size={12} />
+					{:else if generatedContent}
+						<Check size={12} />
+					{:else}
+						<Wand2 size={12} />
+					{/if}
+				</span>
+			</span>
+			<div
+				bind:clientHeight={genHeight}
+				class={twMerge(
+					'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
+					elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
+				)}
+				style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
+			>
+				{generatedContent}
 			</div>
-			<slot {updateFocus} {active} classNames={active && !generatedContent ? '!pl-[8.7rem]' : ''} />
-		</div>
-	</Label>
+		{/if}
+	</div>
+	{#if elementType === 'textarea'}
+		<textarea
+			bind:this={el}
+			bind:value={content}
+			use:autosize
+			{...elementProps}
+			placeholder={!active ? elementProps.placeholder : ''}
+			class={active ? '!indent-[3.5rem]' : ''}
+			on:focus={() => (focused = true)}
+			on:blur={() => (focused = false)}
+		/>
+	{:else}
+		<input
+			bind:this={el}
+			bind:value={content}
+			placeholder={!active ? elementProps.placeholder : ''}
+			class={active ? '!indent-[3.5rem]' : ''}
+			on:focus={() => (focused = true)}
+			on:blur={() => (focused = false)}
+		/>
+	{/if}
+	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
 </div>

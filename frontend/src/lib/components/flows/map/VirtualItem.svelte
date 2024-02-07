@@ -170,7 +170,7 @@
 						: undefined}
 					slot="trigger"
 					type="button"
-					class=" bg-sky-100 dark:bg-gray-700 text-sky-900 dark:text-sky-200 dark:hover:bg-surface-hover border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+					class=" bg-surface text-violet-800 dark:text-violet-400 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
 				>
 					<Wand2 size={16} />
 				</button>
