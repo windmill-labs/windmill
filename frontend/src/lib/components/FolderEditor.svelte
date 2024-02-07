@@ -62,27 +62,33 @@
 		loadFolder()
 	}
 
-	async function loadFolder(): Promise<void> {
-		folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
-		can_write =
-			$userStore != undefined &&
-			(folder?.owners.includes('u/' + $userStore.username) ||
-				($userStore.is_admin ?? false) ||
-				($userStore.is_super_admin ?? false) ||
-				$userStore.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
+	let folderNotFound: boolean | undefined = undefined
 
-		perms = Array.from(
-			new Set(
-				Object.entries(folder?.extra_perms ?? {})
-					.map((x) => x[0])
-					.concat(folder?.owners ?? [])
-			)
-		).map((x) => {
-			return {
-				owner_name: x,
-				role: getRole(x)
-			}
-		})
+	async function loadFolder(): Promise<void> {
+		try {
+			folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
+			can_write =
+				$userStore != undefined &&
+				(folder?.owners.includes('u/' + $userStore.username) ||
+					($userStore.is_admin ?? false) ||
+					($userStore.is_super_admin ?? false) ||
+					$userStore.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
+
+			perms = Array.from(
+				new Set(
+					Object.entries(folder?.extra_perms ?? {})
+						.map((x) => x[0])
+						.concat(folder?.owners ?? [])
+				)
+			).map((x) => {
+				return {
+					owner_name: x,
+					role: getRole(x)
+				}
+			})
+		} catch (e) {
+			folderNotFound = true
+		}
 	}
 
 	function getRole(x: string): Role {
@@ -98,10 +104,9 @@
 			return 'viewer'
 		}
 	}
+
 	let ownerKind: 'user' | 'group' = 'user'
-
 	let groupCreated: string | undefined = undefined
-
 	let newGroupName: string = ''
 
 	async function addGroup() {
@@ -146,9 +151,9 @@
 <Section label={`Permissions (${perms?.length ?? 0})`}>
 	<div class="flex flex-col gap-6">
 		{#if can_write}
-			<Alert role="info" title="New permissions may take up to 60s to apply"
-				><span class="text-xs text-tertiary">Due to permissions cache invalidation</span></Alert
-			>
+			<Alert role="info" title="New permissions may take up to 60s to apply">
+				<span class="text-xs text-tertiary">Due to permissions cache invalidation </span>
+			</Alert>
 			<div class="flex items-center gap-1">
 				<div>
 					<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
@@ -195,6 +200,30 @@
 					Grant permission to folder
 				</Button>
 			</div>
+		{/if}
+
+		{#if folderNotFound}
+			<Alert type="warning" title="Folder not found" size="xs">
+				The folder "{name}" does not exist in the workspace. You can create it by clicking the
+				button below. An item can seemingly be in a folder given its path without the folder existing. A windmill folder has settable permissions that its children inherit. If an item is within a non-existing folders, only admins will see it.
+			</Alert>
+			<Button
+				color="light"
+				variant="border"
+				wrapperClasses="w-min"
+				startIcon={{ icon: Plus }}
+				size="xs"
+				on:click={() => {
+					FolderService.createFolder({
+						workspace: $workspaceStore ?? '',
+						requestBody: { name }
+					}).then(() => {
+						loadFolder()
+					})
+				}}
+			>
+				Create folder "{name}"
+			</Button>
 		{/if}
 		{#if perms}
 			<TableCustom>
@@ -378,7 +407,7 @@
 					</tbody>
 				</TableCustom>
 			{/if} -->
-		{:else}
+		{:else if folderNotFound === undefined}
 			<div class="flex flex-col">
 				{#each new Array(6) as _}
 					<Skeleton layout={[[2], 0.7]} />
