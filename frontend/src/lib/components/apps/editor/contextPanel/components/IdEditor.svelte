@@ -13,7 +13,6 @@
 	const dispatch = createEventDispatcher()
 	const regex = /^[a-zA-Z][a-zA-Z0-9]*$/
 	let value = id
-	let input: HTMLInputElement
 	let error = ''
 
 	$: if (!regex.test(value)) {
@@ -58,7 +57,6 @@
 				type="text"
 				bind:value
 				class="!w-auto grow"
-				bind:this={input}
 				on:click|stopPropagation={() => {}}
 				on:keydown|stopPropagation
 				on:keypress|stopPropagation={({ key }) => {
