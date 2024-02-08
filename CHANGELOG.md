@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.265.2](https://github.com/windmill-labs/windmill/compare/v1.265.1...v1.265.2) (2024-02-08)
+
+
+### Bug Fixes
+
+* Cuda image building ([#3179](https://github.com/windmill-labs/windmill/issues/3179)) ([29be502](https://github.com/windmill-labs/windmill/commit/29be5021ff9603d6cc7e302c46fb44c573967b80))
+* **frontend:** Fix tutorials + Move into itself + Disable app history… ([#3181](https://github.com/windmill-labs/windmill/issues/3181)) ([9f98caa](https://github.com/windmill-labs/windmill/commit/9f98caa072b3ac83b60e9c9b0f31d39ae072b08a))
+* handle better \u0000 in python result ([e4dc972](https://github.com/windmill-labs/windmill/commit/e4dc972d40770e5d0ffb2c2726b0053cdff7e407))
+* Improve python writeS3File perf ([#3182](https://github.com/windmill-labs/windmill/issues/3182)) ([e00e3f9](https://github.com/windmill-labs/windmill/commit/e00e3f9d2d65b81cdf8abf7500deb5b4f5ecf607))
+
 ## [1.265.1](https://github.com/windmill-labs/windmill/compare/v1.265.0...v1.265.1) (2024-02-07)
 
 
