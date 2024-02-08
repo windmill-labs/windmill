@@ -876,11 +876,11 @@ impl<R: AsyncRead> AsyncRead for ProgressReadAdapter<R> {
         match this.interval.poll_tick(cx) {
             Poll::Pending => {}
             Poll::Ready(_) => {
-                tracing::info!("read {} bytes for s3 upload", *this.interval_bytes * 10);
+                *this.total_bytes += *this.interval_bytes;
+                tracing::info!("uploaded {} bytes for s3 upload", *this.total_bytes);
                 *this.interval_bytes = 0;
             }
         };
-        *this.total_bytes += *this.interval_bytes;
 
         #[cfg(not(feature = "enterprise"))]
         if *this.total_bytes > 50 * 1024 * 1024 {
