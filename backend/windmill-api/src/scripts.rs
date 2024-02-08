@@ -610,6 +610,8 @@ async fn create_script(
     if needs_lock_gen {
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
             Some(format!("{}:{}", &w_id, &ns.path,))
+        } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
+            None
         } else {
             ns.tag
         };
