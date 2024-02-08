@@ -436,6 +436,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: false
+          file: "./docker/DockerfileCuda"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
