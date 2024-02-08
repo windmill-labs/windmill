@@ -1307,7 +1307,7 @@
 			size="xs"
 			disabled={$page.params.path !== undefined && !savedApp}
 		>
-			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+			Draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 		</Button>
 		<Button
 			loading={loading.save}

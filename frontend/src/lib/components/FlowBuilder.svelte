@@ -1110,7 +1110,7 @@
 						on:click={() => saveDraft()}
 						disabled={!newFlow && !savedFlow}
 					>
-						Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+						Draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 					</Button>
 					<Button
 						loading={loadingSave}
