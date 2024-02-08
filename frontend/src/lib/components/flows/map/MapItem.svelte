@@ -30,7 +30,7 @@
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
-	export let disableAi: boolean | undefined = false
+	export let disableAi: boolean = false
 	export let wrapperId: string | undefined = undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
