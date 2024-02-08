@@ -2402,7 +2402,7 @@ async fn compute_next_flow_transform(
                     };
                     let itered = serde_json::from_str::<Vec<serde_json::Value>>(itered_raw.get())
                         .map_err(|not_array| {
-                        Error::ExecutionErr(format!("Expected an array value, found: {not_array}"))
+                        Error::ExecutionErr(format!("Expected an array value in the iterator expression, found: {not_array}"))
                     })?;
 
                     if itered.is_empty() {
