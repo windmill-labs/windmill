@@ -6,7 +6,7 @@ env:
 name: Build windmill:main
 on:
   push:
-    branches: [main]
+    branches: [main, gbouv/pin-ee-repo]
     tags: ["*"]
 
 concurrency:
@@ -61,18 +61,18 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Build and push publicly
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-            ${{ steps.meta-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-public.outputs.labels }}
-            org.opencontainers.image.licenses=AGPLv3
+      # - name: Build and push publicly
+      #   uses: depot/build-push-action@v1
+      #   with:
+      #     context: .
+      #     platforms: linux/amd64,linux/arm64
+      #     push: true
+      #     tags: |
+      #       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+      #       ${{ steps.meta-public.outputs.tags }}
+      #     labels: |
+      #       ${{ steps.meta-public.outputs.labels }}
+      #       org.opencontainers.image.licenses=AGPLv3
 
   build_ee:
     runs-on: ubicloud
@@ -81,10 +81,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get EE repo commit hash
+        id: get_ee_repo_ref
+        run: |
+          echo "repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v3
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
+          ref: ${{ env.repo_ref }}
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
@@ -116,21 +122,21 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
-      - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            features=enterprise,enterprise_saml,stripe
-            nsjail=true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
+      # - name: Build and push publicly ee
+      #   uses: depot/build-push-action@v1
+      #   with:
+      #     context: .
+      #     platforms: linux/amd64,linux/arm64
+      #     push: true
+      #     build-args: |
+      #       features=enterprise,enterprise_saml,stripe
+      #       nsjail=true
+      #     tags: |
+      #       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+      #       ${{ steps.meta-ee-public.outputs.tags }}
+      #     labels: |
+      #       ${{ steps.meta-ee-public.outputs.labels }}
+      #       org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   build_ee_reports_privately:
     needs: [build_ee]
@@ -165,18 +171,18 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Build and push publicly ee reports
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          file: "./docker/DockerfileReports"
-          tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
+      # - name: Build and push publicly ee reports
+      #   uses: depot/build-push-action@v1
+      #   with:
+      #     context: .
+      #     platforms: linux/amd64
+      #     push: true
+      #     file: "./docker/DockerfileReports"
+      #     tags: |
+      #       ${{ steps.meta-ee-public.outputs.tags }}
+      #     labels: |
+      #       ${{ steps.meta-ee-public.outputs.labels }}
+      #       org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   # disabled until we make it 100% reliable and add more meaningful tests
   # playwright:
@@ -314,38 +320,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      # - name: Login to ECR
+      #   if: github.event_name != 'pull_request'
+      #   uses: docker/login-action@v2
+      #   with:
+      #     registry: ${{ env.ECR_REGISTRY }}
+      #     username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Push image to ECR
-        if: github.event_name != 'pull_request'
-        id: push_ecr
-        run: |
-          git_hash=$(git rev-parse --short "$GITHUB_SHA")
-          docker buildx imagetools create \
-            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
+      # - name: Push image to ECR
+      #   if: github.event_name != 'pull_request'
+      #   id: push_ecr
+      #   run: |
+      #     git_hash=$(git rev-parse --short "$GITHUB_SHA")
+      #     docker buildx imagetools create \
+      #       --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
+      #       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+      #     echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
 
-      - uses: shrink/actions-docker-extract@v3
-        if: github.event_name != 'pull_request'
-        id: extract
-        with:
-          image: |-
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
-          path: "/static_frontend/."
+      # - uses: shrink/actions-docker-extract@v3
+      #   if: github.event_name != 'pull_request'
+      #   id: extract
+      #   with:
+      #     image: |-
+      #       ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
+      #     path: "/static_frontend/."
 
-      - uses: reggionick/s3-deploy@v3
-        if: github.event_name != 'pull_request'
-        with:
-          folder: ${{ steps.extract.outputs.destination }}
-          bucket: windmill-frontend
-          bucket-region: us-east-1
+      # - uses: reggionick/s3-deploy@v3
+      #   if: github.event_name != 'pull_request'
+      #   with:
+      #     folder: ${{ steps.extract.outputs.destination }}
+      #     bucket: windmill-frontend
+      #     bucket-region: us-east-1
 
   run_integration_test:
     runs-on: ubicloud
@@ -384,10 +390,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tag main and latest
-        run: |
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+      # - name: Tag main and latest
+      #   run: |
+      #     docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      #     docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
   tag_latest_ee:
     runs-on: ubicloud
@@ -402,10 +408,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tag main and latest for ee
-        run: |
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+      # - name: Tag main and latest for ee
+      #   run: |
+      #     docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+      #     docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
 
   build_ee_cuda:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
@@ -441,15 +447,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          file: "./docker/DockerfileCuda"
-          tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
+      # - name: Build and push publicly ee
+      #   uses: depot/build-push-action@v1
+      #   with:
+      #     context: .
+      #     platforms: linux/amd64,linux/arm64
+      #     push: true
+      #     file: "./docker/DockerfileCuda"
+      #     tags: |
+      #       ${{ steps.meta-ee-public.outputs.tags }}
+      #     labels: |
+      #       ${{ steps.meta-ee-public.outputs.labels }}
+      #       org.opencontainers.image.licenses=Windmill-Enterprise-License
