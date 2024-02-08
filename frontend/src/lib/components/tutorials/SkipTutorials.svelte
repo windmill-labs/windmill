@@ -26,7 +26,7 @@
 		btnClasses="font-normal"
 		variant="border"
 		on:click={() => {
-			dispatch('skipThis')
+			dispatch('skipAll')
 		}}
 	>
 		Mark all tutorials as completed

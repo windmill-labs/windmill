@@ -21,7 +21,8 @@
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
 	export let center = true
-	export let disableAi = false
+	export let disableAi: boolean = false
+	export let wrapperNode: FlowModule | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -116,6 +117,7 @@
 					}
 				}}
 				type="button"
+				disabled={wrapperNode?.id === moving}
 				class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 			>
 				<ClipboardCopy size={12} />
