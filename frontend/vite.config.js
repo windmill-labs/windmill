@@ -1,7 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
-import monacoEditorPlugin from 'vite-plugin-monaco-editor'
 import circleDependency from 'vite-plugin-circular-dependency'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
@@ -33,20 +32,7 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [
-		sveltekit(),
-		monacoEditorPlugin.default({
-			publicPath: 'workers',
-			languageWorkers: [],
-			customWorkers: [
-				{
-					label: 'graphql',
-					entry: 'monaco-graphql/esm/graphql.worker'
-				}
-			]
-		}),
-		circleDependency({ circleImportThrowErr: false })
-	],
+	plugins: [sveltekit(), circleDependency({ circleImportThrowErr: false })],
 	define: {
 		__pkg__: version
 	},
