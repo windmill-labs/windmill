@@ -74,7 +74,6 @@
 				<Alert
 					type="info"
 					title="For loops"
-					tooltip="For loops"
 					documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 					class="mb-4"
 				>
@@ -136,6 +135,7 @@
 									editor?.insertAtCursor(detail)
 									editor?.focus()
 								}}
+								noPadding
 							>
 								<SimpleEditor
 									bind:this={editor}

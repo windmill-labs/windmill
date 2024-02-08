@@ -611,7 +611,8 @@
 			icon: History,
 			action: () => {
 				historyBrowserDrawerOpen = true
-			}
+			},
+			disabled: !savedApp
 		},
 		{
 			displayName: 'Export',

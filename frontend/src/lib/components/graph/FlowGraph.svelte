@@ -216,7 +216,8 @@
 		edgeLabel: string | undefined,
 		loopDepth: number,
 		insertableEnd: boolean,
-		modules: FlowModule[]
+		modules: FlowModule[],
+		wrapper: FlowModule | undefined = undefined
 	): GraphItem | undefined {
 		const type = module.value.type
 		const parentIds = getParentIds(parent)
@@ -257,7 +258,8 @@
 			loopDepth,
 			insertableEnd,
 			false,
-			modules
+			modules,
+			wrapper
 		)
 	}
 
@@ -300,7 +302,8 @@
 		loopDepth: number,
 		insertableEnd: boolean,
 		branchable: boolean,
-		modules: FlowModule[]
+		modules: FlowModule[],
+		wrapper: FlowModule | undefined = undefined
 	): Node {
 		return {
 			type: 'node',
@@ -320,7 +323,8 @@
 						annotation,
 						modules,
 						moving,
-						disableAi
+						disableAi,
+						wrapperId: wrapper?.id
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -379,6 +383,7 @@
 			]
 		}
 		const innerModules = module.value.modules
+
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
@@ -391,17 +396,20 @@
 				false,
 				undefined,
 				undefined,
-				undefined
+				undefined,
+				true,
+				module
 			)
 		)
-		innerModules.forEach((module, i) => {
+		innerModules.forEach((innerModule, i) => {
 			const item = getConvertedFlowModule(
-				module,
+				innerModule,
 				loop.items,
 				undefined,
 				loopDepth + 1,
 				i + 1 == innerModules?.length,
-				innerModules
+				innerModules,
+				module
 			)
 			item && loop.items.push(item)
 		})
@@ -432,6 +440,7 @@
 		loopDepth: number,
 		branchall: boolean
 	): Branch | Node {
+		const wrapper = JSON.parse(JSON.stringify(module))
 		const node = flowModuleToNode(
 			getParentIds(parent),
 			module,
@@ -464,6 +473,7 @@
 
 		branches.forEach(({ summary, modules, removable }, i) => {
 			const items: NestedNodes = []
+
 			items.push(
 				createVirtualNode(
 					branchParent,
@@ -477,18 +487,20 @@
 					removable ? { module, index: i } : undefined,
 					undefined,
 					undefined,
-					false
+					false,
+					wrapper
 				)
 			)
 			if (modules.length) {
-				modules.forEach((module, j) => {
+				modules.forEach((innerModule, j) => {
 					const item = getConvertedFlowModule(
-						module,
+						innerModule,
 						items,
 						undefined,
 						loopDepth,
 						j + 1 == modules?.length,
-						modules
+						modules,
+						module
 					)
 					item && items.push(item)
 				})
@@ -642,9 +654,11 @@
 		deleteBranch: { module: FlowModule; index: number } | undefined,
 		mid: string | undefined,
 		fixed_id: string | undefined,
-		center: boolean = true
+		center: boolean = true,
+		wrapperNode: FlowModule | undefined = undefined
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
+
 		return {
 			type: 'node',
 			id: id.toString(),
@@ -674,7 +688,8 @@
 						id: mid,
 						moving,
 						center,
-						disableAi
+						disableAi,
+						wrapperNode
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {

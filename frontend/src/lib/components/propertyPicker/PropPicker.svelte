@@ -9,6 +9,7 @@
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
 	import type { PickableProperties } from '../flows/previousResults'
+	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 
 	export let pickableProperties: PickableProperties
 	export let displayContext = true
@@ -79,12 +80,7 @@
 				{/if}
 			</div>
 		{/if}
-		<input
-			type="text"
-			bind:value={search}
-			class="bg-gray-50 mt-2 border border-gray-300 text-primary text-sm rounded-lg block mb-2 w-full"
-			placeholder="Search prop..."
-		/>
+		<ClearableInput bind:value={search} placeholder="Search prop..." wrapperClass="py-2" />
 	</div>
 	<div
 		class="overflow-y-auto px-2 pt-2 grow"

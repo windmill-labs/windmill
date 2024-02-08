@@ -38,13 +38,13 @@
 			</thead>
 			<tbody>
 				{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
-					<tr>
-						<td class="whitespace-nowrap px-4 text-xs">
+					<tr class="">
+						<td class="whitespace-nowrap px-2 text-xs">
 							<Badge color="indigo">{id}</Badge>
 						</td>
 						<td class="relative whitespace-nowrap px-4">
 							<Toggle
-								class="windmillapp"
+								class="windmillapp my-1"
 								size="xs"
 								on:change={(e) => onChange(e.detail, id)}
 								checked={recomputeIds?.includes(id)}
