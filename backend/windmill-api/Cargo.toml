@@ -10,8 +10,8 @@ path = "src/lib.rs"
 
 [features]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "openidconnect"]
-enterprise_saml = ["samael"]
 stripe = ["async-stripe"]
+enterprise_saml = ["samael"]
 benchmark = []
 
 [dependencies]
