@@ -1,1 +1,0 @@
-cp -r node_modules/monaco-editor-workers/dist/workers static
