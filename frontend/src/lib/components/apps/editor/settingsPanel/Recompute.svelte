@@ -38,7 +38,7 @@
 			</thead>
 			<tbody>
 				{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
-					<tr class="">
+					<tr>
 						<td class="whitespace-nowrap px-2 text-xs">
 							<Badge color="indigo">{id}</Badge>
 						</td>
