@@ -30,7 +30,8 @@
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
-	export let disableAi
+	export let disableAi: boolean = false
+	export let wrapperId: string | undefined = undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -80,6 +81,7 @@
 						dispatch('insert', { modules, index: idx, detail: 'move' })
 					}}
 					type="button"
+					disabled={wrapperId === moving}
 					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
 					<ClipboardCopy class="m-[5px]" size={15} />
@@ -227,6 +229,7 @@
 						dispatch('insert', { modules, index: idx + 1, detail: 'move' })
 					}}
 					type="button"
+					disabled={wrapperId === moving}
 					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
 					<ClipboardCopy class="m-[5px]" size={15} />

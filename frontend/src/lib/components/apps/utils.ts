@@ -264,6 +264,9 @@ declare const file: File | undefined;
 /** The group fields within the context of a container's group */
 declare const group: Record<string, any>;
 
+/** The result within the context of a transformer */
+declare const result: any;
+
 `
 }
 
