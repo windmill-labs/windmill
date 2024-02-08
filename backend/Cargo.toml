@@ -198,7 +198,9 @@ tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
-samael = { version = "0.0.14", features = ["xmlsec"] }
+# samael will break compilation on MacOS. Use this fork instead to make it work
+# samael = { git="https://github.com/gbouv/samael", rev="2344211ed0ac041a86222b38b928adfc1030cb94", features = ["xmlsec"] }
+samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
