@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.265.3](https://github.com/windmill-labs/windmill/compare/v1.265.2...v1.265.3) (2024-02-08)
+
+
+### Bug Fixes
+
+* ai builder colors ([b9c0eda](https://github.com/windmill-labs/windmill/commit/b9c0eda16874ee7a85a63872ea20636f64a48c90))
+
 ## [1.265.2](https://github.com/windmill-labs/windmill/compare/v1.265.1...v1.265.2) (2024-02-08)
 
 
