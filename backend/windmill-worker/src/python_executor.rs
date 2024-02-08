@@ -286,7 +286,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bNaN\b')
+replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 try:
     res = inner_script.main(**args)
     typ = type(res)
@@ -998,7 +998,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bNaN\b')
+replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 sys.stdout.write('start\n')
 
 for line in sys.stdin:
