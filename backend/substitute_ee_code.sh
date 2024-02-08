@@ -52,7 +52,7 @@ echo "EE code directory = ${EE_CODE_DIR} | Revert = ${REVERT}"
 
 
 if [ ! -d "${EE_CODE_DIR}" ]; then
-  echo "Windmill EE repo not found, please clone it next to this repository and try again"
+  echo "Windmill EE repo not found, please clone it next to this repository (or use the --dir option) and try again"
   echo ">   git clone git@github.com:windmill-labs/windmill-ee-private.git"
   echo ""
   exit 0
