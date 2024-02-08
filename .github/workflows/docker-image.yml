@@ -26,6 +26,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
       - uses: depot/setup-action@v1
@@ -36,6 +43,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Docker meta
         id: meta-public
@@ -50,18 +61,18 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      # - name: Build and push publicly
-      #   uses: depot/build-push-action@v1
-      #   with:
-      #     context: .
-      #     platforms: linux/amd64,linux/arm64
-      #     push: true
-      #     tags: |
-      #       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-      #       ${{ steps.meta-public.outputs.tags }}
-      #     labels: |
-      #       ${{ steps.meta-public.outputs.labels }}
-      #       org.opencontainers.image.licenses=AGPLv3
+      - name: Build and push publicly
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-saml:dev
+            ${{ steps.meta-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-public.outputs.labels }}
+            org.opencontainers.image.licenses=AGPLv3
 
   build_ee:
     runs-on: ubicloud
@@ -69,8 +80,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
 
       - uses: actions/checkout@v3
         with:
@@ -79,6 +88,8 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
       - uses: depot/setup-action@v1
 
       - name: Docker meta
