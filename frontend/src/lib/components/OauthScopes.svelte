@@ -5,22 +5,25 @@
 	export let scopes: string[] = []
 </script>
 
-{#each scopes as v}
-	<div class="flex flex-row max-w-md mb-2">
-		<input type="text" bind:value={v} />
-		<Button
-			variant="border"
-			color="red"
-			size="xs"
-			btnClasses="mx-6"
-			on:click={() => {
-				scopes = scopes.filter((el) => el != v)
-			}}
-			startIcon={{ icon: Minus }}
-			iconOnly
-		/>
-	</div>
-{/each}
+{#if scopes && Array.isArray(scopes)}
+	{#each scopes as v}
+		<div class="flex flex-row max-w-md mb-2">
+			<input type="text" bind:value={v} />
+			<Button
+				variant="border"
+				color="red"
+				size="xs"
+				btnClasses="mx-6"
+				on:click={() => {
+					scopes = scopes.filter((el) => el != v)
+				}}
+				startIcon={{ icon: Minus }}
+				iconOnly
+			/>
+		</div>
+	{/each}
+{/if}
+
 <div class="flex items-center mt-1">
 	<Button
 		variant="border"

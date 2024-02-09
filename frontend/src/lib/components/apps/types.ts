@@ -20,6 +20,7 @@ import type {
 	RowAppInput,
 	Runnable,
 	StaticAppInput,
+	TemplateV2AppInput,
 	UploadAppInput,
 	UserAppInput
 } from './inputType'
@@ -59,6 +60,7 @@ export type Configuration =
 	| EvalV2AppInput
 	| UploadAppInput
 	| ResultAppInput
+	| TemplateV2AppInput
 
 export type StaticConfiguration = GeneralAppInput & StaticAppInput
 export type RichConfigurationT<T> =
