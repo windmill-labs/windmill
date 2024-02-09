@@ -163,7 +163,7 @@
 		<div class="text-xs text-secondary px-2"> No other schedules </div>
 	{:else}
 		<div class="flex flex-col divide-y px-2 pt-2">
-			{#each schedules as schedule}
+			{#each schedules as schedule (schedule.path)}
 				<div class="grid grid-cols-6 text-2xs items-center py-2"
 					><div class="col-span-3 truncate">{schedule.path}</div><div>{schedule.schedule}</div>
 					<div>{schedule.enabled ? 'on' : 'off'}</div>
