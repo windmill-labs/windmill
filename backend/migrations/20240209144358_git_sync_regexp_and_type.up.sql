@@ -6,7 +6,7 @@ UPDATE workspace_settings SET git_sync = (
         ELSE jsonb_build_object(
                 'repositories', git_sync,
                 'include_path', '["f/**"]'::jsonb,
-                'include_type', '["script", "flow", "app"]'::jsonb
+                'include_type', '["script", "flow", "app", "folder"]'::jsonb
 
              )
     END
