@@ -172,8 +172,9 @@ pub async fn pip_compile(
     if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
         args.extend(["--cert", cert_path]);
     }
+    let pip_args_str = pip_args.join(" ");
     if pip_args.len() > 0 {
-        args.extend(["--pip-args", pip_args.join(" ")]);
+        args.extend(["--pip-args", &pip_args_str]);
     }
     tracing::debug!("pip-compile args: {:?}", args);
 
@@ -831,7 +832,7 @@ pub async fn handle_python_reqs(
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 command_args.extend(["--trusted-host", &host]);
             }
-            
+
             let mut envs = vec![("PATH", PATH_ENV.as_str())];
             if let Some(http_proxy) = HTTP_PROXY.as_ref() {
                 envs.push(("HTTP_PROXY", http_proxy));
@@ -842,7 +843,7 @@ pub async fn handle_python_reqs(
             if let Some(no_proxy) = NO_PROXY.as_ref() {
                 envs.push(("NO_PROXY", no_proxy));
             }
-            
+
             tracing::debug!("pip install command: {:?}", command_args);
 
             let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
