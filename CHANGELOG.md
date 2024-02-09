@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.266.0](https://github.com/windmill-labs/windmill/compare/v1.265.3...v1.266.0) (2024-02-09)
+
+
+### Features
+
+* git sync now accepts path filters and type filters ([#3189](https://github.com/windmill-labs/windmill/issues/3189)) ([e9a6c81](https://github.com/windmill-labs/windmill/commit/e9a6c8154c4fc1bf52e26251a9d75e54c511837d))
+
+
+### Bug Fixes
+
+* add --unstable-http arg to deno ([#3186](https://github.com/windmill-labs/windmill/issues/3186)) ([8d5c7c2](https://github.com/windmill-labs/windmill/commit/8d5c7c2b461ee71b8376b12f574dffff1c9f1387))
+* **frontend:** fix html component initial data ([#3188](https://github.com/windmill-labs/windmill/issues/3188)) ([6a13b97](https://github.com/windmill-labs/windmill/commit/6a13b97bc3561fe4bdeb8a02e88f80f749d906f6))
+* improve no flow overlap + schedule args loading ([6614817](https://github.com/windmill-labs/windmill/commit/6614817cd4c208eebc52955f408041b14b9dd34f))
+* improve no flow overlap + schedule args loading ([48b8520](https://github.com/windmill-labs/windmill/commit/48b8520239a591756e4573190e3fa45b57e52535))
+* improve on-boarding flow app ([4d64c94](https://github.com/windmill-labs/windmill/commit/4d64c942fced44b4ca4af2801009849d5dd1f55b))
+* Properly handle pip index urls in pip-compile ([#3192](https://github.com/windmill-labs/windmill/issues/3192)) ([b230378](https://github.com/windmill-labs/windmill/commit/b230378320336331de1c50d6fdec60da576751e6))
+
 ## [1.265.3](https://github.com/windmill-labs/windmill/compare/v1.265.2...v1.265.3) (2024-02-08)
 
 
