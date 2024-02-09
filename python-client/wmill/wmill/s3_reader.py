@@ -50,7 +50,7 @@ class S3BufferedReader(BufferedReader):
 
 def bytes_generator(buffered_reader: BufferedReader | BytesIO):
     while True:
-        byte = buffered_reader.read(1)
+        byte = buffered_reader.read(50 * 1024)
         if not byte:
             break
         yield byte
