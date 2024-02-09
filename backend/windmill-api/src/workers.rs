@@ -19,10 +19,8 @@ use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
-    global_settings::DEFAULT_TAGS_SETTING,
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, DEFAULT_TAGS_HM},
-    DB,
 };
 
 use crate::db::ApiAuthed;
@@ -109,26 +107,6 @@ async fn get_custom_tags() -> Json<Vec<String>> {
     Json(ALL_TAGS.read().await.clone().into())
 }
 
-async fn get_default_tags(Extension(db): Extension<DB>) -> JsonResult<HashMap<String, String>> {
-    let q = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        DEFAULT_TAGS_SETTING
-    )
-    .fetch_optional(&db)
-    .await?;
-
-    let tags = if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<HashMap<String, String>>(q.value.clone()) {
-            v
-        } else {
-            tracing::error!(
-                "Could not parse default tags setting as map of strings, found: {:#?}",
-                &q.value
-            );
-            DEFAULT_TAGS_HM.clone()
-        }
-    } else {
-        DEFAULT_TAGS_HM.clone()
-    };
-    Ok(Json(tags))
+async fn get_default_tags() -> JsonResult<HashMap<String, String>> {
+    Ok(Json(DEFAULT_TAGS_HM.read().await.clone()))
 }

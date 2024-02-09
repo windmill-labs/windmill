@@ -85,7 +85,7 @@
 				}}
 				disabled={newTag.trim() == '' || !$superadmin}
 			>
-				Add {#if !superadmin} <span class="text-2xs text-tertiary">EE only</span> {/if}
+				Add {#if !$superadmin} <span class="text-2xs text-tertiary">superadmin only</span> {/if}
 			</Button>
 			<span class="text-sm text-primary"
 				>Configure <a href="/workers" target="_blank" class="inline-flex gap-1 items-baseline"

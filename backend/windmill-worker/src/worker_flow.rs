@@ -1198,7 +1198,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .await?;
             if no_flow_overlap {
                 let count = sqlx::query_scalar!(
-                    "SELECT count(*) FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3",
+                    "SELECT count(*) FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
                     flow_job.id

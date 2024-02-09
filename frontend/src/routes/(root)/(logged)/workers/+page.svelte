@@ -3,6 +3,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Popup, Skeleton } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -137,6 +138,7 @@
 					>
 				</div>
 				<div><AssignableTags bind:customTags /> </div>
+				<div><DefaultTags /> </div>
 			</div>
 		{/if}
 	</PageHeader>
