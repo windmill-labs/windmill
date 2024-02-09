@@ -502,6 +502,7 @@
 						bind:itemKind
 						bind:scriptPath={script_path}
 						on:select={(e) => {
+							console.log('e.detail.path', e.detail.path)
 							loadScript(e.detail.path)
 						}}
 					/>
