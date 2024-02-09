@@ -1024,7 +1024,7 @@ export const components = {
 						accept: '*',
 						convertTo: 'base64'
 					},
-					placeholder: 'Enter URL or upload file'
+					placeholder: 'Enter URL or upload file (base64)'
 				},
 				filename: {
 					type: 'static',
@@ -2707,7 +2707,7 @@ This is a paragraph.
 						accept: 'application/pdf',
 						convertTo: 'base64'
 					},
-					placeholder: 'Enter URL or upload file'
+					placeholder: 'Enter URL or upload file (base64)'
 				},
 				zoom: {
 					fieldType: 'number',
