@@ -136,6 +136,7 @@
 									editor?.insertAtCursor(detail)
 									editor?.focus()
 								}}
+								noPadding
 							>
 								<SimpleEditor
 									bind:this={editor}

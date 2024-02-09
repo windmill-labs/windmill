@@ -1,0 +1,14 @@
+#!/bin/sh
+#
+# This file is symlinked to local .git/hooks/pre-commit by the setup-hooks.sh script
+# It wil run before every commit, so it needs to be quick and efficient. If it returns
+# a non-zero exit code, the commit will be aborted.
+
+echo "Running pre-commit hook"
+
+# This checks that there is no symlinks in the backend directory among the EE files
+./backend/check_no_symlink.sh > /dev/null
+if [ $? -ne 0 ]; then
+  echo "/!\ Symlinks detected in the backend directory. Please run './backend/substitute_ee_code.sh --revert' before committing."
+  exit 1
+fi

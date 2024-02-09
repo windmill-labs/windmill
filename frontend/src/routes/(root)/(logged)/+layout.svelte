@@ -44,22 +44,33 @@
 	let isCollapsed = false
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
+	let menuHidden = false
 
 	if ($page.status == 404) {
 		goto('/user/login')
 	}
 
-	$: {
+	$: $page.url &&
+		userSettings != undefined &&
+		superadminSettings != undefined &&
+		onQueryChangeSettings()
+	$: $page.url && onQueryChange()
+
+	function onQueryChangeSettings() {
+		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
+			userSettings.openDrawer()
+		} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+			superadminSettings.openDrawer()
+		}
+	}
+
+	function onQueryChange() {
 		let queryWorkspace = $page.url.searchParams.get('workspace')
 		if (queryWorkspace) {
 			$workspaceStore = queryWorkspace
 		}
-	}
 
-	$: if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-		userSettings.openDrawer()
-	} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
-		superadminSettings.openDrawer()
+		menuHidden = $page.url.searchParams.get('nomenubar') === 'true'
 	}
 
 	$: updateUserStore($workspaceStore)
@@ -224,41 +235,159 @@
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
 	<div>
-		{#if !$userStore?.operator}
-			<div
-				class={classNames(
-					'relative md:hidden',
-					menuOpen ? 'z-40' : 'pointer-events-none',
-					devOnly ? 'hidden' : ''
-				)}
-				role="dialog"
-				aria-modal="true"
-			>
+		{#if !menuHidden}
+			{#if !$userStore?.operator}
 				<div
 					class={classNames(
-						'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
-
-						menuOpen ? 'opacity-100' : 'opacity-0'
+						'relative md:hidden',
+						menuOpen ? 'z-40' : 'pointer-events-none',
+						devOnly ? 'hidden' : ''
 					)}
-				/>
-
-				<div class="fixed inset-0 flex z-40">
+					role="dialog"
+					aria-modal="true"
+				>
 					<div
 						class={classNames(
-							'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
-							menuOpen ? 'translate-x-0' : '-translate-x-full'
+							'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+
+							menuOpen ? 'opacity-100' : 'opacity-0'
+						)}
+					/>
+
+					<div class="fixed inset-0 flex z-40">
+						<div
+							class={classNames(
+								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
+								menuOpen ? 'translate-x-0' : '-translate-x-full'
+							)}
+						>
+							<div
+								class={classNames(
+									'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
+									menuOpen ? 'opacity-100' : 'opacity-0'
+								)}
+							>
+								<button
+									type="button"
+									on:click={() => {
+										menuOpen = !menuOpen
+									}}
+									class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+								>
+									<svg
+										class="h-6 w-6 text-white"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										aria-hidden="true"
+									>
+										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+							<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+								<div
+									class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
+									class:w-40={!isCollapsed}
+								>
+									<WindmillIcon white={true} height="20px" width="20px" />
+									{#if !isCollapsed}Windmill{/if}
+								</div>
+
+								<div class="px-2 py-4 space-y-2 border-y border-gray-500">
+									<WorkspaceMenu />
+									<FavoriteMenu {favoriteLinks} />
+								</div>
+
+								<SidebarContent {isCollapsed} />
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div
+					id="sidebar"
+					class={classNames(
+						'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
+						isCollapsed ? 'md:w-12' : 'md:w-40',
+						devOnly ? '!hidden' : ''
+					)}
+				>
+					<div
+						class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
+					>
+						<button
+							on:click={() => {
+								goto('/')
+							}}
+						>
+							<div
+								class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
+								class:w-40={!isCollapsed}
+							>
+								<div class:mr-1={!isCollapsed}>
+									<WindmillIcon white={true} height="20px" width="20px" />
+								</div>
+								{#if !isCollapsed}
+									<div class="text-sm mt-0.5 text-white"> Windmill </div>
+								{/if}
+							</div>
+						</button>
+						<div class="px-2 py-4 space-y-2 border-y border-gray-700">
+							<WorkspaceMenu {isCollapsed} />
+							<FavoriteMenu {favoriteLinks} {isCollapsed} />
+						</div>
+
+						<SidebarContent {isCollapsed} />
+
+						<div class="flex-shrink-0 flex px-4 pb-3.5">
+							<button
+								on:click={() => {
+									isCollapsed = !isCollapsed
+								}}
+							>
+								<ArrowLeft
+									size={16}
+									class={classNames(
+										'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
+										isCollapsed ? 'rotate-180' : 'rotate-0'
+									)}
+								/>
+							</button>
+						</div>
+					</div>
+				</div>
+			{:else}
+				<div class="absolute top-2 left-2 z5000">
+					<OperatorMenu {favoriteLinks} />
+				</div>
+			{/if}
+
+			<div
+				class={classNames(
+					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
+					'opacity-0'
+				)}
+			>
+				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
+					<div
+						class={classNames(
+							'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
+							'-translate-x-full'
 						)}
 					>
 						<div
 							class={classNames(
-								'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
-								menuOpen ? 'opacity-100' : 'opacity-0'
+								'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
+								'opacity-0'
 							)}
 						>
 							<button
 								type="button"
 								on:click={() => {
-									menuOpen = !menuOpen
+									// menuSlide = !menuSlide
 								}}
 								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 							>
@@ -294,123 +423,7 @@
 					</div>
 				</div>
 			</div>
-
-			<div
-				id="sidebar"
-				class={classNames(
-					'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
-					isCollapsed ? 'md:w-12' : 'md:w-40',
-					devOnly ? '!hidden' : ''
-				)}
-			>
-				<div
-					class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
-				>
-					<button
-						on:click={() => {
-							goto('/')
-						}}
-					>
-						<div
-							class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
-							class:w-40={!isCollapsed}
-						>
-							<div class:mr-1={!isCollapsed}>
-								<WindmillIcon white={true} height="20px" width="20px" />
-							</div>
-							{#if !isCollapsed}
-								<div class="text-sm mt-0.5 text-white"> Windmill </div>
-							{/if}
-						</div>
-					</button>
-					<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-						<WorkspaceMenu {isCollapsed} />
-						<FavoriteMenu {favoriteLinks} {isCollapsed} />
-					</div>
-
-					<SidebarContent {isCollapsed} />
-
-					<div class="flex-shrink-0 flex px-4 pb-3.5">
-						<button
-							on:click={() => {
-								isCollapsed = !isCollapsed
-							}}
-						>
-							<ArrowLeft
-								size={16}
-								class={classNames(
-									'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
-									isCollapsed ? 'rotate-180' : 'rotate-0'
-								)}
-							/>
-						</button>
-					</div>
-				</div>
-			</div>
-		{:else}
-			<div class="absolute top-2 left-2 z5000">
-				<OperatorMenu {favoriteLinks} />
-			</div>
 		{/if}
-
-		<div
-			class={classNames(
-				'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
-				'opacity-0'
-			)}
-		>
-			<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
-				<div
-					class={classNames(
-						'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
-						'-translate-x-full'
-					)}
-				>
-					<div
-						class={classNames(
-							'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
-							'opacity-0'
-						)}
-					>
-						<button
-							type="button"
-							on:click={() => {
-								// menuSlide = !menuSlide
-							}}
-							class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-						>
-							<svg
-								class="h-6 w-6 text-white"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								aria-hidden="true"
-							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-							</svg>
-						</button>
-					</div>
-					<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
-						<div
-							class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
-							class:w-40={!isCollapsed}
-						>
-							<WindmillIcon white={true} height="20px" width="20px" />
-							{#if !isCollapsed}Windmill{/if}
-						</div>
-
-						<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-							<WorkspaceMenu />
-							<FavoriteMenu {favoriteLinks} />
-						</div>
-
-						<SidebarContent {isCollapsed} />
-					</div>
-				</div>
-			</div>
-		</div>
 		<div
 			id="content"
 			class={classNames(

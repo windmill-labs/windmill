@@ -41,7 +41,7 @@ use windmill_common::utils::{not_found_if_none, now_from_db};
 use windmill_common::variables::build_crypt;
 
 use crate::db::ApiAuthed;
-use crate::saml::{generate_redirect_url, ServiceProviderExt};
+use crate::saml_ee::{generate_redirect_url, ServiceProviderExt};
 use crate::users::{login_externally, LoginUserInfo};
 use crate::webhook_util::{InstanceEvent, WebhookShared};
 use crate::{db::DB, variables::encrypt, workspaces::WorkspaceSettings};

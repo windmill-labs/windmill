@@ -26,6 +26,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
       - uses: depot/setup-action@v1
@@ -36,6 +43,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Docker meta
         id: meta-public
@@ -69,9 +80,21 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
-
       - uses: depot/setup-action@v1
 
       - name: Docker meta
@@ -93,6 +116,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Substitute EE code
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Build and push publicly ee
         uses: depot/build-push-action@v1
@@ -143,7 +170,7 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Build and push publicly ee
+      - name: Build and push publicly ee reports
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -393,6 +420,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
 
@@ -424,6 +452,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          file: "./docker/DockerfileCuda"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |

@@ -968,7 +968,7 @@
 						disabled={initialPath != '' && !savedScript}
 					>
 						<span class="hidden lg:flex">
-							Save draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
+							Draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 						</span>
 						<Kbd small>S</Kbd>
 					</Button>
