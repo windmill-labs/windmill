@@ -13,7 +13,7 @@
 	</p>
 	<Button
 		on:click={() => {
-			goto('/apps/get/g/all/setup_app')
+			goto('/apps/get/g/all/setup_app?nomenubar=true')
 		}}>Finish Setup</Button
 	>
 </CenteredModal>
