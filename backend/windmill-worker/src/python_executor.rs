@@ -169,6 +169,7 @@ pub async fn pip_compile(
     if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
         args.extend(["--cert", cert_path]);
     }
+    tracing::debug!("pip-compile args: {:?}", args);
 
     let mut child_cmd = Command::new("pip-compile");
     child_cmd
