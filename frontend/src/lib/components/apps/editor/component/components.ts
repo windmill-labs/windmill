@@ -65,7 +65,7 @@ import type {
 	InputConnectionEval,
 	ResultAppInput,
 	StaticAppInput,
-	TemplateV2Input
+	TemplateV2AppInput
 } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
@@ -328,7 +328,7 @@ export type PresetComponentConfig = {
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
-	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | TemplateV2Input | undefined
+	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | TemplateV2AppInput | undefined
 	configuration: StaticRichConfigurations
 	// Number of subgrids
 	numberOfSubgrids?: number
@@ -914,9 +914,15 @@ export const components = {
 			verticalAlignment: 'top',
 
 			componentInput: {
-				type: 'static',
+				type: 'templatev2',
 				fieldType: 'template',
-				value: 'Hello ${ctx.username}'
+				eval: 'Hello ${ctx.username}',
+				connections: [
+					{
+						id: 'username',
+						componentId: 'ctx'
+					}
+				] as InputConnectionEval[]
 			},
 			configuration: {
 				style: {
@@ -1312,6 +1318,7 @@ export const components = {
 		initialData: {
 			componentInput: {
 				type: 'templatev2',
+				fieldType: 'template',
 				eval: `<img
 src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
 >
@@ -1349,20 +1356,21 @@ Hello \${ctx.username}
 		name: 'Markdown',
 		icon: Heading1,
 		documentationLink: `${documentationBaseUrl}/html`,
-		dims: '1:2-1:2' as AppComponentDimensions,
+		dims: '1:2-4-4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
 		initialData: {
 			componentInput: {
-				type: 'static',
+				type: 'templatev2',
 				fieldType: 'template',
-				value: `# This is a header
+				eval: `# This is a header
 ## This is a subheader				
 This is a paragraph.
 				
 * This is a list
-* With two items`
+* With two items`,
+				connections: [] as InputConnectionEval[]
 			},
 			configuration: {
 				size: {

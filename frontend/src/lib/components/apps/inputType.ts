@@ -219,6 +219,7 @@ export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
 export type EvalV2AppInput = Extract<AppInput, { type: 'evalv2' }>
 export type StaticAppInputOnDemand = Extract<StaticAppInput, { onDemandOnly: true }>
+export type TemplateV2AppInput = Extract<AppInput, { type: 'templatev2' }>
 
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
 
