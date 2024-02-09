@@ -127,7 +127,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                 .any(|element| *element == ObjectType::Folder),
         };
 
-    tracing::warn!("Skipping git sync: {}", skip_git_sync);
+    tracing::debug!("Skipping git sync for {:?} -> {}", obj_path, skip_git_sync);
 
     let mut git_sync_job_uuids: Vec<Uuid> = vec![];
     if !skip_git_sync {
@@ -269,7 +269,7 @@ fn one_regexp_match(path: &str, regexps: Vec<String>) -> bool {
         .filter(|regexp| regexp.is_some())
         .map(|regexp| regexp.unwrap())
         .any(|regexp| regexp.is_match(path));
-    tracing::warn!(
+    tracing::debug!(
         "{} matches the set of regexps {:?} -> {}",
         path,
         regexps,
