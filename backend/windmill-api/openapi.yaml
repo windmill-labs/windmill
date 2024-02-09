@@ -3204,6 +3204,22 @@ paths:
                 items:
                   type: string
 
+  /workers/default_tags:
+    get:
+      summary: get all instance default tags
+      operationId: geDefaultTags
+      tags:
+        - worker
+      responses:
+        "200":
+          description: list of default tags
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+
   /w/{workspace}/scripts/archive/p/{path}:
     post:
       summary: archive script by path

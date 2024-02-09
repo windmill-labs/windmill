@@ -6,16 +6,16 @@
 	import { sendUserToast } from '$lib/toast'
 	import { superadmin } from '$lib/stores'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
-	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
+	import { CUSTOM_TAGS_SETTING, DEFAULT_TAGS_SETTING } from '$lib/consts'
 
 	let newTag: string = ''
 
-	export let customTags: string[] | undefined = undefined
+	export let defaultTags: Record<string, string> | undefined = undefined
 	export let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 
 	async function loadCustomTags() {
 		try {
-			customTags = (await WorkerService.getCustomTags()) ?? []
+			defaultTags = (await WorkerService.geDefaultTags()) ?? []
 		} catch (err) {
 			sendUserToast(`Could not load global cache: ${err}`, true)
 		}
@@ -43,11 +43,11 @@
 		</Button>
 	</svelte:fragment>
 	<div class="flex flex-col w-72 p-2 gap-2">
-		{#if customTags == undefined}
+		{#if defaultTags == undefined}
 			<Loader2 class="animate-spin" />
 		{:else}
 			<div class="flex flex-col gap-y-1">
-				{#each customTags as customTag}
+				{#each Object.entries(defaultTags) as customTag}
 					<div class="flex gap-0.5 items-center"
 						><div class="text-2xs p-1 rounded border text-primary">{customTag}</div>
 						<button
@@ -55,38 +55,19 @@
 							aria-label="Remove item"
 							on:click|preventDefault|stopPropagation={async () => {
 								await SettingService.setGlobal({
-									key: CUSTOM_TAGS_SETTING,
-									requestBody: { value: customTags?.filter((x) => x != customTag) }
+									key: DEFAULT_TAGS_SETTING,
+									requestBody: { value: defaultTags?.filter((x) => x != customTag) }
 								})
 								loadCustomTags()
 								sendUserToast('Tag removed')
 							}}
 						>
 							<X size={12} />
-						</button><NoWorkerWithTagWarning tag={customTag} />
+						</button>
 					</div>
 				{/each}
 			</div>
-			<input type="text" bind:value={newTag} />
 
-			<Button
-				variant="contained"
-				color="blue"
-				size="sm"
-				on:click={async () => {
-					await SettingService.setGlobal({
-						key: CUSTOM_TAGS_SETTING,
-						requestBody: {
-							value: [...(customTags ?? []), newTag.trim().replaceAll(' ', '_')]
-						}
-					})
-					loadCustomTags()
-					sendUserToast('Tag added')
-				}}
-				disabled={newTag.trim() == '' || !$superadmin}
-			>
-				Add {#if !superadmin} <span class="text-2xs text-tertiary">EE only</span> {/if}
-			</Button>
 			<span class="text-sm text-primary"
 				>Configure <a href="/workers" target="_blank" class="inline-flex gap-1 items-baseline"
 					>worker groups <ExternalLink size={12} /></a
