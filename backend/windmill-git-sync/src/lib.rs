@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
-use windmill_common::workspaces::WorkspaceGitRepo;
+use windmill_common::workspaces::{ObjectType, WorkspaceGitSyncSettings};
 
+use regex::Regex;
 use serde_json::json;
 use windmill_common::error::{Error, Result};
 use windmill_common::jobs::JobPayload;
@@ -59,23 +60,44 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     rsmq: Option<R>,
     skip_db_insert: bool,
 ) -> Result<()> {
-    let exclude_path_prefix = "u/";
-    let obj_path = if obj.get_path().starts_with(exclude_path_prefix) {
-        None
-    } else {
+    let workspace_git_repo_setting = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|err| {
+        Error::BadRequest(format!(
+            "No workspace settings found for workspace ID: {} - Error: {}",
+            w_id,
+            err.to_string()
+        ))
+    })?;
+
+    let workspace_git_sync_settings = workspace_git_repo_setting
+        .map(|conf| serde_json::from_value::<WorkspaceGitSyncSettings>(conf).ok())
+        .flatten()
+        .unwrap_or_default();
+
+    let obj_path = if one_regexp_match(
+        obj.get_path(),
+        workspace_git_sync_settings.include_path.clone(),
+    ) {
         Some(obj.get_path())
+    } else {
+        None
     };
     let obj_parent_path = if obj
         .get_parent_path()
-        .unwrap_or(exclude_path_prefix.to_string())
-        .starts_with(exclude_path_prefix)
+        .map(|p| one_regexp_match(p.as_str(), workspace_git_sync_settings.include_path))
+        .unwrap_or(false)
     {
-        None
-    } else {
         obj.get_parent_path()
+    } else {
+        None
     };
 
-    let skip_git_sync = if obj_path.is_none() && obj_parent_path.is_none() {
+    let mut skip_git_sync = if obj_path.is_none() && obj_parent_path.is_none() {
         tracing::debug!(
             "Ignoring {} from git sync as it's in a private user folder",
             obj.get_path()
@@ -85,28 +107,31 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
         false
     };
 
-    let workspace_git_repo_setting = sqlx::query_scalar!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_optional(db)
-    .await?;
+    skip_git_sync = skip_git_sync
+        || match obj {
+            DeployedObject::Script { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::Script),
+            DeployedObject::Flow { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::Flow),
+            DeployedObject::App { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::App),
+            DeployedObject::Folder { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::Folder),
+        };
 
-    if workspace_git_repo_setting.is_none() {
-        return Err(Error::InternalErr(
-            "No workspace settings found for workspace ID".to_string(),
-        ));
-    }
-
-    let workspace_git_repos = workspace_git_repo_setting
-        .unwrap()
-        .map(|conf| serde_json::from_value::<Vec<WorkspaceGitRepo>>(conf).ok())
-        .flatten()
-        .unwrap_or_default();
+    tracing::warn!("Skipping git sync: {}", skip_git_sync);
 
     let mut git_sync_job_uuids: Vec<Uuid> = vec![];
     if !skip_git_sync {
-        for workspace_git_repo in workspace_git_repos {
+        for workspace_git_repo in workspace_git_sync_settings.repositories {
             let mut args: HashMap<String, serde_json::Value> = HashMap::new();
             args.insert(
                 "repo_url_resource_path".to_string(),
@@ -235,4 +260,44 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     }
 
     return Ok(());
+}
+
+fn one_regexp_match(path: &str, regexps: Vec<String>) -> bool {
+    let has_match = regexps
+        .iter()
+        .map(|regexp| transform_regexp(regexp.to_owned()))
+        .filter(|regexp| regexp.is_some())
+        .map(|regexp| regexp.unwrap())
+        .any(|regexp| regexp.is_match(path));
+    tracing::warn!(
+        "{} matches the set of regexps {:?} -> {}",
+        path,
+        regexps,
+        has_match
+    );
+    return has_match;
+}
+
+fn transform_regexp(user_regexp: String) -> Option<Regex> {
+    // this is annoying b/c we want to replace ** with [a-zA-Z0-9_.*/]* AND THEN * with [a-zA-Z0-9_.*]* - but b/c the
+    // first replacement string contains itself '*', we can't do it naively. So, the hack is to use a different
+    // character in the replacement string, instead of '*' we use here '%', and finally we replace all '%' with '*'
+    let mut regexp = user_regexp
+        .replace("**", "[a-zA-Z0-9_.%/]%")
+        .replace("*", "[a-zA-Z0-9_.%]%");
+    regexp = regexp.replace("%", "*");
+    // Then we add ^ at the beginning and '$' at the end to match the entire string, not just a substring
+    regexp = if regexp.starts_with("^") {
+        regexp
+    } else {
+        format!("^{}", regexp)
+    };
+    regexp = if regexp.ends_with("$") {
+        regexp
+    } else {
+        format!("{}$", regexp)
+    };
+    let compiled_regexp = Regex::new(regexp.as_str()).ok();
+    tracing::debug!("Compiled regexp: {:?}", compiled_regexp);
+    return compiled_regexp;
 }

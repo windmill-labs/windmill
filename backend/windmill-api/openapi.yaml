@@ -1195,9 +1195,7 @@ paths:
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   git_sync:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/WorkspaceGitSync"
+                    $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   default_app:
                     type: string
                 required:
@@ -1540,9 +1538,7 @@ paths:
               type: object
               properties:
                 git_sync_settings:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/WorkspaceGitSync"
+                  $ref: "#/components/schemas/WorkspaceGitSyncSettings"
 
       responses:
         "200":
@@ -9507,8 +9503,29 @@ components:
         - endPoint
         - useSSL
         - pathStyle
+        -
+    WorkspaceGitSyncSettings:
+      type: object
+      properties:
+        include_path:
+          type: array
+          items:
+            type: string
+        include_type:
+          type: array
+          items:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+              - folder
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitRepositorySettings"
 
-    WorkspaceGitSync:
+    GitRepositorySettings:
       type: object
       properties:
         script_path:
