@@ -45,7 +45,7 @@ use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::build_crypt;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::workspaces::WorkspaceGitRepo;
+use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -165,7 +165,7 @@ pub struct WorkspaceSettings {
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitRepo
+    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
     pub default_app: Option<String>,
 }
 
@@ -1143,7 +1143,7 @@ async fn edit_large_file_storage_config(
 
 #[derive(Deserialize)]
 struct EditGitSyncConfig {
-    git_sync_settings: Option<Vec<WorkspaceGitRepo>>,
+    git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
 async fn edit_git_sync_config(
@@ -1177,7 +1177,7 @@ async fn edit_git_sync_config(
     .await?;
 
     if let Some(git_sync_settings) = new_config.git_sync_settings {
-        let serialized_config = serde_json::to_value::<Vec<WorkspaceGitRepo>>(git_sync_settings)
+        let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
             .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(

@@ -33,13 +33,14 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
-	import { Scroll, Slack, XCircle, RotateCw, CheckCircle2 } from 'lucide-svelte'
+	import { Scroll, Slack, XCircle, RotateCw, CheckCircle2, X, Plus } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 	import Portal from 'svelte-portal'
+	import { fade } from 'svelte/transition'
 
 	let s3FileViewer: S3FilePicker
 
@@ -64,10 +65,19 @@
 		publicResource: boolean | undefined
 	}
 	let gitSyncSettings: {
-		script_path: string
-		git_repo_resource_path: string
-		use_individual_branch: boolean
-	}[]
+		include_path: string[]
+		repositories: {
+			script_path: string
+			git_repo_resource_path: string
+			use_individual_branch: boolean
+		}[]
+		include_type: {
+			scripts: boolean
+			flows: boolean
+			apps: boolean
+			folders: boolean
+		}
+	}
 	let gitSyncTestJobs: {
 		jobId: string | undefined
 		status: 'running' | 'success' | 'failure' | undefined
@@ -208,7 +218,7 @@
 
 	async function editWindmillGitSyncSettings(): Promise<void> {
 		let alreadySeenResource: string[] = []
-		let finalSettings = gitSyncSettings.map((elmt) => {
+		let repositories = gitSyncSettings.repositories.map((elmt) => {
 			alreadySeenResource.push(elmt.git_repo_resource_path)
 			return {
 				script_path: elmt.script_path,
@@ -216,15 +226,38 @@
 				use_individual_branch: elmt.use_individual_branch
 			}
 		})
+
+		let include_path = gitSyncSettings.include_path.filter((elmt) => {
+			return !emptyString(elmt)
+		})
+
+		let include_type: ('script' | 'flow' | 'app' | 'folder')[] = []
+		if (gitSyncSettings.include_type.scripts) {
+			include_type.push('script')
+		}
+		if (gitSyncSettings.include_type.flows) {
+			include_type.push('flow')
+		}
+		if (gitSyncSettings.include_type.apps) {
+			include_type.push('app')
+		}
+		if (gitSyncSettings.include_type.folders) {
+			include_type.push('folder')
+		}
+
 		if (alreadySeenResource.some((res, index) => alreadySeenResource.indexOf(res) !== index)) {
 			sendUserToast('Same Git resource used more than once', true)
 			return
 		}
-		if (finalSettings.length > 0) {
+		if (repositories.length > 0 || include_path.length > 1 || include_path[0] !== 'f/**') {
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					git_sync_settings: finalSettings
+					git_sync_settings: {
+						repositories: repositories,
+						include_path: include_path,
+						include_type: include_type
+					}
 				}
 			})
 			sendUserToast('Workspace Git sync settings updated')
@@ -310,28 +343,45 @@
 				publicResource: undefined
 			}
 		}
-		if (
-			settings.git_sync !== undefined &&
-			settings.git_sync !== null &&
-			settings.git_sync.length > 0
-		) {
-			gitSyncSettings = settings.git_sync.map((settings) => {
-				return {
-					git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
-					script_path: settings.script_path,
-					use_individual_branch: settings.use_individual_branch ?? false
+		if (settings.git_sync !== undefined && settings.git_sync !== null) {
+			gitSyncTestJobs = []
+			gitSyncSettings = {
+				include_path:
+					settings.git_sync.include_path?.length ?? 0 > 0
+						? settings.git_sync.include_path ?? []
+						: ['f/**'],
+				repositories: (settings.git_sync.repositories ?? []).map((settings) => {
+					gitSyncTestJobs.push({
+						jobId: undefined,
+						status: undefined
+					})
+					return {
+						git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
+						script_path: settings.script_path,
+						use_individual_branch: settings.use_individual_branch ?? false
+					}
+				}),
+				include_type: {
+					scripts: (settings.git_sync.include_type?.indexOf('script') ?? -1) >= 0,
+					flows: (settings.git_sync.include_type?.indexOf('flow') ?? -1) >= 0,
+					apps: (settings.git_sync.include_type?.indexOf('app') ?? -1) >= 0,
+					folders: (settings.git_sync.include_type?.indexOf('folder') ?? -1) >= 0
 				}
-			})
-			gitSyncTestJobs = settings.git_sync.map((settings) => {
-				return {
-					jobId: undefined,
-					status: undefined
-				}
-			})
+			}
 		} else {
-			gitSyncSettings = []
+			gitSyncSettings = {
+				include_path: ['f/**'],
+				repositories: [],
+				include_type: {
+					scripts: true,
+					flows: true,
+					apps: true,
+					folders: true
+				}
+			}
 			gitSyncTestJobs = []
 		}
+		console.log(gitSyncSettings)
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
@@ -381,15 +431,15 @@
 	}
 
 	async function runGitSyncTestJob(settingsIdx: number) {
-		let gitSyncSettingsElmt = gitSyncSettings[settingsIdx]
-		if (emptyString(gitSyncSettingsElmt.script_path)) {
+		let gitSyncRepository = gitSyncSettings.repositories[settingsIdx]
+		if (emptyString(gitSyncRepository.script_path)) {
 			return
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
 			path: 'hub/7925/git-repo-test-read-write-windmill',
 			requestBody: {
-				repo_url_resource_path: gitSyncSettingsElmt.git_repo_resource_path.replace('$res:', '')
+				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}
 		})
 		gitSyncTestJobs[settingsIdx] = {
@@ -852,28 +902,19 @@
 					scripts, flows and apps to the repository on each deploy.
 				</div>
 			</div>
-			<br />
 			{#if !$enterpriseLicense}
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
 				<div class="mb-1" />
 			{/if}
-			<Alert
-				type="info"
-				title="Scripts, flows and apps in the user private folders will be ignored"
-			>
-				All scripts, flows and apps located in the workspace will be pushed to the Git repository,
-				except the ones that are saved in private user folders (i.e. where the path starts with
-				`u/`, use those with `f/` instead).
-				<br />
-				Filtering out certain sensitive folders from the sync will be available soon.
-			</Alert>
 			{#if $enterpriseLicense}
 				<div class="flex mt-5 mb-5 gap-1">
 					<Button
 						color="blue"
-						disabled={gitSyncSettings?.some((elmt) => emptyString(elmt.git_repo_resource_path))}
+						disabled={gitSyncSettings.repositories.some((elmt) =>
+							emptyString(elmt.git_repo_resource_path)
+						)}
 						on:click={() => {
 							editWindmillGitSyncSettings()
 							console.log('Saving git sync settings', gitSyncSettings)
@@ -881,32 +922,111 @@
 					>
 				</div>
 			{/if}
-			{#if Array.isArray(gitSyncSettings)}
-				{#each gitSyncSettings as gitSyncSettingsElmt, idx}
-					<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
-						<h6>Repository #{idx + 1}</h6>
+
+			<div class="flex flex-wrap gap-20">
+				<div class="max-w-md w-full">
+					{#if Array.isArray(gitSyncSettings.include_path)}
+						<h4 class="flex gap-2 mb-4"
+							>Filter on path<Tooltip>
+								Only scripts, flows and apps with their path matching one of those filters will be
+								synced to the Git repositories below. The filters allow '*'' and '**' characters,
+								with '*'' matching any character allowed in paths until the next slash (/) and '**'
+								matching anything including slashes.
+								<br />By default everything in folders will be synced.
+							</Tooltip></h4
+						>
+						{#each gitSyncSettings.include_path as gitSyncRegexpPath, idx}
+							<div class="flex mt-1 items-center">
+								<input type="text" bind:value={gitSyncRegexpPath} id="arg-input-array" />
+								<button
+									transition:fade|local={{ duration: 100 }}
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+									aria-label="Clear"
+									on:click={() => {
+										gitSyncSettings.include_path.splice(idx, 1)
+										gitSyncSettings.include_path = [...gitSyncSettings.include_path]
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+					{/if}
+					<div class="flex mt-2">
 						<Button
+							variant="border"
 							color="light"
 							size="xs"
-							startIcon={{ icon: XCircle }}
-							iconOnly={true}
+							btnClasses="mt-1"
 							on:click={() => {
-								gitSyncSettings.splice(idx, 1)
-								gitSyncSettings = [...gitSyncSettings]
+								gitSyncSettings.include_path = [...gitSyncSettings.include_path, '']
 							}}
+							id="git-sync-add-path-filter"
+							startIcon={{ icon: Plus }}
+						>
+							Add filter
+						</Button>
+					</div>
+				</div>
+
+				<div class="max-w-md w-full">
+					<h4 class="flex gap-2 mb-4"
+						>Filter on type<Tooltip>
+							On top of the filter path above, you can include only certain type of object to be
+							synced with the Git repository.
+							<br />By default everything is synced.
+						</Tooltip></h4
+					>
+					<div class="flex flex-col gap-1 mt-1">
+						<Toggle
+							bind:checked={gitSyncSettings.include_type.scripts}
+							options={{ right: 'Scripts' }}
+						/>
+						<Toggle
+							bind:checked={gitSyncSettings.include_type.flows}
+							options={{ right: 'Flows' }}
+						/>
+						<Toggle bind:checked={gitSyncSettings.include_type.apps} options={{ right: 'Apps' }} />
+						<Toggle
+							bind:checked={gitSyncSettings.include_type.folders}
+							options={{ right: 'Folders' }}
 						/>
 					</div>
+				</div>
+			</div>
+
+			<h4 class="flex gap-2 mt-5 mb-5"
+				>Repositories to sync<Tooltip>
+					The changes will be deployed to all the repositories set below.
+				</Tooltip></h4
+			>
+			{#if Array.isArray(gitSyncSettings.repositories)}
+				{#each gitSyncSettings.repositories as gitSyncRepository, idx}
+					<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
+						<h6>Repository #{idx + 1}</h6>
+						<button
+							transition:fade|local={{ duration: 100 }}
+							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+							aria-label="Clear"
+							on:click={() => {
+								gitSyncSettings.repositories.splice(idx, 1)
+								gitSyncSettings.repositories = [...gitSyncSettings.repositories]
+							}}
+						>
+							<X size={14} />
+						</button>
+					</div>
 					<div class="flex mt-5 mb-1 gap-1">
-						{#key gitSyncSettingsElmt}
+						{#key gitSyncRepository}
 							<ResourcePicker
 								resourceType="git_repository"
-								initialValue={gitSyncSettingsElmt.git_repo_resource_path}
+								initialValue={gitSyncRepository.git_repo_resource_path}
 								on:change={(ev) => {
-									gitSyncSettingsElmt.git_repo_resource_path = ev.detail
+									gitSyncRepository.git_repo_resource_path = ev.detail
 								}}
 							/>
 							<Button
-								disabled={emptyString(gitSyncSettingsElmt.script_path)}
+								disabled={emptyString(gitSyncRepository.script_path)}
 								btnClasses="w-32 text-center"
 								color="dark"
 								on:click={() => runGitSyncTestJob(idx)}
@@ -915,7 +1035,7 @@
 						{/key}
 					</div>
 					<div class="flex mb-5 text-normal text-2xs gap-1">
-						{#if gitSyncSettings.filter((settings) => settings.git_repo_resource_path === gitSyncSettingsElmt.git_repo_resource_path).length > 1}
+						{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === gitSyncRepository.git_repo_resource_path).length > 1}
 							<span class="text-red-700">Using the same resource twice is not allowed.</span>
 						{/if}
 						{#if gitSyncTestJobs[idx].status !== undefined}
@@ -939,12 +1059,12 @@
 					<div class="flex mt-5 mb-1 gap-1">
 						{#if gitSyncSettings}
 							<Toggle
-								disabled={emptyString(gitSyncSettingsElmt?.git_repo_resource_path)}
-								bind:checked={gitSyncSettingsElmt.use_individual_branch}
+								disabled={emptyString(gitSyncRepository.git_repo_resource_path)}
+								bind:checked={gitSyncRepository.use_individual_branch}
 								options={{
-									right: 'Create one branch per deployed script/flow/app',
+									right: 'Create one branch per deployed object',
 									rightTooltip:
-										"If set, Windmill will create a unique branch per script/flow/app being pushed, prefixed with 'wm_deploy/'."
+										"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
 								}}
 							/>
 						{/if}
@@ -956,11 +1076,13 @@
 				<Button
 					color="none"
 					variant="border"
+					size="xs"
+					btnClasses="mt-1"
 					on:click={() => {
-						gitSyncSettings = [
-							...gitSyncSettings,
+						gitSyncSettings.repositories = [
+							...gitSyncSettings.repositories,
 							{
-								script_path: 'hub/7953/sync-script-to-git-repo-windmill',
+								script_path: 'hub/7954/sync-script-to-git-repo-windmill',
 								git_repo_resource_path: '',
 								use_individual_branch: false
 							}
@@ -972,22 +1094,12 @@
 								status: undefined
 							}
 						]
-					}}>Add connection</Button
+					}}
+					id="git-sync-add-connection"
+					startIcon={{ icon: Plus }}
 				>
-				<Button
-					color="none"
-					variant="border"
-					on:click={() => {
-						gitSyncSettings = [...gitSyncSettings.slice(0, -1)]
-						gitSyncTestJobs = [
-							...gitSyncTestJobs,
-							{
-								jobId: undefined,
-								status: undefined
-							}
-						]
-					}}>Delete connection</Button
-				>
+					Add connection
+				</Button>
 			</div>
 
 			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
