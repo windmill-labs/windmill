@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.265.1
+  version: 1.265.3
   title: Windmill API
   contact:
     name: Windmill Team
@@ -10188,7 +10188,6 @@ paths:
                     - endPoint
                     - useSSL
                     - pathStyle
-                    - null
       responses:
         '200':
           description: Connection settings

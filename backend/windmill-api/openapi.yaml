@@ -9503,7 +9503,7 @@ components:
         - endPoint
         - useSSL
         - pathStyle
-        -
+
     WorkspaceGitSyncSettings:
       type: object
       properties:
