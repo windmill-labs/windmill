@@ -9293,6 +9293,7 @@ dependencies = [
 name = "windmill-git-sync"
 version = "1.265.3"
 dependencies = [
+ "regex",
  "rsmq_async",
  "serde",
  "serde_json",
