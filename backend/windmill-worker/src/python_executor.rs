@@ -151,6 +151,7 @@ pub async fn pip_compile(
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
+    let mut pip_args = vec![];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL
         .read()
         .await
@@ -158,16 +159,21 @@ pub async fn pip_compile(
         .map(handle_ephemeral_token);
     if let Some(url) = pip_extra_index_url.as_ref() {
         args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
+        pip_args.push(format!("--extra-index-url {}", url));
     }
     let pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
     if let Some(url) = pip_index_url.as_ref() {
         args.extend(["--index-url", url, "--no-emit-index-url"]);
+        pip_args.push(format!("--index-url {}", url));
     }
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
     if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
         args.extend(["--cert", cert_path]);
+    }
+    if pip_args.len() > 0 {
+        args.extend(["--pip-args", pip_args.join(" ")]);
     }
     tracing::debug!("pip-compile args: {:?}", args);
 
