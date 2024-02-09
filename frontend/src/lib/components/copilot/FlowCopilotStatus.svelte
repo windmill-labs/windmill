@@ -38,7 +38,7 @@
 				$currentStepStore !== undefined ? 'z-[901]' : '',
 				copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
 					? ''
-					: '!text-violet-800 !dark:text-violet-400'
+					: '!text-violet-800 dark:!text-violet-400'
 			)}
 			on:click={() => {
 				if (copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')) {

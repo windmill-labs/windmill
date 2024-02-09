@@ -47,6 +47,13 @@ export type FlowCopilotContext = {
 	shouldUpdatePropertyType: Writable<{
 		[key: string]: 'static' | 'javascript' | undefined
 	}>
+	stepInputsLoading: Writable<boolean>
+	generatedExprs: Writable<{
+		[key: string]: string | undefined
+	}>
+	exprsToSet: Writable<{
+		[key: string]: InputTransform | undefined
+	}>
 }
 
 const systemPrompt = `You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.

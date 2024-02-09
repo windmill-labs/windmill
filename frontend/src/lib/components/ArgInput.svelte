@@ -416,6 +416,9 @@
 														on:focus={() => {
 															dispatch('focus')
 														}}
+														on:blur={(e) => {
+															dispatch('blur')
+														}}
 														{defaultValue}
 														{valid}
 														{disabled}
@@ -489,6 +492,9 @@
 							on:focus={(e) => {
 								dispatch('focus')
 							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
 							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
 							bind:value
 						/>
@@ -540,6 +546,9 @@
 						on:focus={(e) => {
 							dispatch('focus')
 						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
 						code={rawValue}
 						bind:value
 					/>
@@ -564,6 +573,9 @@
 					<SimpleEditor
 						on:focus={(e) => {
 							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
 						}}
 						bind:this={editor}
 						lang={inputCat}
@@ -617,6 +629,9 @@
 									bind:this={el}
 									on:focus={(e) => {
 										dispatch('focus')
+									}}
+									on:blur={(e) => {
+										dispatch('blur')
 									}}
 									use:autosize
 									on:keydown={onKeyDown}

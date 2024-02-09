@@ -82,3 +82,19 @@ export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python
 		return '\n' + result.join('\n\n')
 	}
 }
+
+export function removeKeys(obj: any, keys: string[]) {
+	if (obj && typeof obj === 'object') {
+		for (const key of keys) {
+			delete obj[key]
+		}
+		for (const key in obj) {
+			removeKeys(obj[key], keys)
+		}
+	} else if (Array.isArray(obj)) {
+		for (const item of obj) {
+			removeKeys(item, keys)
+		}
+	}
+	return obj
+}

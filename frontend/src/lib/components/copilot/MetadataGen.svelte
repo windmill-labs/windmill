@@ -10,6 +10,7 @@
 	import autosize from 'svelte-autosize'
 	import type { FlowValue } from '$lib/gen'
 	import YAML from 'yaml'
+	import { removeKeys } from './utils'
 
 	type PromptConfig = {
 		system: string
@@ -77,16 +78,6 @@ Generate a description for the flow below:
 		}
 	}
 
-	function removeLocks(obj: any) {
-		if (obj && typeof obj === 'object') {
-			delete obj.lock
-			for (const key in obj) {
-				removeLocks(obj[key])
-			}
-		}
-		return obj
-	}
-
 	export let content: string | undefined
 	export let code: string | undefined = undefined
 	export let flow: FlowValue | undefined = undefined
@@ -111,7 +102,7 @@ Generate a description for the flow below:
 		abortController = new AbortController()
 		loading = true
 		try {
-			const placeholderContent = flow ? YAML.stringify(removeLocks(flow)) : code
+			const placeholderContent = flow ? YAML.stringify(removeKeys(flow, ['lock'])) : code
 
 			if (!placeholderContent) {
 				sendUserToast('Could not generate summary: no content to generate from', true)

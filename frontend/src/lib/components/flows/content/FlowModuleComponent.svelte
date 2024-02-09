@@ -327,10 +327,12 @@
 									>
 										<InputTransformSchemaForm
 											bind:this={inputTransformSchemaForm}
+											pickableProperties={stepPropPicker.pickableProperties}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											previousModuleId={previousModule?.id}
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
+											enableAi
 										/>
 									</PropPickerWrapper>
 								</div>
