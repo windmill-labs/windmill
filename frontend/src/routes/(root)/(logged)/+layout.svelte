@@ -50,7 +50,19 @@
 		goto('/user/login')
 	}
 
-	$: $page.url && userSettings != undefined && superadminSettings != undefined && onQueryChange()
+	$: $page.url &&
+		userSettings != undefined &&
+		superadminSettings != undefined &&
+		onQueryChangeSettings()
+	$: $page.url && onQueryChange()
+
+	function onQueryChangeSettings() {
+		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
+			userSettings.openDrawer()
+		} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+			superadminSettings.openDrawer()
+		}
+	}
 
 	function onQueryChange() {
 		let queryWorkspace = $page.url.searchParams.get('workspace')
@@ -58,11 +70,6 @@
 			$workspaceStore = queryWorkspace
 		}
 
-		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-			userSettings.openDrawer()
-		} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
-			superadminSettings.openDrawer()
-		}
 		menuHidden = $page.url.searchParams.get('nomenubar') === 'true'
 	}
 
