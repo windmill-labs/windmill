@@ -14,7 +14,7 @@
 	export let minRows: number | undefined = undefined
 	export let disableCreate: boolean | undefined = false
 	export let disableVariablePicker: boolean | undefined = false
-
+	export let password: boolean = false
 	export let noExtra = false
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
@@ -226,4 +226,17 @@
 			}
 		}}
 	/>
+{/if}
+
+{#if kind == 'none' || kind == 'pattern'}
+	<div class="mt-1" />
+	<Toggle
+		size="xs"
+		options={{ right: 'Is Password' }}
+		checked={password}
+		on:change={(e) => {
+			password = e.detail
+		}}
+	/>
+	<div class="mb-4" />
 {/if}

@@ -59,7 +59,8 @@
 							required: schema.required ?? []
 					  }
 					: undefined,
-			showExpr: schema.showExpr
+			showExpr: schema.showExpr,
+			password: schema.password
 		}
 	}
 
@@ -131,6 +132,7 @@
 		property.multiselect = undefined
 		property.items = undefined
 		property.showExpr = undefined
+		property.password = undefined
 		drawer.closeDrawer()
 	}
 
@@ -217,6 +219,7 @@
 								property.currency = undefined
 								property.currencyLocale = undefined
 								property.multiselect = undefined
+								property.password = undefined
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {
@@ -280,6 +283,7 @@
 						bind:pattern={property.pattern}
 						bind:enum_={property.enum_}
 						bind:contentEncoding={property.contentEncoding}
+						bind:password={property.password}
 						noExtra
 					/>
 				{:else if property.selectedType == 'array'}
