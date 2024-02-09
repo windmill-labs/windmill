@@ -94,6 +94,8 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
+		loadScript(script_path)
+
 		if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
 			wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
 			let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
@@ -151,8 +153,6 @@
 	let validCRON = true
 	$: allowSchedule = isValid && validCRON && script_path != ''
 
-	$: script_path != '' && loadScript(script_path)
-
 	// set isValid to true when a script/flow without any properties is selected
 	$: runnable?.schema &&
 		runnable.schema.properties &&
@@ -163,7 +163,6 @@
 
 	async function loadScript(p: string | undefined): Promise<void> {
 		if (p) {
-			args = {}
 			runnable = undefined
 			if (is_flow) {
 				runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
@@ -242,11 +241,9 @@
 			schedule = s.schedule
 			timezone = s.timezone
 			summary = s.summary ?? ''
-			let oldScriptPath = script_path
 			script_path = s.script_path ?? ''
-			if (oldScriptPath == script_path) {
-				loadScript(script_path)
-			}
+			loadScript(script_path)
+
 			is_flow = s.is_flow
 			no_flow_overlap = s.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
@@ -504,6 +501,9 @@
 						allowFlow={true}
 						bind:itemKind
 						bind:scriptPath={script_path}
+						on:select={(e) => {
+							loadScript(e.detail.path)
+						}}
 					/>
 				{:else}
 					<Alert type="info" title="Runnable path cannot be edited">
