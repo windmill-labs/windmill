@@ -50,7 +50,7 @@
 		goto('/user/login')
 	}
 
-	$: $page.url && onQueryChange()
+	$: $page.url && userSettings != undefined && superadminSettings != undefined && onQueryChange()
 
 	function onQueryChange() {
 		let queryWorkspace = $page.url.searchParams.get('workspace')
