@@ -59,7 +59,14 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
+import type {
+	AppInputSpec,
+	EvalV2AppInput,
+	InputConnectionEval,
+	ResultAppInput,
+	StaticAppInput,
+	TemplateV2Input
+} from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -321,7 +328,7 @@ export type PresetComponentConfig = {
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
-	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | undefined
+	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | TemplateV2Input | undefined
 	configuration: StaticRichConfigurations
 	// Number of subgrids
 	numberOfSubgrids?: number
@@ -1304,14 +1311,19 @@ export const components = {
 		},
 		initialData: {
 			componentInput: {
-				type: 'static',
-				fieldType: 'template',
-				value: `<img
+				type: 'templatev2',
+				eval: `<img
 src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
 >
 <h1 class="absolute top-4 left-2 text-white">
 Hello \${ctx.username}
-</h1>`
+</h1>`,
+				connections: [
+					{
+						id: 'username',
+						componentId: 'ctx'
+					}
+				] as InputConnectionEval[]
 			},
 			configuration: {}
 		}
