@@ -235,3 +235,32 @@ export function deleteFlowStateById(id: string, flowStateStore: Writable<FlowSta
 		return fss
 	})
 }
+
+export function sliceModules(
+	modules: FlowModule[],
+	upTo: number,
+	idOrders: string[]
+): FlowModule[] {
+	return modules
+		.filter((x) => idOrders.indexOf(x.id) <= upTo)
+		.map((m) => {
+			if (idOrders.indexOf(m.id) == upTo) {
+				return m
+			}
+			if (m.value.type === 'forloopflow') {
+				m.value.modules = sliceModules(m.value.modules, upTo, idOrders)
+			} else if (m.value.type === 'branchone') {
+				m.value.branches = m.value.branches.map((b) => {
+					b.modules = sliceModules(b.modules, upTo, idOrders)
+					return b
+				})
+				m.value.default = sliceModules(m.value.default, upTo, idOrders)
+			} else if (m.value.type === 'branchall') {
+				m.value.branches = m.value.branches.map((b) => {
+					b.modules = sliceModules(b.modules, upTo, idOrders)
+					return b
+				})
+			}
+			return m
+		})
+}

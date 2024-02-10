@@ -122,12 +122,12 @@
 						hubCompletions = []
 					}
 				}}
-				placeholder="AI Gen or search {trigger ? 'triggers' : 'scripts'}"
+				placeholder="Search {trigger ? 'triggers' : 'scripts'} or AI gen"
 			/>
 			{#if funcDesc.length === 0}
 				<Wand2
 					size={14}
-					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70"
+					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70 text-violet-800 dark:text-violet-400"
 				/>
 			{/if}
 		</div>
@@ -146,7 +146,7 @@
 							<div
 								class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 							>
-								<Wand2 size={14} />
+								<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 							</div>
 
 							<div class="text-left text-xs text-secondary">
@@ -168,7 +168,7 @@
 							<div
 								class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 							>
-								<Wand2 size={14} />
+								<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
 							</div>
 
 							<div class="text-left text-xs text-secondary">
@@ -179,7 +179,7 @@
 				</li>
 			</ul>
 		{/if}
-		{#if filteredItems.length > 0}
+		{#if funcDesc.length > 0 && filteredItems.length > 0}
 			<div class="text-left mt-2">
 				<p class="text-xs text-secondary ml-2">Workspace {trigger ? 'Triggers' : 'Scripts'}</p>
 				<ul class="transition-all divide-y">

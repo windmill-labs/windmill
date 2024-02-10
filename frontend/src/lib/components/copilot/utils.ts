@@ -3,6 +3,7 @@ import type { Schema, SchemaProperty } from '../../common'
 import type { ResourceType } from '../../gen'
 
 import { capitalize, toCamel } from '$lib/utils'
+import YAML from 'yaml'
 
 function compile(schema: Schema) {
 	function rec(x: { [name: string]: SchemaProperty }, root = false) {
@@ -81,4 +82,14 @@ export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python
 			})
 		return '\n' + result.join('\n\n')
 	}
+}
+
+export function yamlStringifyExceptKeys(obj: any, keys: string[]) {
+	return YAML.stringify(obj, (key, val) => {
+		if (keys.includes(key)) {
+			return undefined
+		} else {
+			return val
+		}
+	})
 }

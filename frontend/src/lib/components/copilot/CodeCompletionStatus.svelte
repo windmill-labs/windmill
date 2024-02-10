@@ -22,7 +22,7 @@
 {#if $copilotInfo.exists_openai_resource_path && $copilotInfo.code_completion_enabled}
 	<Popover>
 		<svelte:fragment slot="text"
-			>Code completion: {$codeCompletionSessionEnabled ? 'disabled' : 'enabled'} (applies only to you)</svelte:fragment
+			>Code completion: {$codeCompletionSessionEnabled ? 'enabled' : 'disabled'} (applies only to you)</svelte:fragment
 		>
 		<Button
 			color="light"

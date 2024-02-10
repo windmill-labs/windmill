@@ -159,6 +159,8 @@
 			on:pointerdown
 			on:focus
 			on:blur
+			on:mouseenter
+			on:mouseleave
 			on:click={() => {
 				loading = true
 				dispatch('click', event)
@@ -196,6 +198,8 @@
 			on:click={onClick}
 			on:focus
 			on:blur
+			on:mouseenter
+			on:mouseleave
 			class={twMerge(
 				buttonClass,
 				disabled ? '!bg-surface-disabled !text-tertiary border !cursor-not-allowed' : ''

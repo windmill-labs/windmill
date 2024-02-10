@@ -4,6 +4,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { Button } from './common'
+	import StepInputsGen from './copilot/StepInputsGen.svelte'
+	import type { PickableProperties } from './flows/previousResults'
 	import InputTransformForm from './InputTransformForm.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -18,6 +20,8 @@
 
 	export let filter: string[] | undefined = undefined
 	export let noDynamicToggle = false
+	export let pickableProperties: PickableProperties | undefined = undefined
+	export let enableAi = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -58,6 +62,20 @@
 </script>
 
 <div class="w-full {clazz}">
+	{#if enableAi}
+		<StepInputsGen
+			{pickableProperties}
+			argNames={keys
+				? keys.filter(
+						(argName) =>
+							Object.keys(schema.properties ?? {}).includes(argName) &&
+							Object.keys(args ?? {}).includes(argName) &&
+							((args[argName].type === 'static' && !args[argName].value) ||
+								(args[argName].type === 'javascript' && !args[argName].expr))
+				  )
+				: []}
+		/>
+	{/if}
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
@@ -73,6 +91,8 @@
 						{itemPicker}
 						bind:pickForField
 						{noDynamicToggle}
+						{pickableProperties}
+						{enableAi}
 					/>
 				</div>
 			{/if}

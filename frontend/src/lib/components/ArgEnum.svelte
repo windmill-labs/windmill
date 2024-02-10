@@ -42,6 +42,9 @@
 			onFocus={() => {
 				dispatch('focus')
 			}}
+			onBlur={() => {
+				dispatch('blur')
+			}}
 			{create}
 			{required}
 			{onCreate}

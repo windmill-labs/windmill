@@ -25,7 +25,6 @@
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
-	import MetadataGenToggle from '$lib/components/copilot/MetadataGenToggle.svelte'
 
 	export let noEditor: boolean
 
@@ -71,9 +70,6 @@
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full overflow-auto">
 						<Section label="Metadata">
-							<svelte:fragment slot="header">
-								<MetadataGenToggle />
-							</svelte:fragment>
 							<div class="h-full gap-8 flex flex-col">
 								<Label label="Summary">
 									<MetadataGen
