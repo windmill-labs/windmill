@@ -250,6 +250,8 @@
 	let stepDetail: FlowModule | string | undefined = undefined
 	let token = 'TOKEN_TO_CREATE'
 	let detailSelected = 'saved_inputs'
+
+	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 </script>
 
 <Skeleton
@@ -270,6 +272,7 @@
 
 {#if flow}
 	<DetailPageLayout
+		bind:triggerSelected
 		bind:selected={detailSelected}
 		isOperator={$userStore?.operator}
 		flow_json={{

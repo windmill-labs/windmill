@@ -151,6 +151,7 @@ pub async fn pip_compile(
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
+    let mut pip_args = vec![];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL
         .read()
         .await
@@ -158,10 +159,12 @@ pub async fn pip_compile(
         .map(handle_ephemeral_token);
     if let Some(url) = pip_extra_index_url.as_ref() {
         args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
+        pip_args.push(format!("--extra-index-url {}", url));
     }
     let pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
     if let Some(url) = pip_index_url.as_ref() {
         args.extend(["--index-url", url, "--no-emit-index-url"]);
+        pip_args.push(format!("--index-url {}", url));
     }
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
@@ -169,6 +172,11 @@ pub async fn pip_compile(
     if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
         args.extend(["--cert", cert_path]);
     }
+    let pip_args_str = pip_args.join(" ");
+    if pip_args.len() > 0 {
+        args.extend(["--pip-args", &pip_args_str]);
+    }
+    tracing::debug!("pip-compile args: {:?}", args);
 
     let mut child_cmd = Command::new("pip-compile");
     child_cmd
@@ -286,7 +294,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bNaN\b')
+replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 try:
     res = inner_script.main(**args)
     typ = type(res)
@@ -824,6 +832,7 @@ pub async fn handle_python_reqs(
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 command_args.extend(["--trusted-host", &host]);
             }
+
             let mut envs = vec![("PATH", PATH_ENV.as_str())];
             if let Some(http_proxy) = HTTP_PROXY.as_ref() {
                 envs.push(("HTTP_PROXY", http_proxy));
@@ -834,6 +843,8 @@ pub async fn handle_python_reqs(
             if let Some(no_proxy) = NO_PROXY.as_ref() {
                 envs.push(("NO_PROXY", no_proxy));
             }
+
+            tracing::debug!("pip install command: {:?}", command_args);
 
             let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
             flock_cmd
@@ -998,7 +1009,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bNaN\b')
+replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 sys.stdout.write('start\n')
 
 for line in sys.stdin:

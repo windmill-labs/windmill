@@ -2,10 +2,12 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let label: string | undefined = undefined
 	export let tooltip: string | undefined = undefined
 	export let eeOnly = false
+	export let small: boolean = false
 
 	export let collapsable: boolean = false
 	let collapsed: boolean = true
@@ -13,7 +15,12 @@
 
 <div class="w-full">
 	<div class="flex flex-row justify-between items-center mb-2">
-		<h2 class="text-base font-semibold flex flex-row items-center gap-1">
+		<h2
+			class={twMerge(
+				'font-semibold flex flex-row items-center gap-1',
+				small ? 'text-sm' : 'text-base'
+			)}
+		>
 			{#if collapsable}
 				<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
 					{#if collapsed}

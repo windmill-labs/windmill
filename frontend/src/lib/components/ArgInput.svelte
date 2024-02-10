@@ -619,7 +619,7 @@
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
-						{#if password}
+						{#if password || extra?.['password'] == true}
 							<Password {disabled} bind:password={value} />
 						{:else}
 							{#key extra?.['minRows']}

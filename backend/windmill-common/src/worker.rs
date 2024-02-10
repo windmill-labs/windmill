@@ -5,7 +5,7 @@ use serde_json::value::RawValue;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
 
@@ -14,7 +14,9 @@ use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, D
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
 
-    pub static ref DEFAULT_TAGS : Vec<String> = vec![
+
+
+    pub static ref DEFAULT_TAGS: Vec<String> = vec![
         "deno".to_string(),
         "python3".to_string(),
         "go".to_string(),
@@ -22,7 +24,6 @@ lazy_static::lazy_static! {
         "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
-        "graphql".to_string(),
         "bun".to_string(),
         "postgresql".to_string(),
         "bigquery".to_string(),
@@ -32,7 +33,10 @@ lazy_static::lazy_static! {
         "dependency".to_string(),
         "flow".to_string(),
         "hub".to_string(),
-        "other".to_string()];
+        "other".to_string()
+    ];
+
+    pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
 
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {

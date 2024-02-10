@@ -21,17 +21,20 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
     users::truncate_token,
-    worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
+    worker::{
+        load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
+        WORKER_CONFIG,
+    },
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_worker::{
@@ -94,6 +97,10 @@ pub async fn initial_load(
         tracing::error!("Error loading expose debug metrics: {e}");
     }
 
+    if let Err(e) = load_tag_per_workspace_enabled(db).await {
+        tracing::error!("Error loading default tag per workpsace: {e}");
+    }
+
     if server_mode {
         load_require_preexisting_user(db).await;
     }
@@ -153,6 +160,22 @@ pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
     .await;
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => METRICS_ENABLED.store(t, Ordering::Relaxed),
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
+    let metrics_enabled = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING
+    )
+    .fetch_optional(db)
+    .await;
+    match metrics_enabled {
+        Ok(Some(serde_json::Value::Bool(t))) => {
+            DEFAULT_TAGS_PER_WORKSPACE.store(t, Ordering::Relaxed)
+        }
         _ => (),
     };
     Ok(())

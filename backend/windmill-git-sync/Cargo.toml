@@ -21,3 +21,4 @@ tracing.workspace = true
 windmill-common = { workspace = true, features = ["axum"] }
 windmill-queue.workspace = true
 rsmq_async.workspace = true
+regex = "1.10.3"

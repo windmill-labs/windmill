@@ -21,7 +21,7 @@
 		and enable hub resource type sync
 	</p>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button color="dark" variant="border" on:click={decline}>Skip setup</Button>
-		<Button color="dark" on:click={startSetup}>Setup</Button>
+		<Button color="light" size="xs2" variant="contained" on:click={decline}>Skip</Button>
+		<Button color="dark" size="lg" on:click={startSetup}>Setup</Button>
 	</div>
 </CenteredModal>

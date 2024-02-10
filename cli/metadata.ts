@@ -215,7 +215,9 @@ async function updateScriptLock(
     metadataContent.lock = lock;
   } catch {
     throw new Error(
-      `Failed to generate lockfile. Status was: ${rawResponse.statusText}`
+      `Failed to generate lockfile. Status was: ${
+        rawResponse.statusText
+      }, ${await rawResponse.text()}`
     );
   }
 }

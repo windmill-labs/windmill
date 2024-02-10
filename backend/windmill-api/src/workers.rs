@@ -18,7 +18,7 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     utils::{paginate, Pagination},
-    worker::ALL_TAGS,
+    worker::{ALL_TAGS, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
 };
 
 use crate::db::ApiAuthed;
@@ -28,6 +28,11 @@ pub fn global_service() -> Router {
         .route("/list", get(list_worker_pings))
         .route("/exists_worker_with_tag", get(exists_worker_with_tag))
         .route("/custom_tags", get(get_custom_tags))
+        .route(
+            "/is_default_tags_per_workspace",
+            get(get_default_tags_per_workspace),
+        )
+        .route("/get_default_tags", get(get_default_tags))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -102,4 +107,14 @@ async fn exists_worker_with_tag(
 
 async fn get_custom_tags() -> Json<Vec<String>> {
     Json(ALL_TAGS.read().await.clone().into())
+}
+
+async fn get_default_tags_per_workspace() -> JsonResult<bool> {
+    Ok(Json(
+        DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed),
+    ))
+}
+
+async fn get_default_tags() -> JsonResult<Vec<String>> {
+    Ok(Json(DEFAULT_TAGS.clone()))
 }

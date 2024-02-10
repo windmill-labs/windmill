@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.265.1
+  version: 1.267.0
   title: Windmill API
 
   contact:
@@ -1195,9 +1195,7 @@ paths:
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   git_sync:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/WorkspaceGitSync"
+                    $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   default_app:
                     type: string
                 required:
@@ -1540,9 +1538,7 @@ paths:
               type: object
               properties:
                 git_sync_settings:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/WorkspaceGitSync"
+                  $ref: "#/components/schemas/WorkspaceGitSyncSettings"
 
       responses:
         "200":
@@ -3203,6 +3199,36 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /workers/get_default_tags:
+    get:
+      summary: get all instance default tags
+      operationId: geDefaultTags
+      tags:
+        - worker
+      responses:
+        "200":
+          description: list of default tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /workers/is_default_tags_per_workspace:
+    get:
+      summary: is default tags per workspace
+      operationId: isDefaultTagsPerWorkspace
+      tags:
+        - worker
+      responses:
+        "200":
+          description: is the default tags per workspace
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/scripts/archive/p/{path}:
     post:
@@ -9508,7 +9534,28 @@ components:
         - useSSL
         - pathStyle
 
-    WorkspaceGitSync:
+    WorkspaceGitSyncSettings:
+      type: object
+      properties:
+        include_path:
+          type: array
+          items:
+            type: string
+        include_type:
+          type: array
+          items:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+              - folder
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitRepositorySettings"
+
+    GitRepositorySettings:
       type: object
       properties:
         script_path:

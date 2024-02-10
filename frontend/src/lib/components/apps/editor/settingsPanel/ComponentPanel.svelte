@@ -174,7 +174,7 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
-	<div class="flex justify-between items-center px-3 py-2 bg-surface-selected">
+	<div class="flex justify-between items-center px-3 py-2 bg-surface-secondary">
 		<div class="text-xs text-primary font-semibold"
 			>{components[componentSettings.item.data.type]?.name ?? 'Unknown'}</div
 		>
@@ -296,7 +296,7 @@
 									<div class="flex flex-row items-center gap-2 text-sm font-semibold">
 										Runnable Inputs
 
-										<Tooltip wrapperClass="flex">
+										<Tooltip>
 											The runnable inputs are inferred from the inputs of the flow or script
 											parameters this component is attached to.
 										</Tooltip>

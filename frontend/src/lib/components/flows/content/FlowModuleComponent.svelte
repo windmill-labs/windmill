@@ -318,7 +318,9 @@
 							<Tab value="test">Test this step</Tab>
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
-						<div class="h-[calc(100%-32px)]">
+						<div
+							class={advancedSelected === 'runtime' ? 'h-[calc(100%-64px)]' : 'h-[calc(100%-32px)]'}
+						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
 								<div class="h-full overflow-auto" id="flow-editor-step-input">
 									<PropPickerWrapper
@@ -441,31 +443,38 @@
 													}
 												}}
 												options={{
-													right: 'High priority flow step',
+													right: 'Enabled high priority flow step',
 													rightTooltip: `Jobs scheduled from this step when the flow is executed are labeled as high priority and take precedence over the other jobs in the jobs queue. ${
 														!$enterpriseLicense
 															? 'This is a feature only available on enterprise edition.'
 															: ''
 													}`
 												}}
-											>
-												<svelte:fragment slot="right">
-													<input
-														type="number"
-														class="!w-14 ml-4"
-														disabled={flowModule.priority === undefined}
-														bind:value={flowModule.priority}
-														on:focus
-														on:change={() => {
-															if (flowModule.priority && flowModule.priority > 100) {
-																flowModule.priority = 100
-															} else if (flowModule.priority && flowModule.priority < 0) {
-																flowModule.priority = 0
-															}
-														}}
-													/>
+											/>
+											<Label label="Priority number">
+												<svelte:fragment slot="header">
+													<Tooltip>The higher the number, the higher the priority.</Tooltip>
 												</svelte:fragment>
-											</Toggle>
+												<input
+													type="number"
+													class="!w-24"
+													disabled={flowModule.priority === undefined}
+													bind:value={flowModule.priority}
+													on:focus
+													on:change={() => {
+														if (flowModule.priority && flowModule.priority > 100) {
+															flowModule.priority = 100
+														} else if (flowModule.priority && flowModule.priority < 0) {
+															flowModule.priority = 0
+														}
+													}}
+												/>
+											</Label>
+
+											<Alert type="warning" title="Limitation" size="xs">
+												Setting priority is only available for enterprise edition and not available
+												on the cloud.
+											</Alert>
 										</Section>
 									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
 										<div>

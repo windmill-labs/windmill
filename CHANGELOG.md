@@ -1,6 +1,59 @@
 # Changelog
 
 
+## [1.267.0](https://github.com/windmill-labs/windmill/compare/v1.266.1...v1.267.0) (2024-02-10)
+
+
+### Features
+
+* default tag can be made workspace specific ([#3194](https://github.com/windmill-labs/windmill/issues/3194)) ([8a3a9bd](https://github.com/windmill-labs/windmill/commit/8a3a9bda1c03661c4072c9ce53c07ee632e3c6ca))
+
+
+### Bug Fixes
+
+* **cli:** improve restart_unless_cancelled handling ([16507ad](https://github.com/windmill-labs/windmill/commit/16507ad45eba1cb2212f22a3cce05b60b1d3a39c))
+
+## [1.266.1](https://github.com/windmill-labs/windmill/compare/v1.266.0...v1.266.1) (2024-02-10)
+
+
+### Bug Fixes
+
+* improve load schedule args ([31469cb](https://github.com/windmill-labs/windmill/commit/31469cb77c5a768f2720fb711a203c57089a5a3b))
+
+## [1.266.0](https://github.com/windmill-labs/windmill/compare/v1.265.3...v1.266.0) (2024-02-09)
+
+
+### Features
+
+* git sync now accepts path filters and type filters ([#3189](https://github.com/windmill-labs/windmill/issues/3189)) ([e9a6c81](https://github.com/windmill-labs/windmill/commit/e9a6c8154c4fc1bf52e26251a9d75e54c511837d))
+
+
+### Bug Fixes
+
+* add --unstable-http arg to deno ([#3186](https://github.com/windmill-labs/windmill/issues/3186)) ([8d5c7c2](https://github.com/windmill-labs/windmill/commit/8d5c7c2b461ee71b8376b12f574dffff1c9f1387))
+* **frontend:** fix html component initial data ([#3188](https://github.com/windmill-labs/windmill/issues/3188)) ([6a13b97](https://github.com/windmill-labs/windmill/commit/6a13b97bc3561fe4bdeb8a02e88f80f749d906f6))
+* improve no flow overlap + schedule args loading ([6614817](https://github.com/windmill-labs/windmill/commit/6614817cd4c208eebc52955f408041b14b9dd34f))
+* improve no flow overlap + schedule args loading ([48b8520](https://github.com/windmill-labs/windmill/commit/48b8520239a591756e4573190e3fa45b57e52535))
+* improve on-boarding flow app ([4d64c94](https://github.com/windmill-labs/windmill/commit/4d64c942fced44b4ca4af2801009849d5dd1f55b))
+* Properly handle pip index urls in pip-compile ([#3192](https://github.com/windmill-labs/windmill/issues/3192)) ([b230378](https://github.com/windmill-labs/windmill/commit/b230378320336331de1c50d6fdec60da576751e6))
+
+## [1.265.3](https://github.com/windmill-labs/windmill/compare/v1.265.2...v1.265.3) (2024-02-08)
+
+
+### Bug Fixes
+
+* ai builder colors ([b9c0eda](https://github.com/windmill-labs/windmill/commit/b9c0eda16874ee7a85a63872ea20636f64a48c90))
+
+## [1.265.2](https://github.com/windmill-labs/windmill/compare/v1.265.1...v1.265.2) (2024-02-08)
+
+
+### Bug Fixes
+
+* Cuda image building ([#3179](https://github.com/windmill-labs/windmill/issues/3179)) ([29be502](https://github.com/windmill-labs/windmill/commit/29be5021ff9603d6cc7e302c46fb44c573967b80))
+* **frontend:** Fix tutorials + Move into itself + Disable app history… ([#3181](https://github.com/windmill-labs/windmill/issues/3181)) ([9f98caa](https://github.com/windmill-labs/windmill/commit/9f98caa072b3ac83b60e9c9b0f31d39ae072b08a))
+* handle better \u0000 in python result ([e4dc972](https://github.com/windmill-labs/windmill/commit/e4dc972d40770e5d0ffb2c2726b0053cdff7e407))
+* Improve python writeS3File perf ([#3182](https://github.com/windmill-labs/windmill/issues/3182)) ([e00e3f9](https://github.com/windmill-labs/windmill/commit/e00e3f9d2d65b81cdf8abf7500deb5b4f5ecf607))
+
 ## [1.265.1](https://github.com/windmill-labs/windmill/compare/v1.265.0...v1.265.1) (2024-02-07)
 
 

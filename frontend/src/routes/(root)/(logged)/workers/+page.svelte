@@ -3,6 +3,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Popup, Skeleton } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -25,6 +26,7 @@
 
 	const splitter = '_%%%_'
 	let globalCache = false
+	let customTags: string[] | undefined = undefined
 
 	$: groupedWorkers = groupBy(
 		groupBy(
@@ -58,9 +60,15 @@
 	}
 
 	let secondInterval: NodeJS.Timeout | undefined = undefined
+	async function loadCustomTags() {
+		try {
+			customTags = (await WorkerService.getCustomTags()) ?? []
+		} catch (err) {
+			sendUserToast(`Could not load global cache: ${err}`, true)
+		}
+	}
+
 	onMount(() => {
-		loadWorkers()
-		loadWorkerGroups()
 		intervalId = setInterval(() => {
 			loadWorkers()
 			loadWorkerGroups()
@@ -70,6 +78,9 @@
 		}, 1000)
 	})
 
+	loadWorkers()
+	loadWorkerGroups()
+	loadCustomTags()
 	$: if ($superadmin) {
 		loadGlobalCache()
 	}
@@ -92,8 +103,6 @@
 	})
 
 	let newConfigName = ''
-
-	let customTags: string[] | undefined = undefined
 
 	async function addConfig() {
 		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
@@ -136,7 +145,14 @@
 						is on)</Tooltip
 					>
 				</div>
-				<div><AssignableTags bind:customTags /> </div>
+				<div
+					><AssignableTags
+						on:refresh={() => {
+							loadCustomTags()
+						}}
+					/>
+				</div>
+				<div><DefaultTags /> </div>
 			</div>
 		{/if}
 	</PageHeader>

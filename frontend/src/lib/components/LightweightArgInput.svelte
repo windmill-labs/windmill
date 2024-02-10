@@ -17,6 +17,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import Multiselect from 'svelte-multiselect'
+	import Password from './Password.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -395,23 +396,27 @@
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between">
-						<textarea
-							rows="1"
-							bind:this={el}
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							use:autosize
-							type="text"
-							class="col-span-10 {valid && error == ''
-								? ''
-								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
-							placeholder={defaultValue ?? ''}
-							bind:value
-							on:pointerdown|stopPropagation={(e) => {
-								dispatch('inputClicked', e)
-							}}
-						/>
+						{#if extra?.['password'] == true}
+							<Password bind:password={value} />
+						{:else}
+							<textarea
+								rows="1"
+								bind:this={el}
+								on:focus={(e) => {
+									dispatch('focus')
+								}}
+								use:autosize
+								type="text"
+								class="col-span-10 {valid && error == ''
+									? ''
+									: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
+								placeholder={defaultValue ?? ''}
+								bind:value
+								on:pointerdown|stopPropagation={(e) => {
+									dispatch('inputClicked', e)
+								}}
+							/>
+						{/if}
 					</div>
 				</div>
 			{/if}

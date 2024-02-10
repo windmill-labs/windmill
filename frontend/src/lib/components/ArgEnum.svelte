@@ -53,9 +53,4 @@
 			createText="Press enter to use this non-predefined value"
 		/>
 	</div>
-	{#if value}
-		<div class="-mt-2">
-			<span class="text-2xs text-secondary">selected: {value}</span>
-		</div>
-	{/if}
 </div>
