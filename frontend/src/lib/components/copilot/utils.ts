@@ -3,6 +3,7 @@ import type { Schema, SchemaProperty } from '../../common'
 import type { ResourceType } from '../../gen'
 
 import { capitalize, toCamel } from '$lib/utils'
+import YAML from 'yaml'
 
 function compile(schema: Schema) {
 	function rec(x: { [name: string]: SchemaProperty }, root = false) {
@@ -83,18 +84,12 @@ export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python
 	}
 }
 
-export function removeKeys(obj: any, keys: string[]) {
-	if (obj && typeof obj === 'object') {
-		for (const key of keys) {
-			delete obj[key]
+export function yamlStringifyExceptKeys(obj: any, keys: string[]) {
+	return YAML.stringify(obj, (key, val) => {
+		if (keys.includes(key)) {
+			return undefined
+		} else {
+			return val
 		}
-		for (const key in obj) {
-			removeKeys(obj[key], keys)
-		}
-	} else if (Array.isArray(obj)) {
-		for (const item of obj) {
-			removeKeys(item, keys)
-		}
-	}
-	return obj
+	})
 }

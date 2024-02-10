@@ -9,8 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import autosize from 'svelte-autosize'
 	import type { FlowValue } from '$lib/gen'
-	import YAML from 'yaml'
-	import { removeKeys } from './utils'
+	import { yamlStringifyExceptKeys } from './utils'
 
 	type PromptConfig = {
 		system: string
@@ -102,7 +101,7 @@ Generate a description for the flow below:
 		abortController = new AbortController()
 		loading = true
 		try {
-			const placeholderContent = flow ? YAML.stringify(removeKeys(flow, ['lock'])) : code
+			const placeholderContent = flow ? yamlStringifyExceptKeys(flow, ['lock']) : code
 
 			if (!placeholderContent) {
 				sendUserToast('Could not generate summary: no content to generate from', true)

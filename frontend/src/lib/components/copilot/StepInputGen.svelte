@@ -11,7 +11,7 @@
 	import YAML from 'yaml'
 	import { sliceModules } from '../flows/flowStateUtils'
 	import { dfs } from '../flows/dfs'
-	import { removeKeys } from './utils'
+	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
 
@@ -41,30 +41,26 @@
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
+
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
-			YAML.stringify(
-				removeKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-					'lock',
-					'input_transforms'
-				])
-			) +
+			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
+				'lock',
+				'input_transforms'
+			]) +
 			'</flowDetails>'
-
 		try {
 			const availableData = {
 				results: pickableProperties?.priorIds,
 				flow_input: pickableProperties?.flow_input
 			}
-			const user = `I'm building a workflow which is a DAG of script steps. 
+			const user = `I'm building a workflow which is a DAG of script steps.
 The current step is ${selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
-
 Determine for the input "${argName}", what to pass either from the previous results of the flow inputs. Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
-
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Return the input element directly: e.g. flow_input.property, results.a, results.a.property, flow_input.iter.value`

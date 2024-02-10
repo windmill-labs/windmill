@@ -1,6 +1,6 @@
 <script lang="ts">
 	import YAML from 'yaml'
-	import { removeKeys } from './utils'
+	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils'
 	import { dfs } from '../flows/dfs'
 	import type { FlowEditorContext } from '../flows/types'
@@ -38,12 +38,10 @@
 		}
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
-			YAML.stringify(
-				removeKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-					'lock',
-					'input_transforms'
-				])
-			) +
+			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
+				'lock',
+				'input_transforms'
+			]) +
 			'</flowDetails>'
 
 		try {
@@ -163,6 +161,7 @@ input_name: expr`
 			floatingConfig={{
 				placement: 'top-end'
 			}}
+			let:close
 		>
 			<svelte:fragment slot="button">
 				<Button
@@ -178,13 +177,23 @@ input_name: expr`
 				</Button>
 			</svelte:fragment>
 			<p class="text-sm">
-				Enable Windmill AI in the <a
-					href="/workspace_settings?tab=openai"
-					target="_blank"
-					class="inline-flex flex-row items-center gap-1"
-				>
-					workspace settings <ExternalLink size={16} />
-				</a>
+				{#if !$copilotInfo.exists_openai_resource_path}
+					Enable Windmill AI in the{' '}
+					<a
+						href="/workspace_settings?tab=openai"
+						target="_blank"
+						class="inline-flex flex-row items-center gap-1"
+					>
+						workspace settings <ExternalLink size={16} />
+					</a>
+				{:else}
+					Enable step input completion in the{' '}
+					<a href="#user-settings" class="inline-flex flex-row items-center gap-1" on:click={() => {
+						close(null)
+					}}>
+						user settings
+					</a>
+				{/if}
 			</p>
 		</Popup>
 	{/if}
