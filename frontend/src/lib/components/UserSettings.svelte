@@ -165,9 +165,8 @@
 						</div>
 					</div>
 				{/if}
-				<div class="grid grid-cols-2 pt-8 pb-1">
-					<h2 class="py-0 my-0 border-b pt-3">AI user settings</h2>
-				</div>
+
+				<h2 class="border-b mt-8">AI user settings</h2>
 
 				<div class="flex flex-col gap-4 mt-2">
 					<Toggle
