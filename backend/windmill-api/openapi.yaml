@@ -3224,6 +3224,7 @@ paths:
         - worker
       responses:
         "200":
+          description: is the default tags per workspace
           content:
             application/json:
               schema:
