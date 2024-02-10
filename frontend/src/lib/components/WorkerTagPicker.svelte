@@ -39,7 +39,7 @@
 				</select>
 			{:else}
 				<div class="text-sm text-secondary flex flex-row gap-2">
-					No custom worker group tag defined on this instance in "Workers {'->'} Assignable Tags"
+					No custom worker group tag defined on this instance in "Workers {'->'} Custom Tags"
 					<a
 						href="https://www.windmill.dev/docs/core_concepts/worker_groups"
 						target="_blank"
