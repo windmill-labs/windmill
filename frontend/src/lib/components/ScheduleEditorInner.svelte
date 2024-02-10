@@ -94,7 +94,7 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
-		loadScript(script_path)
+		await loadScript(script_path)
 
 		if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
 			wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
@@ -242,7 +242,7 @@
 			timezone = s.timezone
 			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
-			loadScript(script_path)
+			await loadScript(script_path)
 
 			is_flow = s.is_flow
 			no_flow_overlap = s.no_flow_overlap ?? false
