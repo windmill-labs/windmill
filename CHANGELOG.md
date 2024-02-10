@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.266.1](https://github.com/windmill-labs/windmill/compare/v1.266.0...v1.266.1) (2024-02-10)
+
+
+### Bug Fixes
+
+* improve load schedule args ([31469cb](https://github.com/windmill-labs/windmill/commit/31469cb77c5a768f2720fb711a203c57089a5a3b))
+
 ## [1.266.0](https://github.com/windmill-labs/windmill/compare/v1.265.3...v1.266.0) (2024-02-09)
 
 
