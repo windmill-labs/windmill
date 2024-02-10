@@ -1,12 +1,5 @@
 <script lang="ts">
-	import {
-		Job,
-		JobService,
-		type Flow,
-		type FlowModule,
-		type RestartedFrom,
-		type OpenFlow
-	} from '$lib/gen'
+	import { Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button, Drawer, Kbd, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -21,6 +14,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
+	import { sliceModules } from './flows/flowStateUtils'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -45,31 +39,6 @@
 	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
-
-	function sliceModules(modules: FlowModule[], upTo: number, idOrders: string[]): FlowModule[] {
-		return modules
-			.filter((x) => idOrders.indexOf(x.id) <= upTo)
-			.map((m) => {
-				if (idOrders.indexOf(m.id) == upTo) {
-					return m
-				}
-				if (m.value.type === 'forloopflow') {
-					m.value.modules = sliceModules(m.value.modules, upTo, idOrders)
-				} else if (m.value.type === 'branchone') {
-					m.value.branches = m.value.branches.map((b) => {
-						b.modules = sliceModules(b.modules, upTo, idOrders)
-						return b
-					})
-					m.value.default = sliceModules(m.value.default, upTo, idOrders)
-				} else if (m.value.type === 'branchall') {
-					m.value.branches = m.value.branches.map((b) => {
-						b.modules = sliceModules(b.modules, upTo, idOrders)
-						return b
-					})
-				}
-				return m
-			})
-	}
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {

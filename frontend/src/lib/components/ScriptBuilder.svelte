@@ -51,7 +51,6 @@
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
-	import MetadataGenToggle from './copilot/MetadataGenToggle.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -394,9 +393,6 @@
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
-									<svelte:fragment slot="header">
-										<MetadataGenToggle />
-									</svelte:fragment>
 									<svelte:fragment slot="action">
 										<div class="flex flex-row items-center gap-2">
 											<ErrorHandlerToggleButton

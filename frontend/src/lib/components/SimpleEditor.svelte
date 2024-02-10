@@ -13,7 +13,8 @@
 		KeyMod,
 		Uri as mUri,
 		languages,
-		type IRange
+		type IRange,
+		type IKeyboardEvent
 	} from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
@@ -113,6 +114,12 @@
 	export function onDidChangeCursorSelection(f: (e: meditor.ICursorSelectionChangedEvent) => void) {
 		if (editor) {
 			return editor.onDidChangeCursorSelection(f)
+		}
+	}
+
+	export function onKeyUp(f: (e: IKeyboardEvent) => void) {
+		if (editor) {
+			return editor.onKeyUp(f)
 		}
 	}
 

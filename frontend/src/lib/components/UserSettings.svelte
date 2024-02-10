@@ -1,8 +1,13 @@
 <script lang="ts">
-	import { usersWorkspaceStore } from '$lib/stores'
+	import {
+		codeCompletionSessionEnabled,
+		metadataCompletionEnabled,
+		stepInputCompletionEnabled,
+		usersWorkspaceStore
+	} from '$lib/stores'
 	import type { TruncatedToken, NewToken } from '$lib/gen'
 	import { UserService } from '$lib/gen'
-	import { displayDate, copyToClipboard } from '$lib/utils'
+	import { displayDate, copyToClipboard, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -14,6 +19,8 @@
 	import Version from './Version.svelte'
 	import { Clipboard, Plus } from 'lucide-svelte'
 	import DarkModeToggle from './sidebar/DarkModeToggle.svelte'
+	import Toggle from './Toggle.svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let scopes: string[] | undefined = undefined
 
@@ -84,6 +91,21 @@
 		sendUserToast('Succesfully deleted token')
 		listTokens()
 	}
+
+	function loadSettings() {
+		$codeCompletionSessionEnabled =
+			(getLocalSetting('codeCompletionSessionEnabled') ?? 'true') == 'true'
+		$metadataCompletionEnabled = (getLocalSetting('metadataCompletionEnabled') ?? 'true') == 'true'
+		$stepInputCompletionEnabled =
+			(getLocalSetting('stepInputCompletionEnabled') ?? 'true') == 'true'
+	}
+
+	function updateSetting(store: Writable<boolean>, value: boolean, setting: string) {
+		store.set(value)
+		storeLocalSetting(setting, value.toString())
+	}
+
+	loadSettings()
 </script>
 
 <Drawer bind:this={drawer} size="800px" on:close={removeHash}>
@@ -143,6 +165,41 @@
 						</div>
 					</div>
 				{/if}
+
+				<h2 class="border-b mt-8">AI user settings</h2>
+
+				<div class="flex flex-col gap-4 mt-2">
+					<Toggle
+						on:change={(e) => {
+							updateSetting(codeCompletionSessionEnabled, e.detail, 'codeCompletionSessionEnabled')
+						}}
+						checked={$codeCompletionSessionEnabled}
+						options={{
+							right: 'Code completion',
+							rightTooltip: 'AI completion in the code editors'
+						}}
+					/>
+					<Toggle
+						on:change={(e) => {
+							updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
+						}}
+						checked={$metadataCompletionEnabled}
+						options={{
+							right: 'Metadata completion',
+							rightTooltip: 'AI completion for summaries and descriptions'
+						}}
+					/>
+					<Toggle
+						on:change={(e) => {
+							updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
+						}}
+						checked={$stepInputCompletionEnabled}
+						options={{
+							right: 'Flow step input completion',
+							rightTooltip: 'AI completion for flow step inputs'
+						}}
+					/>
+				</div>
 
 				<div class="grid grid-cols-2 pt-8 pb-1">
 					<h2 class="py-0 my-0 border-b pt-3">Tokens</h2>

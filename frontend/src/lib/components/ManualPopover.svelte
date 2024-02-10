@@ -3,6 +3,7 @@
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from 'svelte-portal'
 	import { fade } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	export let placement: PopoverPlacement = 'bottom'
 
@@ -12,7 +13,7 @@
 		await getInstance()?.update()
 	}
 
-	let showTooltip = false
+	export let showTooltip = false
 	export function open() {
 		showTooltip = true
 	}
@@ -28,7 +29,7 @@
 	<Portal>
 		<div
 			use:popperContent
-			class="z-[901] rounded-lg shadow-md border p-4 bg-surface"
+			class={twMerge('z-[901] rounded-lg shadow-md border p-4 bg-surface', $$props.class)}
 			transition:fade={{ duration: 200 }}
 		>
 			<slot name="content" />

@@ -557,11 +557,9 @@
 
 			<FormatOnSave />
 
-			<div class="flex flex-row gap-1">
-				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 
-				<CodeCompletionStatus />
-			</div>
+			<CodeCompletionStatus />
 		</div>
 	</div>
 

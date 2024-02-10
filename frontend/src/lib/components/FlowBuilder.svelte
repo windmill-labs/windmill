@@ -10,7 +10,8 @@
 		Script,
 		type HubScriptKind,
 		type OpenFlow,
-		type RawScript
+		type RawScript,
+		type InputTransform
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -474,7 +475,14 @@
 		genFlow: undefined,
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
-		}>({})
+		}>({}),
+		exprsToSet: writable<{
+			[key: string]: InputTransform | any | undefined
+		}>({}),
+		generatedExprs: writable<{
+			[key: string]: string | undefined
+		}>({}),
+		stepInputsLoading: writable<boolean>(false)
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
