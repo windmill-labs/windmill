@@ -162,7 +162,9 @@ export async function handleFile(
             typed.cache_ttl == remote.cache_ttl &&
             typed.concurrency_time_window_s ==
               remote.concurrency_time_window_s &&
-            typed.concurrent_limit == remote.concurrent_limit)
+            typed.concurrent_limit == remote.concurrent_limit &&
+            Boolean(typed.restart_unless_cancelled) ==
+              Boolean(remote.restart_unless_cancelled))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
