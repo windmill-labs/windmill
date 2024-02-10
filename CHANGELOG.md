@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.267.0](https://github.com/windmill-labs/windmill/compare/v1.266.1...v1.267.0) (2024-02-10)
+
+
+### Features
+
+* default tag can be made workspace specific ([#3194](https://github.com/windmill-labs/windmill/issues/3194)) ([8a3a9bd](https://github.com/windmill-labs/windmill/commit/8a3a9bda1c03661c4072c9ce53c07ee632e3c6ca))
+
+
+### Bug Fixes
+
+* **cli:** improve restart_unless_cancelled handling ([16507ad](https://github.com/windmill-labs/windmill/commit/16507ad45eba1cb2212f22a3cce05b60b1d3a39c))
+
 ## [1.266.1](https://github.com/windmill-labs/windmill/compare/v1.266.0...v1.266.1) (2024-02-10)
 
 
