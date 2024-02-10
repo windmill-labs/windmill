@@ -3200,6 +3200,36 @@ paths:
                 items:
                   type: string
 
+  /workers/get_default_tags:
+    get:
+      summary: get all instance default tags
+      operationId: geDefaultTags
+      tags:
+        - worker
+      responses:
+        "200":
+          description: list of default tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /workers/is_default_tags_per_workspace:
+    get:
+      summary: is default tags per workspace
+      operationId: isDefaultTagsPerWorkspace
+      tags:
+        - worker
+      responses:
+        "200":
+          description: is the default tags per workspace
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/scripts/archive/p/{path}:
     post:
       summary: archive script by path

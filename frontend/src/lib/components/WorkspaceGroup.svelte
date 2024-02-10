@@ -103,6 +103,7 @@
 		'mssql',
 		'bigquery'
 	]
+
 	const aws_env_vars_preset = [
 		'AWS_REGION',
 		'AWS_DEFAULT_REGION',
