@@ -8,7 +8,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import YAML from 'yaml'
 
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let hasStepDetails: boolean = false
 
