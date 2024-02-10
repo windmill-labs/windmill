@@ -5,7 +5,7 @@ use serde_json::value::RawValue;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
 
@@ -24,7 +24,6 @@ lazy_static::lazy_static! {
         "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
-        "graphql".to_string(),
         "bun".to_string(),
         "postgresql".to_string(),
         "bigquery".to_string(),
@@ -37,8 +36,7 @@ lazy_static::lazy_static! {
         "other".to_string()
     ];
 
-    pub static ref DEFAULT_TAGS_HM: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::from(DEFAULT_TAGS.iter().map(|x| (x.clone(), x.clone())).collect::<HashMap<_,_>>())));
-
+    pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
 
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {

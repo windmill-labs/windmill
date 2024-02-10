@@ -26,6 +26,7 @@
 
 	const splitter = '_%%%_'
 	let globalCache = false
+	let customTags: string[] | undefined = undefined
 
 	$: groupedWorkers = groupBy(
 		groupBy(
@@ -59,9 +60,15 @@
 	}
 
 	let secondInterval: NodeJS.Timeout | undefined = undefined
+	async function loadCustomTags() {
+		try {
+			customTags = (await WorkerService.getCustomTags()) ?? []
+		} catch (err) {
+			sendUserToast(`Could not load global cache: ${err}`, true)
+		}
+	}
+
 	onMount(() => {
-		loadWorkers()
-		loadWorkerGroups()
 		intervalId = setInterval(() => {
 			loadWorkers()
 			loadWorkerGroups()
@@ -71,6 +78,9 @@
 		}, 1000)
 	})
 
+	loadWorkers()
+	loadWorkerGroups()
+	loadCustomTags()
 	$: if ($superadmin) {
 		loadGlobalCache()
 	}
@@ -93,8 +103,6 @@
 	})
 
 	let newConfigName = ''
-
-	let customTags: string[] | undefined = undefined
 
 	async function addConfig() {
 		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
@@ -137,7 +145,13 @@
 						is on)</Tooltip
 					>
 				</div>
-				<div><AssignableTags bind:customTags /> </div>
+				<div
+					><AssignableTags
+						on:refresh={() => {
+							loadCustomTags()
+						}}
+					/>
+				</div>
 				<div><DefaultTags /> </div>
 			</div>
 		{/if}

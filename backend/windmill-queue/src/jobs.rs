@@ -60,7 +60,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
-    worker::{to_raw_value, WORKER_CONFIG},
+    worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
 
@@ -2930,6 +2930,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         .map(|e| (Some(e.0), e.1))
         .unwrap_or_else(|| (None, None));
 
+    let per_workspace: bool = DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed);
+
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(
             "{}:{}{}",
@@ -2942,27 +2944,16 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             script_path.clone().expect("dedicated script has a path")
         )
     } else if job_kind == JobKind::Script_Hub {
-        "hub".to_string()
+        if per_workspace {
+            format!("hub-{}", workspace_id)
+        } else {
+            "hub".to_string()
+        }
     } else {
         if tag == Some("".to_string()) {
             tag = None;
         }
-        let default = || {
-            if job_kind == JobKind::Flow
-                || job_kind == JobKind::FlowPreview
-                || job_kind == JobKind::Identity
-            {
-                "flow".to_string()
-            } else if job_kind == JobKind::Dependencies
-                || job_kind == JobKind::FlowDependencies
-                || job_kind == JobKind::DeploymentCallback
-            {
-                // using the dependency tag for deployment callback for now. We can create a separate tag when we need
-                "dependency".to_string()
-            } else {
-                "deno".to_string()
-            }
-        };
+
         let interpolated_tag = tag.map(|x| {
             let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
             if RE_ARG_TAG.is_match(&workspaced) {
@@ -2983,10 +2974,38 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             }
         });
 
+        let default = || {
+            let ntag = if job_kind == JobKind::Flow
+                || job_kind == JobKind::FlowPreview
+                || job_kind == JobKind::Identity
+            {
+                "flow".to_string()
+            } else if job_kind == JobKind::Dependencies
+                || job_kind == JobKind::FlowDependencies
+                || job_kind == JobKind::DeploymentCallback
+            {
+                // using the dependency tag for deployment callback for now. We can create a separate tag when we need
+                "dependency".to_string()
+            } else {
+                "deno".to_string()
+            };
+            if per_workspace {
+                format!("{}-{}", ntag, workspace_id)
+            } else {
+                ntag
+            }
+        };
+
         interpolated_tag.unwrap_or_else(|| {
             language
                 .as_ref()
-                .map(|x| x.as_str().to_string())
+                .map(|x| {
+                    if per_workspace {
+                        format!("{}-{}", x.as_str(), workspace_id)
+                    } else {
+                        x.as_str().to_string()
+                    }
+                })
                 .unwrap_or_else(default)
         })
     };

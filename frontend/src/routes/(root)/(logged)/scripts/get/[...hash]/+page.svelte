@@ -418,6 +418,7 @@
 
 	let token = 'TOKEN_TO_CREATE'
 	let detailSelected = 'saved_inputs'
+	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 </script>
 
 <MoveDrawer
@@ -450,7 +451,11 @@
 		</DrawerContent>
 	</Drawer>
 	{#key script.hash}
-		<DetailPageLayout bind:selected={detailSelected} isOperator={$userStore?.operator}>
+		<DetailPageLayout
+			bind:triggerSelected
+			bind:selected={detailSelected}
+			isOperator={$userStore?.operator}
+		>
 			<svelte:fragment slot="header">
 				<DetailPageHeader
 					{mainButtons}

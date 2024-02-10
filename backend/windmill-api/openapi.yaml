@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.265.3
+  version: 1.266.0
   title: Windmill API
 
   contact:
@@ -3200,7 +3200,7 @@ paths:
                 items:
                   type: string
 
-  /workers/default_tags:
+  /workers/get_default_tags:
     get:
       summary: get all instance default tags
       operationId: geDefaultTags
@@ -3212,9 +3212,22 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties:
+                type: array
+                items:
                   type: string
+
+  /workers/is_default_tags_per_workspace:
+    get:
+      summary: is default tags per workspace
+      operationId: isDefaultTagsPerWorkspace
+      tags:
+        - worker
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/scripts/archive/p/{path}:
     post:
