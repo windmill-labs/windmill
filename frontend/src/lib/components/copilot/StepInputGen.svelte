@@ -21,7 +21,6 @@
 	export let arg: InputTransform | any
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argName: string
-	let notYetGenerated = true
 
 	let empty = false
 	$: empty =
@@ -33,7 +32,6 @@
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	async function generateStepInput() {
-		notYetGenerated = false
 		abortController = new AbortController()
 		loading = true
 		const idOrders = dfs($flowStore.value.modules, (x) => x.id)
@@ -92,16 +90,9 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 				event.preventDefault()
 				dispatch('setExpr', generatedContent)
 				generatedContent = ''
-			} else if (!loading && empty) {
-				event.preventDefault()
-				generateStepInput()
 			}
-		} else if (event.key === 'Escape') {
-			if (loading) {
-				abortController.abort()
-			} else {
-				generatedContent = ''
-			}
+		} else {
+			cancel()
 		}
 	}
 
@@ -113,13 +104,16 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 		}
 	}
 
-	$: if (
-		$copilotInfo.exists_openai_resource_path &&
-		$stepInputCompletionEnabled &&
-		notYetGenerated &&
-		focused
-	) {
+	$: if ($copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
+	}
+
+	function cancel() {
+		abortController.abort()
+		generatedContent = ''
+	}
+	$: if (!focused) {
+		cancel()
 	}
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
@@ -128,7 +122,7 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 {#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
 	<ManualPopover
 		showTooltip={generatedContent.length > 0 || !!$generatedExprs?.[argName]}
-		placement="top"
+		placement="bottom"
 		class="p-2"
 	>
 		<Button
@@ -137,7 +131,7 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover"
 			on:click={() => {
 				if (loading) {
-					abortController.abort()
+					cancel()
 				} else if (generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
 					generatedContent = ''
@@ -153,8 +147,7 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 			}}
 			on:mouseleave={() => {
 				out = true
-				abortController.abort()
-				generatedContent = ''
+				cancel()
 			}}
 			endIcon={{
 				icon:
@@ -169,13 +162,13 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 			{#if focused}
 				{#if loading}
 					ESC
-				{:else if empty || generatedContent.length > 0}
+				{:else if generatedContent.length > 0}
 					TAB
 				{/if}
 			{/if}
 		</Button>
 		<svelte:fragment slot="content">
-			<div class="text-sm">
+			<div class="text-sm text-tertiary">
 				{generatedContent || $generatedExprs?.[argName]}
 			</div>
 		</svelte:fragment>
