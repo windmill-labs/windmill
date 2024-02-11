@@ -1197,19 +1197,24 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .fetch_one(db)
             .await?;
             if no_flow_overlap {
-                let count = sqlx::query_scalar!(
-                    "SELECT count(*) FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+                let overlapping = sqlx::query_scalar!(
+                    "SELECT id FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
                     flow_job.id
-                ).fetch_one(db).await?.unwrap_or(0);
-                if count > 0 {
+                ).fetch_all(db).await?;
+                if overlapping.len() > 0 {
+                    let overlapping_str = overlapping
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ");
                     job_completed_tx
                         .send(SendResult::UpdateFlow {
                             flow: flow_job.id,
                             success: true,
                             result: serde_json::from_str(
-                                "\"not allowed to overlap, scheduling next iteration\"",
+                                &format!("\"not allowed to overlap with {overlapping_str}, scheduling next iteration\""),
                             )
                             .unwrap(),
                             stop_early_override: Some(true),
