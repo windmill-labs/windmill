@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.268.0](https://github.com/windmill-labs/windmill/compare/v1.267.0...v1.268.0) (2024-02-11)
+
+
+### Features
+
+* flow inputs ai gen ([#3191](https://github.com/windmill-labs/windmill/issues/3191)) ([13e6706](https://github.com/windmill-labs/windmill/commit/13e6706a095639c92691a4e714704aedd09155c2))
+
+
+### Bug Fixes
+
+* allow direct git-sync setting loading ([f171d08](https://github.com/windmill-labs/windmill/commit/f171d0827858fbbf1b2a478164ae67bce404e7d1))
+* **cli:** improve tty handling ([87ee3e4](https://github.com/windmill-labs/windmill/commit/87ee3e4a93f955f8ee5dab04e8bcec5415fb3fb5))
+* **cli:** improve tty handling ([f1ae3f2](https://github.com/windmill-labs/windmill/commit/f1ae3f21ef97b5144cc670b1c5f12508d3ac6c9d))
+
 ## [1.267.0](https://github.com/windmill-labs/windmill/compare/v1.266.1...v1.267.0) (2024-02-10)
 
 
