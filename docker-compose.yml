@@ -5,7 +5,8 @@ services:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
       replicas: 1
-    image: postgres:14
+    image: postgres:16
+    shm_size: 1g
     restart: unless-stopped
     volumes:
       - db_data:/var/lib/postgresql/data
