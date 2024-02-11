@@ -210,7 +210,7 @@ export async function add(
   remote = new URL(remote).toString(); // add trailing slash in all cases!
 
   let token = await tryGetLoginInfo(opts);
-  if (!token && !Deno.stdin.isTerminal) {
+  if (!token && !Deno.stdin.isTerminal()) {
     log.info("Not a TTY, can't login interactively. Pass the token in --token");
     return;
   }
