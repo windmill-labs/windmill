@@ -969,6 +969,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     script_path: &str,
     w_id: &str,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    tracing::info!("Schedule {schedule_path} scheduling next job for {script_path} in {w_id}",);
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
     if schedule.is_none() {
@@ -1031,6 +1032,13 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
             }
         }
     } else {
+        if script_path != schedule.script_path {
+            tracing::warn!(
+                "Schedule {schedule_path} in {w_id} has a different script path than the job. Not scheduling again"
+            );
+        } else {
+            tracing::info!("Schedule {schedule_path} in {w_id} is disabled. Not scheduling again.");
+        }
         Ok(tx)
     }
 }
