@@ -58,6 +58,11 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     .unwrap_or(false);
 
     if already_exists {
+        tracing::info!(
+            "Job for schedule {} at {} already exists",
+            &schedule.path,
+            next
+        );
         return Ok(tx);
     }
 
@@ -153,13 +158,21 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     };
 
-    sqlx::query!(
+    if let Err(e) = sqlx::query!(
         "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
         &schedule.workspace_id,
         &schedule.path
     )
     .execute(&mut tx)
-    .await?;
+    .await
+    {
+        tracing::error!(
+            "Failed to clear error for schedule {}: {}",
+            &schedule.path,
+            e
+        );
+    };
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, tx) = push(
         &db,
