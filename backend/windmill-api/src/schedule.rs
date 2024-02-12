@@ -659,7 +659,7 @@ async fn set_default_error_handler(
     }
 
     if payload.override_existing {
-        let mut updated_schedules: Vec<String>;
+        let updated_schedules: Vec<String>;
         match payload.handler_type {
             HandlerType::Error => {
                 if payload.path.is_some() {
