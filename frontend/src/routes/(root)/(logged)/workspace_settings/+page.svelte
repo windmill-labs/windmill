@@ -1032,8 +1032,8 @@
 								options={{ right: 'Apps' }}
 							/>
 							<Toggle
-								bind:checked={gitSyncSettings.include_type.resourceTypes}
-								options={{ right: 'Resource Types' }}
+								bind:checked={gitSyncSettings.include_type.folders}
+								options={{ right: 'Folders' }}
 							/>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.resources}
@@ -1044,21 +1044,19 @@
 									bind:checked={gitSyncSettings.include_type.variables}
 									options={{ right: 'Variables ' }}
 								/>
-								{#if gitSyncSettings.include_type.variables}
-									<span>-</span>
-									<Toggle
-										bind:checked={gitSyncSettings.include_type.secrets}
-										options={{ left: 'Include secrets' }}
-									/>
-								{/if}
+								<span>-</span>
+								<Toggle
+									bind:checked={gitSyncSettings.include_type.secrets}
+									options={{ left: 'Include secrets' }}
+								/>
 							</div>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.schedules}
 								options={{ right: 'Schedules' }}
 							/>
 							<Toggle
-								bind:checked={gitSyncSettings.include_type.folders}
-								options={{ right: 'Folders' }}
+								bind:checked={gitSyncSettings.include_type.resourceTypes}
+								options={{ right: 'Resource Types' }}
 							/>
 						</div>
 					</div>
