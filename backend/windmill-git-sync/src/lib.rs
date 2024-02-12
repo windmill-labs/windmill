@@ -155,7 +155,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                 .any(|element| *element == ObjectType::Schedule),
         };
 
-    tracing::warn!("Skipping git sync for {:?} -> {}", obj_path, skip_git_sync);
+    tracing::debug!("Skipping git sync for {:?} -> {}", obj_path, skip_git_sync);
 
     let mut git_sync_job_uuids: Vec<Uuid> = vec![];
     if !skip_git_sync {
