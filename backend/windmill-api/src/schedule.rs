@@ -616,6 +616,7 @@ async fn delete_schedule(
 async fn set_default_error_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(payload): Json<ErrorOrRecoveryHandler>,
 ) -> Result<()> {
@@ -658,11 +659,12 @@ async fn set_default_error_handler(
     }
 
     if payload.override_existing {
+        let mut updated_schedules: Vec<String>;
         match payload.handler_type {
             HandlerType::Error => {
                 if payload.path.is_some() {
-                    sqlx::query!(
-                        "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6",
+                    updated_schedules = sqlx::query_scalar!(
+                        "UPDATE schedule SET ws_error_handler_muted = $1, on_failure = $2, on_failure_extra_args = $3, on_failure_times = $4, on_failure_exact = $5 WHERE workspace_id = $6 RETURNING path",
                         payload.workspace_handler_muted,
                         payload.path,
                         payload.extra_args,
@@ -670,52 +672,52 @@ async fn set_default_error_handler(
                         payload.number_of_occurence_exact,
                         w_id,
                     )
-                    .execute(&db)
+                    .fetch_all(&db)
                     .await?;
                 } else {
-                    sqlx::query!(
-                        "UPDATE schedule SET ws_error_handler_muted = false, on_failure = NULL, on_failure_extra_args = NULL, on_failure_times = NULL, on_failure_exact = NULL WHERE workspace_id = $1",
+                    updated_schedules = sqlx::query_scalar!(
+                        "UPDATE schedule SET ws_error_handler_muted = false, on_failure = NULL, on_failure_extra_args = NULL, on_failure_times = NULL, on_failure_exact = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .execute(&db)
+                    .fetch_all(&db)
                     .await?;
                 }
             }
             HandlerType::Recovery => {
                 if payload.path.is_some() {
-                    sqlx::query!(
-                        "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4",
+                    updated_schedules = sqlx::query_scalar!(
+                        "UPDATE schedule SET on_recovery = $1, on_recovery_extra_args = $2, on_recovery_times = $3 WHERE workspace_id = $4 RETURNING path",
                         payload.path,
                         payload.extra_args,
                         payload.number_of_occurence,
                         w_id,
                     )
-                    .execute(&db)
+                    .fetch_all(&db)
                     .await?;
                 } else {
-                    sqlx::query!(
-                        "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1",
+                    updated_schedules = sqlx::query_scalar!(
+                        "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .execute(&db)
+                    .fetch_all(&db)
                     .await?;
                 }
             }
         }
+        for updated_schedule_path in updated_schedules {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Schedule { path: updated_schedule_path },
+                None,
+                rsmq.clone(),
+                true,
+            )
+            .await?;
+        }
     }
-
-    // TODO: need to update all schedules at once
-    // handle_deployment_metadata(
-    //     &authed.email,
-    //     &authed.username,
-    //     &db,
-    //     &w_id,
-    //     DeployedObject::Schedule { path: path.to_string() },
-    //     None,
-    //     rsmq.clone(),
-    //     true,
-    // )
-    // .await?;
     Ok(())
 }
 
