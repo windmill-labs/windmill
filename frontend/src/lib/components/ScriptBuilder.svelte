@@ -889,7 +889,7 @@
 				</div>
 
 				<div class="gap-4 flex">
-					<div class="flex justify-start w-full">
+					<div class="flex justify-start w-full border rounded-md overflow-hidden">
 						<div>
 							<button
 								on:click={async () => {
@@ -898,7 +898,7 @@
 							>
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-selected !text-tertiary !h-[28px]  !w-[70px] rounded-r-none"
+									class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
 								>
 									<Pen size={12} class="mr-2" /> Path
 								</Badge>
@@ -909,7 +909,7 @@
 							readonly
 							value={script.path}
 							size={script.path?.length || 50}
-							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
 							on:focus={({ currentTarget }) => {
 								currentTarget.select()
 							}}
