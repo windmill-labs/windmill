@@ -135,7 +135,7 @@
 		if (resolvedConfig?.confirmationModal?.selected === 'confirmationModal') {
 			confirmedCallback = action
 		} else {
-			action()
+			await action()
 		}
 	}
 	let loading = false
