@@ -1115,8 +1115,8 @@
 
 						<br />
 
-						For the git repo to be representative of the entire workspace, it is recommended to set
-						it up using the Windmill CLI before turning this option on.
+						. For the git repo to be representative of the entire workspace, it is recommended to
+						set it up using the Windmill CLI before turning this option on.
 
 						<br /><br />
 
