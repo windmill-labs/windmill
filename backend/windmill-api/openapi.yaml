@@ -9550,6 +9550,11 @@ components:
               - flow
               - app
               - folder
+              - resource
+              - variable
+              - secret
+              - resourcetype
+              - schedule
         repositories:
           type: array
           items:

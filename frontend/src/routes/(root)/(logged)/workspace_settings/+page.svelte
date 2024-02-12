@@ -76,6 +76,11 @@
 			flows: boolean
 			apps: boolean
 			folders: boolean
+			resourceTypes: boolean
+			resources: boolean
+			variables: boolean
+			secrets: boolean
+			schedules: boolean
 		}
 	}
 	let gitSyncTestJobs: {
@@ -231,7 +236,17 @@
 			return !emptyString(elmt)
 		})
 
-		let include_type: ('script' | 'flow' | 'app' | 'folder')[] = []
+		let include_type: (
+			| 'script'
+			| 'flow'
+			| 'app'
+			| 'folder'
+			| 'resourcetype'
+			| 'resource'
+			| 'variable'
+			| 'secret'
+			| 'schedule'
+		)[] = []
 		if (gitSyncSettings.include_type.scripts) {
 			include_type.push('script')
 		}
@@ -243,6 +258,21 @@
 		}
 		if (gitSyncSettings.include_type.folders) {
 			include_type.push('folder')
+		}
+		if (gitSyncSettings.include_type.resourceTypes) {
+			include_type.push('resourcetype')
+		}
+		if (gitSyncSettings.include_type.resources) {
+			include_type.push('resource')
+		}
+		if (gitSyncSettings.include_type.variables) {
+			include_type.push('variable')
+		}
+		if (gitSyncSettings.include_type.secrets) {
+			include_type.push('secret')
+		}
+		if (gitSyncSettings.include_type.schedules) {
+			include_type.push('schedule')
 		}
 
 		if (alreadySeenResource.some((res, index) => alreadySeenResource.indexOf(res) !== index)) {
@@ -365,6 +395,11 @@
 					scripts: (settings.git_sync.include_type?.indexOf('script') ?? -1) >= 0,
 					flows: (settings.git_sync.include_type?.indexOf('flow') ?? -1) >= 0,
 					apps: (settings.git_sync.include_type?.indexOf('app') ?? -1) >= 0,
+					resourceTypes: (settings.git_sync.include_type?.indexOf('resourcetype') ?? -1) >= 0,
+					resources: (settings.git_sync.include_type?.indexOf('resource') ?? -1) >= 0,
+					variables: (settings.git_sync.include_type?.indexOf('variable') ?? -1) >= 0,
+					secrets: (settings.git_sync.include_type?.indexOf('secret') ?? -1) >= 0,
+					schedules: (settings.git_sync.include_type?.indexOf('schedule') ?? -1) >= 0,
 					folders: (settings.git_sync.include_type?.indexOf('folder') ?? -1) >= 0
 				}
 			}
@@ -376,7 +411,12 @@
 					scripts: true,
 					flows: true,
 					apps: true,
-					folders: true
+					folders: true,
+					resourceTypes: false,
+					resources: false,
+					variables: false,
+					secrets: false,
+					schedules: false
 				}
 			}
 			gitSyncTestJobs = []
@@ -995,6 +1035,29 @@
 								bind:checked={gitSyncSettings.include_type.folders}
 								options={{ right: 'Folders' }}
 							/>
+							<Toggle
+								bind:checked={gitSyncSettings.include_type.resources}
+								options={{ right: 'Resources' }}
+							/>
+							<div class="flex gap-3">
+								<Toggle
+									bind:checked={gitSyncSettings.include_type.variables}
+									options={{ right: 'Variables ' }}
+								/>
+								<span>-</span>
+								<Toggle
+									bind:checked={gitSyncSettings.include_type.secrets}
+									options={{ left: 'Include secrets' }}
+								/>
+							</div>
+							<Toggle
+								bind:checked={gitSyncSettings.include_type.schedules}
+								options={{ right: 'Schedules' }}
+							/>
+							<Toggle
+								bind:checked={gitSyncSettings.include_type.resourceTypes}
+								options={{ right: 'Resource Types' }}
+							/>
 						</div>
 					</div>
 				</div>
@@ -1086,7 +1149,7 @@
 							gitSyncSettings.repositories = [
 								...gitSyncSettings.repositories,
 								{
-									script_path: 'hub/7954/sync-script-to-git-repo-windmill',
+									script_path: 'hub/7958/sync-script-to-git-repo-windmill',
 									git_repo_resource_path: '',
 									use_individual_branch: false
 								}

@@ -190,9 +190,9 @@ async fn create_folder(
             extra_mut.insert(o.clone(), serde_json::json!(true));
         }
     } else {
-        return Err(windmill_common::error::Error::BadRequest(format!(
-            "extra_perms must be an object"
-        )));
+        return Err(error::Error::BadRequest(
+            "extra_perms must be an object".to_string(),
+        ));
     }
 
     sqlx::query_as!(
