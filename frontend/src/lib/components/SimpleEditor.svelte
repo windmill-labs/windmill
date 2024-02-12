@@ -13,8 +13,7 @@
 		KeyMod,
 		Uri as mUri,
 		languages,
-		type IRange,
-		type IKeyboardEvent
+		type IRange
 	} from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
