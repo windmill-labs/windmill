@@ -4,7 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
-	import { workspaceStore, oauthStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore, oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -14,7 +14,10 @@
 	let state = $page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
-		if (error) {
+		if (!$enterpriseLicense) {
+			sendUserToast('You need to have an enterprise license to connect to Slack', true)
+			goto('/workspace_settings?tab=slack')
+		} else if (error) {
 			sendUserToast(`Error trying to add slack connection: ${error}`, true)
 		} else if (code && state) {
 			const token = await OauthService.connectSlackCallback({

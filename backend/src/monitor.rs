@@ -15,7 +15,7 @@ use tokio::{
 };
 use uuid::Uuid;
 use windmill_api::{
-    oauth2::{build_oauth_clients, OAuthClient},
+    oauth2_ee::{build_oauth_clients, OAuthClient},
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT,
 };
 use windmill_common::{

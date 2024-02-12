@@ -8,7 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    oauth2::_refresh_token,
+    oauth2_ee::_refresh_token,
     users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };

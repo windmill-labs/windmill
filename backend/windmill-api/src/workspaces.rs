@@ -18,7 +18,7 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{send_email_if_possible, WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
-    webhook_util::{InstanceEvent, WebhookShared},
+    webhook_util::WebhookShared,
 };
 #[cfg(feature = "stripe")]
 use axum::response::Redirect;
@@ -56,6 +56,7 @@ use windmill_common::{
 };
 use windmill_queue::QueueTransaction;
 
+use crate::oauth2_ee::InstanceEvent;
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map};

@@ -573,6 +573,10 @@
 				{#if team_name}
 					<div class="flex flex-col gap-2 max-w-sm">
 						<Button
+							disabled={!$enterpriseLicense}
+							title={$enterpriseLicense
+								? 'Disconnect Slack'
+								: 'Connection to Slack is a Windmill Enterprise Edition feature'}
 							size="sm"
 							endIcon={{ icon: Slack }}
 							btnClasses="mt-2"
@@ -601,6 +605,10 @@
 				{:else}
 					<div class="flex flex-row gap-2">
 						<Button
+							disabled={!$enterpriseLicense}
+							title={$enterpriseLicense
+								? 'Connect to Slack'
+								: 'Connection to Slack is a Windmill Enterprise Edition feature'}
 							size="xs"
 							color="dark"
 							href="/api/oauth/connect_slack"

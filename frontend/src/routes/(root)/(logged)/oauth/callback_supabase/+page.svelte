@@ -4,7 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
-	import { oauthStore } from '$lib/stores'
+	import { enterpriseLicense, oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -16,7 +16,10 @@
 	let state = $page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
-		if (error) {
+		if (!$enterpriseLicense) {
+			sendUserToast('You need to have an enterprise license to connect to Supabase', true)
+			goto('/resources')
+		} else if (error) {
 			sendUserToast(`Error trying to fetch projects from windmill: ${error}`, true)
 			goto('/resources')
 		} else if (code && state) {
