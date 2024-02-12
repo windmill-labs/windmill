@@ -57,6 +57,7 @@
 	export let fixedOverflowWidgets = true
 	export let small = false
 	export let domLib = false
+	export let autofocus = false
 
 	const dispatch = createEventDispatcher()
 
@@ -114,12 +115,6 @@
 	export function onDidChangeCursorSelection(f: (e: meditor.ICursorSelectionChangedEvent) => void) {
 		if (editor) {
 			return editor.onDidChangeCursorSelection(f)
-		}
-	}
-
-	export function onKeyUp(f: (e: IKeyboardEvent) => void) {
-		if (editor) {
-			return editor.onKeyUp(f)
 		}
 	}
 
@@ -332,6 +327,9 @@
 		if (BROWSER) {
 			mounted = true
 			await loadMonaco()
+			if (autofocus) {
+				focus()
+			}
 		}
 	})
 

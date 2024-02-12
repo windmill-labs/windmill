@@ -218,6 +218,7 @@
 							bind:this={stepInputGen}
 							{focused}
 							{arg}
+							schemaProperty={schema.properties[argName]}
 							on:setExpr={(e) => {
 								arg = {
 									type: 'javascript',

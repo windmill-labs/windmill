@@ -13,10 +13,13 @@
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
 	import { Popup } from '../common'
+	import type { SchemaProperty, Schema } from '$lib/common'
+	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argNames: string[] = []
+	export let schema: Schema
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -25,9 +28,13 @@
 
 	let generatedContent = ''
 	let parsedInputs: string[][] = []
+	let newFlowInputs: string[] = []
 
 	let abortController = new AbortController()
 	async function generateStepInputs() {
+		if (Object.keys($generatedExprs || {}).length > 0 || loading) {
+			return
+		}
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
@@ -39,8 +46,7 @@
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
 			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-				'lock',
-				'input_transforms'
+				'lock'
 			]) +
 			'</flowDetails>'
 
@@ -67,8 +73,6 @@ Return the input element directly: e.g. flow_input.property, results.a, results.
 Your answer has to be in the following format (one line per input):
 input_name: expr`
 
-			console.log(user)
-
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -82,9 +86,18 @@ input_name: expr`
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
 
 			const exprs = {}
+			newFlowInputs = []
 			for (const [key, value] of parsedInputs) {
 				if (argNames.includes(key)) {
 					exprs[key] = value
+					if (
+						pickableProperties &&
+						value.startsWith('flow_input.') &&
+						value.split('.')[1] &&
+						!(value.split('.')[1] in pickableProperties.flow_input)
+					) {
+						newFlowInputs.push(value.split('.')[1])
+					}
 				}
 			}
 			generatedExprs?.set(exprs)
@@ -96,6 +109,29 @@ input_name: expr`
 			loading = false
 
 			stepInputsLoading?.set(false)
+		}
+	}
+
+	function createFlowInputs() {
+		if (!newFlowInputs.length) {
+			return
+		}
+		const properties = {
+			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...newFlowInputs.reduce((acc, x) => {
+				acc[x] = (schema.properties ?? {})[x]
+				return acc
+			}, {})
+		}
+		const required = [
+			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...newFlowInputs
+		]
+		$flowStore.schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties,
+			required,
+			type: 'object'
 		}
 	}
 
@@ -111,19 +147,30 @@ input_name: expr`
 		}
 		exprsToSet?.set(argsUpdate)
 		generatedExprs?.set({})
+		if (newFlowInputs.length) {
+			openInputsModal = true
+		}
 	}
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let openInputsModal = false
 </script>
 
 <div class="flex flex-row justify-end">
 	{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+		<FlowCopilotInputsModal
+			on:confirmed={async () => {
+				createFlowInputs()
+			}}
+			bind:open={openInputsModal}
+			inputs={newFlowInputs}
+		/>
 		<Button
 			size="xs"
 			color="light"
 			btnClasses="text-violet-800 dark:text-violet-400"
 			on:mouseenter={(ev) => {
-				if (Object.keys($generatedExprs || {}).length === 0 && !loading && out) {
+				if (out) {
 					out = false
 					generateStepInputs()
 				}
@@ -188,9 +235,13 @@ input_name: expr`
 					</a>
 				{:else}
 					Enable step input completion in the{' '}
-					<a href="#user-settings" class="inline-flex flex-row items-center gap-1" on:click={() => {
-						close(null)
-					}}>
+					<a
+						href="#user-settings"
+						class="inline-flex flex-row items-center gap-1"
+						on:click={() => {
+							close(null)
+						}}
+					>
 						user settings
 					</a>
 				{/if}

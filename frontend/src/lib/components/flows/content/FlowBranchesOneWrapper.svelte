@@ -19,6 +19,7 @@
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
 	export let noEditor: boolean
+	export let enableAi = false
 
 	let value = flowModule.value as BranchOne
 	$: value = flowModule.value as BranchOne
@@ -65,7 +66,12 @@
 										/>
 									</div>
 									<div class="w-full border">
-										<BranchPredicateEditor {branch} parentModule={flowModule} {previousModule} />
+										<BranchPredicateEditor
+											{branch}
+											parentModule={flowModule}
+											{previousModule}
+											{enableAi}
+										/>
 									</div>
 								</div>
 							{/each}
