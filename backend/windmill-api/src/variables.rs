@@ -34,6 +34,7 @@ use lazy_static::lazy_static;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -280,6 +281,7 @@ async fn create_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
@@ -324,6 +326,18 @@ async fn create_variable(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Variable { path: variable.path.clone(), parent_path: None },
+        Some(format!("Variable '{}' created", variable.path.clone())),
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateVariable { workspace: w_id, path: variable.path.clone() },
@@ -352,8 +366,10 @@ async fn encrypt_value(
 
 async fn delete_variable(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -386,6 +402,18 @@ async fn delete_variable(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Variable { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Variable '{}' deleted", path)),
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteVariable { workspace: w_id, path: path.to_owned() },
@@ -409,9 +437,10 @@ struct AlreadyEncrypted {
 
 async fn update_variable(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(ns): Json<EditVariable>,
@@ -527,6 +556,18 @@ async fn update_variable(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Variable { path: npath.clone(), parent_path: Some(path.to_string()) },
+        None,
+        rsmq.clone(),
+        true,
+    )
+    .await?;
 
     webhook.send_message(
         w_id.clone(),
