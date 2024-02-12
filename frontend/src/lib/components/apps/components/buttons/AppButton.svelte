@@ -19,6 +19,8 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { initCss } from '../../utils'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Portal from 'svelte-portal'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -81,6 +83,8 @@
 	$: resolvedConfig.beforeIcon && handleBeforeIcon()
 	$: resolvedConfig.afterIcon && handleAfterIcon()
 
+	let confirmedCallback: (() => void) | undefined = undefined
+
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
 			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
@@ -109,21 +113,29 @@
 		event?.preventDefault()
 
 		$selectedComponent = [id]
-		const inputOutput = { result: outputs.result.peak(), loading: true }
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, inputOutput)
-		}
-		if (iterContext && listInputs) {
-			listInputs.set(id, inputOutput)
-		}
-		if (preclickAction) {
-			await preclickAction()
+		const action = async () => {
+			const inputOutput = { result: outputs.result.peak(), loading: true }
+			if (rowContext && rowInputs) {
+				rowInputs.set(id, inputOutput)
+			}
+			if (iterContext && listInputs) {
+				listInputs.set(id, inputOutput)
+			}
+			if (preclickAction) {
+				await preclickAction()
+			}
+
+			if (!runnableComponent) {
+				runnableWrapper?.handleSideEffect(true)
+			} else {
+				await runnableComponent?.runComponent()
+			}
 		}
 
-		if (!runnableComponent) {
-			runnableWrapper?.handleSideEffect(true)
+		if (resolvedConfig?.confirmationModal?.selected === 'confirmationModal') {
+			confirmedCallback = action
 		} else {
-			await runnableComponent?.runComponent()
+			await action()
 		}
 	}
 	let loading = false
@@ -225,3 +237,29 @@
 		{/key}
 	</AlignWrapper>
 </RunnableWrapper>
+
+{#if resolvedConfig?.confirmationModal?.selected === 'confirmationModal'}
+	<Portal target="#app-editor-top-level-drawer">
+		<ConfirmationModal
+			open={Boolean(confirmedCallback)}
+			title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}
+			confirmationText={resolvedConfig?.confirmationModal?.configuration?.confirmationModal
+				?.confirmationText ?? ''}
+			on:canceled={() => {
+				confirmedCallback = undefined
+			}}
+			on:confirmed={() => {
+				if (confirmedCallback) {
+					confirmedCallback()
+				}
+				confirmedCallback = undefined
+			}}
+		>
+			<div class="flex flex-col w-full space-y-4">
+				<span>
+					{resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.description ?? ''}
+				</span>
+			</div>
+		</ConfirmationModal>
+	</Portal>
+{/if}
