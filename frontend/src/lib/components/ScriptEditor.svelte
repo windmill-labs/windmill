@@ -230,7 +230,7 @@
 		/>
 	</div>
 </Modal>
-<div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
+<div class="border-b shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
 			scriptPath={edit ? path : undefined}
@@ -279,7 +279,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div class="pl-2 h-full !overflow-visible">
+			<div class="pl-2 h-full !overflow-visible bg-gray-50 dark:bg-[#2F343F]">
 				{#key lang}
 					<Editor
 						folding

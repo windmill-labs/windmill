@@ -1013,8 +1013,42 @@ export const components = {
 					value: false,
 					fieldType: 'boolean'
 				},
+
 				onSuccess: onSuccessClick,
-				onError: onErrorClick
+				onError: onErrorClick,
+				confirmationModal: {
+					type: 'oneOf',
+					selected: 'none',
+					tooltip: 'If defined, the user will be asked to confirm the action in a modal.',
+					labels: {
+						none: 'Do nothing',
+						confirmationModal: 'Show confirmation modal'
+					},
+					configuration: {
+						none: {},
+						confirmationModal: {
+							title: {
+								fieldType: 'text',
+								type: 'static',
+								value: 'Title',
+								placeholder: 'Confirmation modal title'
+							},
+							description: {
+								fieldType: 'text',
+								type: 'static',
+								value: 'Are you sure?',
+								placeholder: 'Are you sure?'
+							},
+							confirmationText: {
+								fieldType: 'text',
+								type: 'static',
+								value: 'Confirm',
+								placeholder: 'Confirm',
+								tooltip: 'The text of the button that confirms the action.'
+							}
+						}
+					}
+				}
 			}
 		}
 	},
