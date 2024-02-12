@@ -112,8 +112,8 @@
 		event?.stopPropagation()
 		event?.preventDefault()
 
+		$selectedComponent = [id]
 		const action = async () => {
-			$selectedComponent = [id]
 			const inputOutput = { result: outputs.result.peak(), loading: true }
 			if (rowContext && rowInputs) {
 				rowInputs.set(id, inputOutput)
