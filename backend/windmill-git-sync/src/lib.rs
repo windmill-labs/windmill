@@ -28,6 +28,10 @@ pub enum DeployedObject {
     Flow { path: String, parent_path: Option<String> },
     App { path: String, version: i64, parent_path: Option<String> },
     Folder { path: String },
+    Resource { path: String, parent_path: Option<String> },
+    Variable { path: String, parent_path: Option<String> },
+    Schedule { path: String },
+    ResourceType { path: String },
 }
 
 impl DeployedObject {
@@ -37,6 +41,10 @@ impl DeployedObject {
             DeployedObject::Flow { path, .. } => path,
             DeployedObject::App { path, .. } => path,
             DeployedObject::Folder { path, .. } => path,
+            DeployedObject::Resource { path, .. } => path,
+            DeployedObject::Variable { path, .. } => path,
+            DeployedObject::Schedule { path, .. } => path,
+            DeployedObject::ResourceType { path, .. } => path,
         }
     }
 
@@ -46,6 +54,10 @@ impl DeployedObject {
             DeployedObject::Flow { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::App { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::Folder { .. } => None,
+            DeployedObject::Resource { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::Variable { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::Schedule { .. } => None,
+            DeployedObject::ResourceType { .. } => None,
         }
     }
 }
@@ -125,6 +137,22 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                 .include_type
                 .iter()
                 .any(|element| *element == ObjectType::Folder),
+            DeployedObject::Resource { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::Resource),
+            DeployedObject::Variable { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::Variable),
+            DeployedObject::ResourceType { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::ResourceType),
+            DeployedObject::Schedule { .. } => !workspace_git_sync_settings
+                .include_type
+                .iter()
+                .any(|element| *element == ObjectType::Schedule),
         };
 
     tracing::debug!("Skipping git sync for {:?} -> {}", obj_path, skip_git_sync);
@@ -184,7 +212,52 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                     if deployment_message.as_ref().is_none()
                         || deployment_message.as_ref().is_some_and(|x| x.is_empty())
                     {
-                        format!("Folder '{}' deployed", path)
+                        format!("Folder '{}' updated", path)
+                    } else {
+                        deployment_message.clone().unwrap()
+                    }
+                }
+                DeployedObject::Resource { path, .. } => {
+                    args.insert("path_type".to_string(), json!("resource"));
+                    if deployment_message.as_ref().is_none()
+                        || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                    {
+                        format!("Resource '{}' updated", path)
+                    } else {
+                        deployment_message.clone().unwrap()
+                    }
+                }
+                DeployedObject::Variable { path, .. } => {
+                    args.insert("path_type".to_string(), json!("variable"));
+                    let skip_secret = !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Secret);
+                    args.insert("skip_secret".to_string(), json!(skip_secret));
+                    if deployment_message.as_ref().is_none()
+                        || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                    {
+                        format!("Variable '{}' updated", path)
+                    } else {
+                        deployment_message.clone().unwrap()
+                    }
+                }
+                DeployedObject::ResourceType { path, .. } => {
+                    args.insert("path_type".to_string(), json!("resourcetype"));
+                    if deployment_message.as_ref().is_none()
+                        || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                    {
+                        format!("Resource Type '{}' updated", path)
+                    } else {
+                        deployment_message.clone().unwrap()
+                    }
+                }
+                DeployedObject::Schedule { path, .. } => {
+                    args.insert("path_type".to_string(), json!("schedule"));
+                    if deployment_message.as_ref().is_none()
+                        || deployment_message.as_ref().is_some_and(|x| x.is_empty())
+                    {
+                        format!("Schedule '{}' updated", path)
                     } else {
                         deployment_message.clone().unwrap()
                     }
@@ -256,6 +329,10 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
                  .await?;
             }
             DeployedObject::Folder { .. } => (),
+            DeployedObject::Resource { .. } => (),
+            DeployedObject::Variable { .. } => (),
+            DeployedObject::ResourceType { .. } => (),
+            DeployedObject::Schedule { .. } => (),
         }
     }
 

@@ -14,6 +14,11 @@ pub enum ObjectType {
     Flow,
     App,
     Folder,
+    Resource,
+    Variable,
+    Secret,
+    Schedule,
+    ResourceType,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
