@@ -345,6 +345,10 @@ async fn delete_igroup(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", name)
+        .execute(&mut *tx)
+        .await?;
+
     audit_log(
         &mut *tx,
         &authed.username,
