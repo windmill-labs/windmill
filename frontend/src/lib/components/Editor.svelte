@@ -28,10 +28,6 @@
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
 
-	// import nord from '$lib/assets/nord.json'
-
-	// import nord from '$lib/assets/nord.json'
-
 	import { MonacoLanguageClient } from 'monaco-languageclient'
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'

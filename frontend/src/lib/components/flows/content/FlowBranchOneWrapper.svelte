@@ -12,6 +12,7 @@
 	export let parentModule: FlowModule
 	export let previousModule: FlowModule | undefined
 	export let noEditor: boolean
+	export let enableAi = false
 </script>
 
 <div class="h-full flex flex-col">
@@ -21,7 +22,7 @@
 		</div>
 		<div class="overflow-hidden flex-grow">
 			<h3 class="p-2">Predicate expression</h3>
-			<BranchPredicateEditor {branch} {parentModule} {previousModule} />
+			<BranchPredicateEditor {branch} {parentModule} {previousModule} {enableAi} />
 		</div>
 	</FlowCard>
 </div>

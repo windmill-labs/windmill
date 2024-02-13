@@ -13,10 +13,13 @@
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
 	import { Popup } from '../common'
+	import type { SchemaProperty, Schema } from '$lib/common'
+	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argNames: string[] = []
+	export let schema: Schema
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -25,9 +28,13 @@
 
 	let generatedContent = ''
 	let parsedInputs: string[][] = []
+	let newFlowInputs: string[] = []
 
 	let abortController = new AbortController()
 	async function generateStepInputs() {
+		if (Object.keys($generatedExprs || {}).length > 0 || loading) {
+			return
+		}
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
@@ -39,8 +46,7 @@
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
 			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-				'lock',
-				'input_transforms'
+				'lock'
 			]) +
 			'</flowDetails>'
 
@@ -53,21 +59,22 @@
 The current step is ${selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
-Determine for the inputs "${argNames.join(
+Determine for all the inputs "${argNames.join(
 				'", "'
-			)}", what to pass either from the previous results of the flow inputs. Here's a summary of the available data:
+			)}", what to pass either from the previous results of the flow inputs. 
+All possibles inputs either start with results. or flow_input. and are follow by the key of the input.			
+Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
-Return the input element directly: e.g. flow_input.property, results.a, results.a.property, flow_input.iter.value
 
 Your answer has to be in the following format (one line per input):
-input_name: expr`
-
-			console.log(user)
+{input_name1}: {expression1}
+{input_name2}: {expression2}
+...`
 
 			generatedContent = await getNonStreamingCompletion(
 				[
@@ -82,9 +89,18 @@ input_name: expr`
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
 
 			const exprs = {}
+			newFlowInputs = []
 			for (const [key, value] of parsedInputs) {
 				if (argNames.includes(key)) {
 					exprs[key] = value
+					if (
+						pickableProperties &&
+						value.startsWith('flow_input.') &&
+						value.split('.')[1] &&
+						!(value.split('.')[1] in pickableProperties.flow_input)
+					) {
+						newFlowInputs.push(value.split('.')[1])
+					}
 				}
 			}
 			generatedExprs?.set(exprs)
@@ -96,6 +112,29 @@ input_name: expr`
 			loading = false
 
 			stepInputsLoading?.set(false)
+		}
+	}
+
+	function createFlowInputs() {
+		if (!newFlowInputs.length) {
+			return
+		}
+		const properties = {
+			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...newFlowInputs.reduce((acc, x) => {
+				acc[x] = (schema.properties ?? {})[x]
+				return acc
+			}, {})
+		}
+		const required = [
+			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...newFlowInputs
+		]
+		$flowStore.schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties,
+			required,
+			type: 'object'
 		}
 	}
 
@@ -111,19 +150,30 @@ input_name: expr`
 		}
 		exprsToSet?.set(argsUpdate)
 		generatedExprs?.set({})
+		if (newFlowInputs.length) {
+			openInputsModal = true
+		}
 	}
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let openInputsModal = false
 </script>
 
 <div class="flex flex-row justify-end">
 	{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+		<FlowCopilotInputsModal
+			on:confirmed={async () => {
+				createFlowInputs()
+			}}
+			bind:open={openInputsModal}
+			inputs={newFlowInputs}
+		/>
 		<Button
 			size="xs"
 			color="light"
 			btnClasses="text-violet-800 dark:text-violet-400"
 			on:mouseenter={(ev) => {
-				if (Object.keys($generatedExprs || {}).length === 0 && !loading && out) {
+				if (out) {
 					out = false
 					generateStepInputs()
 				}
@@ -134,12 +184,8 @@ input_name: expr`
 				generatedExprs?.set({})
 			}}
 			on:click={() => {
-				if (loading) {
-					abortController.abort()
-				} else if (Object.keys($generatedExprs || {}).length > 0) {
+				if (!loading && Object.keys($generatedExprs || {}).length > 0) {
 					applyExprs()
-				} else if (!loading) {
-					generateStepInputs()
 				}
 			}}
 			startIcon={{
@@ -188,9 +234,13 @@ input_name: expr`
 					</a>
 				{:else}
 					Enable step input completion in the{' '}
-					<a href="#user-settings" class="inline-flex flex-row items-center gap-1" on:click={() => {
-						close(null)
-					}}>
+					<a
+						href="#user-settings"
+						class="inline-flex flex-row items-center gap-1"
+						on:click={() => {
+							close(null)
+						}}
+					>
 						user settings
 					</a>
 				{/if}
