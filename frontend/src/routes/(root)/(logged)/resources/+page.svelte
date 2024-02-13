@@ -31,7 +31,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import { enterpriseLicense, oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
 	import { convert } from '@redocly/json-to-json-schema'
@@ -187,7 +187,7 @@
 	}
 
 	async function deleteResource(path: string, account?: number): Promise<void> {
-		if (account && $enterpriseLicense) {
+		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
 		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
@@ -785,7 +785,7 @@
 														}
 													}
 												},
-												...(account != undefined && $enterpriseLicense
+												...(account != undefined
 													? [
 															{
 																displayName: 'Refresh token',

@@ -56,7 +56,7 @@
 </script>
 
 <script lang="ts">
-	import { enterpriseLicense, oauthStore, workspaceStore } from '$lib/stores'
+	import { oauthStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
@@ -263,7 +263,7 @@
 			}
 
 			let account: number | undefined = undefined
-			if ($enterpriseLicense && valueToken?.expires_in != undefined) {
+			if (valueToken?.expires_in != undefined) {
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,

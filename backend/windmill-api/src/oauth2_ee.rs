@@ -149,9 +149,8 @@ pub async fn _refresh_token<'c>(
     _w_id: &str,
     _id: i32,
 ) -> error::Result<String> {
-    // Implementation is not open source as it is a Windmill Enterprise Edition feature
     Err(error::Error::BadRequest(
-        "Token cannot be refreshed as this is a Windmill Enterprise Edition feature".to_string(),
+        "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
 

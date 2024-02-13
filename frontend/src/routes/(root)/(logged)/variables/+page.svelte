@@ -19,7 +19,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
 	import { OauthService, VariableService } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
 	import {
@@ -84,7 +84,7 @@
 	}
 
 	async function deleteVariable(path: string, account?: number): Promise<void> {
-		if (account && $enterpriseLicense) {
+		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
 		await VariableService.deleteVariable({ workspace: $workspaceStore!, path })
@@ -333,7 +333,7 @@
 													},
 													icon: Share
 												},
-												...(account != undefined && $enterpriseLicense
+												...(account != undefined
 													? [
 															{
 																displayName: 'Refresh token',

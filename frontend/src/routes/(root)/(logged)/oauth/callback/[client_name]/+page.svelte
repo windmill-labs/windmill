@@ -4,7 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
-	import { enterpriseLicense, oauthStore } from '$lib/stores'
+	import { oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -15,10 +15,7 @@
 	let state = $page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
-		if (!$enterpriseLicense) {
-			sendUserToast(`You need to have an enterprise license to connect to ${client_name}`, true)
-			goto('/resources')
-		} else if (error) {
+		if (error) {
 			sendUserToast(`Error trying to add ${client_name} connection: ${error}`, true)
 			goto('/resources')
 		} else if (code && state) {
