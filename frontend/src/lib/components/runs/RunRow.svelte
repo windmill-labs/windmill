@@ -118,8 +118,8 @@
 			{#if job === undefined}
 				No job found
 			{:else}
-				<div class="flex flex-row gap-1">
-					<div class="whitespace-nowrap text-xs font-semibold">
+				<div class="flex flex-row gap-1 min-w-0">
+					<div class="whitespace-nowrap text-xs font-semibold truncate">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
 								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-30">
