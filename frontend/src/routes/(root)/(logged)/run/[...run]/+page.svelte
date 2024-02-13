@@ -64,6 +64,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -191,23 +192,61 @@
 			sendUserToast('Job has no id', true)
 		}
 	}
+
+	function removeSensitiveInfos(
+		jobs: { [job: string]: { args: any; result: any; logs: string } },
+		redactSensitive: boolean
+	) {
+		if (!redactSensitive) {
+			return jobs
+		}
+		if (jobs === undefined || typeof jobs !== 'object') {
+			return []
+		}
+		return Object.fromEntries(
+			Object.entries(jobs).map(([k, job]) => {
+				return [
+					k,
+					{
+						...job,
+						args: '[redacted]',
+						result: '[redacted]',
+						logs: '[redacted]'
+					}
+				]
+			})
+		)
+	}
+
+	let redactSensitive = false
 </script>
 
 {#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
 	<Drawer bind:this={debugViewer} size="800px">
 		<DrawerContent title="Debug Detail" on:close={debugViewer.closeDrawer}>
 			<svelte:fragment slot="actions">
-				<Button
-					on:click={() => copyToClipboard(JSON.stringify(debugContent, null, 4))}
-					color="light"
-					size="xs"
-				>
-					<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
-				</Button>
+				<div class="flex items-center gap-1">
+					<div class="w-60 pt-2">
+						<Toggle bind:checked={redactSensitive} options={{ right: 'Redact args/result/logs' }} />
+					</div>
+					<Button
+						on:click={() =>
+							copyToClipboard(
+								JSON.stringify(removeSensitiveInfos(debugContent, redactSensitive), null, 4)
+							)}
+						color="light"
+						size="xs"
+					>
+						<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
+					</Button>
+				</div>
 			</svelte:fragment>
 			<pre
 				><code class="text-2xs p-2">
-					<Highlight language={json} code={JSON.stringify(debugContent, null, 4)} />
+					<Highlight
+						language={json}
+						code={JSON.stringify(removeSensitiveInfos(debugContent, redactSensitive), null, 4)}
+					/>
 			</code></pre
 			>
 		</DrawerContent>
