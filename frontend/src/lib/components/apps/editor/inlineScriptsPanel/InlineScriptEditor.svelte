@@ -204,6 +204,7 @@
 						acc[key] = obj.type === 'static' ? obj.value : undefined
 						return acc
 					}, {})}
+					{transformer}
 				/>
 
 				<Button
