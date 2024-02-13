@@ -14,7 +14,6 @@
 	} from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
-	import Scatter from 'svelte-chartjs/Scatter.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
 	import { initCss } from '../../utils'
@@ -23,6 +22,7 @@
 	import { initOutput } from '../../editor/appUtils'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { Scatter } from 'svelte-chartjs'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
