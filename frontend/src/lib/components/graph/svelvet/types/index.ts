@@ -1,3 +1,3 @@
 // this file exports user types
 import type { UserEdgeType, UserNodeType } from './types'
-export { UserEdgeType, UserNodeType }
+export type { UserEdgeType, UserNodeType }
