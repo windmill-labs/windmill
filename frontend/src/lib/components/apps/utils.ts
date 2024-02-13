@@ -214,12 +214,12 @@ declare function setSelectedIndex(id: string, index: number): void;
 /** close a drawer or modal
   * @param id component's id
  */
-declare function open(id: string): void;
+declare function openModal(id: string): void;
 
 /** close a drawer or modal
   * @param id component's id
  */
-declare function close(id: string): void;
+declare function closeModal(id: string): void;
 
 
 /** validate form field property 'key'

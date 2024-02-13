@@ -176,9 +176,42 @@ prompts:
       You can access the context object with the ctx global variable. 
       The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
       You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
-      Use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
-      Use the recompute function to recompute a component: recompute(id: string)
-      Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
-      The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
+      You can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)
+      You can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
+      You can use the recompute function to recompute a component: recompute(id: string)
+      You can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
+      You can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)
+      The setValue function is meant to set or force the value of a component: setValue(id: string, value: any)
+      You can validate a specific field of a form: validate(id: string, key: string)
+      You can validate all fields of a form: validateAll(id: string, key: string)
+      You can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)
+      </contextual_information>
+      My instructions: {description}
+  transformer:
+    prompt: |-
+      Here's my client-side javascript code: 
+      ```javascript
+      {code}
+      ```
+
+      <contextual_information>
+      The code should process the variable `result` according to my instructions.
+      The variable `result` is available globally.
+      At the end of the code, the processed result has to be returned.
+
+      <helpers>
+      You can access the context object with the ctx global variable. 
+      The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
+      You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
+      You can use the openModal and closeModal functions to open and close a modal: openModal(id: string), closeModal(id: string)
+      You can use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
+      You can use the recompute function to recompute a component: recompute(id: string)
+      You can use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
+      You can use the setSelectedIndex function to select a row in a table or an AG Grid table: setSelectedIndex(id: string, index: number)
+      The setValue function is meant to set or force the value of a component: setValue(id: string, value: any)
+      You can validate a specific field of a form: validate(id: string, key: string)
+      You can validate all fields of a form: validateAll(id: string, key: string)
+      You can invalidate a specific field of a form: invalidate(id: string, key: string, error: string)
+      </helpers>
       </contextual_information>
       My instructions: {description}

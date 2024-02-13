@@ -78,7 +78,7 @@ export async function testKey({
 }
 
 interface BaseOptions {
-	language: Script.language | 'frontend'
+	language: Script.language | 'frontend' | 'transformer'
 	dbSchema: DBSchema | undefined
 	workspace: string
 }

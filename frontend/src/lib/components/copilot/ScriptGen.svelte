@@ -31,6 +31,7 @@
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
 	export let args: Record<string, any>
+	export let transformer = false
 
 	// state
 	let funcDesc: string = ''
@@ -56,7 +57,7 @@
 			if (mode === 'edit') {
 				await copilot(
 					{
-						language: lang,
+						language: transformer && lang === 'frontend' ? 'transformer' : lang,
 						description: funcDesc,
 						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
@@ -69,7 +70,7 @@
 			} else {
 				await copilot(
 					{
-						language: lang,
+						language: transformer && lang === 'frontend' ? 'transformer' : lang,
 						description: funcDesc,
 						dbSchema: dbSchema,
 						type: 'gen',
@@ -271,8 +272,18 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
-					nonCaptureEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : undefined}
+					propagateEvent
+					on:click={genLoading
+						? () => abortController?.abort()
+						: () => {
+								if (editor) {
+									if (isInitialCode(editor.getCode())) {
+										mode = 'gen'
+									} else {
+										mode = 'edit'
+									}
+								}
+						  }}
 					bind:element={button}
 					iconOnly
 					title="Generate code from Prompt"
