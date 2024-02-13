@@ -55,7 +55,12 @@
 			{/if}
 			{#if workspace && $workspaceStore != workspace}
 				<Badge large>
-					{workspace}
+					Workspace: {workspace}
+				</Badge>
+			{/if}
+			{#if job.tag}
+				<Badge large>
+					Tag: {job.tag}
 				</Badge>
 			{/if}
 		</div>
