@@ -2029,7 +2029,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             true,
             None,
             true,
-            None,
+            Some("init_script".to_string()),
             None,
             None,
             None,
