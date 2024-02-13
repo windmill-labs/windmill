@@ -42,6 +42,28 @@
 	import Portal from 'svelte-portal'
 	import { fade } from 'svelte/transition'
 
+	type GitSyncTypeMap = {
+		scripts: boolean
+		flows: boolean
+		apps: boolean
+		folders: boolean
+		resourceTypes: boolean
+		resources: boolean
+		variables: boolean
+		secrets: boolean
+		schedules: boolean
+	}
+	type GitSyncType =
+		| 'script'
+		| 'flow'
+		| 'app'
+		| 'folder'
+		| 'resourcetype'
+		| 'resource'
+		| 'variable'
+		| 'secret'
+		| 'schedule'
+
 	let s3FileViewer: S3FilePicker
 
 	let initialPath: string
@@ -67,21 +89,12 @@
 	let gitSyncSettings: {
 		include_path: string[]
 		repositories: {
+			exclude_types_override: GitSyncTypeMap
 			script_path: string
 			git_repo_resource_path: string
 			use_individual_branch: boolean
 		}[]
-		include_type: {
-			scripts: boolean
-			flows: boolean
-			apps: boolean
-			folders: boolean
-			resourceTypes: boolean
-			resources: boolean
-			variables: boolean
-			secrets: boolean
-			schedules: boolean
-		}
+		include_type: GitSyncTypeMap
 	}
 	let gitSyncTestJobs: {
 		jobId: string | undefined
@@ -225,7 +238,9 @@
 		let alreadySeenResource: string[] = []
 		let repositories = gitSyncSettings.repositories.map((elmt) => {
 			alreadySeenResource.push(elmt.git_repo_resource_path)
+			let exclude_types_override = gitSyncTypeMapToArray(elmt.exclude_types_override, true)
 			return {
+				exclude_types_override: exclude_types_override,
 				script_path: elmt.script_path,
 				git_repo_resource_path: `$res:${elmt.git_repo_resource_path.replace('$res:', '')}`,
 				use_individual_branch: elmt.use_individual_branch
@@ -236,44 +251,7 @@
 			return !emptyString(elmt)
 		})
 
-		let include_type: (
-			| 'script'
-			| 'flow'
-			| 'app'
-			| 'folder'
-			| 'resourcetype'
-			| 'resource'
-			| 'variable'
-			| 'secret'
-			| 'schedule'
-		)[] = []
-		if (gitSyncSettings.include_type.scripts) {
-			include_type.push('script')
-		}
-		if (gitSyncSettings.include_type.flows) {
-			include_type.push('flow')
-		}
-		if (gitSyncSettings.include_type.apps) {
-			include_type.push('app')
-		}
-		if (gitSyncSettings.include_type.folders) {
-			include_type.push('folder')
-		}
-		if (gitSyncSettings.include_type.resourceTypes) {
-			include_type.push('resourcetype')
-		}
-		if (gitSyncSettings.include_type.resources) {
-			include_type.push('resource')
-		}
-		if (gitSyncSettings.include_type.variables) {
-			include_type.push('variable')
-		}
-		if (gitSyncSettings.include_type.secrets) {
-			include_type.push('secret')
-		}
-		if (gitSyncSettings.include_type.schedules) {
-			include_type.push('schedule')
-		}
+		let include_type = gitSyncTypeMapToArray(gitSyncSettings.include_type, true)
 
 		if (alreadySeenResource.some((res, index) => alreadySeenResource.indexOf(res) !== index)) {
 			sendUserToast('Same Git resource used more than once', true)
@@ -300,6 +278,44 @@
 			})
 			sendUserToast('Workspace Git sync settings reset')
 		}
+	}
+
+	function gitSyncTypeMapToArray(typesMap: GitSyncTypeMap, expectedValue: boolean): GitSyncType[] {
+		let result: GitSyncType[] = []
+		if (typesMap.scripts == expectedValue) {
+			result.push('script')
+		}
+		if (typesMap.flows == expectedValue) {
+			result.push('flow')
+		}
+		if (typesMap.apps == expectedValue) {
+			result.push('app')
+		}
+		if (typesMap.folders == expectedValue) {
+			result.push('folder')
+		}
+		if (typesMap.resourceTypes == expectedValue) {
+			result.push('resourcetype')
+		}
+		if (typesMap.resources == expectedValue) {
+			result.push('resource')
+		}
+		if (typesMap.variables == expectedValue) {
+			result.push('variable')
+		}
+		if (typesMap.secrets == expectedValue) {
+			result.push('secret')
+		}
+		if (typesMap.schedules == expectedValue) {
+			result.push('schedule')
+		}
+		return result
+	}
+
+	function resetGitSyncRepositoryExclude(type: string) {
+		gitSyncSettings.repositories.forEach((elmt) => {
+			elmt.exclude_types_override[type] = false
+		})
 	}
 
 	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
@@ -388,7 +404,18 @@
 					return {
 						git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
 						script_path: settings.script_path,
-						use_individual_branch: settings.use_individual_branch ?? false
+						use_individual_branch: settings.use_individual_branch ?? false,
+						exclude_types_override: {
+							scripts: (settings.exclude_types_override?.indexOf('script') ?? -1) >= 0,
+							flows: (settings.exclude_types_override?.indexOf('flow') ?? -1) >= 0,
+							apps: (settings.exclude_types_override?.indexOf('app') ?? -1) >= 0,
+							resourceTypes: (settings.exclude_types_override?.indexOf('resourcetype') ?? -1) >= 0,
+							resources: (settings.exclude_types_override?.indexOf('resource') ?? -1) >= 0,
+							variables: (settings.exclude_types_override?.indexOf('variable') ?? -1) >= 0,
+							secrets: (settings.exclude_types_override?.indexOf('secret') ?? -1) >= 0,
+							schedules: (settings.exclude_types_override?.indexOf('schedule') ?? -1) >= 0,
+							folders: (settings.exclude_types_override?.indexOf('folder') ?? -1) >= 0
+						}
 					}
 				}),
 				include_type: {
@@ -421,7 +448,6 @@
 			}
 			gitSyncTestJobs = []
 		}
-		console.log(gitSyncSettings)
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
@@ -1021,41 +1047,50 @@
 						<div class="flex flex-col gap-1 mt-1">
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.scripts}
+								on:change={(_) => resetGitSyncRepositoryExclude('scripts')}
 								options={{ right: 'Scripts' }}
 							/>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.flows}
+								on:change={(_) => resetGitSyncRepositoryExclude('flows')}
 								options={{ right: 'Flows' }}
 							/>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.apps}
+								on:change={(_) => resetGitSyncRepositoryExclude('apps')}
 								options={{ right: 'Apps' }}
 							/>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.folders}
+								on:change={(_) => resetGitSyncRepositoryExclude('folders')}
 								options={{ right: 'Folders' }}
 							/>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.resources}
+								on:change={(_) => resetGitSyncRepositoryExclude('resources')}
 								options={{ right: 'Resources' }}
 							/>
 							<div class="flex gap-3">
 								<Toggle
 									bind:checked={gitSyncSettings.include_type.variables}
+									on:change={(_) => resetGitSyncRepositoryExclude('variables')}
 									options={{ right: 'Variables ' }}
 								/>
 								<span>-</span>
 								<Toggle
 									bind:checked={gitSyncSettings.include_type.secrets}
+									on:change={(_) => resetGitSyncRepositoryExclude('secrets')}
 									options={{ left: 'Include secrets' }}
 								/>
 							</div>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.schedules}
+								on:change={(_) => resetGitSyncRepositoryExclude('schedules')}
 								options={{ right: 'Schedules' }}
 							/>
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.resourceTypes}
+								on:change={(_) => resetGitSyncRepositoryExclude('resourcetypes')}
 								options={{ right: 'Resource Types' }}
 							/>
 						</div>
@@ -1136,6 +1171,69 @@
 								/>
 							{/if}
 						</div>
+
+						<div class="flex flex-col mt-5 mb-1 gap-1">
+							{#if gitSyncSettings && Object.keys(gitSyncSettings.include_type).some((k) => gitSyncSettings.include_type[k] === true)}
+								<h6>Exclude specific types for this repository only</h6>
+								{#if gitSyncSettings.include_type.scripts}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.scripts}
+										options={{ right: 'Exclude scripts' }}
+									/>
+								{/if}
+								{#if gitSyncSettings.include_type.flows}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.flows}
+										options={{ right: 'Exclude flows' }}
+									/>
+								{/if}
+								{#if gitSyncSettings.include_type.apps}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.apps}
+										options={{ right: 'Exclude apps' }}
+									/>
+								{/if}
+								{#if gitSyncSettings.include_type.folders}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.folders}
+										options={{ right: 'Exclude folders' }}
+									/>
+								{/if}
+								{#if gitSyncSettings.include_type.resources}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.resources}
+										options={{ right: 'Exclude resources' }}
+									/>
+								{/if}
+								{#if gitSyncSettings.include_type.variables}
+									<div class="flex gap-3">
+										<Toggle
+											bind:checked={gitSyncRepository.exclude_types_override.variables}
+											options={{ right: 'Exclude variables ' }}
+										/>
+										{#if gitSyncSettings.include_type.secrets}
+											<span>-</span>
+											<Toggle
+												bind:checked={gitSyncRepository.exclude_types_override.secrets}
+												options={{ left: 'Exclude secrets' }}
+											/>
+										{/if}
+									</div>
+								{/if}
+								{#if gitSyncSettings.include_type.schedules}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.schedules}
+										options={{ right: 'Exclude schedules' }}
+									/>
+								{/if}
+								{#if gitSyncSettings.include_type.resourceTypes}
+									<Toggle
+										bind:checked={gitSyncRepository.exclude_types_override.resourceTypes}
+										options={{ right: 'Exclude resource types' }}
+									/>
+								{/if}
+							{/if}
+						</div>
 					{/each}
 				{/if}
 
@@ -1151,7 +1249,18 @@
 								{
 									script_path: 'hub/7958/sync-script-to-git-repo-windmill',
 									git_repo_resource_path: '',
-									use_individual_branch: false
+									use_individual_branch: false,
+									exclude_types_override: {
+										scripts: false,
+										flows: false,
+										apps: false,
+										folders: false,
+										resourceTypes: false,
+										resources: false,
+										variables: false,
+										secrets: false,
+										schedules: false
+									}
 								}
 							]
 							gitSyncTestJobs = [
