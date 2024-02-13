@@ -2,7 +2,6 @@
 	import { getCompletion } from './lib'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
-	import type { ChatCompletionMessageParam } from 'openai/resources'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -10,6 +9,7 @@
 	import autosize from 'svelte-autosize'
 	import type { FlowValue } from '$lib/gen'
 	import { yamlStringifyExceptKeys } from './utils'
+	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 	type PromptConfig = {
 		system: string
