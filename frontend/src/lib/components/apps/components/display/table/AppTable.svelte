@@ -83,6 +83,7 @@
 	$: setSearch(searchValue)
 
 	function setSearch(srch: string) {
+		$table.setPageIndex(0)
 		outputs?.search?.set(srch)
 	}
 
