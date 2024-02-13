@@ -340,6 +340,7 @@
 						<input
 							{autofocus}
 							on:focus
+							on:blur
 							{disabled}
 							type="number"
 							on:keydown={() => {
@@ -608,6 +609,7 @@
 				<input
 					{autofocus}
 					on:focus
+					on:blur
 					{disabled}
 					type="email"
 					class={valid

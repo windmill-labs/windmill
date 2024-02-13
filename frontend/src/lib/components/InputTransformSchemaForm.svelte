@@ -74,6 +74,7 @@
 								(args[argName].type === 'javascript' && !args[argName].expr))
 				  )
 				: []}
+			{schema}
 		/>
 	{/if}
 	{#if keys.length > 0}
