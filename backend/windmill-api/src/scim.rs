@@ -349,7 +349,7 @@ pub async fn get_groups(
             "scim_display_name",
             "array_remove(array_agg(email_to_igroup.email), null) as emails",
         ])
-        .right()
+        .left()
         .join("email_to_igroup")
         .on("instance_group.name = email_to_igroup.igroup")
         .group_by("name, external_id")
