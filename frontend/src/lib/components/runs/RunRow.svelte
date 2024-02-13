@@ -56,7 +56,6 @@
 	)}
 	style="width: {containerWidth}px"
 	on:click={() => {
-		selectedId = job.id
 		dispatch('select')
 	}}
 >

@@ -8,61 +8,74 @@
 	export let loading: boolean = false
 	export let selectedManualDate = 0
 
-	const manualDates = [
+	export function computeMinMax(): { minTs: string; maxTs: string } | undefined {
+		return manualDates[selectedManualDate].computeMinMax()
+	}
+
+	const manualDates: {
+		label: string
+		computeMinMax: () => { minTs: string; maxTs: string } | undefined
+	}[] = [
 		{
 			label: 'Last 1000 runs',
-			setMinMax: () => {
-				minTs = undefined
-				maxTs = undefined
+			computeMinMax: () => {
+				return undefined
 			}
 		},
 		{
 			label: 'Within 30 seconds',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		},
 		{
 			label: 'Within last minute',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 60 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 60 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		},
 		{
 			label: 'Within last 5 minutes',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 5 * 60 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 5 * 60 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		},
 		{
 			label: 'Within last 30 minutes',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 30 * 60 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 30 * 60 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		},
 		{
 			label: 'Within last 24 hours',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		},
 		{
 			label: 'Within last 7 days',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		},
 		{
 			label: 'Within last month',
-			setMinMax: () => {
-				minTs = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
-				maxTs = new Date().toISOString()
+			computeMinMax: () => {
+				let minTs = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+				let maxTs = new Date().toISOString()
+				return { minTs, maxTs }
 			}
 		}
 	]
@@ -75,7 +88,11 @@
 	size="xs"
 	wrapperClasses="border rounded-md"
 	on:click={() => {
-		manualDates[selectedManualDate].setMinMax()
+		const ts = computeMinMax()
+		if (ts) {
+			minTs = ts.minTs
+			maxTs = ts.maxTs
+		}
 		dispatch('loadJobs')
 	}}
 	dropdownItems={[
@@ -83,7 +100,14 @@
 			label: d.label,
 			onClick: () => {
 				selectedManualDate = i
-				d.setMinMax()
+				const ts = d.computeMinMax()
+				if (ts) {
+					minTs = ts.minTs
+					maxTs = ts.maxTs
+				} else {
+					minTs = undefined
+					maxTs = undefined
+				}
 				dispatch('loadJobs')
 			}
 		}))
