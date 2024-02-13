@@ -80,6 +80,15 @@ impl UserDB {
         let mut folders_read = folders_read.clone();
         folders_read.extend(folders_write.clone());
 
+        tracing::debug!(
+            "Setting role to {} {:?} {:?} {:?} {:?}",
+            user,
+            authed.username(),
+            authed.groups(),
+            folders_read,
+            folders_write
+        );
+
         let mut tx = self.db.begin().await?;
 
         sqlx::query(&format!("SET LOCAL ROLE {}", user))

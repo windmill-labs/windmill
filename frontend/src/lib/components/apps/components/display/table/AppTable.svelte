@@ -103,7 +103,6 @@
 	let selectedRowIndex = -1
 
 	function toggleRow(row: Record<string, any>, force: boolean = false) {
-		console.log(row)
 		let data = { ...row.original }
 		let index = data['__index']
 		delete data['__index']
@@ -141,9 +140,10 @@
 		if (searchValue === '') {
 			return result
 		}
-		return result.filter((row) =>
-			Object.values(row).some((value) => value?.toString()?.includes(searchValue))
-		)
+		return result.filter((row) => {
+			// console.log(Object.values(row).map((value) => value?.toString()))
+			return Object.values(row).some((value) => value?.toString()?.includes(searchValue))
+		})
 	}
 
 	function renderCell(x: any, props: any): any {
@@ -157,6 +157,7 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	function setFilteredResult() {
+		console.log('setting filtered result')
 		const wIndex = Array.isArray(result)
 			? (result as any[]).map((x, i) => ({ ...x, __index: i }))
 			: [{ error: 'input was not an array' }]
