@@ -64,42 +64,42 @@
 
 		blue: {
 			border:
-				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus:bg-frost-100 focus:dark:text-frost-100 dark:focus:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
+				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus-visible:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus-visible:bg-frost-100 focus-visible:dark:text-frost-100 dark:focus-visible:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus-visible:text-frost-700 focus-visible:ring-frost-300',
 			contained:
-				'bg-frost-500 hover:bg-frost-700 focus:bg-frost-700 text-white focus:ring-frost-300',
+				'bg-frost-500 hover:bg-frost-700 focus-visible:bg-frost-700 text-white focus-visible:ring-frost-300',
 			divider: 'divide-x divide-frost-600'
 		},
 		red: {
 			border:
-				'border-red-600/60 hover:border-red-600 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
-			contained: 'bg-red-600 hover:bg-red-600 text-white focus:ring-red-300',
+				'border-red-600/60 hover:border-red-600 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus-visible:ring-red-300 ',
+			contained: 'bg-red-600 hover:bg-red-600 text-white focus-visible:ring-red-300',
 			divider: 'divide-x divide-red-700'
 		},
 		green: {
 			border:
-				'border-green-600 hover:border-green-700 bg-surface hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
-			contained: 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-300',
+				'border-green-600 hover:border-green-700 bg-surface hover:bg-green-100 text-green-600 hover:text-green-700 focus-visible:ring-green-300',
+			contained: 'bg-green-600 hover:bg-green-700 text-white focus-visible:ring-green-300',
 			divider: 'divide-x divide-green-700'
 		},
 		dark: {
 			border:
-				'border-surface-inverse bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected-inverse',
+				'border-surface-inverse bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected-inverse',
 			contained:
-				'bg-surface-inverse hover:bg-surface-inverse-hover focus:bg-surface-hover-inverse text-primary-inverse focus:ring-surface-selected-inverse',
+				'bg-surface-inverse hover:bg-surface-inverse-hover focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse',
 			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		},
 		gray: {
 			border:
-				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-primary focus:text-primary focus:ring-gray-300',
+				'border-gray-600 hover:border-gray-900 focus-visible:border-gray-900 bg-surface hover:bg-gray-200 focus-visible:bg-gray-200 text-gray-800 hover:text-primary focus-visible:text-primary focus-visible:ring-gray-300',
 			contained:
-				'bg-gray-700/90 hover:bg-gray-900/90 focus:bg-gray-900/90 text-white focus:ring-gray-300',
+				'bg-gray-700/90 hover:bg-gray-900/90 focus-visible:bg-gray-900/90 text-white focus-visible:ring-gray-300',
 			divider: 'divide-x divide-gray-700 dark:divide-gray-200'
 		},
 		light: {
 			border:
-				'border  bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected',
+				'border  bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected',
 			contained:
-				'bg-surface border-transparent hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-surface-selected',
+				'bg-surface border-transparent hover:bg-surface-hover focus-visible:bg-surface-hover text-primary focus-visible:ring-surface-selected',
 			divider: 'divide-x divide-gray-200 dark:divide-gray-700'
 		}
 	}
@@ -129,11 +129,11 @@
 		variant === 'border' ? 'border' : '',
 		ButtonType.FontSizeClasses[size],
 		ButtonType.SpacingClasses[spacingSize][variant],
-		'focus:ring-2 font-semibold',
+		'focus-visible:ring-2 font-semibold',
 		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
 		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
-		'transition-all'
+		'active:opacity-80 transition-all'
 	)
 
 	const iconMap = {
@@ -179,7 +179,7 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class="animate-spin mr-1" size={14} />
+				<Loader2 class={twMerge(startIcon?.classes, 'animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{/if}
@@ -202,7 +202,7 @@
 			on:mouseleave
 			class={twMerge(
 				buttonClass,
-				disabled ? '!bg-surface-disabled !text-tertiary border !cursor-not-allowed' : ''
+				disabled ? '!bg-surface-disabled !text-tertiary !cursor-not-allowed' : ''
 			)}
 			{id}
 			tabindex={disabled ? -1 : 0}
@@ -212,7 +212,7 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin', !iconOnly ? 'mr-1' : '')} size={14} />
+				<Loader2 class={twMerge(startIcon?.classes, 'animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
 			{/if}

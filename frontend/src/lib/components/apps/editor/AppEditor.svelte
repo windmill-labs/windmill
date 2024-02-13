@@ -573,7 +573,7 @@
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
 									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
-										<div class="flex flex-row gap-2 text-xs items-center p-0.5">
+										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
 												color="light"
 												size="xs2"
@@ -584,7 +584,9 @@
 											>
 												<Minus size={14} />
 											</Button>
-											{$scale}%
+											<div class="w-8 flex justify-center text-2xs h-full items-center">
+												{$scale}%
+											</div>
 											<Button
 												color="light"
 												size="xs2"
