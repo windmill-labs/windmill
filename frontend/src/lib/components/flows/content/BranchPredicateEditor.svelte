@@ -65,6 +65,7 @@
 					on:setExpr={(e) => {
 						branch.expr = e.detail
 					}}
+					on:updateSummary
 					pickableProperties={stepPropPicker.pickableProperties}
 				/>
 			{/if}
