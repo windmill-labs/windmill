@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::db::ApiAuthed;
 
-use crate::oauth2_ee::InstanceEvent;
+use crate::oauth2_ee::{check_nb_of_user, InstanceEvent};
 use crate::{
     db::DB, folders::get_folders_for_user, utils::require_super_admin, webhook_util::WebhookShared,
     workspaces::invite_user_to_all_auto_invite_worspaces, BASE_URL, COOKIE_DOMAIN, IS_SECURE,
@@ -39,8 +39,6 @@ use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
-#[cfg(feature = "enterprise")]
-use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::users::truncate_token;
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
@@ -2339,34 +2337,6 @@ pub struct LoginUserInfo {
     pub company: Option<String>,
 
     pub displayName: Option<String>,
-}
-
-pub async fn check_nb_of_user(db: &DB) -> Result<()> {
-    #[cfg(feature = "enterprise")]
-    if matches!(get_license_plan().await, LicensePlan::Enterprise) {
-        return Ok(());
-    }
-    let nb_users_sso =
-        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
-            .fetch_one(db)
-            .await?;
-    if nb_users_sso.unwrap_or(0) >= 10 {
-        return Err(Error::BadRequest(
-            "You have reached the maximum number of oauth users accounts (10) without an enterprise license"
-                .to_string(),
-        ));
-    }
-
-    let nb_users = sqlx::query_scalar!("SELECT COUNT(*) FROM password",)
-        .fetch_one(db)
-        .await?;
-    if nb_users.unwrap_or(0) >= 50 {
-        return Err(Error::BadRequest(
-            "You have reached the maximum number of accounts (50) without an enterprise license"
-                .to_string(),
-        ));
-    }
-    return Ok(());
 }
 
 pub async fn add_to_demo_if_exists<'c>(

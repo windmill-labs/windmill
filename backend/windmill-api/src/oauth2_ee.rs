@@ -23,6 +23,7 @@ use crate::{HTTP_CLIENT, OAUTH_CLIENTS};
 use windmill_common::error::{self, to_anyhow};
 use windmill_common::oauth2::*;
 
+use crate::db::DB;
 use std::str;
 
 pub fn global_service() -> Router {
@@ -171,6 +172,30 @@ async fn list_supabase(headers: HeaderMap) -> impl IntoResponse {
     let stream = resp.bytes_stream();
 
     Ok((status_code, StreamBody::new(stream))) as error::Result<(StatusCode, StreamBody<_>)>
+}
+
+pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
+    let nb_users_sso =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
+            .fetch_one(db)
+            .await?;
+    if nb_users_sso.unwrap_or(0) >= 10 {
+        return Err(error::Error::BadRequest(
+            "You have reached the maximum number of oauth users accounts (10) without an enterprise license"
+                .to_string(),
+        ));
+    }
+
+    let nb_users = sqlx::query_scalar!("SELECT COUNT(*) FROM password",)
+        .fetch_one(db)
+        .await?;
+    if nb_users.unwrap_or(0) >= 50 {
+        return Err(error::Error::BadRequest(
+            "You have reached the maximum number of accounts (50) without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
 }
 
 #[derive(Clone, Debug)]
