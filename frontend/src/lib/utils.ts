@@ -470,7 +470,7 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 }
 
 export function isObject(obj: any) {
-	return typeof obj === 'object'
+	return obj != null && typeof obj === 'object'
 }
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
