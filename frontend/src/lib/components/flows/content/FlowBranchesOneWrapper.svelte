@@ -68,6 +68,11 @@
 									<div class="w-full border">
 										<BranchPredicateEditor
 											{branch}
+											on:updateSummary={(e) => {
+												if (!branch.summary) {
+													branch.summary = e.detail
+												}
+											}}
 											parentModule={flowModule}
 											{previousModule}
 											{enableAi}

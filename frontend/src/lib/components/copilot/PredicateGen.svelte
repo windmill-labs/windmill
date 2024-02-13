@@ -71,6 +71,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 			)
 
 			dispatch('setExpr', result)
+			dispatch('updateSummary', instructions)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
 				sendUserToast('Could not generate summary: ' + err, true)
