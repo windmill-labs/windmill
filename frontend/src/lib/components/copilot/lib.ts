@@ -6,11 +6,12 @@ import type { DBSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
+
+import { buildClientSchema, printSchema } from 'graphql'
 import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
-} from 'openai/resources/chat'
-import { buildClientSchema, printSchema } from 'graphql'
+} from 'openai/resources/index.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
