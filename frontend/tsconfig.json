@@ -23,17 +23,12 @@
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
-		"baseUrl": ".",
 		"allowJs": true,
 		"checkJs": true,
 		"strictNullChecks": true,
 		"strictPropertyInitialization": true,
 		"useUnknownInCatchVariables": false,
 		"strict": true,
-		"paths": {
-			"$lib": ["src/lib"],
-			"$lib/*": ["src/lib/*"]
-		},
 		"types": []
 	},
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
