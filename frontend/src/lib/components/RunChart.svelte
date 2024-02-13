@@ -20,6 +20,8 @@
 
 	export let jobs: CompletedJob[] | undefined = []
 	export let maxIsNow: boolean = false
+	export let minTimeSet: string | undefined = undefined
+	export let maxTimeSet: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -100,25 +102,56 @@
 	let minTime = addSeconds(new Date(), -300)
 	let maxTime = getDbClockNow()
 
-	$: computeMinMaxTime(jobs)
+	$: computeMinMaxTime(jobs, minTimeSet, maxTimeSet)
 
-	function computeMinMaxTime(jobs: CompletedJob[] | undefined) {
-		if (jobs == undefined || jobs?.length == 0) {
-			minTime = addSeconds(new Date(), -300)
-			maxTime = getDbClockNow()
+	function minJobTime(jobs: CompletedJob[]): Date {
+		let min: Date = new Date(jobs[0].started_at)
+		for (const job of jobs) {
+			if (new Date(job.started_at) < min) {
+				min = new Date(job.started_at)
+			}
+		}
+		return min
+	}
+
+	function maxJobTime(jobs: CompletedJob[]): Date {
+		let max: Date = new Date(jobs[0].started_at)
+		for (const job of jobs) {
+			if (new Date(job.started_at) > max) {
+				max = new Date(job.started_at)
+			}
+		}
+		return max
+	}
+	function computeMinMaxTime(
+		jobs: CompletedJob[] | undefined,
+		minTimeSet: string | undefined,
+		maxTimeSet: string | undefined
+	) {
+		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
+		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
+		if (minTimeSetDate && maxTimeSetDate) {
+			minTime = minTimeSetDate
+			maxTime = maxTimeSetDate
 			return
 		}
 
-		const maxJob = maxIsNow ? getDbClockNow() : new Date(jobs?.[0].started_at)
-		const minJob = new Date(jobs?.[jobs?.length - 1].started_at)
+		if (jobs == undefined || jobs?.length == 0) {
+			minTime = minTimeSetDate ?? addSeconds(new Date(), -300)
+			maxTime = maxTimeSetDate ?? getDbClockNow()
+			return
+		}
+
+		const maxJob = maxIsNow ? getDbClockNow() : maxJobTime(jobs)
+		const minJob = minJobTime(jobs)
 
 		const diff = (maxJob.getTime() - minJob.getTime()) / 20000
 
-		minTime = addSeconds(minJob, -diff)
+		minTime = minTimeSetDate ?? addSeconds(minJob, -diff)
 		if (maxIsNow) {
-			maxTime = maxJob
+			maxTime = maxTimeSetDate ?? maxJob
 		} else {
-			maxTime = addSeconds(maxJob, diff)
+			maxTime = maxTimeSetDate ?? addSeconds(maxJob, diff)
 		}
 	}
 
@@ -168,6 +201,13 @@
 	} as any
 </script>
 
+<!-- {JSON.stringify(minTime)}
+{JSON.stringify(maxTime)}
+
+{JSON.stringify(jobs?.map((x) => x.started_at))} -->
+<!-- {minTime}
+{maxTime} -->
+<!-- {JSON.stringify(jobs?.map((x) => x.started_at))} -->
 <div class="relative max-h-40">
 	<Scatter {data} options={scatterOptions} />
 </div>

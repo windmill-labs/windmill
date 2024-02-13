@@ -153,9 +153,9 @@
 	success="running"
 	argFilter={undefined}
 	bind:loading
-	synUrl={false}
 	syncQueuedRunsCount={false}
 	refreshRate={10000}
+	computeMinAndMax={undefined}
 />
 
 <div class="min-w-[300px] h-full">

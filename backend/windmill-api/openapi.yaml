@@ -4814,6 +4814,11 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/Tag"
+        - name: all_workspaces
+          description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All queued jobs
@@ -4832,6 +4837,11 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: all_workspaces
+          description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: queue count
@@ -4962,6 +4972,11 @@ paths:
             type: boolean
         - name: success
           description: filter on successful jobs
+          in: query
+          schema:
+            type: boolean
+        - name: all_workspaces
+          description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
           schema:
             type: boolean

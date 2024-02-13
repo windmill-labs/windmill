@@ -528,7 +528,7 @@ export async function ignoreF(wmillconf: {
       .join(", ");
     log.info(
       colors.gray(
-        `(Deprecated, use wmill.conf/includes instead) Using .wmillignore file (${condensed})`
+        `(Deprecated, use wmill.yaml/includes instead) Using .wmillignore file (${condensed})`
       )
     );
     ign = gitignore_parser.compile(ignoreContent);

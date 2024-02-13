@@ -82,7 +82,7 @@ pub struct ListableApp {
     pub extra_perms: serde_json::Value,
     pub execution_mode: String,
     pub starred: bool,
-    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,

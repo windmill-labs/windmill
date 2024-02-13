@@ -6,6 +6,7 @@
 	import { displayDate } from '$lib/utils'
 
 	let jobs: QueuedJob[] | undefined = undefined
+	export let allWorkspaces: boolean = false
 
 	getQueuedJobs()
 	async function getQueuedJobs() {
@@ -13,7 +14,8 @@
 			workspace: $workspaceStore ?? '',
 			scheduledForBeforeNow: true,
 			suspended: false,
-			running: false
+			running: false,
+			allWorkspaces
 		})
 	}
 </script>
@@ -35,7 +37,7 @@
 			<div class="flex">
 				<a
 					target="_blank"
-					href={`/run/${job.id}?workspace=${$workspaceStore}`}
+					href={`/run/${job.id}?workspace=${job.workspace_id}`}
 					class="flex flex-row gap-2 items-center font-mono mr-8"
 					>{job.id} <ExternalLink size={10} />
 				</a>
