@@ -1073,11 +1073,18 @@
 							<div class="flex gap-3">
 								<Toggle
 									bind:checked={gitSyncSettings.include_type.variables}
-									on:change={(_) => resetGitSyncRepositoryExclude('variables')}
+									on:change={(ev) => {
+										resetGitSyncRepositoryExclude('variables')
+										resetGitSyncRepositoryExclude('secrets')
+										if (!ev.detail) {
+											gitSyncSettings.include_type.secrets = false
+										}
+									}}
 									options={{ right: 'Variables ' }}
 								/>
 								<span>-</span>
 								<Toggle
+									disabled={!gitSyncSettings.include_type.variables}
 									bind:checked={gitSyncSettings.include_type.secrets}
 									on:change={(_) => resetGitSyncRepositoryExclude('secrets')}
 									options={{ left: 'Include secrets' }}
@@ -1177,30 +1184,35 @@
 								<h6>Exclude specific types for this repository only</h6>
 								{#if gitSyncSettings.include_type.scripts}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.scripts}
 										options={{ right: 'Exclude scripts' }}
 									/>
 								{/if}
 								{#if gitSyncSettings.include_type.flows}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.flows}
 										options={{ right: 'Exclude flows' }}
 									/>
 								{/if}
 								{#if gitSyncSettings.include_type.apps}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.apps}
 										options={{ right: 'Exclude apps' }}
 									/>
 								{/if}
 								{#if gitSyncSettings.include_type.folders}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.folders}
 										options={{ right: 'Exclude folders' }}
 									/>
 								{/if}
 								{#if gitSyncSettings.include_type.resources}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.resources}
 										options={{ right: 'Exclude resources' }}
 									/>
@@ -1208,12 +1220,22 @@
 								{#if gitSyncSettings.include_type.variables}
 									<div class="flex gap-3">
 										<Toggle
+											color="red"
 											bind:checked={gitSyncRepository.exclude_types_override.variables}
+											on:change={(ev) => {
+												if (ev.detail && gitSyncSettings.include_type.secrets) {
+													gitSyncRepository.exclude_types_override.secrets = true
+												} else if (ev.detail) {
+													gitSyncRepository.exclude_types_override.secrets = false
+												}
+											}}
 											options={{ right: 'Exclude variables ' }}
 										/>
 										{#if gitSyncSettings.include_type.secrets}
 											<span>-</span>
 											<Toggle
+												color="red"
+												bind:disabled={gitSyncRepository.exclude_types_override.variables}
 												bind:checked={gitSyncRepository.exclude_types_override.secrets}
 												options={{ left: 'Exclude secrets' }}
 											/>
@@ -1222,12 +1244,14 @@
 								{/if}
 								{#if gitSyncSettings.include_type.schedules}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.schedules}
 										options={{ right: 'Exclude schedules' }}
 									/>
 								{/if}
 								{#if gitSyncSettings.include_type.resourceTypes}
 									<Toggle
+										color="red"
 										bind:checked={gitSyncRepository.exclude_types_override.resourceTypes}
 										options={{ right: 'Exclude resource types' }}
 									/>
