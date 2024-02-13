@@ -52,7 +52,8 @@ Here's the user's request: ${instructions}
 You can find the details of all the steps below:
 ${flowDetails}
 
-Determine for the user the javascript expression for the branching condition composed of the previous results or the flow inptus.
+Determine for the user the javascript expression for the branching condition composed of the previous results or the flow inputs.
+All inputs start with either results. or flow_input. and are followed by the key of the input.
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
@@ -79,35 +80,6 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 		}
 	}
 </script>
-
-<!-- {#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
-	<ManualPopover showTooltip={generatedContent.length > 0} placement="bottom" class="p-2">
-		<Button
-			size="xs"
-			color="light"
-			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover"
-			on:click={() => {
-				if (loading) {
-					cancel()
-				} else if (generatedContent.length > 0) {
-					dispatch('setExpr', generatedContent)
-					generatedContent = ''
-				} else {
-					generatePredicate()
-				}
-			}}
-			endIcon={{
-				icon: loading ? Loader2 : generatedContent.length > 0 ? Check : Wand2,
-				classes: loading ? 'animate-spin' : ''
-			}}
-		/>
-		<svelte:fragment slot="content">
-			<div class="text-sm text-tertiary">
-				{generatedContent}
-			</div>
-		</svelte:fragment>
-	</ManualPopover>
-{/if} -->
 
 {#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
 	<Popup

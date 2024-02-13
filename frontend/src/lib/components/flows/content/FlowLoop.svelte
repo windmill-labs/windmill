@@ -138,6 +138,9 @@
 								bind:this={iteratorGen}
 								focused={iteratorFieldFocused}
 								arg={mod.value.iterator}
+								on:showExpr={(e) => {
+									editor?.setSuggestion(e.detail)
+								}}
 								on:setExpr={(e) => {
 									if (mod.value.type === 'forloopflow') {
 										mod.value.iterator = {
@@ -145,7 +148,8 @@
 											expr: e.detail
 										}
 									}
-									editor?.setCode(e.detail)
+									editor?.setCode('')
+									editor?.insertAtCursor(e.detail)
 								}}
 								pickableProperties={stepPropPicker.pickableProperties}
 							/>

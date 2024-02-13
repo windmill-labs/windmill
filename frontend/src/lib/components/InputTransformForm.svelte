@@ -219,13 +219,21 @@
 							{focused}
 							{arg}
 							schemaProperty={schema.properties[argName]}
+							showPopup={(isStaticTemplate(inputCat) && propertyType == 'static') ||
+								propertyType === undefined ||
+								propertyType === 'static' ||
+								arg?.expr?.length > 0}
+							on:showExpr={(e) => {
+								monaco?.setSuggestion(e.detail)
+							}}
 							on:setExpr={(e) => {
 								arg = {
 									type: 'javascript',
 									expr: e.detail
 								}
 								propertyType = 'javascript'
-								monaco?.setCode(e.detail)
+								monaco?.setCode('')
+								monaco?.insertAtCursor(e.detail)
 							}}
 							{pickableProperties}
 							{argName}
@@ -396,6 +404,7 @@
 							focused = false
 						}}
 						autoHeight
+						preventTabOnEmpty={enableAi}
 					/>
 				</div>
 				<DynamicInputHelpBox />

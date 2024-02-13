@@ -126,19 +126,19 @@ Only output the expression, do not explain or discuss.`
 		generatedContent = ''
 	}
 
+	$: dispatch('showExpr', generatedContent)
+
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
 {#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
-	<ManualPopover showTooltip={generatedContent.length > 0} placement="bottom" class="p-2">
+	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
 		<Button
 			size="xs"
 			color="light"
 			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover"
 			on:click={() => {
-				if (loading) {
-					cancel()
-				} else if (generatedContent.length > 0) {
+				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
 					generatedContent = ''
 				}

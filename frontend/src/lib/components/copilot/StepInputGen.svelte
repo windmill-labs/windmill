@@ -24,6 +24,7 @@
 	export let schemaProperty: SchemaProperty
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argName: string
+	export let showPopup: boolean
 
 	let empty = false
 	$: empty =
@@ -86,7 +87,9 @@
 			const user = `I'm building a workflow which is a DAG of script steps.
 The current step is ${selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
-Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. Here's a summary of the available data:
+Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
+All possibles inputs either start with results. or flow_input. and are follow by the key of the input.
+Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
@@ -171,6 +174,10 @@ Only return the expression without any wrapper.`
 		automaticGeneration()
 	}
 
+	$: dispatch('showExpr', generatedContent)
+
+	$: dispatch('showExpr', $generatedExprs?.[argName] || '')
+
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = false
 </script>
@@ -184,7 +191,7 @@ Only return the expression without any wrapper.`
 		inputs={[newFlowInput]}
 	/>
 	<ManualPopover
-		showTooltip={generatedContent.length > 0 || !!$generatedExprs?.[argName]}
+		showTooltip={showPopup && (generatedContent.length > 0 || !!$generatedExprs?.[argName])}
 		placement="bottom"
 		class="p-2"
 	>
@@ -193,9 +200,7 @@ Only return the expression without any wrapper.`
 			color="light"
 			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover"
 			on:click={() => {
-				if (loading) {
-					cancel()
-				} else if (generatedContent.length > 0) {
+				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
 					if (newFlowInput) {
 						openInputsModal = true

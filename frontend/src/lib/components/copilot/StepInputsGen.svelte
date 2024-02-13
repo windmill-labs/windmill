@@ -59,19 +59,22 @@
 The current step is ${selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
-Determine for the inputs "${argNames.join(
+Determine for all the inputs "${argNames.join(
 				'", "'
-			)}", what to pass either from the previous results of the flow inputs. Here's a summary of the available data:
+			)}", what to pass either from the previous results of the flow inputs. 
+All possibles inputs either start with results. or flow_input. and are follow by the key of the input.			
+Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
-Return the input element directly: e.g. flow_input.property, results.a, results.a.property, flow_input.iter.value
 
 Your answer has to be in the following format (one line per input):
-input_name: expr`
+{input_name1}: {expression1}
+{input_name2}: {expression2}
+...`
 
 			generatedContent = await getNonStreamingCompletion(
 				[
@@ -181,12 +184,8 @@ input_name: expr`
 				generatedExprs?.set({})
 			}}
 			on:click={() => {
-				if (loading) {
-					abortController.abort()
-				} else if (Object.keys($generatedExprs || {}).length > 0) {
+				if (!loading && Object.keys($generatedExprs || {}).length > 0) {
 					applyExprs()
-				} else if (!loading) {
-					generateStepInputs()
 				}
 			}}
 			startIcon={{

@@ -125,8 +125,16 @@
 		divEl?.classList.add('hidden')
 	}
 
+	let suggestion = ''
+	export function setSuggestion(value: string): void {
+		suggestion = value
+	}
+
 	let width = 0
 	let initialized = false
+
+	let disableTabCond: meditor.IContextKey<boolean> | undefined
+	$: disableTabCond?.set(!code && !!suggestion)
 
 	async function loadMonaco() {
 		await initializeVscode()
@@ -178,6 +186,7 @@
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
+			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
@@ -192,6 +201,9 @@
 				code = getCode()
 				shouldBindKey && format && format()
 			})
+
+			disableTabCond = editor.createContextKey('disableTabCond', !code)
+			editor.addCommand(KeyCode.Tab, function () {}, 'disableTabCond')
 		})
 
 		if (autoHeight) {
@@ -327,7 +339,9 @@
 			mounted = true
 			await loadMonaco()
 			if (autofocus) {
-				focus()
+				setTimeout(() => {
+					focus()
+				}, 0)
 			}
 		}
 	})
@@ -343,6 +357,15 @@
 </script>
 
 <EditorTheme />
+
+{#if editor && suggestion && code.length === 0}
+	<div
+		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
+		style={`max-width: calc(${width}px - 2.05rem)`}
+	>
+		{suggestion}
+	</div>
+{/if}
 
 <div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 
