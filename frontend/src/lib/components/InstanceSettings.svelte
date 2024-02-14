@@ -28,6 +28,8 @@
 
 	let values: Record<string, any> = {}
 	let initialOauths: Record<string, any> = {}
+	let initialRequirePreexistingUserForOauth: boolean = false
+	let requirePreexistingUserForOauth: boolean = false
 	let ssoOrOauth: 'sso' | 'oauth' = 'sso'
 
 	let serverConfig = {}
@@ -48,6 +50,9 @@
 			}
 		}
 		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
+		requirePreexistingUserForOauth =
+			(await SettingService.getGlobal({ key: 'require_preexisting_user_for_oauth' })) ?? false
+		initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 		oauths = JSON.parse(JSON.stringify(initialOauths))
 		initialValues = Object.fromEntries(
 			(
@@ -111,6 +116,12 @@
 					}
 				})
 				initialOauths = JSON.parse(JSON.stringify(oauths))
+			}
+			if (initialRequirePreexistingUserForOauth !== requirePreexistingUserForOauth) {
+				await SettingService.setGlobal({
+					key: 'require_preexisting_user_for_oauth',
+					requestBody: { value: requirePreexistingUserForOauth }
+				})
 			}
 		} else {
 			console.error('Values not loaded')
@@ -299,7 +310,7 @@
 											right:
 												'Require users to have been added manually to windmill to sign in through OAuth'
 										}}
-										bind:checked={values['require_preexisting_user_for_oauth']}
+										bind:checked={requirePreexistingUserForOauth}
 									/>
 								</div>
 							{:else if ssoOrOauth === 'oauth'}
