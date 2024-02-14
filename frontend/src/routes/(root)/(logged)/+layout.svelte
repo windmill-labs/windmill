@@ -50,16 +50,18 @@
 		goto('/user/login')
 	}
 
-	$: $page.url &&
-		userSettings != undefined &&
-		superadminSettings != undefined &&
-		onQueryChangeSettings()
+	$: $page.url && userSettings != undefined && onQueryChangeUserSettings()
+	$: $page.url && superadminSettings != undefined && onQueryChangeAdminSettings()
 	$: $page.url && onQueryChange()
 
-	function onQueryChangeSettings() {
+	function onQueryChangeUserSettings() {
 		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
 			userSettings.openDrawer()
-		} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		}
+	}
+
+	function onQueryChangeAdminSettings() {
+		if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
 			superadminSettings.openDrawer()
 		}
 	}
