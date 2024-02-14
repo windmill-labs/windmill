@@ -165,10 +165,7 @@ async fn get_variable(
                 let mc = build_crypt(&mut tx, &w_id).await?;
                 tx.commit().await?;
 
-                Some(
-                    mc.decrypt_base64_to_string(value)
-                        .map_err(|e| Error::InternalErr(e.to_string()))?,
-                )
+                Some(decrypt(&mc, value)?)
             } else if q.include_encrypted.unwrap_or(false) {
                 Some(value)
             } else {
@@ -636,9 +633,7 @@ pub async fn get_value_internal<'c>(
         } else if !value.is_empty() {
             let mc = build_crypt(&mut tx, &w_id).await?;
             tx.commit().await?;
-
-            mc.decrypt_base64_to_string(value)
-                .map_err(|e| Error::InternalErr(e.to_string()))?
+            decrypt(&mc, value)?
         } else {
             "".to_string()
         }
@@ -651,4 +646,9 @@ pub async fn get_value_internal<'c>(
 
 pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
     mc.encrypt_str_to_base64(value)
+}
+
+pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
+    mc.decrypt_base64_to_string(value)
+        .map_err(|e| Error::InternalErr(e.to_string()))
 }

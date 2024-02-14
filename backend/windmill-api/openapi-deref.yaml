@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.268.0
+  version: 1.269.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -1954,6 +1954,58 @@ paths:
               properties:
                 default_app_path:
                   type: string
+      responses:
+        '200':
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+  /w/{workspace}/workspaces/encryption_key:
+    get:
+      summary: retrieves the encryption key for this workspace
+      operationId: getWorkspaceEncryptionKey
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      responses:
+        '200':
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                required:
+                  - key
+    post:
+      summary: update the encryption key for this workspace
+      operationId: setWorkspaceEncryptionKey
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: New encryption key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_key:
+                  type: string
+              required:
+                - new_key
       responses:
         '200':
           description: status
@@ -7109,6 +7161,13 @@ paths:
           in: query
           schema: &ref_64
             type: string
+        - name: all_workspaces
+          description: >-
+            get jobs from all workspaces (only valid if request come from the
+            `admins` workspace)
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: All queued jobs
@@ -7334,6 +7393,13 @@ paths:
           in: path
           required: true
           schema: *ref_0
+        - name: all_workspaces
+          description: >-
+            get jobs from all workspaces (only valid if request come from the
+            `admins` workspace)
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: queue count
@@ -7703,6 +7769,13 @@ paths:
             type: boolean
         - name: success
           description: filter on successful jobs
+          in: query
+          schema:
+            type: boolean
+        - name: all_workspaces
+          description: >-
+            get jobs from all workspaces (only valid if request come from the
+            `admins` workspace)
           in: query
           schema:
             type: boolean
