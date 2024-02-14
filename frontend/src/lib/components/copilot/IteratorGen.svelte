@@ -12,56 +12,25 @@
 	import { sliceModules } from '../flows/flowStateUtils'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
-	import type { FlowCopilotContext } from './flow'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
-	import type { SchemaProperty } from '$lib/common'
-	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 
 	let generatedContent = ''
 	let loading = false
 	export let focused = false
 	export let arg: InputTransform | any
-	export let schemaProperty: SchemaProperty
 	export let pickableProperties: PickableProperties | undefined = undefined
-	export let argName: string
-	export let showPopup: boolean
 
+	let btnFocused = false
 	let empty = false
 	$: empty =
 		Object.keys(arg ?? {}).length === 0 ||
 		(arg.type === 'static' && !arg.value) ||
 		(arg.type === 'javascript' && !arg.expr)
 
-	let btnFocused = false
-
 	let abortController = new AbortController()
-	let newFlowInput = ''
-
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-	const { stepInputsLoading, generatedExprs } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	function createFlowInput() {
-		if (!newFlowInput) {
-			return
-		}
-		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
-			[newFlowInput]: schemaProperty
-		}
-		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
-			newFlowInput
-		]
-		$flowStore.schema = {
-			$schema: 'https://json-schema.org/draft/2020-12/schema',
-			properties,
-			required,
-			type: 'object'
-		}
-	}
-
-	async function generateStepInput() {
+	async function generateIteratorExpr() {
 		if (generatedContent.length > 0 || loading) {
 			return
 		}
@@ -85,17 +54,14 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectedId}, you can find the details for the step and previous ones below:
+The current step is ${selectedId} and represents a for-loop. You can find the details of all the steps below:
 ${flowDetails}
-Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
-All possibles inputs either start with results. or flow_input. and are follow by the key of the input.
-Here's a summary of the available data:
+Determine the iterator expression to pass either from the previous results or the flow inputs. Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
-If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
-Only return the expression without any wrapper.`
+Only output the expression, do not explain or discuss.`
 
 			generatedContent = await getNonStreamingCompletion(
 				[
@@ -106,17 +72,6 @@ Only return the expression without any wrapper.`
 				],
 				abortController
 			)
-
-			if (
-				pickableProperties &&
-				generatedContent.startsWith('flow_input.') &&
-				generatedContent.split('.')[1] &&
-				!(generatedContent.split('.')[1] in pickableProperties.flow_input)
-			) {
-				newFlowInput = generatedContent.split('.')[1]
-			} else {
-				newFlowInput = ''
-			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
 				sendUserToast('Could not generate summary: ' + err, true)
@@ -134,9 +89,6 @@ Only return the expression without any wrapper.`
 			if (!loading && generatedContent) {
 				event.preventDefault()
 				dispatch('setExpr', generatedContent)
-				if (newFlowInput) {
-					openInputsModal = true
-				}
 				generatedContent = ''
 			}
 		} else {
@@ -146,14 +98,9 @@ Only return the expression without any wrapper.`
 
 	const dispatch = createEventDispatcher()
 
-	function cancel() {
-		abortController.abort()
-		generatedContent = ''
-	}
-
 	function automaticGeneration() {
 		if (empty) {
-			generateStepInput()
+			generateIteratorExpr()
 		}
 	}
 
@@ -174,27 +121,18 @@ Only return the expression without any wrapper.`
 		automaticGeneration()
 	}
 
+	function cancel() {
+		abortController.abort()
+		generatedContent = ''
+	}
+
 	$: dispatch('showExpr', generatedContent)
 
-	$: dispatch('showExpr', $generatedExprs?.[argName] || '')
-
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
-	let openInputsModal = false
 </script>
 
 {#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
-	<FlowCopilotInputsModal
-		on:confirmed={async () => {
-			createFlowInput()
-		}}
-		bind:open={openInputsModal}
-		inputs={[newFlowInput]}
-	/>
-	<ManualPopover
-		showTooltip={showPopup && (generatedContent.length > 0 || !!$generatedExprs?.[argName])}
-		placement="bottom"
-		class="p-2"
-	>
+	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
 		<Button
 			size="xs"
 			color="light"
@@ -202,16 +140,19 @@ Only return the expression without any wrapper.`
 			on:click={() => {
 				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
-					if (newFlowInput) {
-						openInputsModal = true
-					}
 					generatedContent = ''
 				}
+			}}
+			on:focus={() => {
+				btnFocused = true
+			}}
+			on:blur={() => {
+				btnFocused = false
 			}}
 			on:mouseenter={(ev) => {
 				if (out) {
 					out = false
-					generateStepInput()
+					generateIteratorExpr()
 				}
 			}}
 			on:mouseleave={() => {
@@ -219,19 +160,8 @@ Only return the expression without any wrapper.`
 				cancel()
 			}}
 			endIcon={{
-				icon:
-					loading || ($stepInputsLoading && empty)
-						? Loader2
-						: generatedContent.length > 0
-						? Check
-						: Wand2,
-				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
-			}}
-			on:focus={() => {
-				btnFocused = true
-			}}
-			on:blur={() => {
-				btnFocused = false
+				icon: loading ? Loader2 : generatedContent.length > 0 ? Check : Wand2,
+				classes: loading ? 'animate-spin' : ''
 			}}
 		>
 			{#if focused}
@@ -244,7 +174,7 @@ Only return the expression without any wrapper.`
 		</Button>
 		<svelte:fragment slot="content">
 			<div class="text-sm text-tertiary">
-				{generatedContent || $generatedExprs?.[argName]}
+				{generatedContent}
 			</div>
 		</svelte:fragment>
 	</ManualPopover>

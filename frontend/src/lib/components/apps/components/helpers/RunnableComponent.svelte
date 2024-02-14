@@ -420,6 +420,9 @@
 
 		if (error) {
 			$errorByComponent[id] = { id: jobId, error }
+		} else {
+			delete $errorByComponent[id]
+			$errorByComponent = $errorByComponent
 		}
 	}
 

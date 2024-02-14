@@ -20,6 +20,7 @@
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
+	export let enableAi = false
 
 	const { selectedId, schedule, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -64,9 +65,9 @@
 
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
-		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} />
+		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesOneWrapper {noEditor} {previousModule} bind:flowModule />
+		<FlowBranchesOneWrapper {noEditor} {previousModule} bind:flowModule {enableAi} />
 	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesAllWrapper {noEditor} {previousModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
@@ -151,6 +152,7 @@
 			bind:flowModule={submodule}
 			bind:parentModule={flowModule}
 			previousModule={flowModule.value.modules[index - 1]}
+			{enableAi}
 		/>
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
@@ -165,18 +167,26 @@
 				bind:flowModule={submodule}
 				bind:parentModule={flowModule}
 				previousModule={flowModule.value.default[index - 1]}
+				{enableAi}
 			/>
 		{/each}
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchOneWrapper {noEditor} bind:branch parentModule={flowModule} {previousModule} />
+			<FlowBranchOneWrapper
+				{noEditor}
+				bind:branch
+				parentModule={flowModule}
+				{previousModule}
+				{enableAi}
+			/>
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
+					{enableAi}
 				/>
 			{/each}
 		{/if}
@@ -191,6 +201,7 @@
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
+					{enableAi}
 				/>
 			{/each}
 		{/if}

@@ -121,6 +121,10 @@ export function createPostgresInput(
 		return undefined
 	}
 
+	if (columns.length === 0) {
+		return undefined
+	}
+
 	const getRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
