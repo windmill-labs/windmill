@@ -104,7 +104,7 @@ pub async fn send_stats(
     let uid = get_uid(db).await?;
 
     let jobs_usage = sqlx::query_as::<_, JobsUsage>(
-        "SELECT language, COUNT(*) as count, SUM(duration_ms)::BIGINT as total_duration FROM completed_job GROUP BY language",
+        "SELECT language, COUNT(*) as count, SUM(duration_ms)::BIGINT as total_duration FROM completed_job WHERE started_at > NOW() - INTERVAL '4 weeks' GROUP BY language LIMIT 100000",
     )
     .fetch_all(db)
     .await?;

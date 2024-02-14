@@ -28,10 +28,6 @@
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
 
-	// import nord from '$lib/assets/nord.json'
-
-	// import nord from '$lib/assets/nord.json'
-
 	import { MonacoLanguageClient } from 'monaco-languageclient'
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
@@ -58,8 +54,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeMode } from 'monaco-graphql/esm/initializeMode'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
+	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 	import { sleep } from '$lib/utils'
 	import { editorCodeCompletion } from './copilot/completion'
 	import { initializeVscode } from './vscode'

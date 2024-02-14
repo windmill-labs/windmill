@@ -1,4 +1,4 @@
-import type { ChatCompletionMessageParam } from 'openai/resources/chat'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/index.mjs'
 import { getNonStreamingCompletion } from './lib'
 import { codeCompletionLoading } from '$lib/stores'
 
