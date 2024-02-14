@@ -1235,7 +1235,7 @@
 											<span>-</span>
 											<Toggle
 												color="red"
-												bind:disabled={gitSyncRepository.exclude_types_override.variables}
+												disabled={gitSyncRepository.exclude_types_override.variables}
 												bind:checked={gitSyncRepository.exclude_types_override.secrets}
 												options={{ left: 'Exclude secrets' }}
 											/>
