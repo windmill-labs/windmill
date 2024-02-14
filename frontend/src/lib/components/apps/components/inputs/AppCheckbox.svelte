@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -70,7 +70,8 @@
 		if (rowContext && rowInputs) {
 			rowInputs.set(id, value)
 		}
-		if (recomputeIds) {
+
+		if (recomputeIds && mounted) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
@@ -90,6 +91,12 @@
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	let css = initCss($app.css?.checkboxcomponent, customCss)
+
+	let mounted: boolean = false
+
+	onMount(() => {
+		mounted = true
+	})
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
