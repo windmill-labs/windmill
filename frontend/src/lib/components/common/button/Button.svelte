@@ -181,7 +181,11 @@
 			{#if loading}
 				<Loader2 class={twMerge(startIcon?.classes, 'animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={startIcon.icon}
+					class={twMerge(startIcon?.classes, 'animate-spin')}
+					size={lucideIconSize}
+				/>
 			{/if}
 
 			{#if !iconOnly}
@@ -212,9 +216,16 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge(startIcon?.classes, 'animate-spin')} size={lucideIconSize} />
+				<Loader2
+					class={twMerge(startIcon?.classes, 'animate-spin  duration-75')}
+					size={lucideIconSize}
+				/>
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={startIcon.icon}
+					class={twMerge(startIcon?.classes, 'animate-spin')}
+					size={lucideIconSize}
+				/>
 			{/if}
 
 			{#if !iconOnly}
