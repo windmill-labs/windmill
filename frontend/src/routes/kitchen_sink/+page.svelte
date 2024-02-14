@@ -4,6 +4,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import { Globe } from 'lucide-svelte'
 
 	let tab = 'button'
 	let dropdownItems = [
@@ -24,8 +25,15 @@
 			<div class="font-bold text-md">Contained buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
 				<Button>Lorem</Button>
-				<Button color="dark">Lorem</Button>
-				<Button color="gray">Lorem</Button>
+				<Button color="dark" loading>Lorem</Button>
+				<Button
+					color="gray"
+					startIcon={{
+						icon: Globe
+					}}
+				>
+					Lorem
+				</Button>
 				<Button color="green">Lorem</Button>
 				<Button color="light">Lorem</Button>
 				<Button color="none">Lorem</Button>

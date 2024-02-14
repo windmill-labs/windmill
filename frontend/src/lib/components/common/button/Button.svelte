@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { ButtonType } from './model'
-	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropdown from './ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
+	import CenteredLoader from './CenteredLoader.svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -133,7 +133,9 @@
 		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
 		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
-		'active:opacity-80 transition-all'
+		'active:opacity-80 transition-all',
+		disabled ? '!bg-surface-disabled !text-tertiary cursor-not-allowed' : '',
+		loading ? 'cursor-wait' : ''
 	)
 
 	const iconMap = {
@@ -154,7 +156,6 @@
 >
 	{#if href}
 		<a
-			data-sveltekit-preload-code="hover"
 			bind:this={element}
 			on:pointerdown
 			on:focus
@@ -168,10 +169,7 @@
 			}}
 			{href}
 			{download}
-			class={twMerge(
-				buttonClass,
-				disabled ? '!bg-surface-disabled !text-tertiary !cursor-not-allowed' : ''
-			)}
+			class={buttonClass}
 			{id}
 			{target}
 			tabindex={disabled ? -1 : 0}
@@ -179,13 +177,9 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge(startIcon?.classes, 'animate-spin')} size={lucideIconSize} />
+				<CenteredLoader class="animate-spin" height={lucideIconSize} width={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component
-					this={startIcon.icon}
-					class={twMerge(startIcon?.classes, 'animate-spin')}
-					size={lucideIconSize}
-				/>
+				<svelte:component this={startIcon.icon} class={startIcon?.classes} size={lucideIconSize} />
 			{/if}
 
 			{#if !iconOnly}
@@ -204,10 +198,7 @@
 			on:blur
 			on:mouseenter
 			on:mouseleave
-			class={twMerge(
-				buttonClass,
-				disabled ? '!bg-surface-disabled !text-tertiary !cursor-not-allowed' : ''
-			)}
+			class={buttonClass}
 			{id}
 			tabindex={disabled ? -1 : 0}
 			{title}
@@ -216,16 +207,9 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2
-					class={twMerge(startIcon?.classes, 'animate-spin  duration-75')}
-					size={lucideIconSize}
-				/>
+				<CenteredLoader class="animate-spin" height={lucideIconSize} width={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component
-					this={startIcon.icon}
-					class={twMerge(startIcon?.classes, 'animate-spin')}
-					size={lucideIconSize}
-				/>
+				<svelte:component this={startIcon.icon} class={startIcon?.classes} size={lucideIconSize} />
 			{/if}
 
 			{#if !iconOnly}

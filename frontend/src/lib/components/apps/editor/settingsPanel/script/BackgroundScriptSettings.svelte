@@ -26,7 +26,7 @@
 </script>
 
 <div class={'border-y divide-y '}>
-	<ScriptSettingHeader name={runnable.name} />
+	<ScriptSettingHeader name={runnable.name} noBorder />
 	<div class="p-2">
 		<ScriptTransformer bind:appInput={runnable} {id} />
 		{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
