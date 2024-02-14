@@ -93,7 +93,7 @@
 		}
 
 		if (rd?.startsWith('http')) {
-			goto(rd)
+			window.location.href = rd
 			return
 		}
 		if ($workspaceStore) {
@@ -240,7 +240,13 @@
 						color="dark"
 						variant="border"
 						btnClasses="mt-2 w-full !border-gray-300"
-						on:click={() => saml && goto(saml)}
+						on:click={() => {
+							if (saml) {
+								window.location.href = saml
+							} else {
+								sendUserToast('No SAML login available', true)
+							}
+						}}
 					>
 						SSO
 					</Button>
