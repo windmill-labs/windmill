@@ -139,15 +139,27 @@
 	)
 
 	const iconMap = {
+		xs2: 14,
 		xs: 14,
 		sm: 16,
 		md: 16,
-		lg: 18
+		lg: 18,
+		xl: 18
+	}
+
+	const iconOnlyPadding = {
+		xs2: 'm-[1px]',
+		xs: 'm-[1px]',
+		sm: 'm-[2px]',
+		md: 'm-[2px]',
+		lg: 'm-[5px]',
+		xl: 'm-[5px]'
 	}
 
 	$: lucideIconSize = iconMap[size] ?? 12
 </script>
 
+{wrapperClasses}
 <div
 	class="{dropdownItems && variant === 'contained'
 		? colorVariants[color].divider
@@ -177,16 +189,24 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class="animate-spin" size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon?.classes} size={lucideIconSize} />
+				<svelte:component
+					this={startIcon.icon}
+					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon?.icon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={endIcon.icon}
+					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 		</a>
 	{:else}
@@ -207,23 +227,36 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class="animate-spin" size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon?.classes} size={lucideIconSize} />
+				<svelte:component
+					this={startIcon.icon}
+					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon?.icon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={endIcon.icon}
+					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 		</button>
 	{/if}
 
 	{#if dropdownItems}
 		<div
-			class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto !w-10 border-l-0')}
+			class={twMerge(
+				buttonClass,
+				'rounded-md m-0 p-0 h-auto !w-10',
+				variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
+				'rounded-r-md !rounded-l-none'
+			)}
 		>
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
