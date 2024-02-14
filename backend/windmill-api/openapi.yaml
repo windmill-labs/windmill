@@ -9584,6 +9584,20 @@ components:
           type: string
         use_individual_branch:
           type: boolean
+        exclude_types_override:
+          type: array
+          items:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+              - folder
+              - resource
+              - variable
+              - secret
+              - resourcetype
+              - schedule
       required:
         - script_path
         - git_repo_resource_path

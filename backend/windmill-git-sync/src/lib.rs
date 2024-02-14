@@ -109,7 +109,7 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
         None
     };
 
-    let mut skip_git_sync = if obj_path.is_none() && obj_parent_path.is_none() {
+    let skip_git_sync = if obj_path.is_none() && obj_parent_path.is_none() {
         tracing::debug!(
             "Ignoring {} from git sync as it's in a private user folder",
             obj.get_path()
@@ -118,48 +118,109 @@ pub async fn handle_deployment_metadata<'c, R: rsmq_async::RsmqConnection + Send
     } else {
         false
     };
-
-    skip_git_sync = skip_git_sync
-        || match obj {
-            DeployedObject::Script { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::Script),
-            DeployedObject::Flow { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::Flow),
-            DeployedObject::App { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::App),
-            DeployedObject::Folder { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::Folder),
-            DeployedObject::Resource { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::Resource),
-            DeployedObject::Variable { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::Variable),
-            DeployedObject::ResourceType { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::ResourceType),
-            DeployedObject::Schedule { .. } => !workspace_git_sync_settings
-                .include_type
-                .iter()
-                .any(|element| *element == ObjectType::Schedule),
-        };
-
     tracing::debug!("Skipping git sync for {:?} -> {}", obj_path, skip_git_sync);
 
     let mut git_sync_job_uuids: Vec<Uuid> = vec![];
     if !skip_git_sync {
         for workspace_git_repo in workspace_git_sync_settings.repositories {
+            // check that this type of object should indeed be synced
+            let skip_object_type = match obj {
+                DeployedObject::Script { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Script)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::Script)
+                }
+                DeployedObject::Flow { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Flow)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::Flow)
+                }
+                DeployedObject::App { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::App)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::App)
+                }
+                DeployedObject::Folder { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Folder)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::Folder)
+                }
+                DeployedObject::Resource { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Resource)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::Resource)
+                }
+                DeployedObject::Variable { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Variable)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::Variable)
+                }
+                DeployedObject::ResourceType { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::ResourceType)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::ResourceType)
+                }
+                DeployedObject::Schedule { .. } => {
+                    !workspace_git_sync_settings
+                        .include_type
+                        .iter()
+                        .any(|element| *element == ObjectType::Schedule)
+                        || workspace_git_repo
+                            .exclude_types_override
+                            .unwrap_or_default()
+                            .iter()
+                            .any(|element| *element == ObjectType::Schedule)
+                }
+            };
+
+            if skip_object_type {
+                tracing::debug!("Skipping sync due to objec type filter");
+                continue;
+            }
+
+            // if yes, sync it
             let mut args: HashMap<String, serde_json::Value> = HashMap::new();
             args.insert(
                 "repo_url_resource_path".to_string(),
