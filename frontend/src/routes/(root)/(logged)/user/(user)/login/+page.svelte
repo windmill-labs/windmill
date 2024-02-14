@@ -93,7 +93,7 @@
 		}
 
 		if (rd?.startsWith('http')) {
-			goto(rd)
+			window.location.href = rd
 			return
 		}
 		if ($workspaceStore) {
