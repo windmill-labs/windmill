@@ -5,7 +5,7 @@
 	import ButtonDropdown from './ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
-	import CenteredLoader from './CenteredLoader.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -177,7 +177,7 @@
 			{style}
 		>
 			{#if loading}
-				<CenteredLoader class="animate-spin" height={lucideIconSize} width={lucideIconSize} />
+				<Loader2 class="animate-spin" size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon?.classes} size={lucideIconSize} />
 			{/if}
@@ -207,7 +207,7 @@
 			{style}
 		>
 			{#if loading}
-				<CenteredLoader class="animate-spin" height={lucideIconSize} width={lucideIconSize} />
+				<Loader2 class="animate-spin" size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<svelte:component this={startIcon.icon} class={startIcon?.classes} size={lucideIconSize} />
 			{/if}
