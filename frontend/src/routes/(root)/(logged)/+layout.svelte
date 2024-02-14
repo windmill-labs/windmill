@@ -51,10 +51,21 @@
 	}
 
 	$: $page.url &&
-		userSettings != undefined &&
-		superadminSettings != undefined &&
+		(userSettings != undefined || superadminSettings != undefined) &&
 		onQueryChangeSettings()
 	$: $page.url && onQueryChange()
+
+	$: if ($page.url && userSettings) {
+		onQueryChangeSettings()
+	}
+
+	$: if ($page.url && superadminSettings) {
+		onQueryChangeSettings()
+	}
+
+	$: if ($page.url) {
+		onQueryChange()
+	}
 
 	function onQueryChangeSettings() {
 		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
