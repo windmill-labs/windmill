@@ -342,7 +342,7 @@ pub async fn get_groups(
     Extension(db): Extension<DB>,
     Query(query): Query<ScimQuery>,
 ) -> Result<JsonScim<serde_json::Value>> {
-    let sqlb = SqlBuilder::select_from("instance_group")
+    let mut sqlb = SqlBuilder::select_from("instance_group")
         .fields(&[
             "name",
             "external_id",
@@ -356,6 +356,14 @@ pub async fn get_groups(
         .limit(query.count.unwrap_or(100000))
         .offset(query.startIndex.map(|x| x - 1).unwrap_or(0))
         .clone();
+
+    if let Some(filter) = query.filter {
+        let filter = filter
+            .replace("displayName", "scim_display_name")
+            .replace("eq", "=")
+            .replace("\"", "'");
+        sqlb.and_where(&filter);
+    }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let groups = sqlx::query_as::<_, Group>(&sql)
