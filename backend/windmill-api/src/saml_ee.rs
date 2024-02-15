@@ -8,19 +8,11 @@
 #![allow(non_snake_case)]
 
 use axum::{routing::post, Router};
-use std::sync::Arc;
 
 pub struct ServiceProviderExt();
 
 pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
     return Ok(ServiceProviderExt());
-}
-
-pub async fn generate_redirect_url(
-    _service_provider: Arc<ServiceProviderExt>,
-) -> anyhow::Result<Option<String>> {
-    // Implementation is not open source as it is a Windmill Enterprise Edition feature
-    return Ok(None);
 }
 
 pub fn global_service() -> Router {
