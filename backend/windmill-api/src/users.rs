@@ -41,7 +41,8 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH;

@@ -15,7 +15,8 @@ use axum::{
 use magic_crypt::MagicCryptTrait;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     error::{to_anyhow, Error},
     variables::build_crypt,
