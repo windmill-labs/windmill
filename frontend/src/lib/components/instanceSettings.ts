@@ -103,14 +103,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
-	'SSO/OAuth': [
-		{
-			label: 'Require users to have been added manually to windmill to sign in through OAuth',
-			key: 'require_preexisting_user_for_oauth',
-			fieldType: 'boolean',
-			storage: 'setting'
-		}
-	],
+	'SSO/OAuth': [],
 	Registries: [
 		{
 			label: 'Pip Extra Index Url',
