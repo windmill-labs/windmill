@@ -224,7 +224,11 @@
 								propertyType === 'static' ||
 								arg?.expr?.length > 0}
 							on:showExpr={(e) => {
-								monaco?.setSuggestion(e.detail)
+								setTimeout(() => {
+									if (monaco && propertyType === 'javascript') {
+										monaco.setSuggestion(e.detail)
+									}
+								}, 0)
 							}}
 							on:setExpr={(e) => {
 								arg = {
@@ -404,7 +408,6 @@
 							focused = false
 						}}
 						autoHeight
-						preventTabOnEmpty={enableAi}
 					/>
 				</div>
 				<DynamicInputHelpBox />
