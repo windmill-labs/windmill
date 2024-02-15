@@ -381,10 +381,16 @@
 		<Button
 			on:click={() => contentSearch?.open()}
 			variant="border"
-			btnClasses="py-2.5"
-			size="xs"
-			color="light">Content&nbsp;<SearchCode size={16} /></Button
+			size="sm"
+			spacingSize="lg"
+			wrapperClasses="h-10"
+			color="light"
+			endIcon={{
+				icon: SearchCode
+			}}
 		>
+			Content
+		</Button>
 	</div>
 	<div class="relative">
 		<ListFilters

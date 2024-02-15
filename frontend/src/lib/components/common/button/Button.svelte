@@ -159,7 +159,6 @@
 	$: lucideIconSize = iconMap[size] ?? 12
 </script>
 
-{wrapperClasses}
 <div
 	class="{dropdownItems && variant === 'contained'
 		? colorVariants[color].divider
