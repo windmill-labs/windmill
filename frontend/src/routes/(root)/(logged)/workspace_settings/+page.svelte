@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, invalidate } from '$app/navigation'
+	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'

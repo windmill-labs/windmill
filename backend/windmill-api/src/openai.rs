@@ -12,7 +12,6 @@ use axum::{
     routing::post,
     Router,
 };
-use magic_crypt::MagicCryptTrait;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use windmill_audit::{audit_log, ActionKind};

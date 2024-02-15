@@ -33,7 +33,6 @@ use axum::{
 use chrono::Utc;
 #[cfg(feature = "stripe")]
 use chrono::{Datelike, TimeZone, Timelike};
-use magic_crypt::MagicCryptTrait;
 use regex::Regex;
 #[cfg(feature = "stripe")]
 use stripe::CustomerId;
@@ -47,7 +46,6 @@ use windmill_common::variables::build_crypt;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::{
-    error,
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
