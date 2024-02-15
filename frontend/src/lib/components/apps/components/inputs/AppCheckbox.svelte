@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { getContext, onDestroy, onMount } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -48,6 +48,9 @@
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
 			value = nvalue
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
 		}
 	}
 
@@ -70,15 +73,14 @@
 		if (rowContext && rowInputs) {
 			rowInputs.set(id, value)
 		}
-
-		if (recomputeIds && mounted) {
-			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
-		}
 	}
 
 	function handleDefault() {
 		value = resolvedConfig.defaultValue ?? false
 		handleInput()
+		if (recomputeIds) {
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
 	}
 
 	onDestroy(() => {
@@ -91,12 +93,6 @@
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	let css = initCss($app.css?.checkboxcomponent, customCss)
-
-	let mounted: boolean = false
-
-	onMount(() => {
-		mounted = true
-	})
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
@@ -139,6 +135,9 @@
 		on:change={(e) => {
 			preclickAction?.()
 			value = e.detail
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
 		}}
 		disabled={resolvedConfig.disabled}
 	/>

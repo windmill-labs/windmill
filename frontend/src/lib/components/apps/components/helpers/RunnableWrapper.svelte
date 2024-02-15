@@ -241,6 +241,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
+		{noInitialize}
 		{allowConcurentRequests}
 		{refreshOnStart}
 		{extraKey}
