@@ -12,7 +12,6 @@
 	import Row from './table/Row.svelte'
 
 	export let args: any
-	export let tableClass = ''
 
 	let jsonViewer: Drawer
 	let runLocally: Drawer
