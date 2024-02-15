@@ -38,7 +38,8 @@ use sqlx::types::JsonRawValue;
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
