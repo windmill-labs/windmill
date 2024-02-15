@@ -9,7 +9,6 @@
 use crate::db::ApiAuthed;
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
-use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
 use crate::{
     oauth2_ee::SlackVerifier,
@@ -39,6 +38,7 @@ use windmill_common::utils::rd_string;
 use windmill_common::worker::ALL_TAGS;
 use windmill_common::BASE_URL;
 
+use crate::scim_helpers::has_scim_token;
 use windmill_common::error::AppError;
 
 mod apps;
@@ -67,7 +67,8 @@ mod raw_apps;
 mod resources;
 mod saml_ee;
 mod schedule;
-mod scim;
+mod scim_ee;
+mod scim_helpers;
 mod scripts;
 mod settings;
 mod static_assets;
@@ -235,7 +236,8 @@ pub async fn run_server(
                 )
                 .nest(
                     "/scim",
-                    scim::global_service().route_layer(axum::middleware::from_fn(has_scim_token)),
+                    scim_ee::global_service()
+                        .route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
