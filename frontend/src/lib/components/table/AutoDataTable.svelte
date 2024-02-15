@@ -147,18 +147,24 @@
 					color="light"
 					startIcon={{ icon: Download }}
 					on:click={() => {
-						const csv = structuredObjects
-							.filter(({ _id }) => {
-								if (selection.length > 0) {
-									return selection.includes(_id)
-								} else {
-									return true
-								}
-							})
-							.map(({ rowData }) => Object.values(rowData).join(','))
-							.join('\n')
+						const headers =
+							structuredObjects.length > 0
+								? Object.keys(structuredObjects[0].rowData).join(',')
+								: ''
+						const csvContent = [
+							headers, // Add headers as the first row
+							...structuredObjects
+								.filter(({ _id }) => {
+									if (selection.length > 0) {
+										return selection.includes(_id)
+									} else {
+										return true
+									}
+								})
+								.map(({ rowData }) => Object.values(rowData).join(','))
+						].join('\n')
 
-						const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+						const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
 						const url = URL.createObjectURL(blob)
 						const link = document.createElement('a')
 						link.setAttribute('href', url)
