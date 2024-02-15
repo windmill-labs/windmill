@@ -465,6 +465,18 @@ pub fn pg_cell_to_json_value(
         Type::TS_VECTOR_ARRAY => get_array(row, column, column_i, |a: StringCollector| {
             Ok(JSONValue::String(a.0))
         })?,
+        Type::TIMESTAMP_ARRAY => get_array(row, column, column_i, |a: chrono::NaiveDateTime| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::DATE_ARRAY => get_array(row, column, column_i, |a: chrono::NaiveDate| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::TIME_ARRAY => get_array(row, column, column_i, |a: chrono::NaiveTime| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::TIMESTAMPTZ_ARRAY => get_array(row, column, column_i, |a: chrono::DateTime<Utc>| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
         _ => get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?,
     })
 }
