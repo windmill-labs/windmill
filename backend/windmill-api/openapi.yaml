@@ -1574,6 +1574,54 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/encryption_key:
+    get:
+      summary: retrieves the encryption key for this workspace
+      operationId: getWorkspaceEncryptionKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                required:
+                  - key
+    post:
+      summary: update the encryption key for this workspace
+      operationId: setWorkspaceEncryptionKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New encryption key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_key:
+                  type: string
+              required:
+                - new_key
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/default_app:
     get:
       summary: get default app for workspace
