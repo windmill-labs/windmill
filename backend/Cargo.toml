@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.269.0"
+version = "1.270.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.269.0"
+version = "1.270.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
