@@ -38,7 +38,8 @@ use regex::Regex;
 #[cfg(feature = "stripe")]
 use stripe::CustomerId;
 use uuid::Uuid;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
