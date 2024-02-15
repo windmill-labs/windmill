@@ -90,7 +90,7 @@ export async function createLoop(id: string): Promise<[FlowModule, FlowModuleSta
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: '["dynamic or static array"]' },
+			iterator: { type: 'javascript', expr: '' },
 			skip_failures: true
 		}
 	}

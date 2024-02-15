@@ -53,6 +53,7 @@
 	export let hideRefreshButton: boolean = false
 	export let hasChildrens: boolean
 	export let allowConcurentRequests = false
+	export let noInitialize = false
 
 	const {
 		worldStore,
@@ -420,6 +421,9 @@
 
 		if (error) {
 			$errorByComponent[id] = { id: jobId, error }
+		} else {
+			delete $errorByComponent[id]
+			$errorByComponent = $errorByComponent
 		}
 	}
 
@@ -552,7 +556,7 @@
 			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 		}
 
-		if (!$initialized.initializedComponents.includes(id)) {
+		if (!noInitialize && !$initialized.initializedComponents.includes(id)) {
 			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
 		}
 	})

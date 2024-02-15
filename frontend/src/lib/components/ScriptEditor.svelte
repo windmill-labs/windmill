@@ -172,7 +172,7 @@
 		})
 
 		function setPeers() {
-			peers = Array.from(awareness.getStates().values()).map((x) => x.user)
+			peers = Array.from(awareness.getStates().values()).map((x) => x?.['user'])
 		}
 
 		setPeers()

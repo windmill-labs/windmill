@@ -38,7 +38,8 @@ use sqlx::types::JsonRawValue;
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
@@ -663,6 +664,7 @@ pub struct ListQueueQuery {
     pub args: Option<String>,
     pub tag: Option<String>,
     pub scheduled_for_before_now: Option<bool>,
+    pub all_workspaces: Option<bool>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -670,8 +672,11 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(1000)
-        .and_where_eq("workspace_id", "?".bind(&w_id))
         .clone();
+
+    if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
+        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+    }
 
     if let Some(ps) = &lq.script_path_start {
         sqlb.and_where_like_left("script_path", "?".bind(ps));
@@ -765,6 +770,7 @@ struct ListableQueuedJob {
     pub suspend: Option<i32>,
     pub tag: String,
     pub priority: Option<i16>,
+    pub workspace_id: String,
 }
 
 async fn list_queue_jobs(
@@ -794,6 +800,7 @@ async fn list_queue_jobs(
             "suspend",
             "tag",
             "priority",
+            "workspace_id",
         ],
     )
     .sql()?;
@@ -857,15 +864,22 @@ struct QueueStats {
     database_length: i64,
 }
 
+#[derive(Deserialize)]
+pub struct CountQueueJobsQuery {
+    all_workspaces: Option<bool>,
+}
+
 async fn count_queue_jobs(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(cq): Query<CountQueueJobsQuery>,
 ) -> error::JsonResult<QueueStats> {
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1 AND scheduled_for <= now() AND running = false",
-            w_id
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND running = false",
+            w_id,
+            w_id == "admins" && cq.all_workspaces.unwrap_or(false),
         )
         .fetch_one(&db)
         .await?,
@@ -972,6 +986,7 @@ async fn list_jobs(
                 tag: lq.tag,
                 schedule_path: lq.schedule_path,
                 scheduled_for_before_now: lq.scheduled_for_before_now,
+                all_workspaces: lq.all_workspaces,
             },
             &[
                 "'QueuedJob' as typ",
@@ -1882,9 +1897,10 @@ pub async fn check_license_key_valid() -> error::Result<()> {
 
     let valid = *LICENSE_KEY_VALID.read().await;
     if !valid {
-        return Err(error::Error::BadRequest(format!(
-            "License key is not valid. Go to your superadmin settings to update your license key.",
-        )));
+        return Err(Error::BadRequest(
+            "License key is not valid. Go to your superadmin settings to update your license key."
+                .to_string(),
+        ));
     }
     Ok(())
 }
@@ -3135,10 +3151,13 @@ fn list_completed_jobs_query(
     let mut sqlb = SqlBuilder::select_from("completed_job")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .and_where_eq("workspace_id", "?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
+
+    if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
+        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+    }
 
     if let Some(p) = &lq.schedule_path {
         sqlb.and_where_eq("schedule_path", "?".bind(p));
@@ -3229,6 +3248,7 @@ pub struct ListCompletedQuery {
     pub result: Option<String>,
     pub tag: Option<String>,
     pub scheduled_for_before_now: Option<bool>,
+    pub all_workspaces: Option<bool>,
 }
 
 async fn list_completed_jobs(

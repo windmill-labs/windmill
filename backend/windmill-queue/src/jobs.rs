@@ -19,7 +19,6 @@ use axum::{
     extract::{FromRequest, Query},
     http::Request,
     response::{IntoResponse, Response},
-    Form, RequestExt,
 };
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
@@ -40,7 +39,8 @@ use tokio::{sync::RwLock, time::sleep};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 #[cfg(not(feature = "enterprise"))]
 use windmill_common::worker::PriorityTags;
 use windmill_common::{
@@ -2307,12 +2307,26 @@ where
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
         {
-            let Form(payload): Form<HashMap<String, Option<String>>> =
-                req.extract().await.map_err(IntoResponse::into_response)?;
+            let bytes = Bytes::from_request(req, _state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+
+            if use_raw {
+                let raw_string = String::from_utf8(bytes.to_vec()).map_err(|e| {
+                    Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
+                })?;
+                extra.insert("raw_string".to_string(), to_raw_value(&raw_string));
+            }
+
+            let payload: HashMap<String, Option<String>> = serde_urlencoded::from_bytes(&bytes)
+                .map_err(|e| {
+                    Error::BadRequest(format!("invalid urlencoded data: {}", e)).into_response()
+                })?;
             let payload = payload
                 .into_iter()
                 .map(|(k, v)| (k, to_raw_value(&v)))
                 .collect::<HashMap<_, _>>();
+
             return Ok(PushArgs { extra, args: Json(payload) });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())

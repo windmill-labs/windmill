@@ -22,7 +22,8 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult, Result},
@@ -190,9 +191,9 @@ async fn create_folder(
             extra_mut.insert(o.clone(), serde_json::json!(true));
         }
     } else {
-        return Err(windmill_common::error::Error::BadRequest(format!(
-            "extra_perms must be an object"
-        )));
+        return Err(error::Error::BadRequest(
+            "extra_perms must be an object".to_string(),
+        ));
     }
 
     sqlx::query_as!(

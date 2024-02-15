@@ -32,9 +32,8 @@
 			bind:isOpen
 			bind:hex={value}
 			label={value}
-			canChangeMode={false}
 			components={ChromeVariant}
-			toRight
+			sliderDirection="horizontal"
 			--focus-color="#e0e7ff"
 		/>
 	</div>

@@ -14,7 +14,8 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 use windmill_common::{
@@ -342,6 +343,10 @@ async fn delete_igroup(
     require_super_admin(&db, &authed.email).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     sqlx::query!("DELETE FROM instance_group WHERE name = $1", name)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", name)
         .execute(&mut *tx)
         .await?;
 

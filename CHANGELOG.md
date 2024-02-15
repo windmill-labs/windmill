@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.269.0](https://github.com/windmill-labs/windmill/compare/v1.268.0...v1.269.0) (2024-02-13)
+
+
+### Features
+
+* add ai for predicates and iterator expressions ([#3203](https://github.com/windmill-labs/windmill/issues/3203)) ([43e0ceb](https://github.com/windmill-labs/windmill/commit/43e0ceb342cd27ee94e7c1ac830ee642294e2f2f))
+* **frontend:** add confirmation modal to the app button ([#3199](https://github.com/windmill-labs/windmill/issues/3199)) ([6200932](https://github.com/windmill-labs/windmill/commit/620093271a44e90ea9b081583b4f1d93b04794dd))
+* Git sync can handle resource types, resources, variables and schedules ([#3202](https://github.com/windmill-labs/windmill/issues/3202)) ([0e7de63](https://github.com/windmill-labs/windmill/commit/0e7de63c4b698a449464a177b8da37ab9d0315ff))
+* improve runs page + add all workspaces to admins runs page ([90c7c0e](https://github.com/windmill-labs/windmill/commit/90c7c0ed8a0b268c4fae7254e25ef29ee7e2aef6))
+
+
+### Bug Fixes
+
+* **cli:** update hub sync version ([8b46b95](https://github.com/windmill-labs/windmill/commit/8b46b953a2d0ac48bab51cadfc11a2d299242c4a))
+* **frontend:** Truncate path on the run page ([#3208](https://github.com/windmill-labs/windmill/issues/3208)) ([3d0e5c8](https://github.com/windmill-labs/windmill/commit/3d0e5c8e576ab907a3533a30e3371641ddaea5f2))
+* init scripts are tagged with 'init_script' ([3c52ef1](https://github.com/windmill-labs/windmill/commit/3c52ef14691b0db3774ed7dd376ee23687e9462f))
+* **scim:** switch right join to left join for groups ([9655b8f](https://github.com/windmill-labs/windmill/commit/9655b8fb3275bc332a3bd2a10be27a30b3d653a5))
+* **scim:** when deleting instance groups manually, delete also members mapping ([ce4d077](https://github.com/windmill-labs/windmill/commit/ce4d0777f6d9297af62b92d29855d7108aac23d2))
+* search on table set page to 0 ([5c5c9c5](https://github.com/windmill-labs/windmill/commit/5c5c9c5ac4aa166054666b64d00cc82a2afac8f5))
+
 ## [1.268.0](https://github.com/windmill-labs/windmill/compare/v1.267.0...v1.268.0) (2024-02-11)
 
 

@@ -1342,7 +1342,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time)).await
                 } => {
                     add_time!(timing, loop_start, "post pull");
-                    tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
+                    // tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
                     let duration_pull_s = timer.elapsed().as_secs_f64();
                     let err_pull = job.is_ok();
                     let empty = job.as_ref().is_ok_and(|x| x.is_none());
@@ -2029,7 +2029,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             true,
             None,
             true,
-            None,
+            Some("init_script".to_string()),
             None,
             None,
             None,

@@ -10,9 +10,11 @@
 	import FlowProgressBar from '../flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
 	import DurationMs from '../DurationMs.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let id: string
 	export let blankLink = false
+	export let workspace: string | undefined
 
 	let job: Job | undefined = undefined
 	let watchJob: (id: string) => Promise<void>
@@ -34,8 +36,7 @@
 	let viewTab = 'result'
 </script>
 
-<TestJobLoader bind:job={currentJob} bind:watchJob on:done={onDone} />
-
+<TestJobLoader workspaceOverride={workspace} bind:job={currentJob} bind:watchJob on:done={onDone} />
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
 		<div class="flex gap-2">
@@ -50,6 +51,16 @@
 			{#if job?.['mem_peak']}
 				<Badge large>
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
+				</Badge>
+			{/if}
+			{#if workspace && $workspaceStore != workspace}
+				<Badge large>
+					Workspace: {workspace}
+				</Badge>
+			{/if}
+			{#if job.tag}
+				<Badge large>
+					Tag: {job.tag}
 				</Badge>
 			{/if}
 		</div>
@@ -68,7 +79,9 @@
 			<JobArgs args={job?.args} />
 		</div>
 
-		<span class="font-semibold text-xs leading-6">Results</span>
+		{#if job?.type === Job.type.COMPLETED_JOB}
+			<span class="font-semibold text-xs leading-6">Results</span>
+		{/if}
 
 		{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
 			<div class="text-sm font-semibold text-tertiary mb-1">

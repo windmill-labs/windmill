@@ -181,7 +181,7 @@
 				errorIteration += 1
 				if (errorIteration == 5) {
 					notfound = true
-					await clearCurrentJob()
+					job = undefined
 				}
 				console.warn(err)
 			}

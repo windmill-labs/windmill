@@ -84,7 +84,8 @@
 	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
 	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
 	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
-	$: showResourceTypePicker = scriptLangToEditorLang(lang) === 'typescript' || lang === 'python3'
+	$: showResourceTypePicker =
+		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) || lang === 'python3'
 
 	let codeViewer: Drawer
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined

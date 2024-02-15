@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { JobService, Job, CompletedJob } from '$lib/gen'
+	import {
+		JobService,
+		Job,
+		CompletedJob,
+		UserService,
+		FolderService,
+		ScriptService,
+		FlowService
+	} from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -25,6 +33,7 @@
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
+	let selectedWorkspace: string | undefined = undefined
 
 	// All Filters
 	// Filter by
@@ -57,6 +66,8 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+
 	let queue_count: Tweened<number> | undefined = undefined
 	let jobKinds: string | undefined = undefined
 	let loading: boolean = false
@@ -74,11 +85,109 @@
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
 
+	let manualDatePicker: ManuelDatePicker
+
+	$: (user ||
+		folder ||
+		path ||
+		success !== undefined ||
+		isSkipped ||
+		hideSchedules ||
+		argFilter ||
+		resultFilter ||
+		schedulePath ||
+		jobKindsCat ||
+		minTs ||
+		maxTs ||
+		allWorkspaces ||
+		$workspaceStore) &&
+		setQuery()
+
+	function setQuery() {
+		let searchParams = new URLSearchParams()
+
+		if (user) {
+			searchParams.set('user', user)
+		} else {
+			searchParams.delete('user')
+		}
+
+		if (folder) {
+			searchParams.set('folder', folder)
+		} else {
+			searchParams.delete('folder')
+		}
+
+		if (success !== undefined) {
+			searchParams.set('success', success.toString())
+		} else {
+			searchParams.delete('success')
+		}
+
+		if (isSkipped) {
+			searchParams.set('is_skipped', isSkipped.toString())
+		} else {
+			searchParams.delete('is_skipped')
+		}
+
+		if (hideSchedules) {
+			searchParams.set('hide_scheduled', hideSchedules.toString())
+		} else {
+			searchParams.delete('hide_scheduled')
+		}
+
+		if (allWorkspaces && $workspaceStore == 'admins') {
+			searchParams.set('all_workspaces', allWorkspaces.toString())
+			searchParams.set('workspace', 'admins')
+		} else {
+			searchParams.delete('all_workspaces')
+		}
+
+		// ArgFilter is an object. Encode it to a string
+		if (argFilter) {
+			searchParams.set('arg', encodeURIComponent(JSON.stringify(argFilter)))
+		} else {
+			searchParams.delete('arg')
+		}
+
+		if (resultFilter) {
+			searchParams.set('result', encodeURIComponent(JSON.stringify(resultFilter)))
+		} else {
+			searchParams.delete('result')
+		}
+		if (schedulePath) {
+			searchParams.set('schedule_path', schedulePath)
+		} else {
+			searchParams.delete('schedule_path')
+		}
+		if (jobKindsCat != 'runs') {
+			searchParams.set('job_kinds', jobKindsCat)
+		} else {
+			searchParams.delete('job_kinds')
+		}
+
+		if (minTs) {
+			searchParams.set('min_ts', minTs)
+		} else {
+			searchParams.delete('min_ts')
+		}
+
+		if (maxTs) {
+			searchParams.set('max_ts', maxTs)
+		} else {
+			searchParams.delete('max_ts')
+		}
+
+		let newPath = path ? `/${path}` : '/'
+		let newUrl = `/runs${newPath}?${searchParams.toString()}`
+		history.replaceState(history.state, '', newUrl.toString())
+	}
+
 	function reloadLogsWithoutFilterError() {
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
-				jobLoader?.loadJobs(true)
+				jobLoader?.loadJobs(minTs, maxTs, true)
 			}, 2000)
 		}
 	}
@@ -92,32 +201,54 @@
 		completedJobs = undefined
 		selectedManualDate = 0
 		selectedId = undefined
-		jobLoader?.loadJobs(true)
+		selectedWorkspace = undefined
+		jobLoader?.loadJobs(minTs, maxTs, true)
+	}
+
+	async function loadUsernames(): Promise<void> {
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+	}
+
+	async function loadFolders(): Promise<void> {
+		folders = await FolderService.listFolders({
+			workspace: $workspaceStore!
+		}).then((x) => x.map((y) => y.name))
+	}
+
+	async function loadPaths() {
+		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
+		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
+		paths = npaths_scripts.concat(npaths_flows).sort()
+	}
+
+	$: if ($workspaceStore) {
+		loadUsernames()
+		loadFolders()
+		loadPaths()
 	}
 </script>
 
 <JobLoader
+	{allWorkspaces}
 	bind:jobs
-	bind:user
-	bind:folder
-	bind:path
-	bind:success
-	bind:isSkipped
-	bind:argFilter
-	bind:resultFilter
-	bind:schedulePath
-	bind:jobKindsCat
+	{user}
+	{folder}
+	{path}
+	{success}
+	{isSkipped}
+	{argFilter}
+	{resultFilter}
+	{schedulePath}
+	{jobKindsCat}
+	computeMinAndMax={manualDatePicker?.computeMinMax}
 	bind:minTs
 	bind:maxTs
-	bind:jobKinds
+	{jobKinds}
 	bind:queue_count
-	bind:autoRefresh
-	bind:paths
-	bind:usernames
-	bind:folders
+	{autoRefresh}
 	bind:completedJobs
-	bind:argError
-	bind:resultError
+	{argError}
+	{resultError}
 	bind:loading
 	bind:this={jobLoader}
 />
@@ -129,7 +260,7 @@
 	on:confirmed={async () => {
 		cancelAllJobs = false
 		let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
-		jobLoader?.loadJobs(true)
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}}
 	on:canceled={() => {
@@ -140,7 +271,7 @@
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
 		{#if selectedId}
-			<JobPreview blankLink id={selectedId} />
+			<JobPreview blankLink id={selectedId} workspace={selectedWorkspace} />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -180,6 +311,7 @@
 					bind:resultError
 					bind:jobKindsCat
 					bind:hideSchedules
+					bind:allWorkspaces
 					on:change={reloadLogsWithoutFilterError}
 					{usernames}
 					{folders}
@@ -195,12 +327,13 @@
 				on:zoom={async (e) => {
 					minTs = e.detail.min.toISOString()
 					maxTs = e.detail.max.toISOString()
+					jobLoader?.loadJobs(minTs, maxTs, true)
 				}}
 			/>
 		</div>
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex gap-2 grow flex-row">
-				<RunsQueue {queue_count} />
+				<RunsQueue {queue_count} {allWorkspaces} />
 				<Button
 					size="xs"
 					color="light"
@@ -246,7 +379,16 @@
 			</div>
 			<div class="flex flex-row gap-2 items-center">
 				<Button size="xs" color="light" variant="border" on:click={reset}>Reset</Button>
-				<ManuelDatePicker bind:minTs bind:maxTs bind:selectedManualDate {loading} />
+				<ManuelDatePicker
+					on:loadJobs={() => {
+						jobLoader?.loadJobs(minTs, maxTs, true, true)
+					}}
+					bind:minTs
+					bind:maxTs
+					bind:selectedManualDate
+					{loading}
+					bind:this={manualDatePicker}
+				/>
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
@@ -263,6 +405,7 @@
 						<RunsTable
 							{jobs}
 							bind:selectedId
+							bind:selectedWorkspace
 							on:filterByPath={(e) => {
 								user = null
 								folder = null
@@ -289,7 +432,7 @@
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t">
 					{#if selectedId}
-						<JobPreview id={selectedId} />
+						<JobPreview id={selectedId} workspace={selectedWorkspace} />
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
 					{/if}
@@ -329,6 +472,7 @@
 					bind:argError
 					bind:resultError
 					bind:hideSchedules
+					bind:allWorkspaces
 					mobile={true}
 					on:change={reloadLogsWithoutFilterError}
 				/>
@@ -341,13 +485,14 @@
 				on:zoom={async (e) => {
 					minTs = e.detail.min.toISOString()
 					maxTs = e.detail.max.toISOString()
+					jobLoader?.loadJobs(minTs, maxTs, true)
 				}}
 			/>
 		</div>
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex items-center flex-row gap-2 grow mb-4">
 				{#if queue_count}
-					<RunsQueue {queue_count} />
+					<RunsQueue {queue_count} {allWorkspaces} />
 				{/if}
 				<Button
 					size="xs"
@@ -394,7 +539,16 @@
 			</div>
 			<div class="flex flex-row gap-2 items-center">
 				<Button size="xs" color="light" variant="border" on:click={reset}>Reset</Button>
-				<ManuelDatePicker bind:minTs bind:maxTs bind:selectedManualDate {loading} />
+				<ManuelDatePicker
+					on:loadJobs={() => {
+						jobLoader?.loadJobs(minTs, maxTs, true, true)
+					}}
+					bind:this={manualDatePicker}
+					bind:minTs
+					bind:maxTs
+					bind:selectedManualDate
+					{loading}
+				/>
 
 				<Toggle
 					size="xs"
@@ -408,6 +562,7 @@
 			<RunsTable
 				{jobs}
 				bind:selectedId
+				bind:selectedWorkspace
 				on:select={() => {
 					runDrawer.openDrawer()
 				}}

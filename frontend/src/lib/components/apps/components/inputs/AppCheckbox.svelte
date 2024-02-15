@@ -48,6 +48,9 @@
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
 			value = nvalue
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
 		}
 	}
 
@@ -70,14 +73,14 @@
 		if (rowContext && rowInputs) {
 			rowInputs.set(id, value)
 		}
-		if (recomputeIds) {
-			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
-		}
 	}
 
 	function handleDefault() {
 		value = resolvedConfig.defaultValue ?? false
 		handleInput()
+		if (recomputeIds) {
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
 	}
 
 	onDestroy(() => {
@@ -132,6 +135,9 @@
 		on:change={(e) => {
 			preclickAction?.()
 			value = e.detail
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
 		}}
 		disabled={resolvedConfig.disabled}
 	/>

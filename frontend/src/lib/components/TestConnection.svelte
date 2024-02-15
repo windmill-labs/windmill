@@ -122,7 +122,10 @@ export async function main(s3: S3) {
 			},
 			timeoutCode: async () => {
 				loading = false
-				sendUserToast('Connection did not resolve after 5s', true)
+				sendUserToast(
+					'Connection did not resolve after 5s or job did not start. Do you have native workers or a worker group listening to the proper tag available?',
+					true
+				)
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,

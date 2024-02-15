@@ -10,6 +10,7 @@
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	// Filters
 	export let path: string | null = null
@@ -29,6 +30,7 @@
 	export let paths: string[] = []
 	export let usernames: string[] = []
 	export let folders: string[] = []
+	export let allWorkspaces = false
 
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
@@ -54,6 +56,16 @@
 <div class="flex gap-4">
 	{#if !mobile}
 		<div class="flex gap-2">
+			{#if $workspaceStore == 'admins'}
+				<div class="relative">
+					<span class="text-xs absolute -top-4">Workspaces</span>
+					<ToggleButtonGroup bind:selected={allWorkspaces}>
+						<ToggleButton value={false} label="Admins" />
+						<ToggleButton value={true} label="All" />
+					</ToggleButtonGroup>
+				</div>
+			{/if}
+
 			<div class="relative">
 				<span class="text-xs absolute -top-4">Filter by</span>
 				<ToggleButtonGroup

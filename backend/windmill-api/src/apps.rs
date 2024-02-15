@@ -28,7 +28,8 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     apps::ListAppQuery,
     db::UserDB,
@@ -82,7 +83,7 @@ pub struct ListableApp {
     pub extra_perms: serde_json::Value,
     pub execution_mode: String,
     pub starred: bool,
-    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
