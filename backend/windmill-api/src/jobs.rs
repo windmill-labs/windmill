@@ -1897,9 +1897,10 @@ pub async fn check_license_key_valid() -> error::Result<()> {
 
     let valid = *LICENSE_KEY_VALID.read().await;
     if !valid {
-        return Err(error::Error::BadRequest(format!(
-            "License key is not valid. Go to your superadmin settings to update your license key.",
-        )));
+        return Err(Error::BadRequest(
+            "License key is not valid. Go to your superadmin settings to update your license key."
+                .to_string(),
+        ));
     }
     Ok(())
 }
