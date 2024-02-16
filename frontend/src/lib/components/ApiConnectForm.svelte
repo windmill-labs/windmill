@@ -84,7 +84,7 @@
 					user,
 					password: password || args?.password,
 					host,
-					port: port || args?.port,
+					port: (port ? Number(port) : undefined) || args?.port,
 					dbname: dbname || args?.dbname,
 					sslmode: sslmode || args?.sslmode
 				},
