@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.270.2](https://github.com/windmill-labs/windmill/compare/v1.270.1...v1.270.2) (2024-02-16)
+
+
+### Bug Fixes
+
+* **frontend:** wrap values with special characters in double quotes when downloading a CSV ([#3232](https://github.com/windmill-labs/windmill/issues/3232)) ([b1638fc](https://github.com/windmill-labs/windmill/commit/b1638fcbe286d305b3314caa4bfedac2b6183fa8))
+
 ## [1.270.1](https://github.com/windmill-labs/windmill/compare/v1.270.0...v1.270.1) (2024-02-16)
 
 
