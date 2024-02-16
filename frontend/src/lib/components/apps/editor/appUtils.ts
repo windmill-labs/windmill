@@ -469,7 +469,17 @@ export function getAllSubgridsAndComponentIds(
 }
 
 export function getAllGridItems(app: App): GridItem[] {
-	return app.grid.concat(Object.values(app.subgrids ?? {}).flat())
+	return app.grid
+		.concat(Object.values(app.subgrids ?? {}).flat())
+		.map((x) => {
+			if (x?.data?.type === 'tablecomponent') {
+				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
+			} else if (x?.data?.type === 'menucomponent') {
+				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
+			}
+			return [x]
+		})
+		.flat()
 }
 
 export function deleteGridItem(

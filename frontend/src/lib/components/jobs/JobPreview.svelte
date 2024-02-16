@@ -112,7 +112,7 @@
 				{/if}
 			</div>
 			<div class="w-1/2 h-full overflow-auto">
-				<JobArgs args={job?.args} tableClass="!pt-0 !min-w-0 !block" />
+				<JobArgs args={job?.args} />
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}

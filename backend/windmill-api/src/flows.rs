@@ -30,7 +30,8 @@ use serde_json::json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::{
     db::UserDB,

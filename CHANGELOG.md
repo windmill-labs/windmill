@@ -1,6 +1,31 @@
 # Changelog
 
 
+## [1.270.0](https://github.com/windmill-labs/windmill/compare/v1.269.0...v1.270.0) (2024-02-15)
+
+
+### Features
+
+* add raw option for urlencoded webhook call ([#3215](https://github.com/windmill-labs/windmill/issues/3215)) ([b81b095](https://github.com/windmill-labs/windmill/commit/b81b095b61f009fdf479b05cae113804c3975e1a))
+* Git sync exclude certain type per repository ([#3210](https://github.com/windmill-labs/windmill/issues/3210)) ([86326c1](https://github.com/windmill-labs/windmill/commit/86326c16524586f2737f1c5e3e98d0d5a2f1df96))
+* set branch summary on predicate gen ([#3212](https://github.com/windmill-labs/windmill/issues/3212)) ([156d10d](https://github.com/windmill-labs/windmill/commit/156d10d4162031bca50d413bc4e8a2bf24711420))
+* Workspace encryption key can be manually updated ([#3223](https://github.com/windmill-labs/windmill/issues/3223)) ([e8ed478](https://github.com/windmill-labs/windmill/commit/e8ed4783b2ff692951ec16be35d6b5553728b86f))
+
+
+### Bug Fixes
+
+* add back resource type btn for bun/fetch ([#3217](https://github.com/windmill-labs/windmill/issues/3217)) ([d3a74e8](https://github.com/windmill-labs/windmill/commit/d3a74e881fdb7ac999508229f1f6677609d7e831))
+* add timestamp array support in pg ([#3229](https://github.com/windmill-labs/windmill/issues/3229)) ([7f98a96](https://github.com/windmill-labs/windmill/commit/7f98a96e24103d92011f6896b0b332034b4e78f1))
+* **frontend:** add header when downloading a CSV ([#3228](https://github.com/windmill-labs/windmill/issues/3228)) ([f399f49](https://github.com/windmill-labs/windmill/commit/f399f4921edb7735369e9d8abba95eefb53cfb4b))
+* **frontend:** fix supabase connect ([#3218](https://github.com/windmill-labs/windmill/issues/3218)) ([69da45d](https://github.com/windmill-labs/windmill/commit/69da45ddf2c8969577eede4188d988ea88d16cbc))
+* **frontend:** Fix table action recompute ([#3221](https://github.com/windmill-labs/windmill/issues/3221)) ([455aaed](https://github.com/windmill-labs/windmill/commit/455aaedd929d2bd4b637889fadc0411d7eeba5de))
+* **frontend:** update a few svelte packages ([#3222](https://github.com/windmill-labs/windmill/issues/3222)) ([28192ec](https://github.com/windmill-labs/windmill/commit/28192ec014fe1c1bb93ea563a4976fae1bff9fec))
+* improve transformer script gen ([#3211](https://github.com/windmill-labs/windmill/issues/3211)) ([d352b68](https://github.com/windmill-labs/windmill/commit/d352b68a26f3c58caccb67cc15ac5885496f80b4))
+* oauth settings for github and gitlab ([#3219](https://github.com/windmill-labs/windmill/issues/3219)) ([d1f929b](https://github.com/windmill-labs/windmill/commit/d1f929b2bb73e4727089df2936dde723486ba458))
+* prevent AI fill inputs freezing ([#3226](https://github.com/windmill-labs/windmill/issues/3226)) ([4492279](https://github.com/windmill-labs/windmill/commit/4492279c507d7ab8b705defba400dc53c853cd88))
+* run recompute on success for toggles on click and set default value ([b75f79d](https://github.com/windmill-labs/windmill/commit/b75f79d3274de0c7620800afacedf9b5f980fda0))
+* **sso:** improve handling of filters for get groups for sso ([44bfbad](https://github.com/windmill-labs/windmill/commit/44bfbadf689e11e9285de9503f738971fc9c34a6))
+
 ## [1.269.0](https://github.com/windmill-labs/windmill/compare/v1.268.0...v1.269.0) (2024-02-13)
 
 
