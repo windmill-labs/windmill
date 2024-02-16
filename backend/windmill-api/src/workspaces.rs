@@ -18,7 +18,7 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{send_email_if_possible, WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
-    webhook_util::{InstanceEvent, WebhookShared},
+    webhook_util::WebhookShared,
 };
 #[cfg(feature = "stripe")]
 use axum::response::Redirect;
@@ -33,12 +33,12 @@ use axum::{
 use chrono::Utc;
 #[cfg(feature = "stripe")]
 use chrono::{Datelike, TimeZone, Timelike};
-use magic_crypt::MagicCryptTrait;
 use regex::Regex;
 #[cfg(feature = "stripe")]
 use stripe::CustomerId;
 use uuid::Uuid;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
@@ -56,6 +56,8 @@ use windmill_common::{
 };
 use windmill_queue::QueueTransaction;
 
+use crate::oauth2_ee::InstanceEvent;
+use crate::variables::{decrypt, encrypt};
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map};
@@ -63,6 +65,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
+use windmill_common::utils::not_found_if_none;
+
+lazy_static::lazy_static! {
+    static ref WORKSPACE_KEY_REGEXP: Regex = Regex::new("^[a-zA-Z0-9]{64}$").unwrap();
+}
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
@@ -94,6 +101,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
+        .route(
+            "/encryption_key",
+            get(get_encryption_key).post(set_encryption_key),
+        )
         .route("/leave", post(leave_workspace));
 
     #[cfg(feature = "stripe")]
@@ -1333,6 +1344,95 @@ async fn edit_error_handler(
     Ok(format!("Edit error_handler for workspace {}", &w_id))
 }
 
+#[derive(Serialize)]
+pub struct GetEncryptionKeyResponse {
+    key: String,
+}
+
+async fn get_encryption_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<GetEncryptionKeyResponse> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let encryption_key_opt = sqlx::query_scalar!(
+        "SELECT key FROM workspace_key WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let encryption_key = not_found_if_none(encryption_key_opt, "workspace_encryption_key", w_id)?;
+    return Ok(Json(GetEncryptionKeyResponse { key: encryption_key }));
+}
+
+#[derive(Deserialize)]
+struct SetEncryptionKeyRequest {
+    new_key: String,
+}
+
+async fn set_encryption_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<SetEncryptionKeyRequest>,
+) -> Result<()> {
+    require_super_admin(&db, &authed.email).await?;
+
+    if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
+        return Err(Error::BadRequest(
+            "Encryption key should be an alphanumeric string of 64 characters".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+    let previous_encryption_key = build_crypt(&mut tx, w_id.as_str()).await?;
+
+    sqlx::query!(
+        "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
+        request.new_key.clone(),
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    let new_encryption_key = build_crypt(&mut tx, w_id.as_str()).await?;
+
+    let mut truncated_new_key = request.new_key.clone();
+    truncated_new_key.truncate(8);
+    tracing::warn!(
+        "Re-encrypting all secrets for workspace {}. New key is {}***",
+        w_id,
+        truncated_new_key
+    );
+
+    let all_variables = sqlx::query!(
+        "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for variable in all_variables {
+        if !variable.is_secret {
+            continue;
+        }
+        let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+        let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
+        sqlx::query!(
+            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+            new_encrypted_value,
+            w_id,
+            variable.path
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    return Ok(());
+}
+
 async fn list_workspaces_as_super_admin(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2320,10 +2420,7 @@ async fn tarball_workspace(
                 && var.value.is_some()
                 && var.is_secret
             {
-                var.value = Some(
-                    mc.decrypt_base64_to_string(var.value.unwrap())
-                        .map_err(|e| Error::InternalErr(e.to_string()))?,
-                );
+                var.value = Some(decrypt(&mc, var.value.unwrap())?);
             }
             let var_str = &to_string_without_metadata(&var, false).unwrap();
             archive

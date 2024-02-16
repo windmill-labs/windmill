@@ -12,15 +12,16 @@ use axum::{
     routing::post,
     Router,
 };
-use magic_crypt::MagicCryptTrait;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     error::{to_anyhow, Error},
     variables::build_crypt,
 };
 
+use crate::variables::decrypt;
 use serde::Deserialize;
 
 pub fn workspaced_service() -> Router {
@@ -72,9 +73,7 @@ async fn get_variable_or_self(path: String, db: &DB, w_id: &String) -> Result<St
     .await?;
     if variable.is_secret {
         let mc = build_crypt(&mut tx, &w_id).await?;
-        variable.value = mc
-            .decrypt_base64_to_string(variable.value)
-            .map_err(|e| Error::InternalErr(e.to_string()))?;
+        variable.value = decrypt(&mc, variable.value)?;
     }
     tx.commit().await?;
     Ok(variable.value)

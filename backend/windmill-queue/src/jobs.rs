@@ -39,7 +39,8 @@ use tokio::{sync::RwLock, time::sleep};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 #[cfg(not(feature = "enterprise"))]
 use windmill_common::worker::PriorityTags;
 use windmill_common::{

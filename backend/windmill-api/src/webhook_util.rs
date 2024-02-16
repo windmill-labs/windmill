@@ -6,6 +6,7 @@ use tokio::{select, sync::mpsc};
 use windmill_common::METRICS_ENABLED;
 
 use crate::db::DB;
+use crate::oauth2_ee::InstanceEvent;
 
 lazy_static::lazy_static! {
     // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
@@ -22,18 +23,6 @@ lazy_static::lazy_static! {
 pub enum WebhookPayload {
     WorkspaceEvent(String, WebhookMessage),
     InstanceEvent(InstanceEvent),
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type")]
-pub enum InstanceEvent {
-    UserSignupOAuth { email: String },
-    UserAdded { email: String },
-    // UserDeleted { email: String },
-    // UserDeletedWorkspace { workspace: String, email: String },
-    UserAddedWorkspace { workspace: String, email: String },
-    UserInvitedWorkspace { workspace: String, email: String },
-    UserJoinedWorkspace { workspace: String, email: String, username: String },
 }
 
 #[derive(Serialize)]

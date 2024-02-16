@@ -33,7 +33,17 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
-	import { Scroll, Slack, XCircle, RotateCw, CheckCircle2, X, Plus, Loader2 } from 'lucide-svelte'
+	import {
+		Scroll,
+		Slack,
+		XCircle,
+		RotateCw,
+		CheckCircle2,
+		X,
+		Plus,
+		Loader2,
+		Save
+	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -101,6 +111,10 @@
 		status: 'running' | 'success' | 'failure' | undefined
 	}[]
 	let workspaceDefaultAppPath: string | undefined = undefined
+	let workspaceEncryptionKey: string | undefined = undefined
+	let editedWorkspaceEncryptionKey: string | undefined = undefined
+	let workspaceReencryptionInProgress: boolean = false
+	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
@@ -336,6 +350,37 @@
 			})
 			sendUserToast('Workspace default app set')
 		}
+	}
+
+	async function loadWorkspaceEncryptionKey(): Promise<void> {
+		let resp = await WorkspaceService.getWorkspaceEncryptionKey({
+			workspace: $workspaceStore!
+		})
+		workspaceEncryptionKey = resp.key
+		editedWorkspaceEncryptionKey = resp.key
+	}
+
+	async function setWorkspaceEncryptionKey(): Promise<void> {
+		if (
+			emptyString(editedWorkspaceEncryptionKey) ||
+			workspaceEncryptionKey === editedWorkspaceEncryptionKey
+		) {
+			return
+		}
+		const timeStart = new Date().getTime()
+		workspaceReencryptionInProgress = true
+		await WorkspaceService.setWorkspaceEncryptionKey({
+			workspace: $workspaceStore!,
+			requestBody: {
+				new_key: editedWorkspaceEncryptionKey ?? '' // cannot be undefined at this point
+			}
+		})
+		await loadWorkspaceEncryptionKey()
+		const timeEnd = new Date().getTime()
+		sendUserToast('All workspace secrets have been re-encrypted with the new key')
+		setTimeout(() => {
+			workspaceReencryptionInProgress = false
+		}, 1000 - (timeEnd - timeStart))
 	}
 
 	async function loadSettings(): Promise<void> {
@@ -600,6 +645,9 @@
 				</Tab>
 				<Tab size="xs" value="default_app">
 					<div class="flex gap-2 items-center my-1"> Default App </div>
+				</Tab>
+				<Tab size="xs" value="encryption">
+					<div class="flex gap-2 items-center my-1"> Encryption </div>
 				</Tab>
 				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
@@ -1367,6 +1415,50 @@ git push</code
 					/>
 				{/key}
 			</div>
+		{:else if tab == 'encryption'}
+			<PageHeader title="Workspace secret encryption" primary={false} />
+			<Alert type="info" title="Windmill EE only feature">
+				When updating the encryption key of a workspace, all secrets will be re-encrypted with the
+				new key and the previous key will be replaced by the new one.
+				<br />
+				If you're manually updating the key to match another workspace key from another Windmill instance,
+				make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure
+				it the salt matches across both instances.
+			</Alert>
+			<div class="mt-5 flex gap-1 mb-10">
+				<Button
+					color="blue"
+					disabled={editedWorkspaceEncryptionKey === workspaceEncryptionKey ||
+						!encryptionKeyRegex.test(editedWorkspaceEncryptionKey ?? '')}
+					startIcon={{
+						icon: workspaceReencryptionInProgress ? RotateCw : Save,
+						classes: workspaceReencryptionInProgress ? 'animate-spin' : ''
+					}}
+					on:click={() => {
+						setWorkspaceEncryptionKey()
+					}}>Save & Re-encrypt workspace</Button
+				>
+			</div>
+			<h6> Workspace encryption key </h6>
+			<div class="flex gap-2 mt-1">
+				<input
+					class="justify-start"
+					type="text"
+					placeholder={'*'.repeat(64)}
+					bind:value={editedWorkspaceEncryptionKey}
+				/>
+				<Button
+					color="light"
+					on:click={() => {
+						loadWorkspaceEncryptionKey()
+					}}>Load current key</Button
+				>
+			</div>
+			{#if !emptyString(editedWorkspaceEncryptionKey) && !encryptionKeyRegex.test(editedWorkspaceEncryptionKey ?? '')}
+				<div class="text-xs text-red-600">
+					Key invalid - it should be 64 characters long and only contain letters and numbers.
+				</div>
+			{/if}
 		{/if}
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">

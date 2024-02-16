@@ -8,11 +8,11 @@
 
 use crate::db::ApiAuthed;
 use crate::embeddings::load_embeddings_db;
-use crate::oauth2::AllClients;
+use crate::oauth2_ee::AllClients;
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
 use crate::{
-    oauth2::SlackVerifier,
+    oauth2_ee::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
@@ -44,6 +44,7 @@ use windmill_common::error::AppError;
 mod apps;
 mod audit;
 mod capture;
+mod concurrency_groups;
 mod configs;
 mod db;
 mod drafts;
@@ -59,9 +60,7 @@ mod integration;
 pub mod job_helpers;
 pub mod job_metrics;
 pub mod jobs;
-pub mod oauth2;
-
-mod concurrency_groups;
+pub mod oauth2_ee;
 mod oidc;
 mod openai;
 mod raw_apps;
@@ -194,7 +193,7 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers::workspaced_service())
                         .nest("/jobs", jobs::workspaced_service())
-                        .nest("/oauth", oauth2::workspaced_service())
+                        .nest("/oauth", oauth2_ee::workspaced_service())
                         .nest("/openai", openai::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
@@ -264,7 +263,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/oauth",
-                    oauth2::global_service().layer(Extension(Arc::clone(&sp_extension))),
+                    oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))

@@ -28,7 +28,7 @@ async fn get_audit(
     Path((w_id, id)): Path<(String, i32)>,
 ) -> JsonResult<AuditLog> {
     let tx = user_db.begin(&authed).await?;
-    let audit = windmill_audit::get_audit(tx, id, &w_id).await?;
+    let audit = windmill_audit::audit_ee::get_audit(tx, id, &w_id).await?;
     Ok(Json(audit))
 }
 async fn list_audit(
@@ -39,6 +39,6 @@ async fn list_audit(
     Query(lq): Query<ListAuditLogQuery>,
 ) -> JsonResult<Vec<AuditLog>> {
     let tx = user_db.begin(&authed).await?;
-    let rows = windmill_audit::list_audit(tx, w_id, pagination, lq).await?;
+    let rows = windmill_audit::audit_ee::list_audit(tx, w_id, pagination, lq).await?;
     Ok(Json(rows))
 }
