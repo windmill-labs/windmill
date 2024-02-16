@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.270.1](https://github.com/windmill-labs/windmill/compare/v1.270.0...v1.270.1) (2024-02-16)
+
+
+### Bug Fixes
+
+* **deno:** add allow-net ([dc58372](https://github.com/windmill-labs/windmill/commit/dc583723a75ec1a04406dca32b17bca2b723912a))
+
 ## [1.270.0](https://github.com/windmill-labs/windmill/compare/v1.269.0...v1.270.0) (2024-02-15)
 
 
