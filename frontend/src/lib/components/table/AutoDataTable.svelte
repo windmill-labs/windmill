@@ -162,7 +162,7 @@
 									}
 								})
 								.map(({ rowData }) => Object.values(rowData)
-									.map((row) => /[\",\n]/.test(row) ? "\"" + row.replace(/"/g, "\"\"") + "\"" : row)
+									.map((field) => /[\",\n]/.test(field) ? "\"" + field.replace(/"/g, "\"\"") + "\"" : row)
 									.join(','))
 						].join('\n')
 
