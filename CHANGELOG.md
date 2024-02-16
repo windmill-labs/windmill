@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.270.3](https://github.com/windmill-labs/windmill/compare/v1.270.2...v1.270.3) (2024-02-16)
+
+
+### Bug Fixes
+
+* server cache only cache tokens for 120s ([b0155ff](https://github.com/windmill-labs/windmill/commit/b0155ffb7ec12c1e441b71c351ae085b274be603))
+
 ## [1.270.2](https://github.com/windmill-labs/windmill/compare/v1.270.1...v1.270.2) (2024-02-16)
 
 
