@@ -75,16 +75,22 @@ pub async fn shutdown_signal(
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     use std::io;
-    use tokio::signal::unix::SignalKind;
 
+    #[cfg(target_os = "linux")]
     async fn terminate() -> io::Result<()> {
+        use tokio::signal::unix::SignalKind;
         tokio::signal::unix::signal(SignalKind::terminate())?
             .recv()
             .await;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    async fn terminate() -> io::Result<()> {
         Ok(())
     }
 
     tokio::select! {
+
         _ = terminate() => {},
         _ = tokio::signal::ctrl_c() => {},
         _ = rx.recv() => {
