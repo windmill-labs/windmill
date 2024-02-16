@@ -82,21 +82,27 @@ pub async fn shutdown_signal(
         tokio::signal::unix::signal(SignalKind::terminate())?
             .recv()
             .await;
-    }
 
-    #[cfg(not(target_os = "linux"))]
-    async fn terminate() -> io::Result<()> {
         Ok(())
     }
 
+    #[cfg(target_os = "linux")]
     tokio::select! {
-
         _ = terminate() => {},
         _ = tokio::signal::ctrl_c() => {},
         _ = rx.recv() => {
             tracing::info!("shutdown monitor received killpill");
         },
     }
+
+    #[cfg(not(target_os = "linux"))]
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = rx.recv() => {
+            tracing::info!("shutdown monitor received killpill");
+        },
+    }
+
     println!("signal received, starting graceful shutdown");
     let _ = tx.send(());
     Ok(())
