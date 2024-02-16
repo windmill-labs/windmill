@@ -17,12 +17,18 @@
 		<Badge large color="green" icon={{ icon: CheckCircle2, position: 'left' }}>
 			Success {job.is_skipped ? '(Skipped)' : ''}
 		</Badge>
-		<DurationMs duration_ms={job.duration_ms} />
+		<DurationMs
+			flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+			duration_ms={job.duration_ms}
+		/>
 	</div>
 {:else if job && 'success' in job}
 	<div class="flex flex-row flex-wrap gap-y-1 mb-1 gap-x-2">
 		<Badge large color="red" icon={{ icon: XCircle, position: 'left' }}>Failed</Badge>
-		<DurationMs duration_ms={job.duration_ms} />
+		<DurationMs
+			flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+			duration_ms={job.duration_ms}
+		/>
 	</div>
 {:else if job && 'running' in job && job.running}
 	<div>

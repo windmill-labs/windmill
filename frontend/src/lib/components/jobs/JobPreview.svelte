@@ -108,7 +108,10 @@
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
 				{#if job?.['duration_ms']}
-					<DurationMs duration_ms={job?.['duration_ms']} />
+					<DurationMs
+						flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+						duration_ms={job?.['duration_ms']}
+					/>
 				{/if}
 			</div>
 			<div class="w-1/2 h-full overflow-auto">
