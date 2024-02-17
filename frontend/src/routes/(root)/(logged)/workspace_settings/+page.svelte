@@ -1006,7 +1006,7 @@
 		{:else if tab == 'git_sync'}
 			<PageHeader
 				title="Git sync"
-				primary={false}
+				primary={true}
 				tooltip="Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows and apps to the repository on each deploy."
 				documentationLink="https://www.windmill.dev/docs/advanced/git_sync"
 			/>
@@ -1017,10 +1017,12 @@
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
+				<div class="mb-2" />
+
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
-				<div class="mb-1" />
+				<div class="mb-2" />
 			{/if}
 			{#if gitSyncSettings != undefined}
 				{#if $enterpriseLicense}
