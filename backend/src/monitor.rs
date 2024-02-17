@@ -24,8 +24,9 @@ use windmill_common::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
@@ -39,7 +40,7 @@ use windmill_common::{
 };
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SendResult, BUNFIG_INSTALL_SCOPES,
-    JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL,
+    JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
     SCRIPT_TOKEN_EXPIRY,
 };
 
@@ -107,9 +108,6 @@ pub async fn initial_load(
 
     if worker_mode {
         load_keep_job_dir(db).await;
-    }
-
-    if worker_mode {
         reload_worker_config(&db, tx, false).await;
     }
 
@@ -125,12 +123,7 @@ pub async fn initial_load(
 
     if server_mode {
         reload_server_config(&db).await;
-    }
-
-    if server_mode {
         reload_retention_period_setting(&db).await;
-    }
-    if server_mode {
         reload_request_size(&db).await;
     }
 
@@ -141,12 +134,8 @@ pub async fn initial_load(
 
     if worker_mode {
         reload_extra_pip_index_url_setting(&db).await;
-    }
-
-    if worker_mode {
+        reload_pip_index_url_setting(&db).await;
         reload_npm_config_registry_setting(&db).await;
-    }
-    if worker_mode {
         reload_bunfig_install_scopes_setting(&db).await;
     }
 }
@@ -334,6 +323,16 @@ pub async fn reload_extra_pip_index_url_setting(db: &DB) {
         EXTRA_PIP_INDEX_URL_SETTING,
         "PIP_EXTRA_INDEX_URL",
         PIP_EXTRA_INDEX_URL.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_pip_index_url_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        PIP_INDEX_URL_SETTING,
+        "PIP_INDEX_URL",
+        PIP_INDEX_URL.clone(),
     )
     .await;
 }

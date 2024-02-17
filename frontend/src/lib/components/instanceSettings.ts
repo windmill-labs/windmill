@@ -106,8 +106,17 @@ export const settings: Record<string, Setting[]> = {
 	'SSO/OAuth': [],
 	Registries: [
 		{
-			label: 'Pip Extra Index Url',
+			label: 'Pip Index Url',
 			description: 'Add private PIP registry',
+			key: 'pip_index_url',
+			fieldType: 'text',
+			placeholder: 'https://username:password@pypi.company.com/simple',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Pip Extra Index Url',
+			description: 'Add private extra PIP registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
 			placeholder: 'https://username:password@pypi.company.com/simple',
