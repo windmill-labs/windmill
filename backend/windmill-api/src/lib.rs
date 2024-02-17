@@ -71,6 +71,7 @@ mod scim_ee;
 mod scripts;
 mod settings;
 mod static_assets;
+mod stripe_ee;
 mod tracing_init;
 mod users;
 mod utils;
