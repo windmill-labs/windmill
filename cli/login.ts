@@ -44,7 +44,8 @@ export async function tryGetLoginInfo(
 export async function browserLogin(
   baseUrl: string
 ): Promise<string | undefined> {
-  const port = await getAvailablePort();
+  const env = Deno.env.get("TOKEN_PORT");
+  const port = env ? Number(env) : await getAvailablePort();
   if (port == undefined) {
     log.info(colors.red.underline("failed to aquire port"));
     return undefined;
