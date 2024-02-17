@@ -30,7 +30,6 @@ lazy_static::lazy_static! {
     std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
-    static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
 
@@ -57,7 +56,8 @@ use crate::{
         start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
-    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, TZ_ENV,
+    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, TZ_ENV,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -161,7 +161,11 @@ pub async fn pip_compile(
         args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
         pip_args.push(format!("--extra-index-url {}", url));
     }
-    let pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
+    let pip_index_url = PIP_INDEX_URL
+        .read()
+        .await
+        .clone()
+        .map(handle_ephemeral_token);
     if let Some(url) = pip_index_url.as_ref() {
         args.extend(["--index-url", url, "--no-emit-index-url"]);
         pip_args.push(format!("--index-url {}", url));
@@ -707,7 +711,12 @@ pub async fn handle_python_reqs(
             vars.push(("EXTRA_INDEX_URL", url));
         }
 
-        pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
+        pip_index_url = PIP_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+
         if let Some(url) = pip_index_url.as_ref() {
             vars.push(("INDEX_URL", url));
         }
@@ -821,7 +830,11 @@ pub async fn handle_python_reqs(
             if let Some(url) = pip_extra_index_url.as_ref() {
                 command_args.extend(["--extra-index-url", url]);
             }
-            let pip_index_url = PIP_INDEX_URL.clone().map(handle_ephemeral_token);
+            let pip_index_url = PIP_INDEX_URL
+                .read()
+                .await
+                .clone()
+                .map(handle_ephemeral_token);
 
             if let Some(url) = pip_index_url.as_ref() {
                 command_args.extend(["--index-url", url]);
