@@ -6,11 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{middleware::Next, response::Response, Router};
+use axum::{middleware::Next, response::Response, routing::get, Router};
 use hyper::Request;
 
 pub fn global_service() -> Router {
-    Router::new()
+    Router::new().route("/ee", get(ee))
+}
+
+pub async fn ee() -> String {
+    return "Enterprise Edition".to_string();
 }
 
 pub async fn has_scim_token<B>(request: Request<B>, next: Next<B>) -> Response {
