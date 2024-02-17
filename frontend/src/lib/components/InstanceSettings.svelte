@@ -436,6 +436,19 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
+												{#if setting.key == 'saml_metadata'}
+													<div class="flex mt-2">
+														<Button
+															on:click={async (e) => {
+																const res = await SettingService.testMetadata({
+																	requestBody: values[setting.key]
+																})
+																sendUserToast(`Metadata valid, see console for full content`)
+																console.log(`Metadata content:`, res)
+															}}>Test content/url</Button
+														>
+													</div>
+												{/if}
 											{:else if setting.fieldType == 'license_key'}
 												<div class="flex justify-between gap-2">
 													<textarea

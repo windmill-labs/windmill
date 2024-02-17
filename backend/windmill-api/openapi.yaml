@@ -664,6 +664,27 @@ paths:
               schema:
                 type: string
 
+  /saml/test_metadata:
+    post:
+      summary: test metadata
+      operationId: testMetadata
+      tags:
+        - setting
+      requestBody:
+        description: test metadata
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/email:
     get:
       summary: get current user email (if logged in)

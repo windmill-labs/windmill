@@ -1,4 +1,3 @@
-use crate::ee::LicensePlan::Community;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -9,12 +8,16 @@ lazy_static::lazy_static! {
 }
 
 pub enum LicensePlan {
-    Community,
     Pro,
     Enterprise,
 }
 
 pub async fn get_license_plan() -> LicensePlan {
-    // Implementation is not open source
-    return Community;
+    let id = LICENSE_KEY_ID.read().await.clone();
+
+    if id.ends_with("_pro") {
+        LicensePlan::Pro
+    } else {
+        LicensePlan::Enterprise
+    }
 }
