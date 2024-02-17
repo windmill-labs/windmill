@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.271.0](https://github.com/windmill-labs/windmill/compare/v1.270.3...v1.271.0) (2024-02-17)
+
+
+### Features
+
+* scim token and saml metadata setting in UI directly ([71e915a](https://github.com/windmill-labs/windmill/commit/71e915a86c4f0661bad7a0f977b015045f739d8a))
+
+
+### Bug Fixes
+
+* **mysql:** support integer with float type ([041b777](https://github.com/windmill-labs/windmill/commit/041b777fd65692d3549ba7ec64258882e108f5bf))
+* pre-select resource if there is only one ([801eda1](https://github.com/windmill-labs/windmill/commit/801eda1e22298f9f55d1ea87d0a19a03e6de6a64))
+
 ## [1.270.3](https://github.com/windmill-labs/windmill/compare/v1.270.2...v1.270.3) (2024-02-16)
 
 
