@@ -16,7 +16,7 @@ use tokio::{
 use uuid::Uuid;
 use windmill_api::{
     oauth2_ee::{build_oauth_clients, OAuthClient},
-    DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT,
+    DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 use windmill_common::{
     error,
@@ -26,7 +26,7 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
@@ -125,6 +125,8 @@ pub async fn initial_load(
         reload_server_config(&db).await;
         reload_retention_period_setting(&db).await;
         reload_request_size(&db).await;
+        reload_saml_metadata_setting(&db).await;
+        reload_scim_token_setting(&db).await;
     }
 
     #[cfg(feature = "enterprise")]
@@ -315,6 +317,21 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
     }
+}
+
+pub async fn reload_scim_token_setting(db: &DB) {
+    reload_option_setting_with_tracing(db, SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone())
+        .await;
+}
+
+pub async fn reload_saml_metadata_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        SAML_METADATA_SETTING,
+        "SAML_METADATA",
+        SAML_METADATA.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_extra_pip_index_url_setting(db: &DB) {

@@ -185,6 +185,26 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'config'
 		}
 	],
+	'SCIM/SAML': [
+		{
+			label: 'SCIM Token',
+			description: 'Token used to authenticate requests from the IdP',
+			key: 'scim_token',
+			fieldType: 'text',
+			placeholder: 'mytoken',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SAML metadata',
+			description: 'XML metadata url OR content for the SAML IdP',
+			key: 'saml_metadata',
+			fieldType: 'textarea',
+			placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
 	Debug: [
 		{
 			label: 'Keep Job Directories',
