@@ -38,7 +38,7 @@ use windmill_common::utils::rd_string;
 use windmill_common::worker::ALL_TAGS;
 use windmill_common::BASE_URL;
 
-use crate::scim_helpers::has_scim_token;
+use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
 
 mod apps;
@@ -68,7 +68,6 @@ mod resources;
 mod saml_ee;
 mod schedule;
 mod scim_ee;
-mod scim_helpers;
 mod scripts;
 mod settings;
 mod static_assets;
