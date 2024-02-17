@@ -51,8 +51,14 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue, Value};
 
+#[cfg(target_os = "linux")]
+use tokio::fs::symlink;
+
+#[cfg(target_os = "windows")]
+use tokio::fs::symlink_file as symlink;
+
 use tokio::{
-    fs::{symlink, DirBuilder},
+    fs::DirBuilder,
     sync::{
         mpsc::{self, Sender},
         Barrier, RwLock,
@@ -1142,7 +1148,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut started = false;
 
     #[cfg(feature = "benchmark")]
-    let mut infos = BenchmarkInfo { iters: 0, timings: vec![] };
+    let mut infos = BenchmarkInfo {
+        iters: 0,
+        timings: vec![],
+    };
 
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
@@ -1211,7 +1220,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             } else {
                 is_flow_worker = false;
                 if let Some((path, sender, handle)) = spawn_dedicated_worker(
-                    SpawnWorker::Script { path: _wp.path.clone(), hash: None },
+                    SpawnWorker::Script {
+                        path: _wp.path.clone(),
+                        hash: None,
+                    },
                     &_wp.workspace_id,
                     killpill_tx.clone(),
                     &killpill_rx,
@@ -1711,7 +1723,10 @@ async fn spawn_dedicated_workers_for_flow(
                     workers.push((module.id.clone(), sender.clone(), None));
                 } else {
                     if let Some(dedi_w) = spawn_dedicated_worker(
-                        SpawnWorker::Script { path: path.to_string(), hash: hash.clone() },
+                        SpawnWorker::Script {
+                            path: path.to_string(),
+                            hash: hash.clone(),
+                        },
                         w_id,
                         killpill_tx.clone(),
                         killpill_rx,
@@ -1785,7 +1800,13 @@ async fn spawn_dedicated_workers_for_flow(
                     workers.extend(w);
                 }
             }
-            FlowModuleValue::RawScript { content, lock, path: spath, language, .. } => {
+            FlowModuleValue::RawScript {
+                content,
+                lock,
+                path: spath,
+                language,
+                ..
+            } => {
                 if let Some(dedi_w) = spawn_dedicated_worker(
                     SpawnWorker::RawScript {
                         path: spath.clone().unwrap_or(path.to_string()),
@@ -1816,8 +1837,16 @@ async fn spawn_dedicated_workers_for_flow(
 }
 
 enum SpawnWorker {
-    Script { path: String, hash: Option<ScriptHash> },
-    RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
+    Script {
+        path: String,
+        hash: Option<ScriptHash>,
+    },
+    RawScript {
+        path: String,
+        content: String,
+        lock: Option<String>,
+        lang: ScriptLang,
+    },
 }
 
 // spawn one dedicated worker and return the key, the channel sender and the join handle
@@ -1898,7 +1927,12 @@ async fn spawn_dedicated_worker(
                     return None;
                 }
             }
-            SpawnWorker::RawScript { content, lock, lang, .. } => (content, lock, Some(lang), None),
+            SpawnWorker::RawScript {
+                content,
+                lock,
+                lang,
+                ..
+            } => (content, lock, Some(lang), None),
         };
 
         match language {
@@ -2809,7 +2843,12 @@ async fn get_script_content_by_hash(
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
-    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3 })
+    Ok(ContentReqLangEnvs {
+        content: r.0,
+        lockfile: r.1,
+        language: r.2,
+        envs: r.3,
+    })
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2825,35 +2864,39 @@ async fn handle_code_execution_job(
     base_internal_url: &str,
     worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
-    let ContentReqLangEnvs { content: inner_content, lockfile: requirements_o, language, envs } =
-        match job.job_kind {
-            JobKind::Preview => ContentReqLangEnvs {
-                content: job
-                    .raw_code
-                    .clone()
-                    .unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: job.raw_lock.clone(),
-                language: job.language.to_owned(),
-                envs: None,
-            },
-            JobKind::Script_Hub => {
-                get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
-            }
-            JobKind::Script => {
-                get_script_content_by_hash(
-                    &job.script_hash.unwrap_or(ScriptHash(0)),
-                    &job.workspace_id,
-                    db,
-                )
-                .await?
-            }
-            JobKind::DeploymentCallback => {
-                get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
-            }
-            _ => unreachable!(
-                "handle_code_execution_job should never be reachable with a non-code execution job"
-            ),
-        };
+    let ContentReqLangEnvs {
+        content: inner_content,
+        lockfile: requirements_o,
+        language,
+        envs,
+    } = match job.job_kind {
+        JobKind::Preview => ContentReqLangEnvs {
+            content: job
+                .raw_code
+                .clone()
+                .unwrap_or_else(|| "no raw code".to_owned()),
+            lockfile: job.raw_lock.clone(),
+            language: job.language.to_owned(),
+            envs: None,
+        },
+        JobKind::Script_Hub => {
+            get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
+        }
+        JobKind::Script => {
+            get_script_content_by_hash(
+                &job.script_hash.unwrap_or(ScriptHash(0)),
+                &job.workspace_id,
+                db,
+            )
+            .await?
+        }
+        JobKind::DeploymentCallback => {
+            get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
+        }
+        _ => unreachable!(
+            "handle_code_execution_job should never be reachable with a non-code execution job"
+        ),
+    };
 
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(job, &client, &inner_content, db).await;
@@ -3387,7 +3430,10 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
         &job.created_by,
         &db,
         &job.workspace_id,
-        DeployedObject::Flow { path: job_path, parent_path },
+        DeployedObject::Flow {
+            path: job_path,
+            parent_path,
+        },
         deployment_message,
         rsmq.clone(),
         false,
@@ -3503,7 +3549,10 @@ async fn lock_modules(
                         .await?;
                         nbranches.push(b)
                     }
-                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }
+                    e.value = FlowModuleValue::BranchAll {
+                        branches: nbranches,
+                        parallel,
+                    }
                 }
                 FlowModuleValue::BranchOne { branches, default } => {
                     let mut nbranches = vec![];
@@ -3540,7 +3589,10 @@ async fn lock_modules(
                         token,
                     )
                     .await?;
-                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default };
+                    e.value = FlowModuleValue::BranchOne {
+                        branches: nbranches,
+                        default,
+                    };
                 }
                 _ => (),
             };
@@ -3801,7 +3853,11 @@ async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::App { path: job_path, version: id, parent_path },
+            DeployedObject::App {
+                path: job_path,
+                version: id,
+                parent_path,
+            },
             deployment_message,
             rsmq.clone(),
             false,
