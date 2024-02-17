@@ -310,6 +310,8 @@ try {{
             }
         } else if !*DISABLE_NSJAIL {
             args.push("--allow-net");
+            args.push("--allow-sys");
+            args.push("--allow-hrtime");
             args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");

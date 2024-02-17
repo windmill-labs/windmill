@@ -6,6 +6,7 @@
 	export let value: any
 	export let disablePortal = false
 	export let showSchemaExplorer = false
+	export let selectFirst = false
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -39,6 +40,7 @@
 		<S3ObjectPicker bind:value />
 	{:else}
 		<ResourcePicker
+			{selectFirst}
 			{disablePortal}
 			on:change={(e) => {
 				path = e.detail

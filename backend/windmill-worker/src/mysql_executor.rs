@@ -104,11 +104,14 @@ pub async fn do_mysql(
             {
                 mysql_async::Value::Int(n.as_i64().unwrap())
             }
-            Value::Number(n) if n.is_u64() && arg_t == "uint" => {
-                mysql_async::Value::UInt(n.as_u64().unwrap())
-            }
             Value::Number(n) if n.is_f64() && arg_t == "float" => {
                 (n.as_f64().unwrap() as f32).into()
+            }
+            Value::Number(n) if n.is_i64() && arg_t == "float" => {
+                (n.as_i64().unwrap() as f32).into()
+            }
+            Value::Number(n) if n.is_u64() && arg_t == "uint" => {
+                mysql_async::Value::UInt(n.as_u64().unwrap())
             }
             Value::Number(n) if n.is_f64() && arg_t == "real" => n.as_f64().into(),
             value @ _ => {

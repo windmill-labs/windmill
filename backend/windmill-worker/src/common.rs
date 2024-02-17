@@ -1,7 +1,11 @@
 use async_recursion::async_recursion;
 use itertools::Itertools;
+
+#[cfg(target_os = "linux")]
 use nix::sys::signal::{self, Signal};
+#[cfg(target_os = "linux")]
 use nix::unistd::Pid;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -23,13 +27,14 @@ use windmill_common::{
 use anyhow::Result;
 use windmill_queue::CanceledBy;
 
+#[cfg(target_os = "linux")]
+use std::os::unix::process::ExitStatusExt;
+
 use std::{
     borrow::Borrow,
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    io,
-    os::unix::process::ExitStatusExt,
-    panic,
+    io, panic,
     time::Duration,
 };
 
@@ -609,7 +614,9 @@ pub async fn handle_child(
 
         if let Some(id) = child.id() {
             if *MAX_WAIT_FOR_SIGINT > 0 {
+                #[cfg(target_os = "linux")]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+
                 for _ in 0..*MAX_WAIT_FOR_SIGINT {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         break;
@@ -622,7 +629,9 @@ pub async fn handle_child(
                 }
             }
             if sigterm {
+                #[cfg(target_os = "linux")]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+
                 for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         break;
@@ -758,12 +767,18 @@ pub async fn handle_child(
             } else if let Some(code) = status.code() {
                 Err(error::Error::ExitStatus(code))
             } else {
-                Err(error::Error::ExecutionErr(format!(
+                #[cfg(target_os = "linux")]
+                return Err(error::Error::ExecutionErr(format!(
                     "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
                     status.signal(),
                     status.stopped_signal(),
                     status.core_dumped()
-                )))
+                )));
+
+                #[cfg(not(target_os = "linux"))]
+                return Err(error::Error::ExecutionErr(String::from(
+                    "process terminated by signal",
+                )));
             }
         }
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
@@ -1063,9 +1078,13 @@ pub async fn get_cached_resource_value_if_valid(
         }
         for (s3_file_key, s3_file_etag) in s3_etags {
             if let Some(object_store_resource) = object_store_resource_opt.clone() {
-                let etag =
-                    get_etag_or_empty(&object_store_resource, S3Object { s3: s3_file_key.clone() })
-                        .await;
+                let etag = get_etag_or_empty(
+                    &object_store_resource,
+                    S3Object {
+                        s3: s3_file_key.clone(),
+                    },
+                )
+                .await;
                 if etag.is_none() || etag.clone().unwrap() != s3_file_etag {
                     tracing::warn!("S3 file etag for '{}' has changed. Value from cache is {:?} while current value from S3 is {:?}. Cache will be invalidated", s3_file_key.clone(), s3_file_etag, etag);
                     return None;

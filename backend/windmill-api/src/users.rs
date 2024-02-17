@@ -109,7 +109,7 @@ pub fn make_unauthed_service() -> Router {
 #[derive(Clone)]
 pub struct ExpiringAuthCache {
     pub authed: ApiAuthed,
-    pub expiry: Option<chrono::DateTime<chrono::Utc>>,
+    pub expiry: chrono::DateTime<chrono::Utc>,
 }
 pub struct AuthCache {
     cache: Cache<(String, String), ExpiringAuthCache>,
@@ -133,15 +133,13 @@ impl AuthCache {
         );
         let s = self.cache.get(&key).map(|c| c.to_owned());
         match s {
-            Some(ExpiringAuthCache { authed, expiry })
-                if expiry.is_none() || expiry.unwrap() > chrono::Utc::now() =>
-            {
+            Some(ExpiringAuthCache { authed, expiry }) if expiry > chrono::Utc::now() => {
                 Some(authed)
             }
             _ => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<chrono::DateTime<chrono::Utc>>)>(
+                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes, expiration",
+                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes",
                 )
                 .bind(token)
                 .fetch_optional(&self.db)
@@ -152,7 +150,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), Some(email), super_admin, _, _) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let (is_admin, is_operator) = if super_admin {
@@ -231,7 +229,7 @@ impl AuthCache {
                                     })
                                 }
                             }
-                            (_, Some(email), super_admin, scopes, _) => {
+                            (_, Some(email), super_admin, scopes) => {
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool, bool)>(
                                         "SELECT username, is_admin, operator FROM usr where email = $1 AND \
@@ -303,7 +301,10 @@ impl AuthCache {
                     if let Some(authed) = authed_o.as_ref() {
                         self.cache.insert(
                             key,
-                            ExpiringAuthCache { authed: authed.clone(), expiry: user.4 },
+                            ExpiringAuthCache {
+                                authed: authed.clone(),
+                                expiry: chrono::Utc::now() + chrono::Duration::seconds(120),
+                            },
                         );
                     }
                     authed_o
