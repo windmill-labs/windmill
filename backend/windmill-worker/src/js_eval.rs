@@ -10,10 +10,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc, env, io::{BufR
 
 use deno_ast::{ParseParams, SourceTextInfo};
 use deno_core::{
-    op, serde_v8,
-    v8::IsolateHandle,
-    v8::{self},
-    Extension, JsRuntime, Op, OpState, RuntimeOptions, Snapshot, error::AnyError,
+    error::AnyError, op2, serde_v8, url, v8::{self, IsolateHandle}, Extension, JsRuntime, Op, OpState, PollEventLoopOptions, RuntimeOptions, Snapshot
 };
 use deno_fetch::FetchPermissions;
 use deno_tls::{rustls::RootCertStore, rustls_pemfile};
@@ -69,6 +66,7 @@ impl deno_tls::RootCertStoreProvider for ContainerRootCertStoreProvider {
 pub struct PermissionsContainer;
 
 impl FetchPermissions for PermissionsContainer {
+    #[inline(always)]
     fn check_net_url(
         &mut self,
         _url: &deno_core::url::Url,
@@ -77,6 +75,7 @@ impl FetchPermissions for PermissionsContainer {
         Ok(())
     }
 
+    #[inline(always)]
     fn check_read(
         &mut self,
         _p: &std::path::Path,
@@ -87,12 +86,9 @@ impl FetchPermissions for PermissionsContainer {
 }
 
 impl TimersPermission for PermissionsContainer {
+    #[inline(always)]
     fn allow_hrtime(&mut self) -> bool {
         true
-    }
-
-    fn check_unstable(&self, _state: &OpState, _api_name: &'static str) {
-        ()
     }
 }
 
@@ -322,12 +318,12 @@ async function result_by_id(node_id) {{
         }}
     }} else {{
         let flow_job_id = "{}";
-        return JSON.parse(await Deno.core.opAsync("op_get_id", [flow_job_id, node_id]));
+        return JSON.parse(await Deno.core.ops.op_get_id(flow_job_id, node_id));
     }}
 }}
 
 async function get_result(id) {{
-    return JSON.parse(await Deno.core.opAsync("op_get_result", [id]));
+    return JSON.parse(await Deno.core.ops.op_get_result(id));
 }}
 const results = new Proxy({{}}, {{
     get: function(target, name, receiver) {{
@@ -359,10 +355,10 @@ const results = new Proxy({{}}, {{
         let api_code = format!(
             r#"
 async function variable(path) {{
-    return await Deno.core.opAsync("op_variable", [path]);
+    return await Deno.core.ops.op_variable(path);
 }}
 async function resource(path) {{
-    return await Deno.core.opAsync("op_resource", [path]);
+    return await Deno.core.ops.op_resource(path);
 }}
         "#,
         );
@@ -379,7 +375,7 @@ async function resource(path) {{
     let code = format!(
         r#"
 function get_from_env(name) {{
-    return JSON.parse(Deno.core.ops.op_get_context([name]));
+    return JSON.parse(Deno.core.ops.op_get_context(name));
 }}
 {api_code}
 {}
@@ -401,8 +397,9 @@ function get_from_env(name) {{
     );
 
     
-    let global = context.execute_script("<anon>", code.into())?;
-    let global = context.resolve_value(global).await?;
+    let script = context.execute_script("<anon>", code.into())?;
+    let fut = context.resolve(script);
+    let global = context.with_event_loop_promise(fut, PollEventLoopOptions::default()).await?;
 
     let scope = &mut context.handle_scope();
     let local = v8::Local::new(scope, global);
@@ -423,30 +420,30 @@ function get_from_env(name) {{
 // }
 
 // TODO: Can we a) share the api configuration here somehow or b) just implement this natively in deno, via the deno client?
-#[op]
+#[op2(async)]
+#[string]
 async fn op_variable(
     op_state: Rc<RefCell<OpState>>,
-    args: Vec<String>,
+    #[string] path: String,
 ) -> Result<String, anyhow::Error> {
-    let path = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        Ok(client.get_variable_value(path).await?)
+        Ok(client.get_variable_value(&path).await?)
     } else {
         anyhow::bail!("No client found in op state");
     }
 }
 
-#[op]
+#[op2(async)]
+#[string]
 async fn op_get_result(
     op_state: Rc<RefCell<OpState>>,
-    args: Vec<String>,
+    #[string] id: String,
 ) -> Result<String, anyhow::Error> {
-    let id = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
-            .get_completed_job_result::<Box<RawValue>>(id, None)
+            .get_completed_job_result::<Box<RawValue>>(&id, None)
             .await?
             .clone();
         Ok(result.get().to_string())
@@ -455,18 +452,18 @@ async fn op_get_result(
     }
 }
 
-#[op]
+#[op2(async)]
+#[string]
 async fn op_get_id(
     op_state: Rc<RefCell<OpState>>,
-    args: Vec<String>,
+    #[string] flow_job_id: String,
+    #[string] node_id: String,
 ) -> Result<Option<String>, anyhow::Error> {
-    let flow_job_id = &args[0];
-    let node_id = &args[1];
 
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
-            .get_result_by_id::<Option<Box<RawValue>>>(flow_job_id, node_id, None)
+            .get_result_by_id::<Option<Box<RawValue>>>(&flow_job_id, &node_id, None)
             .await.ok();
         if let Some(result) = result {
             Ok(result.map(|x| x.get().to_string()))
@@ -478,16 +475,15 @@ async fn op_get_id(
     }
 }
 
-#[op]
+#[op2(async)]
+#[serde]
 async fn op_resource(
     op_state: Rc<RefCell<OpState>>,
-    args: Vec<String>,
+    #[string] path:String,
 ) -> Result<serde_json::Value, anyhow::Error> {
-    let path = &args[0];
-
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        client.get_resource_value_interpolated(path, None).await
+        client.get_resource_value_interpolated(&path, None).await
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -498,28 +494,29 @@ pub struct TransformContext {
     pub flow_input: Option<Arc<HashMap<String, Box<RawValue>>>>,
 }
 
-#[op]
-fn op_get_context(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> String {
-    let id = &args[0];
+#[op2]
+#[string]
+fn op_get_context(op_state: Rc<RefCell<OpState>>, #[string] id: &str) ->  String {
     let ops = op_state.borrow();
     let client = ops.borrow::<TransformContext>();
     if id == "flow_input" {
-        return client
+        client
             .flow_input
             .as_ref()
             .and_then(|x| serde_json::to_string(&x).ok())
-            .unwrap_or_else(|| "null".to_string());
-    }
-    return client
+            .unwrap_or_else(|| "null".to_string())
+    } else {
+    client
         .envs
         .get(id)
         .and_then(|x| serde_json::to_string(x).ok())
-        .unwrap_or_else(String::new);
+        .unwrap_or_else(String::new)
+    }
 }
 
 pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
     let parsed = deno_ast::parse_module(ParseParams {
-        specifier: "eval.ts".to_string(),
+        specifier: url::Url::parse("file:///eval.ts")?,
         text_info: SourceTextInfo::from_string(expr),
         capture_tokens: false,
         scope_analysis: false,
@@ -668,7 +665,7 @@ async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<Bo
         )
         .await?;
 
-    let global = js_runtime.execute_script(
+    let script = js_runtime.execute_script(
         "<anon>",
         r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
@@ -677,7 +674,10 @@ import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.strin
         .to_string()
         .into(),
     )?;
-    let global = js_runtime.resolve_value(global).await?;
+
+    let fut = js_runtime.resolve(script);
+    let global = js_runtime.with_event_loop_promise(fut, PollEventLoopOptions::default()).await?;
+
 
     let scope = &mut js_runtime.handle_scope();
     let local = v8::Local::new(scope, global);
@@ -687,18 +687,19 @@ import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.strin
     Ok(unsafe_raw(r.unwrap_or_else(|| "null".to_string())))
 }
 
-#[op]
+#[op2]
+#[serde]
 fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<String>> {
-    return op_state.borrow().borrow::<MainArgs>().args.iter().map(|x| x.as_ref().map(|y| y.get().to_string())).collect_vec();
+    op_state.borrow().borrow::<MainArgs>().args.iter().map(|x| x.as_ref().map(|y| y.get().to_string())).collect_vec()
 }
 
-#[op]
-fn op_log(op_state: Rc<RefCell<OpState>>, args: Vec<String>) {
+#[op2(fast)]
+fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
     op_state
         .borrow_mut()
         .borrow_mut::<LogString>()
         .s
-        .push_str(args.get(0).unwrap());
+        .push_str(log);
 }
 
 #[cfg(test)]

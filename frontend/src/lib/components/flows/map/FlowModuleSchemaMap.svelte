@@ -23,7 +23,7 @@
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
-	import { tutorialsToDo } from '$lib/stores'
+	import { copilotInfo, tutorialsToDo } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
@@ -61,7 +61,10 @@
 		if (wsScript) {
 			;[module, state] = await pickScript(wsScript.path, wsScript.summary, module.id, wsScript.hash)
 		} else if (kind == 'forloop') {
-			;[module, state] = await createLoop(module.id)
+			;[module, state] = await createLoop(
+				module.id,
+				!disableAi && $copilotInfo.exists_openai_resource_path
+			)
 		} else if (kind == 'branchone') {
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {

@@ -69,6 +69,7 @@ uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
 
 [dev-dependencies]
