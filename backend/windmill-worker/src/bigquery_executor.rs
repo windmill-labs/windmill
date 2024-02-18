@@ -6,6 +6,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
+use crate::MAX_TIMEOUT_DURATION;
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
@@ -141,7 +142,7 @@ pub async fn do_bigquery(
             "query": query,
             "useLegacySql": false,
             "maxResults": 10000,
-            "timeoutMs": 10000, // default
+            "timeoutMs": MAX_TIMEOUT_DURATION.as_millis() as i64,
             "queryParameters": statement_values,
         }))
         .send()
