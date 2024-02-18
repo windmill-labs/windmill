@@ -441,6 +441,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				recomputeIds={component.recomputeIds}
+				onToggle={component.onToggle}
 				{render}
 			/>
 		{:else if component.type === 'textinputcomponent'}
