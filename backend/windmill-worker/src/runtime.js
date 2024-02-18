@@ -1,7 +1,6 @@
 import * as abortSignal from "ext:deno_web/03_abort_signal.js";
 import * as base64 from "ext:deno_web/05_base64.js";
 import * as console from "ext:deno_console/01_console.js";
-import DOMException from "ext:deno_web/01_dom_exception.js";
 import * as encoding from "ext:deno_web/08_text_encoding.js";
 import * as event from "ext:deno_web/02_event.js";
 import * as fetch from "ext:deno_fetch/26_fetch.js";
@@ -21,6 +20,8 @@ import "ext:deno_web/04_global_interfaces.js";
 import "ext:deno_web/13_message_port.js";
 import "ext:deno_web/14_compression.js";
 import "ext:deno_web/15_performance.js";
+import "ext:deno_web/16_image_data.js";
+import "ext:deno_fetch/27_eventsource.js";
 
 globalThis.atob = base64.atob;
 globalThis.btoa = base64.btoa;

@@ -84,13 +84,16 @@ export async function createInlineScriptModule(
 	return [flowModule, await loadFlowModuleState(flowModule)]
 }
 
-export async function createLoop(id: string): Promise<[FlowModule, FlowModuleState]> {
+export async function createLoop(
+	id: string,
+	enabledAi: boolean
+): Promise<[FlowModule, FlowModuleState]> {
 	const loopFlowModule: FlowModule = {
 		id,
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: '' },
+			iterator: { type: 'javascript', expr: enabledAi ? '' : "['dynamic or static array']" },
 			skip_failures: true
 		}
 	}

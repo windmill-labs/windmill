@@ -62,8 +62,34 @@ mod monitor;
 #[cfg(feature = "pg_embed")]
 mod pg_embed;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+#[inline(always)]
+fn create_and_run_current_thread_inner<F, R>(future: F) -> R
+where
+    F: std::future::Future<Output = R> + 'static,
+    R: Send + 'static,
+{
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(32)
+        .build()
+        .unwrap();
+
+    // Since this is the main future, we want to box it in debug mode because it tends to be fairly
+    // large and the compiler won't optimize repeated copies. We also make this runtime factory
+    // function #[inline(always)] to avoid holding the unboxed, unused future on the stack.
+    #[cfg(debug_assertions)]
+    // SAFETY: this this is guaranteed to be running on a current-thread executor
+    let future = Box::pin(future);
+
+    rt.block_on(future)
+}
+
+pub fn main() -> anyhow::Result<()> {
+    deno_core::JsRuntime::init_platform(None);
+    create_and_run_current_thread_inner(windmill_main())
+}
+
+async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
     if std::env::var("RUST_LOG").is_err() {
