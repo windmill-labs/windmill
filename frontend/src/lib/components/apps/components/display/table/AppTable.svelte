@@ -602,6 +602,7 @@
 																		customCss={actionButton.customCss}
 																		configuration={actionButton.configuration}
 																		recomputeIds={actionButton.recomputeIds}
+																		onSelect={actionButton.onSelect}
 																		preclickAction={async () => {
 																			toggleRow(row)
 																		}}
@@ -651,6 +652,7 @@
 																	customCss={actionButton.customCss}
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
+																	onSelect={actionButton.onSelect}
 																	preclickAction={async () => {
 																		toggleRow(row)
 																	}}

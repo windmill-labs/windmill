@@ -401,6 +401,7 @@
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				onSelect={component.onSelect}
 				{render}
 			/>
 		{:else if component.type === 'multiselectcomponent'}

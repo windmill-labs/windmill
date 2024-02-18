@@ -147,9 +147,14 @@ export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
+export type SelectComponent = BaseComponent<'selectcomponent'> &
+	RecomputeOthersSource & {
+		onSelect?: string[]
+	}
 export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
-	RecomputeOthersSource
+	RecomputeOthersSource & {
+		onSelect?: string[]
+	}
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> &
 	RecomputeOthersSource & {

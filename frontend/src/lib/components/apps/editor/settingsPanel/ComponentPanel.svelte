@@ -394,6 +394,15 @@
 				ownId={component.id}
 			/>
 		{/if}
+		{#if componentSettings.item.data.type === 'resourceselectcomponent' || componentSettings.item.data.type === 'selectcomponent'}
+			<Recompute
+				title="Recompute on select"
+				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue'}
+				documentationLink={undefined}
+				bind:recomputeIds={componentSettings.item.data.onSelect}
+				ownId={component.id}
+			/>
+		{/if}
 
 		<div class="grow shrink" />
 

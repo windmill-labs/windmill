@@ -39,6 +39,11 @@
 					nr.push(`toggle of ${x.id}`)
 				}
 			}
+			if (`onSelect` in x.data) {
+				if (x.data.onSelect?.includes(id)) {
+					nr.push(`select of ${x.id}`)
+				}
+			}
 		})
 		onSuccessEvents = nr
 	}
