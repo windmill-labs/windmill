@@ -40,7 +40,10 @@ use std::{
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::{job_metrics, variables, DB};
+use windmill_common::{variables, DB};
+
+#[cfg(feature = "enterprise")]
+use windmill_common::job_metrics;
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -496,6 +499,8 @@ pub async fn handle_child(
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let mut i = 0;
+
+        #[cfg(feature = "enterprise")]
         let mut memory_metric_id: Result<String, Error> =
             Err(Error::NotFound("not yet initialized".to_string()));
 
@@ -795,19 +800,19 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
 }
 
 async fn resolve_job_timeout(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    job_id: Uuid,
+    _db: &Pool<Postgres>,
+    _w_id: &str,
+    _job_id: Uuid,
     custom_timeout_secs: Option<i32>,
 ) -> (Duration, Option<String>) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "enterprise")]
     let cloud_premium_workspace = *CLOUD_HOSTED
-        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
-            .fetch_one(db)
+        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
+            .fetch_one(_db)
             .await
             .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
+                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e}");
             })
             .unwrap_or(false);
     #[cfg(not(feature = "enterprise"))]
@@ -1078,13 +1083,9 @@ pub async fn get_cached_resource_value_if_valid(
         }
         for (s3_file_key, s3_file_etag) in s3_etags {
             if let Some(object_store_resource) = object_store_resource_opt.clone() {
-                let etag = get_etag_or_empty(
-                    &object_store_resource,
-                    S3Object {
-                        s3: s3_file_key.clone(),
-                    },
-                )
-                .await;
+                let etag =
+                    get_etag_or_empty(&object_store_resource, S3Object { s3: s3_file_key.clone() })
+                        .await;
                 if etag.is_none() || etag.clone().unwrap() != s3_file_etag {
                     tracing::warn!("S3 file etag for '{}' has changed. Value from cache is {:?} while current value from S3 is {:?}. Cache will be invalidated", s3_file_key.clone(), s3_file_etag, etag);
                     return None;

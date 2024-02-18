@@ -1422,9 +1422,9 @@ pub async fn get_suspended_job_flow(
 }
 
 fn conditionally_require_authed_user(
-    authed: Option<ApiAuthed>,
+    _authed: Option<ApiAuthed>,
     flow_status: FlowStatus,
-    trigger_email: &str,
+    _trigger_email: &str,
 ) -> error::Result<()> {
     let approval_conditions_opt = flow_status.approval_conditions;
 
@@ -1434,37 +1434,41 @@ fn conditionally_require_authed_user(
     let approval_conditions = approval_conditions_opt.unwrap();
 
     if approval_conditions.user_auth_required {
-        #[cfg(not(feature = "enterprise"))]
-        return Err(Error::BadRequest(
-            "Approvals for logged in users is an enterprise only feature".to_string(),
-        ));
-        #[cfg(feature = "enterprise")]
         {
-            if authed.is_none() {
-                return Err(Error::NotAuthorized(
-                    "Only logged in users can approve this flow step".to_string(),
-                ));
-            }
+            #[cfg(not(feature = "enterprise"))]
+            return Err(Error::BadRequest(
+                "Approvals for logged in users is an enterprise only feature".to_string(),
+            ));
 
-            let authed = authed.unwrap();
-            if !authed.is_admin {
-                if approval_conditions.self_approval_disabled && authed.email.eq(trigger_email) {
-                    return Err(Error::PermissionDenied(
-                        "Self-approval is disabled for this flow step".to_string(),
+            #[cfg(feature = "enterprise")]
+            {
+                if _authed.is_none() {
+                    return Err(Error::NotAuthorized(
+                        "Only logged in users can approve this flow step".to_string(),
                     ));
                 }
 
-                if !approval_conditions.user_groups_required.is_empty() {
-                    #[cfg(feature = "enterprise")]
+                let authed = _authed.unwrap();
+                if !authed.is_admin {
+                    if approval_conditions.self_approval_disabled && authed.email.eq(_trigger_email)
                     {
-                        for required_group in approval_conditions.user_groups_required.iter() {
-                            if authed.groups.contains(&required_group) {
-                                return Ok(());
+                        return Err(Error::PermissionDenied(
+                            "Self-approval is disabled for this flow step".to_string(),
+                        ));
+                    }
+
+                    if !approval_conditions.user_groups_required.is_empty() {
+                        #[cfg(feature = "enterprise")]
+                        {
+                            for required_group in approval_conditions.user_groups_required.iter() {
+                                if authed.groups.contains(&required_group) {
+                                    return Ok(());
+                                }
                             }
-                        }
-                        let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
+                            let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
                             approval_conditions.user_groups_required.join(", "));
-                        return Err(Error::PermissionDenied(error_msg));
+                            return Err(Error::PermissionDenied(error_msg));
+                        }
                     }
                 }
             }
@@ -1962,6 +1966,26 @@ pub async fn run_flow_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+#[cfg(not(feature = "enterprise"))]
+pub async fn restart_flow(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Extension(_user_db): Extension<UserDB>,
+    Extension(_rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path((_w_id, _job_id, _step_id, _branch_or_iteration_n)): Path<(
+        String,
+        Uuid,
+        String,
+        Option<usize>,
+    )>,
+    Query(_run_query): Query<RunJobQuery>,
+) -> error::Result<(StatusCode, String)> {
+    return Err(Error::BadRequest(
+        "Restarting a flow is a feature only available in enterprise version".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
 pub async fn restart_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1975,14 +1999,6 @@ pub async fn restart_flow(
     )>,
     Query(run_query): Query<RunJobQuery>,
 ) -> error::Result<(StatusCode, String)> {
-    #[cfg(not(feature = "enterprise"))]
-    {
-        return Err(Error::BadRequest(
-            "Restarting a flow is a feature only available in enterprise version".to_string(),
-        ));
-    }
-
-    #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     let completed_job = sqlx::query_as::<_, CompletedJob>(

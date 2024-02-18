@@ -881,10 +881,23 @@ async fn edit_large_file_storage_config(
 }
 
 #[derive(Deserialize)]
-struct EditGitSyncConfig {
-    git_sync_settings: Option<WorkspaceGitSyncSettings>,
+pub struct EditGitSyncConfig {
+    pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
+#[cfg(not(feature = "enterprise"))]
+async fn edit_git_sync_config(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_new_config): Json<EditGitSyncConfig>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Git sync is only available on Windmill Enterprise Edition".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
 async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -892,13 +905,6 @@ async fn edit_git_sync_config(
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditGitSyncConfig>,
 ) -> Result<String> {
-    #[cfg(not(feature = "enterprise"))]
-    {
-        return Err(Error::BadRequest(
-            "Git sync is only available on Windmill Enterprise Edition".to_string(),
-        ));
-    }
-
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
@@ -940,10 +946,24 @@ async fn edit_git_sync_config(
 }
 
 #[derive(Deserialize)]
-struct EditDefaultApp {
-    default_app_path: Option<String>,
+pub struct EditDefaultApp {
+    pub default_app_path: Option<String>,
 }
 
+#[cfg(not(feature = "enterprise"))]
+async fn edit_default_app(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_new_config): Json<EditDefaultApp>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Setting a workspace default app is only available on Windmill Enterprise Edition"
+            .to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
 async fn edit_default_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
