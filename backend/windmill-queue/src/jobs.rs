@@ -2413,7 +2413,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     mut tag: Option<String>,
     custom_timeout: Option<i32>,
     flow_step_id: Option<String>,
-    priority_override: Option<i16>,
+    _priority_override: Option<i16>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     #[cfg(feature = "enterprise")]
     if *CLOUD_HOSTED {
@@ -2527,7 +2527,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         concurrency_time_window_s,
         cache_ttl,
         dedicated_worker,
-        low_level_priority,
+        _low_level_priority,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -2918,11 +2918,11 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         final_priority = if *CLOUD_HOSTED {
             // for cloud hosted instance, priority queues is disabled
             None
-        } else if priority_override.is_some() {
-            priority_override
+        } else if _priority_override.is_some() {
+            _priority_override
         } else {
             // else it takes the priority defined at the script/flow level, if it's a script or flow
-            low_level_priority
+            _low_level_priority
         }; // else it remains empty, i.e. no priority
     }
 

@@ -16,10 +16,13 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
-    variables::get_secret_value_as_admin,
     worker::WORKER_CONFIG,
     DB,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::variables::get_secret_value_as_admin;
+
 use windmill_queue::CanceledBy;
 
 lazy_static::lazy_static! {
@@ -569,6 +572,7 @@ if args["{name}"] is None:
     ))
 }
 
+#[cfg(feature = "enterprise")]
 async fn replace_pip_secret(
     db: &DB,
     w_id: &str,

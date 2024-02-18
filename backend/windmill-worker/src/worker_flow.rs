@@ -180,7 +180,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         skip_if_stop_early,
         nresult,
         is_failure_step,
-        cleanup_module,
+        _cleanup_module,
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
@@ -590,16 +590,16 @@ pub async fn update_flow_status_after_job_completion_internal<
         #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
             // run the cleanup step only when the root job is complete
-            if !cleanup_module.flow_jobs_to_clean.is_empty() {
+            if !_cleanup_module.flow_jobs_to_clean.is_empty() {
                 tracing::debug!(
                     "Cleaning up jobs arguments, result and logs as they were marked as delete_after_use {:?}",
-                    cleanup_module.flow_jobs_to_clean
+                    _cleanup_module.flow_jobs_to_clean
                 );
                 sqlx::query!(
                     "UPDATE completed_job
                     SET logs = '##DELETED##', args = '{}'::jsonb, result = '{}'::jsonb
                     WHERE id = ANY($1)",
-                    &cleanup_module.flow_jobs_to_clean,
+                    &_cleanup_module.flow_jobs_to_clean,
                 )
                 .execute(db)
                 .await?;

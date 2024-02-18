@@ -61,7 +61,7 @@ pub mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
 pub mod oauth2_ee;
-mod oidc;
+mod oidc_ee;
 mod openai;
 mod raw_apps;
 mod resources;
@@ -209,7 +209,7 @@ pub async fn run_server(
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/oidc", oidc::workspaced_service()),
+                        .nest("/oidc", oidc_ee::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -232,7 +232,7 @@ pub async fn run_server(
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
-                .nest("/oidc", oidc::global_service())
+                .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",
                     saml_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),

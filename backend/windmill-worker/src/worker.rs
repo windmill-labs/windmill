@@ -1822,14 +1822,33 @@ async fn spawn_dedicated_workers_for_flow(
     workers
 }
 
-enum SpawnWorker {
+pub enum SpawnWorker {
     Script { path: String, hash: Option<ScriptHash> },
     RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn spawn_dedicated_worker(
+    _sw: SpawnWorker,
+    _w_id: &str,
+    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    _killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    _db: &Pool<Postgres>,
+    _worker_dir: &str,
+    _base_internal_url: &str,
+    _worker_name: &str,
+    _job_completed_tx: &JobCompletedSender,
+    _node_id: Option<String>,
+) -> Option<DedicatedWorker> {
+    tracing::error!("Dedicated worker is an enterprise feature");
+    killpill_tx.send(()).expect("send");
+    return None;
 }
 
 // spawn one dedicated worker and return the key, the channel sender and the join handle
 // note that for it will return none for language that do not support dedicated workers
 // note that go using cache binary does not need dedicated workers so all languages are supported
+#[cfg(feature = "enterprise")]
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,
