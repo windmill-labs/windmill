@@ -385,6 +385,15 @@
 				ownId={component.id}
 			/>
 		{/if}
+		{#if componentSettings.item.data.type === 'checkboxcomponent'}
+			<Recompute
+				title="Recompute on toggle"
+				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue'}
+				documentationLink={undefined}
+				bind:recomputeIds={componentSettings.item.data.onToggle}
+				ownId={component.id}
+			/>
+		{/if}
 
 		<div class="grow shrink" />
 

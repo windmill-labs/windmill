@@ -151,7 +151,10 @@ export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthers
 export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
 	RecomputeOthersSource
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
-export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
+export type CheckboxComponent = BaseComponent<'checkboxcomponent'> &
+	RecomputeOthersSource & {
+		onToggle?: string[]
+	}
 export type RadioComponent = BaseComponent<'radiocomponent'>
 export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
@@ -1715,6 +1718,7 @@ This is a paragraph.
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
+			onToggle: [],
 			recomputeIds: true,
 			configuration: {
 				label: {

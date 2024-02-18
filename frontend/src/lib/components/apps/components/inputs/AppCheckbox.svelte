@@ -27,6 +27,7 @@
 	export let extraKey: string | undefined = undefined
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let noInitialize = false
+	export let onToggle: string[] | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -137,6 +138,9 @@
 			value = e.detail
 			if (recomputeIds) {
 				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
+			if (onToggle) {
+				onToggle.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 			}
 		}}
 		disabled={resolvedConfig.disabled}

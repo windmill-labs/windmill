@@ -26,9 +26,17 @@
 	function computeOnSuccessEvents(app: App, _id: string) {
 		const nr: string[] = []
 		getAllGridItems(app).forEach((x) => {
+			if (!(x.data && typeof x.data == 'object')) {
+				return
+			}
 			if (`recomputeIds` in x.data) {
 				if (x.data.recomputeIds?.includes(id)) {
 					nr.push(`success of ${x.id}`)
+				}
+			}
+			if (`onToggle` in x.data) {
+				if (x.data.onToggle?.includes(id)) {
+					nr.push(`toggle of ${x.id}`)
 				}
 			}
 		})

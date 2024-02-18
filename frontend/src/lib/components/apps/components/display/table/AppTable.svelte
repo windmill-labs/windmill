@@ -25,7 +25,12 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { components, type ButtonComponent } from '../../../editor/component'
+	import {
+		components,
+		type ButtonComponent,
+		type CheckboxComponent,
+		type SelectComponent
+	} from '../../../editor/component'
 	import { initCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { connectOutput, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
@@ -43,7 +48,8 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
-	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
+	export let actionButtons: (BaseAppComponent &
+		(ButtonComponent | CheckboxComponent | SelectComponent))[]
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
@@ -579,6 +585,7 @@
 																	customCss={actionButton.customCss}
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
+																	onToggle={actionButton.onToggle}
 																	preclickAction={async () => {
 																		toggleRow(row)
 																	}}
@@ -627,6 +634,7 @@
 																customCss={actionButton.customCss}
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
+																onToggle={actionButton.onToggle}
 																preclickAction={async () => {
 																	toggleRow(row)
 																}}
