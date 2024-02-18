@@ -25,6 +25,7 @@
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
+	export let hideSave: boolean = false
 
 	let values: Record<string, any> = {}
 	let initialOauths: Record<string, any> = {}
@@ -76,7 +77,7 @@
 		}
 	}
 
-	async function saveSettings() {
+	export async function saveSettings() {
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			const newServerConfig = Object.fromEntries(
@@ -126,6 +127,7 @@
 		} else {
 			console.error('Values not loaded')
 		}
+		sendUserToast('Settings updated')
 	}
 
 	let oauths: Record<string, any> = {}
@@ -558,14 +560,8 @@
 		</svelte:fragment>
 	</Tabs>
 </div>
-<div class="py-4" />
 
-<Button
-	on:click={async () => {
-		await saveSettings()
-		sendUserToast('Settings updated')
-	}}
->
-	Save
-</Button>
-<div class="pb-8" />
+{#if !hideSave}
+	<Button on:click={saveSettings}>Save settings</Button>
+	<div class="pb-8" />
+{/if}

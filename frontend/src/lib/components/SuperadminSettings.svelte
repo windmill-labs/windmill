@@ -50,6 +50,8 @@
 	let tab: 'users' | string = 'users'
 
 	let nbDisplayed = 50
+
+	let instanceSettings
 </script>
 
 <SearchItems
@@ -61,7 +63,7 @@
 
 <Drawer bind:this={drawer} on:open={listUsers} size="1200px" on:close={removeHash}>
 	<DrawerContent overflow_y={true} title="Instance Settings" on:close={closeDrawer}>
-		<div class="flex flex-col h-full">
+		<div class="flex flex-col h-full w-full">
 			<div>
 				<div class="flex justify-between">
 					<div class="text-xs pt-1 text-tertiary flex flex-col">
@@ -171,13 +173,24 @@
 							</div>
 						</TabContent>
 						<TabContent value="" values={settingsKeys}>
-							<div class="h-full"> <InstanceSettings hideTabs {tab} /> </div>
+							<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} />
 						</TabContent>
 					</svelte:fragment>
 				</Tabs>
 			</div>
-		</div></DrawerContent
-	>
+		</div>
+		{#if tab != 'users'}
+			<div class="absolute bottom-2 w-[95%]">
+				<Button
+					color="dark"
+					on:click={() => {
+						instanceSettings?.saveSettings()
+					}}
+				>
+					Save
+				</Button>
+			</div>{/if}
+	</DrawerContent>
 </Drawer>
 
 <ConfirmationModal

@@ -118,30 +118,32 @@
 				<div class="font-semibold flex items-baseline">
 					Theme: <DarkModeToggle forcedDarkMode={false} />
 				</div>
-				{#if scopes == undefined}
-					<h2 class="border-b mt-4">User info</h2>
-					<div class="">
-						{#if passwordError}
-							<div class="text-red-600 text-2xs grow">{passwordError}</div>
-						{/if}
-						<div class="flex flex-col gap-2 w-full">
-							<div class="mt-4">
-								<label class="block w-60 mb-2 text-tertiary">
-									<div class="text-secondary">email</div>
-									<input
-										type="text"
-										disabled
-										value={$usersWorkspaceStore?.email}
-										class="input mt-1"
-									/>
-								</label>
-								{#if login_type == 'password'}
-									<label class="block w-120">
-										<div class="text-secondary">password</div>
-										<input
-											type="password"
-											bind:value={newPassword}
-											class="
+				<div class="flex flex-wrap md:gap-40 gap-10 mt-2">
+					{#if scopes == undefined}
+						<div>
+							<h2 class="border-b">User info</h2>
+							<div class="">
+								{#if passwordError}
+									<div class="text-red-600 text-2xs grow">{passwordError}</div>
+								{/if}
+								<div class="flex flex-col gap-2 w-full">
+									<div class="mt-4">
+										<label class="block w-60 mb-2 text-tertiary">
+											<div class="text-secondary">email</div>
+											<input
+												type="text"
+												disabled
+												value={$usersWorkspaceStore?.email}
+												class="input mt-1"
+											/>
+										</label>
+										{#if login_type == 'password'}
+											<label class="block w-120">
+												<div class="text-secondary">password</div>
+												<input
+													type="password"
+													bind:value={newPassword}
+													class="
 							w-full
 							block
 							py-1
@@ -153,52 +155,59 @@
 							focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 							text-sm
 							"
-										/>
-										<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
-											>Set password</Button
-										>
-									</label>
-								{:else if login_type == 'github'}
-									<span>Authentified through Github OAuth2. Cannot set a password.</span>
-								{/if}
+												/>
+												<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
+													>Set password</Button
+												>
+											</label>
+										{:else if login_type == 'github'}
+											<span>Authentified through Github OAuth2. Cannot set a password.</span>
+										{/if}
+									</div>
+								</div>
 							</div>
 						</div>
+					{/if}
+					<div>
+						<h2 class="border-b">AI user settings</h2>
+
+						<div class="flex flex-col gap-4 mt-2">
+							<Toggle
+								on:change={(e) => {
+									updateSetting(
+										codeCompletionSessionEnabled,
+										e.detail,
+										'codeCompletionSessionEnabled'
+									)
+								}}
+								checked={$codeCompletionSessionEnabled}
+								options={{
+									right: 'Code completion',
+									rightTooltip: 'AI completion in the code editors'
+								}}
+							/>
+							<Toggle
+								on:change={(e) => {
+									updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
+								}}
+								checked={$metadataCompletionEnabled}
+								options={{
+									right: 'Metadata completion',
+									rightTooltip: 'AI completion for summaries and descriptions'
+								}}
+							/>
+							<Toggle
+								on:change={(e) => {
+									updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
+								}}
+								checked={$stepInputCompletionEnabled}
+								options={{
+									right: 'Flow step input completion',
+									rightTooltip: 'AI completion for flow step inputs'
+								}}
+							/>
+						</div>
 					</div>
-				{/if}
-
-				<h2 class="border-b mt-8">AI user settings</h2>
-
-				<div class="flex flex-col gap-4 mt-2">
-					<Toggle
-						on:change={(e) => {
-							updateSetting(codeCompletionSessionEnabled, e.detail, 'codeCompletionSessionEnabled')
-						}}
-						checked={$codeCompletionSessionEnabled}
-						options={{
-							right: 'Code completion',
-							rightTooltip: 'AI completion in the code editors'
-						}}
-					/>
-					<Toggle
-						on:change={(e) => {
-							updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
-						}}
-						checked={$metadataCompletionEnabled}
-						options={{
-							right: 'Metadata completion',
-							rightTooltip: 'AI completion for summaries and descriptions'
-						}}
-					/>
-					<Toggle
-						on:change={(e) => {
-							updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
-						}}
-						checked={$stepInputCompletionEnabled}
-						options={{
-							right: 'Flow step input completion',
-							rightTooltip: 'AI completion for flow step inputs'
-						}}
-					/>
 				</div>
 
 				<div class="grid grid-cols-2 pt-8 pb-1">
