@@ -34,6 +34,7 @@
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
 	export let noDefault = false
+	export let onSelect: string[] | undefined = undefined
 
 	const {
 		app,
@@ -118,6 +119,9 @@
 		}
 		preclickAction?.()
 		setValue(e.detail?.['value'])
+		if (onSelect) {
+			onSelect.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
+		}
 	}
 
 	function setValue(nvalue: any) {
