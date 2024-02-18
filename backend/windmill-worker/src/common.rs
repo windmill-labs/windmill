@@ -1,9 +1,9 @@
 use async_recursion::async_recursion;
 use itertools::Itertools;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::sys::signal::{self, Signal};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
 
 use regex::Regex;
@@ -27,7 +27,7 @@ use windmill_common::{
 use anyhow::Result;
 use windmill_queue::CanceledBy;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::process::ExitStatusExt;
 
 use std::{
@@ -471,7 +471,7 @@ pub async fn handle_child(
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     if let Some(pid) = pid {
         //set the highest oom priority
         let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
@@ -619,7 +619,7 @@ pub async fn handle_child(
 
         if let Some(id) = child.id() {
             if *MAX_WAIT_FOR_SIGINT > 0 {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
 
                 for _ in 0..*MAX_WAIT_FOR_SIGINT {
@@ -634,7 +634,7 @@ pub async fn handle_child(
                 }
             }
             if sigterm {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
 
                 for _ in 0..*MAX_WAIT_FOR_SIGTERM {
@@ -772,7 +772,7 @@ pub async fn handle_child(
             } else if let Some(code) = status.code() {
                 Err(error::Error::ExitStatus(code))
             } else {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 return Err(error::Error::ExecutionErr(format!(
                     "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
                     status.signal(),
@@ -780,7 +780,7 @@ pub async fn handle_child(
                     status.core_dumped()
                 )));
 
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
                 return Err(error::Error::ExecutionErr(String::from(
                     "process terminated by signal",
                 )));
