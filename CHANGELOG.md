@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.271.0](https://github.com/windmill-labs/windmill/compare/v1.270.3...v1.271.0) (2024-02-18)
+
+
+### Features
+
+* scim token and saml metadata setting in UI directly ([639c802](https://github.com/windmill-labs/windmill/commit/639c80220f630d34e161fc095986f5983d16378d))
+
+
+### Bug Fixes
+
+* improve instance settings save button UX ([2c4a3a0](https://github.com/windmill-labs/windmill/commit/2c4a3a02a3838b6214f7edd2f88a0473f2075d1c))
+* **mysql:** support integer with float type ([041b777](https://github.com/windmill-labs/windmill/commit/041b777fd65692d3549ba7ec64258882e108f5bf))
+* pre-select resource if there is only one ([801eda1](https://github.com/windmill-labs/windmill/commit/801eda1e22298f9f55d1ea87d0a19a03e6de6a64))
+* update internal deno runtime to 0.262.0 ([#3240](https://github.com/windmill-labs/windmill/issues/3240)) ([a61936f](https://github.com/windmill-labs/windmill/commit/a61936f66fd3c60ecb4fbb8f3fbb39ff0fe8257f))
+
 ## [1.271.0](https://github.com/windmill-labs/windmill/compare/v1.270.3...v1.271.0) (2024-02-17)
 
 
