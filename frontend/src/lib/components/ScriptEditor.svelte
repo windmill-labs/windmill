@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
+	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -23,6 +23,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import { Clipboard, Github, Play } from 'lucide-svelte'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -120,11 +121,8 @@
 		loadPastTests()
 	})
 
+	setLicense()
 	export async function setCollaborationMode() {
-		if (!$enterpriseLicense) {
-			$enterpriseLicense = await SettingsService.getLicenseId()
-		}
-
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
 				{
