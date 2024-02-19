@@ -90,10 +90,10 @@
 		},
 		gray: {
 			border:
-				'border-gray-600 hover:border-gray-900 focus-visible:border-gray-900 bg-surface hover:bg-gray-200 focus-visible:bg-gray-200 text-gray-800 hover:text-primary focus-visible:text-primary focus-visible:ring-gray-300',
+				'border-gray-500 dark:border-gray-300 hover:border-gray-700 dark:hover:border-gray-400 focus-visible:border-gray-700 bg-surface hover:bg-gray-100 dark:hover:bg-gray-900 focus-visible:bg-gray-100 focus-visible:dark:text-gray-100 dark:focus-visible:bg-gray-900 text-gray-500 dark:text-gray-300 dark:hover:text-gray-400 hover:text-gray-700 focus-visible:text-gray-700 focus-visible:ring-gray-300',
 			contained:
-				'bg-gray-700/90 hover:bg-gray-900/90 focus-visible:bg-gray-900/90 text-white focus-visible:ring-gray-300',
-			divider: 'divide-x divide-gray-700 dark:divide-gray-200'
+				'bg-gray-500 hover:bg-gray-700 focus-visible:bg-gray-700 text-white focus-visible:ring-gray-300',
+			divider: 'divide-x divide-gray-600'
 		},
 		light: {
 			border:
