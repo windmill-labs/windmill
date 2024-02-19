@@ -370,23 +370,18 @@ async fn explain_resource_perm_error(
 }
 
 async fn custom_component(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<Response> {
-    let mut tx = user_db.begin(&authed).await?;
-
     let cc_o = sqlx::query_scalar!(
         "SELECT value->>'js' FROM resource
         WHERE path = $1 AND workspace_id = $2",
         format!("f/app_custom/{name}"),
         &w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await?
     .flatten();
-
-    tx.commit().await?;
 
     let cc = not_found_if_none(cc_o, "Custom Component", name)?;
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");

@@ -471,7 +471,7 @@ pub async fn handle_child(
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
         //set the highest oom priority
         let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
@@ -799,7 +799,7 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
         .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
 }
 
-async fn resolve_job_timeout(
+pub async fn resolve_job_timeout(
     _db: &Pool<Postgres>,
     _w_id: &str,
     _job_id: Uuid,

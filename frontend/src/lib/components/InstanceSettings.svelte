@@ -176,6 +176,7 @@
 </script>
 
 <div class="pb-8">
+	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
 			<Tab value={category}>{category}</Tab>

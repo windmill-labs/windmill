@@ -322,6 +322,8 @@
 
 		<div class="p-2 w-full">
 			<RunChart
+				minTimeSet={minTs}
+				maxTimeSet={maxTs}
 				maxIsNow={maxTs == undefined}
 				jobs={completedJobs}
 				on:zoom={async (e) => {
@@ -343,14 +345,16 @@
 					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
 				>
 			</div>
-			<div class="flex flex-row gap-1 w-full max-w-xl">
+			<div class="flex flex-row gap-1 w-full max-w-lg">
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
 						<span class="text-xs absolute -top-4">Min datetime</span>
 
 						<input
 							type="text"
-							value={minTs ?? 'zoom x axis to set min (drag with ctrl)'}
+							value={minTs
+								? new Date(minTs).toLocaleString()
+								: 'zoom x axis to set min (drag with ctrl)'}
 							disabled
 						/>
 
@@ -366,7 +370,11 @@
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
 						<span class="text-xs absolute -top-4">Max datetime</span>
-						<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+						<input
+							type="text"
+							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
+							disabled
+						/>
 						<CalendarPicker
 							date={maxTs}
 							label="Max datetimes"
@@ -480,6 +488,8 @@
 		</div>
 		<div class="p-2 w-full">
 			<RunChart
+				minTimeSet={minTs}
+				maxTimeSet={maxTs}
 				maxIsNow={maxTs == undefined}
 				jobs={completedJobs}
 				on:zoom={async (e) => {
@@ -489,8 +499,8 @@
 				}}
 			/>
 		</div>
-		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
-			<div class="flex items-center flex-row gap-2 grow mb-4">
+		<div class="flex flex-col gap-4 md:flex-row w-full p-4">
+			<div class="flex items-center flex-row gap-2 grow">
 				{#if queue_count}
 					<RunsQueue {queue_count} {allWorkspaces} />
 				{/if}
@@ -503,14 +513,16 @@
 					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
 				>
 			</div>
-			<div class="flex flex-row gap-1 w-full max-w-xl">
+			<div class="flex flex-row gap-1 w-full max-w-lg items-center">
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
 						<span class="text-xs absolute -top-4">Min datetime</span>
 
 						<input
 							type="text"
-							value={minTs ?? 'zoom x axis to set min (drag with ctrl)'}
+							value={minTs
+								? new Date(minTs).toLocaleString()
+								: 'zoom x axis to set min (drag with ctrl)'}
 							disabled
 						/>
 
@@ -526,7 +538,11 @@
 				<div class="relative w-full">
 					<div class="flex gap-1 relative w-full">
 						<span class="text-xs absolute -top-4">Max datetime</span>
-						<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+						<input
+							type="text"
+							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
+							disabled
+						/>
 						<CalendarPicker
 							date={maxTs}
 							label="Max datetimes"

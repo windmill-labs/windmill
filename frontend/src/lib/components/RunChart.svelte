@@ -128,6 +128,7 @@
 		minTimeSet: string | undefined,
 		maxTimeSet: string | undefined
 	) {
+		console.log(minTimeSet, maxTimeSet)
 		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
 		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
 		if (minTimeSetDate && maxTimeSetDate) {
