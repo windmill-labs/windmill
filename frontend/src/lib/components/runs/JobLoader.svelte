@@ -86,7 +86,7 @@
 			jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running: success == 'running' ? true : undefined,
-			isSkipped: isSkipped ? true : undefined,
+			isSkipped: isSkipped ? undefined : false,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			args:
 				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
