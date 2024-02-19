@@ -6,7 +6,10 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{common::build_args_values, AuthedClientBackgroundTask};
+use crate::{
+    common::{build_args_values, resolve_job_timeout},
+    AuthedClientBackgroundTask,
+};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -126,6 +129,14 @@ pub async fn do_bigquery(
         statement_values.push(bigquery_v);
     }
 
+    let timeout_ms = i32::try_from(
+        resolve_job_timeout(&db, &job.workspace_id, job.id, None)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+
     let response = HTTP_CLIENT
         .post(
             "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
@@ -141,19 +152,21 @@ pub async fn do_bigquery(
             "query": query,
             "useLegacySql": false,
             "maxResults": 10000,
-            "timeoutMs": 10000, // default
+            "timeoutMs": timeout_ms,
             "queryParameters": statement_values,
         }))
         .send()
         .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+        .map_err(|e| Error::ExecutionErr(format!("Could not send query to BigQuery API: {}", e)))?;
 
     match response.error_for_status_ref() {
         Ok(_) => {
-            let result = response
-                .json::<BigqueryResponse>()
-                .await
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+            let result = response.json::<BigqueryResponse>().await.map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "BigQuery API response could not be parsed: {}",
+                    e.to_string()
+                ))
+            })?;
 
             if !result.jobComplete {
                 return Err(Error::ExecutionErr(
@@ -207,8 +220,18 @@ pub async fn do_bigquery(
             return Ok(to_raw_value(&rows));
         }
         Err(e) => match response.json::<BigqueryErrorResponse>().await {
-            Ok(bq_err) => return Err(Error::ExecutionErr(bq_err.error.message)),
-            Err(_) => return Err(Error::ExecutionErr(e.to_string())),
+            Ok(bq_err) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Error from BigQuery API: {}",
+                    bq_err.error.message
+                )))
+            }
+            Err(_) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Error from BigQuery API could not be parsed: {}",
+                    e.to_string()
+                )))
+            }
         },
     }
 }

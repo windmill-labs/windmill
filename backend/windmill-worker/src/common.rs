@@ -799,7 +799,7 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
         .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
 }
 
-async fn resolve_job_timeout(
+pub async fn resolve_job_timeout(
     _db: &Pool<Postgres>,
     _w_id: &str,
     _job_id: Uuid,
