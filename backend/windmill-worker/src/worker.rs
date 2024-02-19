@@ -2955,7 +2955,16 @@ async fn handle_code_execution_job(
             return do_mssql(job, &client, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(job, &client, &inner_content, db).await;
+        return do_graphql(
+            job,
+            &client,
+            &inner_content,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await;
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let code = format!(
