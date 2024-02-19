@@ -130,7 +130,7 @@ pub async fn do_bigquery(
     }
 
     let timeout_ms = i32::try_from(
-        resolve_job_timeout(&db, &job.workspace_id, job.id, None)
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
             .await
             .0
             .as_millis(),
