@@ -222,12 +222,13 @@ pub async fn do_postgresql(
     );
 
     let timeout_ms = u64::try_from(
-        resolve_job_timeout(&db, &job.workspace_id, job.id, None)
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
             .await
             .0
             .as_millis(),
     )
     .unwrap_or(200000);
+    tracing::info!("Query timeout: {}ms", timeout_ms);
     let result = tokio::select! {
         biased;
         result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), result_f) => result
