@@ -1,15 +1,19 @@
 <script lang="ts">
+	import { setLicense } from '$lib/enterpriseUtils'
+	import { enterpriseLicense } from '$lib/stores'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import LoginPageHeader from './LoginPageHeader.svelte'
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
 	export let disableLogo = false
+
+	setLicense()
 </script>
 
 <div class="center-center min-h-screen p-4 relative bg-surface-secondary">
 	<div class="flex flex-col gap-2 items-center w-full">
-		{#if !disableLogo}
+		{#if (!disableLogo && !$enterpriseLicense) || !$enterpriseLicense?.endsWith('_whitelabel')}
 			<div class="hidden lg:block">
 				<div>
 					<WindmillIcon height="100px" width="100px" spin="slow" />

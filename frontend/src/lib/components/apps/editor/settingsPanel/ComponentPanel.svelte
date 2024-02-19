@@ -276,7 +276,7 @@
 									id={component.id}
 									bind:componentInput={componentSettings.item.data.componentInput}
 								/>
-								<a class="text-2xs" on:click={transformToFrontend} href="#">
+								<a class="text-2xs" on:click={transformToFrontend} href={undefined}>
 									transform to a frontend script
 								</a>
 							{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}

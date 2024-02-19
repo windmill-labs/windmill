@@ -12,10 +12,9 @@
 		Preview,
 		type OpenFlow,
 		type FlowModule,
-		SettingsService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import {  userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
@@ -34,6 +33,7 @@
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -127,13 +127,9 @@
 		}
 	}
 
-	async function setEnterpriseLicense() {
-		if (!$enterpriseLicense) {
-			$enterpriseLicense = await SettingsService.getLicenseId()
-		}
-	}
+	setLicense()
+
 	onMount(() => {
-		setEnterpriseLicense()
 		window.addEventListener('message', el, false)
 		document.addEventListener('keydown', (e) => {
 			const obj = {
