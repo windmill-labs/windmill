@@ -1,4 +1,5 @@
 use async_recursion::async_recursion;
+use futures::Future;
 use itertools::Itertools;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -445,6 +446,100 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
         -3
     }
 }
+
+pub async fn update_job_poller<F, Fut>(
+    job_id: Uuid,
+    db: &DB,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
+    get_mem: F,
+    worker_name: &str,
+    w_id: &str,
+    mut rx: broadcast::Receiver<()>,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = i32>,
+{
+    let update_job_interval = Duration::from_millis(500);
+    if job_id == Uuid::nil() {
+        return;
+    }
+    let db = db.clone();
+
+    let mut interval = interval(update_job_interval);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let mut i = 0;
+
+    #[cfg(feature = "enterprise")]
+    let mut memory_metric_id: Result<String, Error> =
+        Err(Error::NotFound("not yet initialized".to_string()));
+
+    loop {
+        tokio::select!(
+            _ = rx.recv() => break,
+            _ = interval.tick() => {
+                // update the last_ping column every 5 seconds
+                i+=1;
+                if i % 10 == 0 {
+                    sqlx::query!(
+                        "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
+                        &worker_name
+                    )
+                    .execute(&db)
+                    .await
+                    .expect("update worker ping");
+                }
+                let current_mem = get_mem().await;
+                if current_mem > *mem_peak {
+                    *mem_peak = current_mem
+                }
+                tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+
+                #[cfg(feature = "enterprise")]
+                {
+                    // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                    if i == 2 {
+                        memory_metric_id = job_metrics::register_metric_for_job(
+                            &db,
+                            w_id.to_string(),
+                            job_id,
+                            "memory_kb".to_string(),
+                            job_metrics::MetricKind::TimeseriesInt,
+                            Some("Job Memory Footprint (kB)".to_string()),
+                        )
+                        .await;
+                    }
+                    if let Ok(ref metric_id) = memory_metric_id {
+                        if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                            tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        }
+                    }
+                }
+
+                let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
+                    .bind(*mem_peak)
+                    .bind(job_id)
+                    .fetch_optional(&db)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(%e, "error updating job {job_id}: {e}");
+                        Some((false, None, None))
+                    })
+                    .unwrap_or((false, None, None));
+                if canceled {
+                    canceled_by_ref.replace(CanceledBy {
+                        username: canceled_by.clone(),
+                        reason: canceled_reason.clone(),
+                    });
+                    break;
+                }
+            },
+        );
+    }
+    tracing::info!("job {job_id} finished");
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -467,7 +562,6 @@ pub async fn handle_child(
     sigterm: bool,
 ) -> error::Result<()> {
     let start = Instant::now();
-    let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
@@ -480,7 +574,7 @@ pub async fn handle_child(
         tracing::info!("could not get child pid");
     }
     let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
-    let (tx, mut rx) = broadcast::channel::<()>(3);
+    let (tx, rx) = broadcast::channel::<()>(3);
     let mut rx2 = tx.subscribe();
 
     let output = child_joined_output_stream(&mut child);
@@ -489,84 +583,16 @@ pub async fn handle_child(
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
-    let update_job = async {
-        if job_id == Uuid::nil() {
-            return;
-        }
-        let db = db.clone();
-
-        let mut interval = interval(update_job_interval);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        let mut i = 0;
-
-        #[cfg(feature = "enterprise")]
-        let mut memory_metric_id: Result<String, Error> =
-            Err(Error::NotFound("not yet initialized".to_string()));
-
-        loop {
-            tokio::select!(
-                _ = rx.recv() => break,
-                _ = interval.tick() => {
-                    // update the last_ping column every 5 seconds
-                    i+=1;
-                    if i % 10 == 0 {
-                        sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
-                            &worker_name
-                        )
-                        .execute(&db)
-                        .await
-                        .expect("update worker ping");
-                    }
-                    let current_mem = get_mem_peak(pid, nsjail).await;
-                    if current_mem > *mem_peak {
-                        *mem_peak = current_mem
-                    }
-                    tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
-
-                    #[cfg(feature = "enterprise")]
-                    {
-                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
-                        if i == 2 {
-                            memory_metric_id = job_metrics::register_metric_for_job(
-                                &db,
-                                w_id.to_string(),
-                                job_id,
-                                "memory_kb".to_string(),
-                                job_metrics::MetricKind::TimeseriesInt,
-                                Some("Job Memory Footprint (kB)".to_string()),
-                            )
-                            .await;
-                        }
-                        if let Ok(ref metric_id) = memory_metric_id {
-                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
-                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
-                            }
-                        }
-                    }
-
-                    let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
-                        .bind(*mem_peak)
-                        .bind(job_id)
-                        .fetch_optional(&db)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id}: {e}");
-                            Some((false, None, None))
-                        })
-                        .unwrap_or((false, None, None));
-                    if canceled {
-                        canceled_by_ref.replace(CanceledBy {
-                            username: canceled_by.clone(),
-                            reason: canceled_reason.clone(),
-                        });
-                        break;
-                    }
-                },
-            );
-        }
-    };
+    let update_job = update_job_poller(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by_ref,
+        || get_mem_peak(pid, nsjail),
+        worker_name,
+        w_id,
+        rx,
+    );
 
     #[derive(PartialEq, Debug)]
     enum KillReason {
