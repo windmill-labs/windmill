@@ -29,7 +29,7 @@
 	export let title: string | undefined = undefined
 	export let style: string = ''
 	export let download: string | undefined = undefined
-
+	export let portalTarget: string | undefined = undefined
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 
@@ -147,7 +147,7 @@
 </script>
 
 <div
-	class="{dropdownItems && variant === 'contained'
+	class="{dropdownItems && dropdownItems.length > 0 && variant === 'contained'
 		? colorVariants[color].divider
 		: ''} {wrapperClasses} flex flex-row"
 	style={wrapperStyle}
@@ -226,11 +226,11 @@
 		</button>
 	{/if}
 
-	{#if dropdownItems}
+	{#if dropdownItems && dropdownItems.length > 0}
 		<div
 			class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto !w-10 border-l-0')}
 		>
-			<ButtonDropdown>
+			<ButtonDropdown target={portalTarget}>
 				<svelte:fragment slot="items">
 					{#each computeDropdowns() ?? [] as item}
 						<MenuItem on:click={item.onClick} href={item.href}>

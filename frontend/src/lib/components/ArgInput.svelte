@@ -568,7 +568,7 @@
 					/>
 				</div>
 			{:else if inputCat == 'date'}
-				<DateTimeInput {autofocus} bind:value />
+				<DateTimeInput useDropdown {autofocus} bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
 				<div class="border my-1 mb-4 w-full border-primary">
 					<SimpleEditor
