@@ -702,7 +702,7 @@ pub async fn eval_fetch_timeout(
         })
     });
 
-    run_future_with_polling_update_job_poller(
+    let r = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
         db,
@@ -718,7 +718,9 @@ pub async fn eval_fetch_timeout(
             isolate.terminate_execution();
         }
         e
-    })
+    })?;
+    *mem_peak = (r.0.get().len() / 1000) as i32;
+    Ok(r)
 }
 
 async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<Box<RawValue>> {
