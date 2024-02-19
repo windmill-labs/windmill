@@ -487,7 +487,7 @@ where
         result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), result_f) => result
         .map_err(|e| {
             tracing::error!("Query timeout: {}", e);
-            Error::ExecutionErr("Query timeout".to_string())
+            Error::ExecutionErr(format!("Query timeout after (>{}s)", timeout_ms/1000))
         })?,
         _ = update_job, if job_id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
     }?;
