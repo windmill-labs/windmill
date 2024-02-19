@@ -1,12 +1,23 @@
+#[cfg(feature = "enterprise")]
 use crate::db::{ApiAuthed, DB};
-use std::collections::HashMap;
-
+#[cfg(feature = "enterprise")]
 use axum::extract::Path;
+#[cfg(feature = "enterprise")]
 use axum::routing::{delete, get};
-use axum::{Extension, Json, Router};
+#[cfg(feature = "enterprise")]
+use axum::{Extension, Json};
+
+use axum::Router;
+
+#[cfg(feature = "enterprise")]
 use polars::prelude::IntoVec;
+#[cfg(feature = "enterprise")]
 use serde::Serialize;
+#[cfg(feature = "enterprise")]
+use std::collections::HashMap;
+#[cfg(feature = "enterprise")]
 use windmill_common::error::Error::{InternalErr, PermissionDenied};
+#[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
 
 #[cfg(feature = "enterprise")]

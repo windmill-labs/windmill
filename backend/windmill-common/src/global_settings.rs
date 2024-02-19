@@ -11,6 +11,10 @@ pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
+pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
+pub const SCIM_TOKEN_SETTING: &str = "scim_token";
+pub const SAML_METADATA_SETTING: &str = "saml_metadata";
+
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
 pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
@@ -18,7 +22,7 @@ pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -73,4 +77,5 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "MAX_WAIT_FOR_SIGINT",
     "MAX_WAIT_FOR_SIGTERM",
     "WORKER_GROUP",
+    "SAML_METADATA",
 ];

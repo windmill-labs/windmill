@@ -276,7 +276,7 @@
 									id={component.id}
 									bind:componentInput={componentSettings.item.data.componentInput}
 								/>
-								<a class="text-2xs" on:click={transformToFrontend} href="#">
+								<a class="text-2xs" on:click={transformToFrontend} href={undefined}>
 									transform to a frontend script
 								</a>
 							{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
@@ -382,6 +382,24 @@
 		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
 			<Recompute
 				bind:recomputeIds={componentSettings.item.data.recomputeIds}
+				ownId={component.id}
+			/>
+		{/if}
+		{#if componentSettings.item.data.type === 'checkboxcomponent'}
+			<Recompute
+				title="Recompute on toggle"
+				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue'}
+				documentationLink={undefined}
+				bind:recomputeIds={componentSettings.item.data.onToggle}
+				ownId={component.id}
+			/>
+		{/if}
+		{#if componentSettings.item.data.type === 'resourceselectcomponent' || componentSettings.item.data.type === 'selectcomponent'}
+			<Recompute
+				title="Recompute on select"
+				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue'}
+				documentationLink={undefined}
+				bind:recomputeIds={componentSettings.item.data.onSelect}
 				ownId={component.id}
 			/>
 		{/if}

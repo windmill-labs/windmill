@@ -75,6 +75,7 @@
 			enabled: true,
 			modifierKey: 'ctrl' as 'ctrl',
 			onPanComplete: ({ chart }) => {
+				console.log(chart.scales.x.min)
 				dispatch('zoom', {
 					min: addSeconds(new Date(chart.scales.x.min), -1),
 					max: addSeconds(new Date(chart.scales.x.max), 1)
@@ -128,6 +129,7 @@
 		minTimeSet: string | undefined,
 		maxTimeSet: string | undefined
 	) {
+		console.log(minTimeSet, maxTimeSet)
 		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
 		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
 		if (minTimeSetDate && maxTimeSetDate) {

@@ -7,9 +7,8 @@
 	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
 
-	import { onMount } from 'svelte'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -20,6 +19,7 @@
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { clearStores } from '$lib/storeUtils'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -148,15 +148,18 @@
 		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 	}
 
-	onMount(async () => {
-		try {
-			loadLogins()
-			await UserService.getCurrentEmail()
-			redirectUser()
-		} catch {
-			clearStores()
-		}
-	})
+	async function redirectIfNecessary() {
+		await UserService.getCurrentEmail()
+		redirectUser()
+	}
+
+	try {
+		setLicense()
+		loadLogins()
+		redirectIfNecessary()
+	} catch {
+		clearStores()
+	}
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -189,7 +192,9 @@
 	<LoginPageHeader />
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
-			<WindmillIcon height="80px" width="80px" spin="slow" />
+			{#if !$enterpriseLicense || !$enterpriseLicense?.endsWith('_whitelabel')}
+				<WindmillIcon height="80px" width="80px" spin="slow" />
+			{/if}
 		</div>
 		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-primary">
 			Log in or sign up

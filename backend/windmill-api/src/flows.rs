@@ -221,20 +221,27 @@ pub async fn get_hub_flow_by_id(
 pub struct ToggleWorkspaceErrorHandler {
     pub muted: Option<bool>,
 }
+
+#[cfg(not(feature = "enterprise"))]
+async fn toggle_workspace_error_handler(
+    _authed: ApiAuthed,
+    Extension(_user_db): Extension<UserDB>,
+    Path((_w_id, _path)): Path<(String, StripPath)>,
+    Json(_req): Json<ToggleWorkspaceErrorHandler>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Muting the error handler for certain flow is only available in enterprise version"
+            .to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
-    #[cfg(not(feature = "enterprise"))]
-    {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
-
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(

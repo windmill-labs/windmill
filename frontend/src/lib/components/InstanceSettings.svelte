@@ -25,6 +25,7 @@
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
+	export let hideSave: boolean = false
 
 	let values: Record<string, any> = {}
 	let initialOauths: Record<string, any> = {}
@@ -76,7 +77,7 @@
 		}
 	}
 
-	async function saveSettings() {
+	export async function saveSettings() {
 		if (values) {
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			const newServerConfig = Object.fromEntries(
@@ -126,6 +127,7 @@
 		} else {
 			console.error('Values not loaded')
 		}
+		sendUserToast('Settings updated')
 	}
 
 	let oauths: Record<string, any> = {}
@@ -174,6 +176,7 @@
 </script>
 
 <div class="pb-8">
+	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
 			<Tab value={category}>{category}</Tab>
@@ -436,6 +439,19 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
+												{#if setting.key == 'saml_metadata'}
+													<div class="flex mt-2">
+														<Button
+															on:click={async (e) => {
+																const res = await SettingService.testMetadata({
+																	requestBody: values[setting.key]
+																})
+																sendUserToast(`Metadata valid, see console for full content`)
+																console.log(`Metadata content:`, res)
+															}}>Test content/url</Button
+														>
+													</div>
+												{/if}
 											{:else if setting.fieldType == 'license_key'}
 												<div class="flex justify-between gap-2">
 													<textarea
@@ -545,14 +561,8 @@
 		</svelte:fragment>
 	</Tabs>
 </div>
-<div class="py-4" />
 
-<Button
-	on:click={async () => {
-		await saveSettings()
-		sendUserToast('Settings updated')
-	}}
->
-	Save
-</Button>
-<div class="pb-8" />
+{#if !hideSave}
+	<Button on:click={saveSettings}>Save settings</Button>
+	<div class="pb-8" />
+{/if}

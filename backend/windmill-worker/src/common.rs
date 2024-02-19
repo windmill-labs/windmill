@@ -1,7 +1,11 @@
 use async_recursion::async_recursion;
 use itertools::Itertools;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::sys::signal::{self, Signal};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -23,19 +27,23 @@ use windmill_common::{
 use anyhow::Result;
 use windmill_queue::CanceledBy;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::os::unix::process::ExitStatusExt;
+
 use std::{
     borrow::Borrow,
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    io,
-    os::unix::process::ExitStatusExt,
-    panic,
+    io, panic,
     time::Duration,
 };
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::{job_metrics, variables, DB};
+use windmill_common::{variables, DB};
+
+#[cfg(feature = "enterprise")]
+use windmill_common::job_metrics;
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -491,6 +499,8 @@ pub async fn handle_child(
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let mut i = 0;
+
+        #[cfg(feature = "enterprise")]
         let mut memory_metric_id: Result<String, Error> =
             Err(Error::NotFound("not yet initialized".to_string()));
 
@@ -609,7 +619,9 @@ pub async fn handle_child(
 
         if let Some(id) = child.id() {
             if *MAX_WAIT_FOR_SIGINT > 0 {
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+
                 for _ in 0..*MAX_WAIT_FOR_SIGINT {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         break;
@@ -622,7 +634,9 @@ pub async fn handle_child(
                 }
             }
             if sigterm {
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+
                 for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         break;
@@ -758,12 +772,18 @@ pub async fn handle_child(
             } else if let Some(code) = status.code() {
                 Err(error::Error::ExitStatus(code))
             } else {
-                Err(error::Error::ExecutionErr(format!(
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                return Err(error::Error::ExecutionErr(format!(
                     "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
                     status.signal(),
                     status.stopped_signal(),
                     status.core_dumped()
-                )))
+                )));
+
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                return Err(error::Error::ExecutionErr(String::from(
+                    "process terminated by signal",
+                )));
             }
         }
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
@@ -780,19 +800,19 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
 }
 
 async fn resolve_job_timeout(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    job_id: Uuid,
+    _db: &Pool<Postgres>,
+    _w_id: &str,
+    _job_id: Uuid,
     custom_timeout_secs: Option<i32>,
 ) -> (Duration, Option<String>) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "enterprise")]
     let cloud_premium_workspace = *CLOUD_HOSTED
-        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
-            .fetch_one(db)
+        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
+            .fetch_one(_db)
             .await
             .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
+                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e}");
             })
             .unwrap_or(false);
     #[cfg(not(feature = "enterprise"))]

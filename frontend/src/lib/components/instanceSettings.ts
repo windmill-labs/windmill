@@ -106,8 +106,17 @@ export const settings: Record<string, Setting[]> = {
 	'SSO/OAuth': [],
 	Registries: [
 		{
-			label: 'Pip Extra Index Url',
+			label: 'Pip Index Url',
 			description: 'Add private PIP registry',
+			key: 'pip_index_url',
+			fieldType: 'text',
+			placeholder: 'https://username:password@pypi.company.com/simple',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Pip Extra Index Url',
+			description: 'Add private extra PIP registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
 			placeholder: 'https://username:password@pypi.company.com/simple',
@@ -174,6 +183,26 @@ export const settings: Record<string, Setting[]> = {
 			key: 'smtp_tls_implicit',
 			fieldType: 'boolean',
 			storage: 'config'
+		}
+	],
+	'SCIM/SAML': [
+		{
+			label: 'SCIM Token',
+			description: 'Token used to authenticate requests from the IdP',
+			key: 'scim_token',
+			fieldType: 'text',
+			placeholder: 'mytoken',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SAML metadata',
+			description: 'XML metadata url OR content for the SAML IdP',
+			key: 'saml_metadata',
+			fieldType: 'textarea',
+			placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	Debug: [

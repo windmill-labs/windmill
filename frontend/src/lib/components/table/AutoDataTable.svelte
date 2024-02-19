@@ -161,9 +161,13 @@
 										return true
 									}
 								})
-								.map(({ rowData }) => Object.values(rowData)
-									.map((field) => /[\",\n]/.test(field) ? "\"" + field.replace(/"/g, "\"\"") + "\"" : row)
-									.join(','))
+								.map(({ rowData }) =>
+									Object.values(rowData)
+										.map((field) =>
+											/[\",\n]/.test(field) ? '"' + field.replace(/"/g, '""') + '"' : field
+										)
+										.join(',')
+								)
 						].join('\n')
 
 						const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })

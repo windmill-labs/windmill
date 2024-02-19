@@ -51,8 +51,14 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue, Value};
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use tokio::fs::symlink;
+
+#[cfg(target_os = "windows")]
+use tokio::fs::symlink_file as symlink;
+
 use tokio::{
-    fs::{symlink, DirBuilder},
+    fs::DirBuilder,
     sync::{
         mpsc::{self, Sender},
         Barrier, RwLock,
@@ -255,6 +261,7 @@ lazy_static::lazy_static! {
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
     pub static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
@@ -1815,14 +1822,33 @@ async fn spawn_dedicated_workers_for_flow(
     workers
 }
 
-enum SpawnWorker {
+pub enum SpawnWorker {
     Script { path: String, hash: Option<ScriptHash> },
     RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn spawn_dedicated_worker(
+    _sw: SpawnWorker,
+    _w_id: &str,
+    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    _killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    _db: &Pool<Postgres>,
+    _worker_dir: &str,
+    _base_internal_url: &str,
+    _worker_name: &str,
+    _job_completed_tx: &JobCompletedSender,
+    _node_id: Option<String>,
+) -> Option<DedicatedWorker> {
+    tracing::error!("Dedicated worker is an enterprise feature");
+    killpill_tx.send(()).expect("send");
+    return None;
 }
 
 // spawn one dedicated worker and return the key, the channel sender and the join handle
 // note that for it will return none for language that do not support dedicated workers
 // note that go using cache binary does not need dedicated workers so all languages are supported
+#[cfg(feature = "enterprise")]
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,

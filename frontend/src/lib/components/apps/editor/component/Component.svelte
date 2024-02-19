@@ -401,6 +401,7 @@
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				onSelect={component.onSelect}
 				{render}
 			/>
 		{:else if component.type === 'multiselectcomponent'}
@@ -441,6 +442,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				recomputeIds={component.recomputeIds}
+				onToggle={component.onToggle}
 				{render}
 			/>
 		{:else if component.type === 'textinputcomponent'}

@@ -919,8 +919,13 @@ async function push(opts: GlobalOptions & SyncOptions) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
-        log.info(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`);
         const typ = getTypeStrFromPath(change.path);
+
+        if (typ == "script") {
+          log.info(`Archiving ${typ} ${change.path}`);
+        } else {
+          log.info(`Deleting ${typ} ${change.path}`);
+        }
         const workspaceId = workspace.workspaceId;
         switch (typ) {
           case "script": {
@@ -928,7 +933,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
               workspace: workspaceId,
               path: removeExtensionToPath(change.path),
             });
-            await ScriptService.deleteScriptByHash({
+            await ScriptService.archiveScriptByHash({
               workspace: workspaceId,
               hash: script.hash,
             });
