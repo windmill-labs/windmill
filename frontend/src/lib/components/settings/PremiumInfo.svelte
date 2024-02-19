@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { capitalize } from '$lib/utils'
+	import { capitalize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { WorkspaceService, type User, UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import Toggle from '../Toggle.svelte'
 
 	export let plan: string | undefined
 	export let customer_id: string | undefined
@@ -24,6 +25,7 @@
 				seatsFromUsers: number
 				seatsFromComps: number
 				usedSeats: number
+				automatic_billing: boolean
 		  }
 		| undefined = undefined
 	const plans = {
@@ -75,6 +77,26 @@
 			usedSeats
 		}
 	}
+
+	let billingModeLoading = false
+	async function setAutomaticBilling(ev) {
+		try {
+			billingModeLoading = true
+			console.log('toggle check', ev.detail)
+			await WorkspaceService.setAutomaticBilling({
+				workspace: $workspaceStore!,
+				requestBody: {
+					automatic_billing: ev.detail,
+					seats: premiumInfo?.usedSeats
+				}
+			})
+		} catch (err) {
+			sendUserToast("Couldn't update billing mode: " + err, true)
+		} finally {
+			await loadPremiumInfo()
+			billingModeLoading = false
+		}
+	}
 </script>
 
 <div class="my-8" />
@@ -98,10 +120,29 @@
 		<div class="flex flex-col gap-0.5">
 			{#if plan}
 				<div class="text-base inline font-bold leading-8 mb-2">
-					Current plan: {capitalize(plan)} plan{plan === 'team'
+					Current plan: {capitalize(plan)} plan{plan === 'team' && premiumInfo.automatic_billing
+						? ' (usage-based)'
+						: plan === 'team'
 						? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
 						: ''}
 				</div>
+				{#if plan === 'team'}
+					<div class="flex flex-row items-center gap-2 mb-4">
+						<Toggle
+							checked={premiumInfo?.automatic_billing}
+							options={{
+								right: 'Automatic billing based on usage',
+								rightTooltip:
+									'You will be billed for the maximum number of seats used in a given billing period.'
+							}}
+							on:change={setAutomaticBilling}
+							disabled={billingModeLoading}
+						/>
+						{#if billingModeLoading}
+							<Loader2 class="animate-spin" />
+						{/if}
+					</div>
+				{/if}
 			{:else}
 				<div class="inline text-lg font-bold">Current plan: Free plan</div>
 			{/if}
@@ -172,13 +213,17 @@
 									><div
 										class={twMerge(
 											'font-semibold',
-											plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats
+											plan === 'team' &&
+												premiumInfo.usedSeats > premiumInfo.seats &&
+												!premiumInfo.automatic_billing
 												? 'text-red-500'
 												: ''
 										)}
 										>Used seats <Tooltip
 											>Highest between seats from developers + operators and seats from computations
-										</Tooltip>{plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats
+										</Tooltip>{plan === 'team' &&
+										premiumInfo.usedSeats > premiumInfo.seats &&
+										!premiumInfo.automatic_billing
 											? ' > Paid seats'
 											: ''}</div
 									></Cell
@@ -187,13 +232,17 @@
 									<div
 										class={twMerge(
 											'text-base font-bold',
-											plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats
+											plan === 'team' &&
+												premiumInfo.usedSeats > premiumInfo.seats &&
+												!premiumInfo.automatic_billing
 												? 'text-red-500'
 												: ''
 										)}
 									>
-										max(u, c) = max({premiumInfo.seatsFromUsers}, {premiumInfo.seatsFromComps}) = {premiumInfo.usedSeats}{premiumInfo.usedSeats >
-										premiumInfo.seats
+										max(u, c) = max({premiumInfo.seatsFromUsers}, {premiumInfo.seatsFromComps}) = {premiumInfo.usedSeats}{plan ===
+											'team' &&
+										premiumInfo.usedSeats > premiumInfo.seats &&
+										!premiumInfo.automatic_billing
 											? ` > ${premiumInfo.seats}`
 											: ''}
 									</div>
@@ -202,7 +251,7 @@
 						</tbody>
 					</DataTable>
 
-					{#if plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats}
+					{#if plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats && !premiumInfo.automatic_billing}
 						<p class="text-red-500 mt-2 text-right text-base"
 							>You have exceeded your allowed number of seats, please update your plan in the
 							customer portal.
@@ -220,16 +269,22 @@
 <div class="text-base font-bold leading-8 mb-2 pt-8"> All plans </div>
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-    {#each Object.entries(plans) as [planTitle, planDesc]}
-        <div class="box p-4 text-xs flex flex-col h-full overflow-hidden prose-sm rounded-md">
-            <h2 class="mb-4 {planTitle === 'Team' ? 'text-blue-500' : planTitle === 'Enterprise' ? 'text-teal-600' : ''}">
-                {planTitle}
-            </h2>
-            <ul class="list-disc text-sm p-4">
-                {#each planDesc as item}
-                    <li class="mt-2">{@html item}</li>
-                {/each}
-            </ul>
+	{#each Object.entries(plans) as [planTitle, planDesc]}
+		<div class="box p-4 text-xs flex flex-col h-full overflow-hidden prose-sm rounded-md">
+			<h2
+				class="mb-4 {planTitle === 'Team'
+					? 'text-blue-500'
+					: planTitle === 'Enterprise'
+					? 'text-teal-600'
+					: ''}"
+			>
+				{planTitle}
+			</h2>
+			<ul class="list-disc text-sm p-4">
+				{#each planDesc as item}
+					<li class="mt-2">{@html item}</li>
+				{/each}
+			</ul>
 
 			<div class="grow" />
 			{#if planTitle == 'Team'}
@@ -257,7 +312,12 @@
 			{:else if planTitle == 'Enterprise'}
 				{#if plan != 'enterprise'}
 					<div class="mt-4 mx-auto">
-						<Button size="xs" color="bg-teal-600 text-white" href="https://www.windmill.dev/pricing" target="_blank">
+						<Button
+							size="xs"
+							color="bg-teal-600 text-white"
+							href="https://www.windmill.dev/pricing"
+							target="_blank"
+						>
 							See more
 						</Button>
 					</div>
@@ -270,16 +330,14 @@
 						Cancel your plan in the customer portal to downgrade to the free plan
 					</div>
 				{:else}
-				<div class="mx-auto font-semibold text-center">
-					Workspace is on the free plan
-				</div>
+					<div class="mx-auto font-semibold text-center"> Workspace is on the free plan </div>
 				{/if}
 			{/if}
 		</div>
 	{/each}
 </div>
 <div class="flex flex-col gap-1 my-8 w-full items-center">
-	<div class="text-primary text-md font-semibold"> Frequently asked questions </div><br/>
+	<div class="text-primary text-md font-semibold"> Frequently asked questions </div><br />
 	<div class="flex flex-col gap-4">
 		<div>
 			<div class="text-sm mb-1 text-secondary font-medium"> What is an execution? </div>
