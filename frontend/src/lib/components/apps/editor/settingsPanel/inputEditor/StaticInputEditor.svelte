@@ -62,7 +62,7 @@
 			<IconSelectInput bind:componentInput />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
-		{:else if fieldType === 'resource' && subFieldType !== 's3'}
+		{:else if fieldType === 'resource' && subFieldType === 'postgres'}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
@@ -77,6 +77,22 @@
 				}}
 				showSchemaExplorer
 				resourceType="postgresql"
+			/>
+		{:else if fieldType === 'resource' && subFieldType === 'mysql'}
+			<ResourcePicker
+				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
+				on:change={(e) => {
+					let path = e.detail
+					if (componentInput) {
+						if (path) {
+							componentInput.value = `$res:${path}`
+						} else {
+							componentInput.value = undefined
+						}
+					}
+				}}
+				showSchemaExplorer
+				resourceType="mysql"
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker

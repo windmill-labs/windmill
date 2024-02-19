@@ -33,6 +33,9 @@ export type InputType =
 	| 'db-table'
 	| 's3'
 	| 'number-tuple'
+	// Used for selecting the right resource type in the Database Studio
+	| 'postgres'
+	| 'mysql'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -209,6 +212,8 @@ export type AppInput =
 	| AppInputSpec<'array', object[], 'ag-chart'>
 	| AppInputSpec<'resource', string>
 	| AppInputSpec<'resource', string, 's3'>
+	| AppInputSpec<'resource', string, 'postgres'>
+	| AppInputSpec<'resource', string, 'mysql'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>

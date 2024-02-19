@@ -3238,6 +3238,22 @@ This is a paragraph.
 							resource: {
 								type: 'static',
 								fieldType: 'resource',
+								subFieldType: 'postgres',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						mysql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'mysql',
 								value: ''
 							} as StaticAppInput,
 							table: {
