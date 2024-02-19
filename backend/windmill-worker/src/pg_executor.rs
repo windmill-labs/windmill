@@ -12,7 +12,7 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::sync::{broadcast, Mutex};
 use tokio_postgres::types::IsNull;
 use tokio_postgres::{
@@ -199,13 +199,11 @@ pub async fn do_postgresql(
             .await
             .map_err(to_anyhow)?;
 
-        Ok(json!(rows
-            .try_collect::<Vec<Row>>()
-            .await
-            .map_err(to_anyhow)?
+        let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+        Ok(rows
             .into_iter()
-            .map(postgres_row_to_json_value)
-            .collect::<Result<Vec<_>, _>>()?)) as anyhow::Result<serde_json::Value>
+            .map(|x: Row| postgres_row_to_json_value(x))
+            .collect::<Result<Vec<_>, _>>()?) as anyhow::Result<Vec<serde_json::Value>>
     };
 
     let (tx, rx) = broadcast::channel::<()>(3);
@@ -289,8 +287,10 @@ pub async fn do_postgresql(
             handle.abort();
         }
     }
+    let raw_result = to_raw_value(&result);
+    *mem_peak = (raw_result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
-    return Ok(to_raw_value(&result));
+    return Ok(raw_result);
 }
 
 #[derive(Debug)]
