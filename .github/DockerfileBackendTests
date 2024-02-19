@@ -59,7 +59,7 @@ RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/pyth
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 COPY --from=oven/bun:1.0 /usr/local/bin/bun /usr/bin/bun
-COPY --from=denoland/deno:1.40.2 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:1.40.5 /usr/bin/deno /usr/bin/deno
 
 RUN apt-get update \
     && apt-get install -y postgresql-client --allow-unauthenticated
