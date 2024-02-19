@@ -158,6 +158,7 @@ pub struct WorkspaceSettings {
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
     pub default_app: Option<String>,
+    pub automatic_billing: bool,
 }
 
 #[derive(FromRow, Serialize, Debug)]
