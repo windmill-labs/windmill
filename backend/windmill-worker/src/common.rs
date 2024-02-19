@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
+use windmill_common::error::to_anyhow;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, AzureBlobResource, LargeFileStorage, ObjectStoreResource, S3Object,
     S3Resource,
@@ -445,6 +446,53 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
         // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
         -3
     }
+}
+
+pub async fn run_future_with_polling_update_job_poller<Fut, T>(
+    job_id: Uuid,
+    timeout: Option<i32>,
+    db: &DB,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
+    result_f: Fut,
+    worker_name: &str,
+    w_id: &str,
+) -> anyhow::Result<T>
+where
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    let (tx, rx) = broadcast::channel::<()>(3);
+
+    let update_job = update_job_poller(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by_ref,
+        || async { 0 },
+        worker_name,
+        w_id,
+        rx,
+    );
+
+    let timeout_ms = u64::try_from(
+        resolve_job_timeout(&db, &w_id, job_id, timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+
+    let rows = tokio::select! {
+        biased;
+        result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), result_f) => result
+        .map_err(|e| {
+            tracing::error!("Query timeout: {}", e);
+            Error::ExecutionErr("Query timeout".to_string())
+        })?,
+        _ = update_job, if job_id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+    }?;
+    drop(tx);
+    Ok(rows)
 }
 
 pub async fn update_job_poller<F, Fut>(
