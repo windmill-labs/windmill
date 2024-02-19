@@ -547,8 +547,8 @@
 					<Tooltip
 						documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 					>
-						Every resources have Resource Types attached to them which contains its schema and make
-						it easy in scripts and flows to accept only resources of a specific resource type
+						Every resource has a Resource Type attached to it which contains its schema and make
+						it easy in scripts and flows to accept only resources of a specific resource type.
 					</Tooltip>
 				</div>
 			</Tab>
