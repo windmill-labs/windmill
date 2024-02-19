@@ -48,9 +48,11 @@
 		value = newDate.toISOString()
 		dispatch('change', value)
 	}
+
+	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
-<div class="flex flex-row gap-1 items-center w-full" id="droptarget">
+<div class="flex flex-row gap-1 items-center w-full" id={randomId}>
 	<!-- svelte-ignore a11y-autofocus -->
 	<input type="date" bind:value={date} {autofocus} class="!w-3/4" />
 	<input type="time" bind:value={time} class="!w-1/4 min-w-[100px]" />
@@ -58,7 +60,7 @@
 		variant="border"
 		color="light"
 		size="xs"
-		portalTarget="#droptarget"
+		portalTarget={`#${randomId}`}
 		dropdownItems={useDropdown
 			? [
 					{
