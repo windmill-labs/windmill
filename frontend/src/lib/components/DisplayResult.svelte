@@ -495,7 +495,7 @@
 						<Alert size="xs" title="Large file detected" type="warning">
 							We recommend using persistent storage for large data files.
 							<a
-								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio"
+								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
 								target="_blank"
 								rel="noreferrer"
 								class="hover:underline"
