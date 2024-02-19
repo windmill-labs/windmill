@@ -76,7 +76,7 @@ pub async fn shutdown_signal(
 ) -> anyhow::Result<()> {
     use std::io;
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     async fn terminate() -> io::Result<()> {
         use tokio::signal::unix::SignalKind;
         tokio::signal::unix::signal(SignalKind::terminate())?
@@ -86,7 +86,7 @@ pub async fn shutdown_signal(
         Ok(())
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::select! {
         _ = terminate() => {},
         _ = tokio::signal::ctrl_c() => {},
@@ -95,7 +95,7 @@ pub async fn shutdown_signal(
         },
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {},
         _ = rx.recv() => {

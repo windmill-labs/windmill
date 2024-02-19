@@ -51,7 +51,7 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue, Value};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use tokio::fs::symlink;
 
 #[cfg(target_os = "windows")]
