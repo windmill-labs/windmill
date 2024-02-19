@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tokio_postgres::types::IsNull;
 use tokio_postgres::{
     types::{to_sql_checked, ToSql},
@@ -29,8 +29,9 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::Typ;
 use windmill_parser_sql::parse_pgsql_sig;
+use windmill_queue::CanceledBy;
 
-use crate::common::build_args_values;
+use crate::common::{build_args_values, resolve_job_timeout, update_job_poller};
 use crate::AuthedClientBackgroundTask;
 use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;
@@ -59,6 +60,9 @@ pub async fn do_postgresql(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, db).await?;
 
@@ -187,19 +191,54 @@ pub async fn do_postgresql(
         let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
         (client, None)
     };
-    // Now we can execute a simple statement that just returns its parameter.
-    let rows = client
-        .query_raw(query, query_params)
-        .await
-        .map_err(to_anyhow)?;
 
-    let result = json!(rows
-        .try_collect::<Vec<Row>>()
-        .await
-        .map_err(to_anyhow)?
-        .into_iter()
-        .map(postgres_row_to_json_value)
-        .collect::<Result<Vec<_>, _>>()?);
+    let result_f = async {
+        // Now we can execute a simple statement that just returns its parameter.
+        let rows = client
+            .query_raw(query, query_params)
+            .await
+            .map_err(to_anyhow)?;
+
+        Ok(json!(rows
+            .try_collect::<Vec<Row>>()
+            .await
+            .map_err(to_anyhow)?
+            .into_iter()
+            .map(postgres_row_to_json_value)
+            .collect::<Result<Vec<_>, _>>()?)) as anyhow::Result<serde_json::Value>
+    };
+
+    let (tx, rx) = broadcast::channel::<()>(3);
+
+    let update_job = update_job_poller(
+        job.id,
+        db,
+        mem_peak,
+        canceled_by,
+        || async { 0 },
+        worker_name,
+        &job.workspace_id,
+        rx,
+    );
+
+    let timeout_ms = u64::try_from(
+        resolve_job_timeout(&db, &job.workspace_id, job.id, None)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+    let result = tokio::select! {
+        biased;
+        result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), result_f) => result
+        .map_err(|e| {
+            tracing::error!("Query timeout: {}", e);
+            Error::ExecutionErr("Query timeout".to_string())
+        })?,
+        _ = update_job, if job.id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+    }?;
+    drop(tx);
+
     RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
 
     if let Some(handle) = handle {

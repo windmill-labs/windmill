@@ -172,7 +172,7 @@
 						<div class="flex p-1 gap-2">
 							<Button
 								size="xs"
-								on:click={() => window.open(`/apps/add?template_id=${selectedVersion}`)}
+								on:click={() => window.open(`/apps/add?template_id=${selectedVersion?.version}`)}
 							>
 								Restore as fork
 							</Button>
