@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::{
     types::{to_sql_checked, ToSql},
@@ -31,7 +31,7 @@ use windmill_parser::Typ;
 use windmill_parser_sql::parse_pgsql_sig;
 use windmill_queue::CanceledBy;
 
-use crate::common::{build_args_values, resolve_job_timeout, update_job_poller};
+use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
 use crate::AuthedClientBackgroundTask;
 use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;
@@ -206,37 +206,17 @@ pub async fn do_postgresql(
             .collect::<Result<Vec<_>, _>>()?) as anyhow::Result<Vec<serde_json::Value>>
     };
 
-    let (tx, rx) = broadcast::channel::<()>(3);
-
-    let update_job = update_job_poller(
+    let result = run_future_with_polling_update_job_poller(
         job.id,
+        job.timeout,
         db,
         mem_peak,
         canceled_by,
-        || async { 0 },
+        result_f,
         worker_name,
         &job.workspace_id,
-        rx,
-    );
-
-    let timeout_ms = u64::try_from(
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
-            .await
-            .0
-            .as_millis(),
     )
-    .unwrap_or(200000);
-    tracing::info!("Query timeout: {}ms", timeout_ms);
-    let result = tokio::select! {
-        biased;
-        result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), result_f) => result
-        .map_err(|e| {
-            tracing::error!("Query timeout: {}", e);
-            Error::ExecutionErr("Query timeout".to_string())
-        })?,
-        _ = update_job, if job.id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
-    }?;
-    drop(tx);
+    .await?;
 
     RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
 

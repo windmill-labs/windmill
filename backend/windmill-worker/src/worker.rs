@@ -2893,7 +2893,16 @@ async fn handle_code_execution_job(
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
-        return do_mysql(job, &client, &inner_content, db).await;
+        return do_mysql(
+            job,
+            &client,
+            &inner_content,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await;
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
