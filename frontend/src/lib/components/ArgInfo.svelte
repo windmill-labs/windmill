@@ -29,8 +29,9 @@
 				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
 				color="light"
 				size="xs"
+				startIcon={{ icon: ClipboardCopy }}
 			>
-				<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
+				Copy
 			</Button>
 		</svelte:fragment>
 		{#if isString(jsonViewerContent)}

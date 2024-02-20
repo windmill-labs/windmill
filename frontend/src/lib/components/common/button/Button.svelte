@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { ButtonType } from './model'
-	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropdown from './ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -64,42 +64,42 @@
 
 		blue: {
 			border:
-				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus:bg-frost-100 focus:dark:text-frost-100 dark:focus:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
+				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus-visible:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus-visible:bg-frost-100 focus-visible:dark:text-frost-100 dark:focus-visible:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus-visible:text-frost-700 focus-visible:ring-frost-300',
 			contained:
-				'bg-frost-500 hover:bg-frost-700 focus:bg-frost-700 text-white focus:ring-frost-300',
+				'bg-frost-500 hover:bg-frost-700 focus-visible:bg-frost-700 text-white focus-visible:ring-frost-300',
 			divider: 'divide-x divide-frost-600'
 		},
 		red: {
 			border:
-				'border-red-600/60 hover:border-red-600 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
-			contained: 'bg-red-600 hover:bg-red-600 text-white focus:ring-red-300',
+				'border-red-600/60 hover:border-red-600 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus-visible:ring-red-300 ',
+			contained: 'bg-red-600 hover:bg-red-600 text-white focus-visible:ring-red-300',
 			divider: 'divide-x divide-red-700'
 		},
 		green: {
 			border:
-				'border-green-600 hover:border-green-700 bg-surface hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
-			contained: 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-300',
+				'border-green-600 hover:border-green-700 bg-surface hover:bg-green-100 text-green-600 hover:text-green-700 focus-visible:ring-green-300',
+			contained: 'bg-green-600 hover:bg-green-700 text-white focus-visible:ring-green-300',
 			divider: 'divide-x divide-green-700'
 		},
 		dark: {
 			border:
-				'border-surface-inverse bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected-inverse',
+				'border-surface-inverse bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected-inverse',
 			contained:
-				'bg-surface-inverse hover:bg-surface-inverse-hover focus:bg-surface-hover-inverse text-primary-inverse focus:ring-surface-selected-inverse',
+				'bg-surface-inverse hover:bg-surface-inverse-hover focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse',
 			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		},
 		gray: {
 			border:
-				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-primary focus:text-primary focus:ring-gray-300',
+				'border-gray-500 dark:border-gray-300 hover:border-gray-700 dark:hover:border-gray-400 focus-visible:border-gray-700 bg-surface hover:bg-gray-100 dark:hover:bg-gray-900 focus-visible:bg-gray-100 focus-visible:dark:text-gray-100 dark:focus-visible:bg-gray-900 text-gray-500 dark:text-gray-300 dark:hover:text-gray-400 hover:text-gray-700 focus-visible:text-gray-700 focus-visible:ring-gray-300',
 			contained:
-				'bg-gray-700/90 hover:bg-gray-900/90 focus:bg-gray-900/90 text-white focus:ring-gray-300',
-			divider: 'divide-x divide-gray-700 dark:divide-gray-200'
+				'bg-gray-500 hover:bg-gray-700 focus-visible:bg-gray-700 text-white focus-visible:ring-gray-300',
+			divider: 'divide-x divide-gray-600'
 		},
 		light: {
 			border:
-				'border  bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected',
+				'border  bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected',
 			contained:
-				'bg-surface border-transparent hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-surface-selected',
+				'bg-surface border-transparent hover:bg-surface-hover focus-visible:bg-surface-hover text-primary focus-visible:ring-surface-selected',
 			divider: 'divide-x divide-gray-200 dark:divide-gray-700'
 		}
 	}
@@ -129,18 +129,31 @@
 		variant === 'border' ? 'border' : '',
 		ButtonType.FontSizeClasses[size],
 		ButtonType.SpacingClasses[spacingSize][variant],
-		'focus:ring-2 font-semibold',
+		'focus-visible:ring-2 font-semibold',
 		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
 		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
-		'transition-all'
+		'active:opacity-80 transition-all',
+		disabled ? '!bg-surface-disabled !text-tertiary cursor-not-allowed' : '',
+		loading ? 'cursor-wait' : ''
 	)
 
 	const iconMap = {
+		xs2: 14,
 		xs: 14,
 		sm: 16,
 		md: 16,
-		lg: 18
+		lg: 18,
+		xl: 18
+	}
+
+	const iconOnlyPadding = {
+		xs2: 'm-[1px]',
+		xs: 'm-[1px]',
+		sm: 'm-[2px]',
+		md: 'm-[2px]',
+		lg: 'm-[5px]',
+		xl: 'm-[5px]'
 	}
 
 	$: lucideIconSize = iconMap[size] ?? 12
@@ -154,7 +167,6 @@
 >
 	{#if href}
 		<a
-			data-sveltekit-preload-code="hover"
 			bind:this={element}
 			on:pointerdown
 			on:focus
@@ -168,10 +180,7 @@
 			}}
 			{href}
 			{download}
-			class={twMerge(
-				buttonClass,
-				disabled ? '!bg-surface-disabled !text-tertiary !cursor-not-allowed' : ''
-			)}
+			class={buttonClass}
 			{id}
 			{target}
 			tabindex={disabled ? -1 : 0}
@@ -179,16 +188,24 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class="animate-spin mr-1" size={14} />
+				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={startIcon.icon}
+					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon?.icon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={endIcon.icon}
+					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 		</a>
 	{:else}
@@ -200,10 +217,7 @@
 			on:blur
 			on:mouseenter
 			on:mouseleave
-			class={twMerge(
-				buttonClass,
-				disabled ? '!bg-surface-disabled !text-tertiary border !cursor-not-allowed' : ''
-			)}
+			class={buttonClass}
 			{id}
 			tabindex={disabled ? -1 : 0}
 			{title}
@@ -212,23 +226,36 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin', !iconOnly ? 'mr-1' : '')} size={14} />
+				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
 			{:else if startIcon?.icon}
-				<svelte:component this={startIcon.icon} class={startIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={startIcon.icon}
+					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 
 			{#if !iconOnly}
 				<slot />
 			{/if}
 			{#if endIcon?.icon}
-				<svelte:component this={endIcon.icon} class={endIcon.classes} size={lucideIconSize} />
+				<svelte:component
+					this={endIcon.icon}
+					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
+					size={lucideIconSize}
+				/>
 			{/if}
 		</button>
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
 		<div
-			class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto !w-10 border-l-0')}
+			class={twMerge(
+				buttonClass,
+				'rounded-md m-0 p-0 h-auto !w-10',
+				variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
+				'rounded-r-md !rounded-l-none'
+			)}
 		>
 			<ButtonDropdown target={portalTarget}>
 				<svelte:fragment slot="items">

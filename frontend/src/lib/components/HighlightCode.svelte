@@ -56,13 +56,15 @@
 
 <div class="relative overflow-x-auto">
 	<Button
-		class="absolute top-2 right-2"
+		wrapperClasses="absolute top-2 right-2"
 		on:click={() => copyToClipboard(code)}
 		color="light"
-		size="xs"
-	>
-		<ClipboardCopy size={12} />
-	</Button>
+		size="xs2"
+		startIcon={{
+			icon: ClipboardCopy
+		}}
+		iconOnly
+	/>
 	{#if code?.length < 5000}
 		{#if !lines}
 			<Highlight class="nowrap {$$props.class}" language={lang} {code} />
