@@ -47,7 +47,7 @@
 			The app has {unintitializedComponents.length} uninitialized components and {subgridsErrors.length}
 			subgrid errors.
 			<br />
-			Please contact Windmill support for assistance with the following information:^
+			Please contact Windmill support for assistance.
 		</Alert>
 	{/if}
 	{#if unintitializedComponents.length > 0}
