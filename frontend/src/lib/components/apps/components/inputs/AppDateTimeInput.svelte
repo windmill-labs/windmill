@@ -1,28 +1,33 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		VerticalAlignment,
+		RichConfigurations
+	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { parseISO, format as formatDateFns } from 'date-fns'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { parseISO, format as formatDateFns } from 'date-fns'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let inputType: 'date'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'dateinputcomponent'> | undefined = undefined
+	export let verticalAlignment: VerticalAlignment | undefined = undefined
+	export let customCss: ComponentCustomCSS<'datetimeinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
-		components['dateinputcomponent'].initialData.configuration,
+		components['datetimeinputcomponent'].initialData.configuration,
 		configuration
 	)
 
@@ -40,9 +45,9 @@
 
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
+	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy HH:mm') {
 		if (formatString === '') {
-			formatString = 'dd.MM.yyyy'
+			formatString = 'dd.MM.yyyy HH:mm'
 		}
 
 		try {
@@ -64,10 +69,11 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 	}
-	let css = initCss($app.css?.dateinputcomponent, customCss)
+
+	let css = initCss($app.css?.datetimeinputcomponent, customCss)
 </script>
 
-{#each Object.keys(components['dateinputcomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['datetimeinputcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
@@ -82,24 +88,15 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.dateinputcomponent}
+		componentStyle={$app.css?.datetimeinputcomponent}
 	/>
 {/each}
 
 <InitializeComponent {id} />
-
 <AlignWrapper {render} {verticalAlignment}>
-	{#if inputType === 'date'}
-		<input
-			on:focus={() => ($selectedComponent = [id])}
-			on:pointerdown|stopPropagation
-			type="date"
-			bind:value
-			min={resolvedConfig.minDate}
-			max={resolvedConfig.maxDate}
-			placeholder="Type..."
-			class={twMerge('w-full', css?.input?.class, 'wm-date-input')}
-			style={css?.input?.style ?? ''}
-		/>
-	{/if}
+	<div class={twMerge(css?.container?.class, 'w-full')} style={css?.container?.style}>
+		{#if inputType === 'date'}
+			<DateTimeInput bind:value useDropdown={resolvedConfig?.displayPresets} />
+		{/if}
+	</div>
 </AlignWrapper>

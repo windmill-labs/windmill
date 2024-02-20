@@ -699,6 +699,9 @@ export const quickStyleProperties: Record<
 	timeinputcomponent: {
 		input: inputDefaultProps
 	},
+	datetimeinputcomponent: {
+		container: inputDefaultProps
+	},
 	fileinputcomponent: {
 		container: containerDefaultProps
 	},

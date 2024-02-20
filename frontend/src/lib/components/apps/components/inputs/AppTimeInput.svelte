@@ -84,7 +84,7 @@
 			min={resolvedConfig.minTime}
 			max={resolvedConfig.maxTime}
 			placeholder="Type..."
-			class={twMerge('windmillapp w-full py-1.5 text-sm px-2', css?.input?.class)}
+			class={twMerge('w-full ', css?.input?.class)}
 			style={css?.input?.style ?? ''}
 		/>
 	{/if}

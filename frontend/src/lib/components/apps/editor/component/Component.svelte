@@ -72,6 +72,7 @@
 	import AppAlert from '../../components/display/AppAlert.svelte'
 	import AppDateSliderInput from '../../components/inputs/AppDateSliderInput.svelte'
 	import AppTimeInput from '../../components/inputs/AppTimeInput.svelte'
+	import AppDateTimeInput from '../../components/inputs/AppDateTimeInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -497,6 +498,15 @@
 			/>
 		{:else if component.type === 'timeinputcomponent'}
 			<AppTimeInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="date"
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'datetimeinputcomponent'}
+			<AppDateTimeInput
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				inputType="date"

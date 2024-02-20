@@ -47,7 +47,8 @@ import {
 	Database,
 	UploadCloud,
 	AlertTriangle,
-	Clock
+	Clock,
+	CalendarClock
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -91,6 +92,7 @@ export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
@@ -294,6 +296,7 @@ export type TypedComponent =
 	| AlertComponent
 	| DateSliderComponent
 	| TimeInputComponent
+	| DateTimeInputComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2335,6 +2338,39 @@ This is a paragraph.
 					fieldType: 'text',
 					tooltip: 'See date-fns format for more information',
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+				}
+			}
+		}
+	},
+	datetimeinputcomponent: {
+		name: 'Date & Time',
+		icon: CalendarClock,
+		documentationLink: `${documentationBaseUrl}/datetime_input`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				displayPresets: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Display presets to select the date for example, in 1 week, in 1 month, etc.'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text',
+					tooltip: 'See date-fns format for more information',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'datetime'
 				}
 			}
 		}

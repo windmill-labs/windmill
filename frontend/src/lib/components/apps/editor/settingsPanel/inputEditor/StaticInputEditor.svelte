@@ -44,6 +44,8 @@
 			<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 		{:else if fieldType === 'time'}
 			<input on:keydown|stopPropagation type="time" bind:value={componentInput.value} />
+		{:else if fieldType === 'datetime'}
+			<input on:keydown|stopPropagation type="datetime-local" bind:value={componentInput.value} />
 		{:else if fieldType === 'boolean'}
 			<Toggle bind:checked={componentInput.value} size="xs" class="mt-2" />
 		{:else if fieldType === 'select' && selectOptions}
