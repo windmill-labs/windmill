@@ -2346,7 +2346,7 @@ This is a paragraph.
 		name: 'Date & Time',
 		icon: CalendarClock,
 		documentationLink: `${documentationBaseUrl}/datetime_input`,
-		dims: '2:1-3:1' as AppComponentDimensions,
+		dims: '2:1-4:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
