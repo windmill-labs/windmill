@@ -15,6 +15,7 @@
 	import { Popup } from '../common'
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
+	import type { Flow } from '$lib/gen'
 
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
@@ -38,16 +39,15 @@
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
-		const idOrders = dfs($flowStore.value.modules, (x) => x.id)
+		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
-			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-				'lock'
-			]) +
+			yamlStringifyExceptKeys(sliceModules(flow.value.modules, upToIndex, idOrders), ['lock']) +
 			'</flowDetails>'
 
 		try {

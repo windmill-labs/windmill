@@ -3,7 +3,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
-	import type { InputTransform } from '$lib/gen'
+	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -36,7 +36,8 @@
 		}
 		abortController = new AbortController()
 		loading = true
-		const idOrders = dfs($flowStore.value.modules, (x) => x.id)
+		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
@@ -44,9 +45,7 @@
 
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
-			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-				'lock'
-			]) +
+			yamlStringifyExceptKeys(sliceModules(flow.value.modules, upToIndex, idOrders), ['lock']) +
 			'</flowDetails>'
 		try {
 			const availableData = {
