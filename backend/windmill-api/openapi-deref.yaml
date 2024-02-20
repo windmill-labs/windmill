@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.269.0
+  version: 1.273.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -888,6 +888,26 @@ paths:
             text/plain:
               schema:
                 type: string
+  /saml/test_metadata:
+    post:
+      summary: test metadata
+      operationId: testMetadata
+      tags:
+        - setting
+      requestBody:
+        description: test metadata
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -1500,6 +1520,8 @@ paths:
                     type: boolean
                   plan:
                     type: string
+                  automatic_billing:
+                    type: boolean
                   customer_id:
                     type: string
                   webhook:
@@ -1563,6 +1585,20 @@ paths:
                               type: string
                             use_individual_branch:
                               type: boolean
+                            exclude_types_override:
+                              type: array
+                              items:
+                                type: string
+                                enum:
+                                  - script
+                                  - flow
+                                  - app
+                                  - folder
+                                  - resource
+                                  - variable
+                                  - secret
+                                  - resourcetype
+                                  - schedule
                           required: &ref_175
                             - script_path
                             - git_repo_resource_path
@@ -1570,6 +1606,7 @@ paths:
                     type: string
                 required:
                   - code_completion_enabled
+                  - automatic_billing
   /w/{workspace}/workspaces/get_deploy_to:
     get:
       summary: get deploy to
@@ -1634,8 +1671,43 @@ paths:
                     type: number
                   seats:
                     type: number
+                  automatic_billing:
+                    type: boolean
                 required:
                   - premium
+                  - automatic_billing
+  /w/{workspace}/workspaces/set_automatic_billing:
+    post:
+      summary: set automatic billing
+      operationId: setAutomaticBilling
+      tags:
+        - workspace
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+      requestBody:
+        description: automatic billing
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                automatic_billing:
+                  type: boolean
+                seats:
+                  type: number
+              required:
+                - automatic_billing
+      responses:
+        '200':
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
   /w/{workspace}/workspaces/edit_slack_command:
     post:
       summary: edit slack command
@@ -7372,6 +7444,9 @@ paths:
                       type: string
                     priority:
                       type: integer
+                    flow_last_progress_ts:
+                      type: string
+                      format: date-time
                   required: &ref_72
                     - id
                     - running

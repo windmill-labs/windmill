@@ -575,6 +575,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let zombie_jobs_f = async {
         if server_mode {
             handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
+            handle_zombie_flows(db).await;
         }
     };
     let expired_items_f = async {
@@ -854,5 +855,29 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             send_result_never_used,
         )
         .await;
+    }
+}
+
+async fn handle_zombie_flows(db: &DB) {
+    let flows = sqlx::query!(
+        r#"
+        SELECT workspace_id, id, flow_last_progress_ts
+        FROM queue
+        WHERE running = true AND (job_kind = $1 OR job_kind = $2) AND flow_last_progress_ts IS NOT NULL AND flow_last_progress_ts < NOW() - INTERVAL '1 minute'
+        "#,
+        JobKind::Flow as JobKind,
+        JobKind::FlowPreview as JobKind,
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    // TODO: for now only log zombie flows
+    for flow in flows {
+        tracing::warn!(
+            "Zombie flow detected: {} in workspace {}",
+            flow.id,
+            flow.workspace_id
+        );
     }
 }

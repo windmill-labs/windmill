@@ -589,6 +589,21 @@ pub async fn add_completed_job<
         )
         .await?;
     }
+    if queued_job.is_flow_step
+        && queued_job.job_kind != JobKind::Flow
+        && queued_job.job_kind != JobKind::FlowPreview
+        && queued_job.parent_job.is_some()
+    {
+        // persist the flow last progress timestamp to avoid zombie flow jobs
+        tracing::warn!("Persisting flow last progress timestamp");
+        sqlx::query!(
+            "UPDATE queue SET flow_last_progress_ts = now() WHERE id = $1 AND workspace_id = $2",
+            queued_job.parent_job.unwrap(),
+            &queued_job.workspace_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
     if queued_job.concurrent_limit.is_some() {
         let concurrency_key = concurrency_key(db, queued_job).await;
         if let Err(e) = sqlx::query_scalar!(
@@ -1666,7 +1681,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
                 same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
                  root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-                 timeout,  flow_step_id,  cache_ttl, priority",
+                 timeout,  flow_step_id,  cache_ttl, priority, flow_last_progress_ts",
             )
             .bind(uuid)
             .fetch_optional(db)
@@ -1723,7 +1738,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
             same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
              root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-             timeout,  flow_step_id,  cache_ttl, priority")
+             timeout,  flow_step_id,  cache_ttl, priority, flow_last_progress_ts")
                 .bind(tags)
                 .fetch_optional(db)
                 .await?
@@ -1761,7 +1776,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                     flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
                     same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
                      root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-                     timeout,  flow_step_id,  cache_ttl, priority",
+                     timeout,  flow_step_id,  cache_ttl, priority, flow_last_progress_ts",
                 )
                 .bind(priority_tags.tags.clone())
                 .fetch_optional(db)
@@ -3065,8 +3080,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
                 flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
-                flow_step_id, cache_ttl, priority)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) \
+                flow_step_id, cache_ttl, priority, flow_last_progress_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -3098,6 +3113,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         flow_step_id,
         cache_ttl,
         final_priority,
+        if job_kind == JobKind::Flow ||  job_kind == JobKind::FlowPreview { Some(chrono::Utc::now()) } else { None }
     )
     .fetch_one(&mut tx)
     .await

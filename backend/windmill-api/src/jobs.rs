@@ -540,7 +540,7 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
                 script_hash, script_path, CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, right(logs, 20000000) as logs, raw_code, canceled, canceled_by, canceled_reason, last_ping, 
                 job_kind, env_id, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
                  suspend, suspend_until, same_worker, raw_lock, pre_run_error, email, visible_to_owner, mem_peak, 
-                root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, priority
+                root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, priority, flow_last_progress_ts
                 FROM queue WHERE id = $1 AND workspace_id = $2",
         )
         .bind(job_id)
@@ -957,6 +957,7 @@ async fn list_jobs(
                 "null as concurrent_limit",
                 "null as concurrency_time_window_s",
                 "priority",
+                "null as flow_last_progress_ts",
             ],
         ))
     } else {
@@ -1020,6 +1021,7 @@ async fn list_jobs(
                 "concurrent_limit",
                 "concurrency_time_window_s",
                 "priority",
+                "flow_last_progress_ts",
             ],
         );
 
@@ -1643,6 +1645,7 @@ struct UnifiedJob {
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
     priority: Option<i16>,
+    flow_last_progress_ts: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl<'a> From<UnifiedJob> for Job {
@@ -1722,6 +1725,7 @@ impl<'a> From<UnifiedJob> for Job {
                 flow_step_id: None,
                 cache_ttl: None,
                 priority: uj.priority,
+                flow_last_progress_ts: uj.flow_last_progress_ts,
             }),
             t => panic!("job type {} not valid", t),
         }

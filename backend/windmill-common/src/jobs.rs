@@ -99,6 +99,8 @@ pub struct QueuedJob {
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_last_progress_ts: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl QueuedJob {
@@ -185,6 +187,7 @@ impl Default for QueuedJob {
             flow_step_id: None,
             cache_ttl: None,
             priority: None,
+            flow_last_progress_ts: None,
         }
     }
 }

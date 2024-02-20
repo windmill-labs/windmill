@@ -312,7 +312,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         )
                         .fetch_one(&mut tx)
                         .await?
-                        .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
+                        .ok_or_else(|| Error::InternalErr("requiring an index in InProgress".to_string()))?;
                         (nindex, itered.len() as i32)
                     }
                     (_, Some(BranchAllStatus { len, .. })) => {
@@ -326,12 +326,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                         )
                         .fetch_one(&mut tx)
                         .await?
-                        .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
+                        .ok_or_else(|| Error::InternalErr("requiring an index in InProgress".to_string()))?;
                         (nindex, *len as i32)
                     }
-                    _ => Err(Error::InternalErr(format!(
-                        "unexpected status for parallel module"
-                    )))?,
+                    _ => Err(Error::InternalErr(
+                        "unexpected status for parallel module".to_string(),
+                    ))?,
                 };
                 if nindex == len {
                     let new_status = if skip_loop_failures
@@ -2025,6 +2025,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         uuids.push(uuid);
     }
 
+    // after all jobs have been pushed, reset the flow last progress timestamp
+    tracing::warn!("Resetting flow last progress timestamp");
+    sqlx::query!(
+        "UPDATE queue SET flow_last_progress_ts = NULL WHERE id = $1 AND workspace_id = $2",
+        flow_job.id,
+        &flow_job.workspace_id
+    )
+    .execute(&mut tx)
+    .await?;
+
     let is_one_uuid = uuids.len() == 1;
 
     let one_uuid = if is_one_uuid {
@@ -2121,6 +2131,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .execute(&mut tx)
         .await?;
     };
+
+    if i > 0 && *windmill_common::CRASH_UNEXPECTED_FAILURE == 1 as u8 {
+        tracing::error!("CRASH#1 - unexpected failure");
+        panic!("CRASH#1 - unexpected failure");
+    }
 
     tx.commit().await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");

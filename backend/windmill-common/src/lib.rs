@@ -62,6 +62,11 @@ lazy_static::lazy_static! {
     .flatten()
     .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT)));
 
+    pub static ref CRASH_UNEXPECTED_FAILURE: u8 = std::env::var("CRASH_UNEXPECTED_FAILURE")
+    .ok()
+    .and_then(|s| s.parse::<u8>().ok())
+    .unwrap_or(0);
+
     pub static ref METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("METRICS_PORT").is_ok() || std::env::var("METRICS_ADDR").is_ok());
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
