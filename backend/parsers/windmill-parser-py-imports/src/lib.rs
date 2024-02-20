@@ -145,6 +145,7 @@ pub async fn parse_python_imports(
     w_id: &str,
     path: &str,
     db: &Pool<Postgres>,
+    already_visited: &mut Vec<String>,
 ) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
@@ -192,7 +193,12 @@ pub async fn parse_python_imports(
                 .fetch_optional(db)
                 .await?
                 .unwrap_or_else(|| "".to_string());
-                parse_python_imports(&code, w_id, &rpath, db).await?
+                if already_visited.contains(&rpath) {
+                    vec![]
+                } else {
+                    already_visited.push(rpath.clone());
+                    parse_python_imports(&code, w_id, &rpath, db, already_visited).await?
+                }
             } else {
                 vec![replace_import(n.to_string())]
             };
