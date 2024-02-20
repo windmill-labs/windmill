@@ -352,6 +352,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 const buttonColorOptions = [...BUTTON_COLORS]
 
 export const selectOptions = {
+	dateInputTypeOptions: ['date', 'datetime-local', 'time'],
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'invisibleOnView'],
 	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
@@ -2300,7 +2301,7 @@ This is a paragraph.
 		}
 	},
 	dateinputcomponent: {
-		name: 'Date',
+		name: 'Date & Time picker',
 		icon: Calendar,
 		documentationLink: `${documentationBaseUrl}/date_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
@@ -2332,6 +2333,12 @@ This is a paragraph.
 					fieldType: 'text',
 					tooltip: 'See date-fns format for more information',
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+				},
+				type: {
+					type: 'static',
+					value: 'date',
+					fieldType: 'select',
+					selectOptions: selectOptions.dateInputTypeOptions
 				}
 			}
 		}

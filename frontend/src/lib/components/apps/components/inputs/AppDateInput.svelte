@@ -41,12 +41,19 @@
 	$: handleDefault(resolvedConfig.defaultValue)
 
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
+		const type = resolvedConfig?.type as 'date' | 'datetime-local' | 'time'
 		if (formatString === '') {
-			formatString = 'dd.MM.yyyy'
+			if (type === 'time') {
+				formatString = 'HH:mm'
+			} else if (type === 'date') {
+				formatString = 'dd.MM.yyyy'
+			} else {
+				formatString = 'dd.MM.yyyy HH:mm'
+			}
 		}
 
 		try {
-			const isoDate = parseISO(dateString)
+			const isoDate = parseISO(type === 'time' ? `1970-01-01T${dateString}` : dateString)
 			return formatDateFns(isoDate, formatString)
 		} catch (error) {
 			return 'Error formatting date:' + error.message
@@ -90,16 +97,42 @@
 
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}
-		<input
-			on:focus={() => ($selectedComponent = [id])}
-			on:pointerdown|stopPropagation
-			type="date"
-			bind:value
-			min={resolvedConfig.minDate}
-			max={resolvedConfig.maxDate}
-			placeholder="Type..."
-			class={twMerge(css?.input?.class, 'wm-date-input')}
-			style={css?.input?.style ?? ''}
-		/>
+		{#if resolvedConfig.type === 'date'}
+			<input
+				on:focus={() => ($selectedComponent = [id])}
+				on:pointerdown|stopPropagation
+				bind:value
+				type="date"
+				min={resolvedConfig.minDate}
+				max={resolvedConfig.maxDate}
+				placeholder="Type..."
+				class={twMerge(css?.input?.class, 'wm-date-input')}
+				style={css?.input?.style ?? ''}
+			/>
+		{:else if resolvedConfig.type === 'datetime-local'}
+			<input
+				on:focus={() => ($selectedComponent = [id])}
+				on:pointerdown|stopPropagation
+				bind:value
+				type="datetime-local"
+				min={resolvedConfig.minDate}
+				max={resolvedConfig.maxDate}
+				placeholder="Type..."
+				class={twMerge(css?.input?.class, 'wm-date-input')}
+				style={css?.input?.style ?? ''}
+			/>
+		{:else if resolvedConfig.type === 'time'}
+			<input
+				on:focus={() => ($selectedComponent = [id])}
+				on:pointerdown|stopPropagation
+				bind:value
+				type="time"
+				min={resolvedConfig.minDate}
+				max={resolvedConfig.maxDate}
+				placeholder="Type..."
+				class={twMerge(css?.input?.class, 'wm-date-input')}
+				style={css?.input?.style ?? ''}
+			/>
+		{/if}
 	{/if}
 </AlignWrapper>
