@@ -16,6 +16,7 @@
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let generatedContent = ''
 	let loading = false
@@ -87,11 +88,12 @@
 The current step is ${selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
-All possibles inputs either start with results. or flow_input. and are follow by the key of the input.
+All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
-If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
+Favor results and flow_input.iter.value over flow inputs.
+If none of the results and of the flow inputs are appropriate, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
@@ -197,7 +199,12 @@ Only return the expression without any wrapper.`
 		<Button
 			size="xs"
 			color="light"
-			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover"
+			btnClasses={twMerge(
+				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
+				!loading && generatedContent.length > 0
+					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
+					: ''
+			)}
 			on:click={() => {
 				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)

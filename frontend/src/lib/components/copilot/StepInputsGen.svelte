@@ -16,6 +16,7 @@
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
@@ -72,8 +73,8 @@ Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 
 Your answer has to be in the following format (one line per input):
-{input_name1}: {expression1}
-{input_name2}: {expression2}
+input_name1: expression1
+input_name2: expression2
 ...`
 
 			generatedContent = await getNonStreamingCompletion(
@@ -171,7 +172,12 @@ Your answer has to be in the following format (one line per input):
 		<Button
 			size="xs"
 			color="light"
-			btnClasses="text-violet-800 dark:text-violet-400"
+			btnClasses={twMerge(
+				'text-violet-800 dark:text-violet-400',
+				!loading && Object.keys($generatedExprs || {}).length > 0
+					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
+					: ''
+			)}
 			on:mouseenter={(ev) => {
 				if (out) {
 					out = false

@@ -13,6 +13,7 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
 
 	let generatedContent = ''
 	let loading = false
@@ -135,7 +136,12 @@ Only output the expression, do not explain or discuss.`
 		<Button
 			size="xs"
 			color="light"
-			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover"
+			btnClasses={twMerge(
+				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
+				!loading && generatedContent.length > 0
+					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
+					: ''
+			)}
 			on:click={() => {
 				if (!loading && generatedContent.length > 0) {
 					dispatch('setExpr', generatedContent)
