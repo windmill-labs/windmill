@@ -15,7 +15,7 @@
 <button
 	on:pointerdown|preventDefault|stopPropagation
 	on:click|preventDefault|stopPropagation={refresh}
-	class="center-center p-1 rounded border bg-surface/60 hover:bg-gray-200 z-10"
+	class="center-center p-1 rounded border bg-surface/60 hover:bg-surface-hover z-10"
 >
 	<RefreshCw class={loading ? 'animate-spin' : ''} size={16} />
 </button>

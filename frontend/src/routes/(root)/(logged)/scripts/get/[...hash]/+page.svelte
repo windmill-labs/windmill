@@ -634,7 +634,7 @@
 									<HighlightCode
 										language={script.language}
 										code={script.content}
-										class="whitespace-pre"
+										class="whitespace-pre-wrap"
 									/>
 								</div>
 							</TabContent>

@@ -86,7 +86,7 @@
 <Button
 	color="light"
 	size="xs"
-	wrapperClasses="border rounded-md"
+	variant="border"
 	on:click={() => {
 		const ts = computeMinMax()
 		if (ts) {

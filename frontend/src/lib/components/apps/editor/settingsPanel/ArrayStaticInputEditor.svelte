@@ -288,7 +288,7 @@
 							</div>
 							{#if subFieldType !== 'db-explorer'}
 								<button
-									class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+									class="z-10 rounded-full p-1 duration-200 hover:bg-surface-hover"
 									aria-label="Remove item"
 									on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
 								>
