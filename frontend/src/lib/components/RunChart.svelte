@@ -75,7 +75,6 @@
 			enabled: true,
 			modifierKey: 'ctrl' as 'ctrl',
 			onPanComplete: ({ chart }) => {
-				console.log(chart.scales.x.min)
 				dispatch('zoom', {
 					min: addSeconds(new Date(chart.scales.x.min), -1),
 					max: addSeconds(new Date(chart.scales.x.max), 1)

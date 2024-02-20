@@ -46,7 +46,8 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "sklearn" => "scikit-learn",
     "umap" => "umap-learn",
     "cv2" => "opencv-python",
-    "atlassian" => "atlassian-python-api"
+    "atlassian" => "atlassian-python-api",
+    "mysql" => "mysql-connector-python",
 };
 
 fn replace_import(x: String) -> String {
