@@ -210,7 +210,6 @@
 							const whereClause = (c.configuration.whereClause as any).value as unknown as
 								| string
 								| undefined
-							console.log(columnDefs)
 							if (tableValue && resourceValue && columnDefs) {
 								r.push({
 									input: createPostgresInput(resourceValue, tableValue, columnDefs, whereClause),
@@ -677,7 +676,7 @@
 		},
 		// App debug menu
 		{
-			displayName: 'Debug',
+			displayName: 'Troubleshoot panel',
 			icon: Bug,
 			action: () => {
 				debugAppDrawerOpen = true
@@ -694,6 +693,10 @@
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
 
 	let appReportingDrawerOpen = false
+
+	export function openTroubleshootPanel() {
+		debugAppDrawerOpen = true
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -946,8 +949,8 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={debugAppDrawerOpen} size="1200px">
-	<DrawerContent title="Debug App" on:close={() => (debugAppDrawerOpen = false)}>
+<Drawer bind:open={debugAppDrawerOpen} size="800px">
+	<DrawerContent title="Troubleshoot Panel" on:close={() => (debugAppDrawerOpen = false)}>
 		<DebugPanel />
 	</DrawerContent>
 </Drawer>

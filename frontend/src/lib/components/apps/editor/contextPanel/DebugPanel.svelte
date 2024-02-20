@@ -57,11 +57,17 @@
 					There are {pluralize(unintitializedComponents.length, 'uninitialized component')} in the app.
 				</div>
 
-				<div class="grid grid-cols-3 border rounded-md">
+				<div class="grid grid-cols-3 border rounded-md overflow-hidden">
 					<!-- Header -->
-					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Component Id</div>
-					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Type</div>
-					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Status</div>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Component Id</div
+					>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Type</div
+					>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Status</div
+					>
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each unintitializedComponents as c}
@@ -93,11 +99,17 @@
 					{pluralize(subgridsErrors.length, 'subgrid')} with errors in the app.
 				</div>
 
-				<div class="grid grid-cols-3 border rounded-md">
+				<div class="grid grid-cols-3 border rounded-md overflow-hidden">
 					<!-- Header -->
-					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Subgrid Id</div>
-					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Error</div>
-					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Action</div>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Subgrid Id</div
+					>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Error</div
+					>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Action</div
+					>
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each subgridsErrors as s}
