@@ -3288,7 +3288,7 @@ This is a paragraph.
 		}
 	},
 	dbexplorercomponent: {
-		name: 'Database Studio',
+		name: 'Database Studio Table',
 		icon: Database,
 		documentationLink: `${documentationBaseUrl}/database_studio`,
 		dims: '2:8-6:8' as AppComponentDimensions,
