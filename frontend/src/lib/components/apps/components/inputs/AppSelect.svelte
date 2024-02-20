@@ -227,6 +227,7 @@
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) +
 					css?.input?.style}
 				{value}
+				class={css?.input?.class}
 				placeholder={resolvedConfig.placeholder}
 				disabled={resolvedConfig.disabled}
 				on:focus={() => {
