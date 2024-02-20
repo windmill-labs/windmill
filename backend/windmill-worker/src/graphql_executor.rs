@@ -134,7 +134,7 @@ pub async fn do_graphql(
             .unwrap_or_else(|| serde_json::from_str("{}").unwrap()))
     };
 
-    Ok(run_future_with_polling_update_job_poller(
+    let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
         db,
@@ -144,5 +144,8 @@ pub async fn do_graphql(
         worker_name,
         &job.workspace_id,
     )
-    .await?)
+    .await?;
+
+    *mem_peak = (r.get().len() / 1000) as i32;
+    Ok(r)
 }

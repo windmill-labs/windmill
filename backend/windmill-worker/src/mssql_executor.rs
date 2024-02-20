@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use futures::TryFutureExt;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -11,8 +12,9 @@ use windmill_common::error::{self, Error};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_mssql_sig;
+use windmill_queue::CanceledBy;
 
-use crate::common::build_args_values;
+use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]
@@ -30,6 +32,9 @@ pub async fn do_mssql(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -84,23 +89,40 @@ pub async fn do_mssql(
         json_value_to_sql(&mut prepared_query, &arg_v, &arg_t)?;
     }
 
-    // A response to a query is a stream of data, that must be
-    // polled to the end before querying again. Using streams allows
-    // fetching data in an asynchronous manner, if needed.
-    let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
-    let rows = stream
-        .into_results()
-        .await
-        .map_err(to_anyhow)?
-        .into_iter()
-        .map(|rows| {
-            let result = rows
-                .into_iter()
-                .map(|row| row_to_json(row))
-                .collect::<Result<Vec<Map<String, Value>>, Error>>();
-            result
-        })
-        .collect::<Result<Vec<Vec<Map<String, Value>>>, Error>>()?;
+    let result_f = async {
+        // A response to a query is a stream of data, that must be
+        // polled to the end before querying again. Using streams allows
+        // fetching data in an asynchronous manner, if needed.
+        let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
+        stream
+            .into_results()
+            .await
+            .map_err(to_anyhow)?
+            .into_iter()
+            .map(|rows| {
+                let result = rows
+                    .into_iter()
+                    .map(|row| row_to_json(row))
+                    .collect::<Result<Vec<Map<String, Value>>, Error>>();
+                result
+            })
+            .collect::<Result<Vec<Vec<Map<String, Value>>>, Error>>()
+    };
+
+    let rows = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        result_f.map_err(to_anyhow),
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
+
+    let r = to_raw_value(&rows);
+    *mem_peak = (r.get().len() / 1000) as i32;
 
     return Ok(to_raw_value(&rows));
 }
