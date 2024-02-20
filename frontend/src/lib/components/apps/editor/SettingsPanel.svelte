@@ -116,6 +116,8 @@
 							shouldCapitalize={false}
 							bind:inputSpecs={hiddenInlineScript.script.fields}
 							userInputEnabled={false}
+							recomputeOnInputChanged={hiddenInlineScript.script.recomputeOnInputChanged}
+							showOnDemandOnlyToggle
 						/>
 					{/key}
 				</PanelSection>

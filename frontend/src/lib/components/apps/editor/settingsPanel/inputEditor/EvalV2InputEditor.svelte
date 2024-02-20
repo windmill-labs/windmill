@@ -9,12 +9,15 @@
 	import { Maximize2, X } from 'lucide-svelte'
 	import { Drawer } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
 	export let field: string
 	export let fixedOverflowWidgets: boolean = true
 	export let acceptSelf: boolean = false
+	export let recomputeOnInputChanged = true
+	export let showOnDemandOnlyToggle = false
 
 	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
@@ -143,9 +146,28 @@
 			or surround with <pre class="font-mono text-2xs inline">{'()'}</pre></div
 		>
 	{/if}
-	{#if componentInput.connections?.length > 0}
+
+	{#if componentInput.connections?.length > 0 && recomputeOnInputChanged}
 		<div class="flex flex-wrap gap-2 items-center">
-			<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
+			{#if showOnDemandOnlyToggle}
+				<Toggle
+					size="xs"
+					color="blue"
+					disabled={!recomputeOnInputChanged}
+					checked={!componentInput.onDemandOnly}
+					on:change={() => {
+						if (componentInput) {
+							componentInput.onDemandOnly = !componentInput.onDemandOnly
+							if (!componentInput.onDemandOnly) {
+								delete componentInput.onDemandOnly
+							}
+						}
+					}}
+				/>
+			{/if}
+			<div class="text-2xs text-tertiary"
+				>{componentInput.onDemandOnly ? 'NOT' : ''} Re-evaluated on changes to:</div
+			>
 			<div class="flex flex-wrap gap-1">
 				{#each componentInput.connections as connection (connection.componentId + '-' + connection.id)}
 					<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
