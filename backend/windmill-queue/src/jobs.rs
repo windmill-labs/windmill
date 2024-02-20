@@ -1593,6 +1593,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "UPDATE queue
                 SET running = false
                 , started_at = null
+                , flow_last_progress_ts = NULL
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
                 , logs = CASE WHEN logs IS NULL OR logs = '' THEN '{job_log_event}'::text WHEN logs LIKE '%{job_log_event}' THEN logs ELSE concat(logs, '{job_log_line_break}{job_log_event}'::text) END
                 WHERE id = '{job_uuid}'
@@ -1616,6 +1617,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "UPDATE queue
                 SET running = false
                 , started_at = null
+                , flow_last_progress_ts = NULL
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
                 , logs = CASE WHEN logs IS NULL OR logs = '' THEN '{job_log_event}'::text WHEN logs LIKE '%{job_log_event}' THEN logs ELSE concat(logs, '{job_log_line_break}{job_log_event}'::text) END
                 WHERE (id = '{job_uuid}') OR (script_path = '{job_script_path}' AND running = false AND scheduled_for <= now())"
@@ -1674,6 +1676,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             , started_at = coalesce(started_at, now())
             , last_ping = now()
             , suspend_until = null
+            , flow_last_progress_ts = (CASE WHEN job_kind = 'flow' THEN now() ELSE NULL END)
             WHERE id = $1
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
                 running,  script_hash,  script_path,  args,   right(logs, 20000000) as logs,  raw_code,  canceled,  canceled_by,  
@@ -1724,6 +1727,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
               , started_at = coalesce(started_at, now())
               , last_ping = now()
               , suspend_until = null
+              , flow_last_progress_ts = now()
             WHERE id = (
                 SELECT id
                 FROM queue
@@ -1762,6 +1766,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                     , started_at = coalesce(started_at, now())
                     , last_ping = now()
                     , suspend_until = null
+                    , flow_last_progress_ts = now()
                     WHERE id = (
                         SELECT id
                         FROM queue
@@ -3080,8 +3085,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
                 flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
-                flow_step_id, cache_ttl, priority, flow_last_progress_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) \
+                flow_step_id, cache_ttl, priority)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -3113,7 +3118,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         flow_step_id,
         cache_ttl,
         final_priority,
-        if job_kind == JobKind::Flow ||  job_kind == JobKind::FlowPreview { Some(chrono::Utc::now()) } else { None }
     )
     .fetch_one(&mut tx)
     .await

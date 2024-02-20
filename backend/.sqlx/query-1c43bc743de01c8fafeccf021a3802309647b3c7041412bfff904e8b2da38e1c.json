@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE queue SET flow_last_progress_ts = NULL WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1c43bc743de01c8fafeccf021a3802309647b3c7041412bfff904e8b2da38e1c"
+}
