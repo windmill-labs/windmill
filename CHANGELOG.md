@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.274.0](https://github.com/windmill-labs/windmill/compare/v1.273.0...v1.274.0) (2024-02-20)
+
+
+### Features
+
+* **app:** fields inputs can be picked to not trigger recompute individually ([33b02b1](https://github.com/windmill-labs/windmill/commit/33b02b1aef9b937ac2ace0e46a2d2c600cc7716a))
+* **frontend:** App debug mode ([#3252](https://github.com/windmill-labs/windmill/issues/3252)) ([247396d](https://github.com/windmill-labs/windmill/commit/247396d04d10aa5fcff04a35615335649e09672f))
+* **frontend:** Button rework ([#3216](https://github.com/windmill-labs/windmill/issues/3216)) ([2138016](https://github.com/windmill-labs/windmill/commit/2138016242e33de1861ea4841ec38aced956d43a))
+* **frontend:** Fix tailwind classes on the Select component ([#3249](https://github.com/windmill-labs/windmill/issues/3249)) ([62824e4](https://github.com/windmill-labs/windmill/commit/62824e4af8a2acd43e38a555200e5726a12d0e8c))
+
+
+### Bug Fixes
+
+* accept multiple dependency map importer for python ([65e09a7](https://github.com/windmill-labs/windmill/commit/65e09a705f0059ae7eb819c955bb2222b5adfa76))
+* ai fill deep copy before slicing modules + minor improvements ([#3255](https://github.com/windmill-labs/windmill/issues/3255)) ([409f338](https://github.com/windmill-labs/windmill/commit/409f3382db1d2e7c4b6dd6ecdeacfc093b6bd878))
+* improve database studio ([30105af](https://github.com/windmill-labs/windmill/commit/30105af0dde06b1d6d176980afc9c1f9f7644d34))
+* **python:** handle recursive python imports with loop ([bf3e417](https://github.com/windmill-labs/windmill/commit/bf3e417acc167583aaef365e92eed6c216e007ec))
+
 ## [1.273.0](https://github.com/windmill-labs/windmill/compare/v1.272.0...v1.273.0) (2024-02-20)
 
 
