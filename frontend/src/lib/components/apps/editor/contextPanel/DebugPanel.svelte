@@ -3,14 +3,12 @@
 	import { allItems } from '../../utils'
 	import type { AppViewerContext } from '../../types'
 	import Section from '$lib/components/Section.svelte'
-	import DataTable from '$lib/components/table/DataTable.svelte'
-	import Head from '$lib/components/table/Head.svelte'
-	import Cell from '$lib/components/table/Cell.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { findGridItem } from '../appUtils'
 	import { pluralize } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Trash } from 'lucide-svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -39,83 +37,102 @@
 		.filter(Boolean)
 </script>
 
-<div class="flex flex-col gap-8">
+<div class="flex flex-col gap-8" style="all:none;">
+	{#if unintitializedComponents?.length === 0 && subgridsErrors?.length === 0}
+		<Alert type="success" title="No issues found">
+			The app has no subgrid errors or uninitialized components.
+		</Alert>
+	{:else}
+		<Alert type="error" title="Issues found">
+			The app has {unintitializedComponents.length} uninitialized components and {subgridsErrors.length}
+			subgrid errors.
+			<br />
+			Please contact Windmill support for assistance with the following information:^
+		</Alert>
+	{/if}
 	{#if unintitializedComponents.length > 0}
 		<Section label="Uninitialized components">
 			<div class="max-w-xl">
 				<div class="text-sm mb-4">
 					There are {pluralize(unintitializedComponents.length, 'uninitialized component')} in the app.
-					Please contact Windmill support for assistance with the following information:
 				</div>
-				{#if unintitializedComponents.length > 0}
-					<DataTable>
-						<Head>
-							<tr>
-								<Cell head first>Component Id</Cell>
-								<Cell head>Type</Cell>
-								<Cell head last>Status</Cell>
-							</tr>
-						</Head>
-						<tbody class="divide-y">
-							{#each unintitializedComponents as c}
-								<tr>
-									<Cell first>{c}</Cell>
-									<Cell>
-										<Badge color="blue">
-											{findGridItem($app, c)?.data?.type || 'Unknown'}
-										</Badge>
-									</Cell>
-									<Cell last>
-										<Badge color="red">Uninitialized</Badge>
-									</Cell>
-								</tr>
-							{/each}
-						</tbody>
-					</DataTable>
-				{/if}
+
+				<div class="grid grid-cols-3 border rounded-md">
+					<!-- Header -->
+					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Component Id</div>
+					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Type</div>
+					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Status</div>
+
+					<!-- Iterate over uninitializedComponents to display each component in the grid -->
+					{#each unintitializedComponents as c}
+						<!-- Component Id -->
+						<div class="text-xs flex items-center px-2 py-2">
+							<Badge>
+								{c}
+							</Badge>
+						</div>
+
+						<div class="text-xs flex items-center px-2 py-2">
+							<Badge color="blue">
+								{findGridItem($app, c)?.data?.type || 'Unknown'}
+							</Badge>
+						</div>
+
+						<div class="text-xs flex items-center px-2 py-2">
+							<Badge color="red">Uninitialized</Badge>
+						</div>
+					{/each}
+				</div>
 			</div>
-		</Section>
+		</Section>{/if}
+	{#if subgridsErrors.length > 0}
 		<Section label="Subgrids errors">
 			<div class="max-w-xl">
 				<div class="text-sm mb-4">
 					There are
 					{pluralize(subgridsErrors.length, 'subgrid')} with errors in the app.
 				</div>
-				{#if subgridsErrors.length > 0}
-					<DataTable>
-						<Head>
-							<tr>
-								<Cell head first>Subgrid Id</Cell>
-								<Cell head>Error</Cell>
-								<Cell head last>Action</Cell>
-							</tr>
-						</Head>
-						<tbody class="divide-y">
-							{#each subgridsErrors ?? [] as s}
-								<tr>
-									<Cell first>{s?.subGridId}</Cell>
-									<Cell>
-										<Badge color="red">
-											{s?.error}
-										</Badge>
-									</Cell>
-									<Cell last>
-										<Button
-											color="light"
-											startIcon={{
-												icon: Trash
-											}}
-											size="xs2"
-											on:click={() => {}}
-										>
-											Remove subgrid
-										</Button>
-									</Cell>
-								</tr>
-							{/each}
-						</tbody>
-					</DataTable>
-				{/if}
+
+				<div class="grid grid-cols-3 border rounded-md">
+					<!-- Header -->
+					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Subgrid Id</div>
+					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Error</div>
+					<div class="font-semibold bg-gray-100 px-2 py-1 text-xs border-b">Action</div>
+
+					<!-- Iterate over uninitializedComponents to display each component in the grid -->
+					{#each subgridsErrors as s}
+						<!-- Component Id -->
+						<div class="text-xs flex items-center px-2 py-2">
+							<Badge>
+								{s?.subGridId}
+							</Badge>
+						</div>
+
+						<div class="text-xs flex items-center px-2 py-2">
+							<Badge color="red">
+								{s?.error}
+							</Badge>
+						</div>
+
+						<div class="text-xs flex items-center px-2 py-2">
+							<Button
+								color="light"
+								startIcon={{
+									icon: Trash
+								}}
+								size="xs2"
+								on:click={() => {
+									if ($app.subgrids && s) {
+										delete $app.subgrids[s.subGridId]
+										$app = { ...$app }
+									}
+								}}
+							>
+								Remove subgrid
+							</Button>
+						</div>
+					{/each}
+				</div>
 			</div>
 		</Section>
 	{/if}
