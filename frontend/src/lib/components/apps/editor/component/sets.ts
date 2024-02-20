@@ -43,6 +43,7 @@ const inputs: ComponentSet = {
 		'dateslidercomponent',
 		'rangecomponent',
 		'dateinputcomponent',
+		'timeinputcomponent',
 		'fileinputcomponent',
 		's3fileinputcomponent',
 		'checkboxcomponent',

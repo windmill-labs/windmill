@@ -46,7 +46,8 @@ import {
 	Network,
 	Database,
 	UploadCloud,
-	AlertTriangle
+	AlertTriangle,
+	Clock
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -89,6 +90,7 @@ export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
@@ -291,6 +293,7 @@ export type TypedComponent =
 	| AgChartsComponentEe
 	| AlertComponent
 	| DateSliderComponent
+	| TimeInputComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -352,7 +355,6 @@ export interface InitialAppComponent extends Partial<Aligned> {
 const buttonColorOptions = [...BUTTON_COLORS]
 
 export const selectOptions = {
-	dateInputTypeOptions: ['date', 'datetime-local', 'time'],
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'invisibleOnView'],
 	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
@@ -2301,7 +2303,7 @@ This is a paragraph.
 		}
 	},
 	dateinputcomponent: {
-		name: 'Date & Time picker',
+		name: 'Date',
 		icon: Calendar,
 		documentationLink: `${documentationBaseUrl}/date_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
@@ -2333,12 +2335,36 @@ This is a paragraph.
 					fieldType: 'text',
 					tooltip: 'See date-fns format for more information',
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
-				},
-				type: {
+				}
+			}
+		}
+	},
+	timeinputcomponent: {
+		name: 'Time',
+		icon: Clock,
+		documentationLink: `${documentationBaseUrl}/time_input`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				minTime: {
 					type: 'static',
-					value: 'date',
-					fieldType: 'select',
-					selectOptions: selectOptions.dateInputTypeOptions
+					value: '',
+					fieldType: 'time'
+				},
+				maxTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'time'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'time'
 				}
 			}
 		}
