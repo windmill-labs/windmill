@@ -92,6 +92,7 @@
 		createUpdatePostgresInput,
 		getPrimaryKeys
 	} from '../components/display/dbtable/utils'
+	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	async function hash(message) {
 		try {
@@ -161,6 +162,7 @@
 	let saveDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
+	let debugAppDrawerOpen = true
 	let deploymentMsg: string | undefined = undefined
 
 	function closeSaveDrawer() {
@@ -672,6 +674,14 @@
 				})
 			},
 			disabled: !savedApp
+		},
+		// App debug menu
+		{
+			displayName: 'Debug',
+			icon: Bug,
+			action: () => {
+				debugAppDrawerOpen = true
+			}
 		}
 	]
 
@@ -933,6 +943,12 @@
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore {appPath} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={debugAppDrawerOpen} size="1200px">
+	<DrawerContent title="Debug App" on:close={() => (debugAppDrawerOpen = false)}>
+		<DebugPanel />
 	</DrawerContent>
 </Drawer>
 
