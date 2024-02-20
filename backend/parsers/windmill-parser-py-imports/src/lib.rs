@@ -213,7 +213,7 @@ pub async fn parse_python_imports(
     }
 }
 
-const STDIMPORTS: [&str; 301] = [
+const STDIMPORTS: [&str; 302] = [
     "__future__",
     "_abc",
     "_aix_support",
@@ -299,6 +299,7 @@ const STDIMPORTS: [&str; 301] = [
     "_weakrefset",
     "_winapi",
     "_zoneinfo",
+    "zoneinfo",
     "abc",
     "aifc",
     "antigravity",
