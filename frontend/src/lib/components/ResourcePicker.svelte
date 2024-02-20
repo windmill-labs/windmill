@@ -51,7 +51,6 @@
 			nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 		}
 		collection = nc
-		console.log('collection', selectFirst)
 		if (collection.length == 1 && selectFirst && valueSelect == undefined) {
 			value = collection[0].value
 			valueType = collection[0].type
