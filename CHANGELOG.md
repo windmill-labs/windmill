@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.274.1](https://github.com/windmill-labs/windmill/compare/v1.274.0...v1.274.1) (2024-02-20)
+
+
+### Bug Fixes
+
+* **python:** ignore stdlib imports with _ ([806d111](https://github.com/windmill-labs/windmill/commit/806d1110085d68f1fa1f5611d2d0edbbfdcf9f51))
+
 ## [1.274.0](https://github.com/windmill-labs/windmill/compare/v1.273.0...v1.274.0) (2024-02-20)
 
 
