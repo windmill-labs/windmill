@@ -37,6 +37,8 @@
 	export let fixedOverflowWidgets: boolean = true
 	export let loading: boolean = false
 	export let acceptSelf: boolean = false
+	export let recomputeOnInputChanged = true
+	export let showOnDemandOnlyToggle = true
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -176,6 +178,8 @@
 				{id}
 				bind:componentInput
 				{fixedOverflowWidgets}
+				{recomputeOnInputChanged}
+				{showOnDemandOnlyToggle}
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
