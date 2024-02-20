@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.273.0](https://github.com/windmill-labs/windmill/compare/v1.272.0...v1.273.0) (2024-02-20)
+
+
+### Features
+
+* add support for mem peak to nativets scripts ([18bb982](https://github.com/windmill-labs/windmill/commit/18bb982852ad8e653a02acfd21108a236a478d6f))
+* allow arbitrary timeout on graphql ([66fc78f](https://github.com/windmill-labs/windmill/commit/66fc78f23346cafa6ad9498a1614b505901aa95b))
+* no logos for whitelabel licenses ([66578d1](https://github.com/windmill-labs/windmill/commit/66578d1093e608f7c3c1452328a816f3777bcbf3))
+* no logos for whitelabel licenses ([628dccf](https://github.com/windmill-labs/windmill/commit/628dccf16a17624ca97773cd22bbff6934d29b59))
+* usage-based billing ([#3247](https://github.com/windmill-labs/windmill/issues/3247)) ([4b153e7](https://github.com/windmill-labs/windmill/commit/4b153e7626fc952a4e5a2d820431c355f9368cdd))
+
+
+### Bug Fixes
+
+* add support for onSelect to app select ([4a224f6](https://github.com/windmill-labs/windmill/commit/4a224f60ab936690c4f16246700992869d5d8bb3))
+* add support for onToggle for app checkboxes ([5a47f50](https://github.com/windmill-labs/windmill/commit/5a47f5062bc554bfcabb689eae8427e8eb2774d0))
+* **app:** make custom components available in public apps ([8979f01](https://github.com/windmill-labs/windmill/commit/8979f01730b1a3f658f89dc5487b8f3f33c5be95))
+* backend build on macos ([#3243](https://github.com/windmill-labs/windmill/issues/3243)) ([458550f](https://github.com/windmill-labs/windmill/commit/458550f31480fef889a70a826f6c1f43a5baf9bd))
+* bigquery timeout ([#3244](https://github.com/windmill-labs/windmill/issues/3244)) ([be3f912](https://github.com/windmill-labs/windmill/commit/be3f9125afa8ff4114117a9e6b6bd56e1f9d8234))
+* improve date picker across app ([4c5d613](https://github.com/windmill-labs/windmill/commit/4c5d6139ce590eac0a94bb9c8bf9dbceb0dac385))
+* improve runs page drag ([f17e8bc](https://github.com/windmill-labs/windmill/commit/f17e8bc15d4c35e68634e2ff61bb99111b81abc2))
+* prevent bigquery/snowflake against abuse timeout ([3761de8](https://github.com/windmill-labs/windmill/commit/3761de874e03e7ade952925ebd57b75b92a4aa0e))
+* prevent native http against timeout abuse ([e28fbc9](https://github.com/windmill-labs/windmill/commit/e28fbc9c9763254422d3fda9b181640ebfce19d9))
+* prevent postgres timeout abuse ([d35c67c](https://github.com/windmill-labs/windmill/commit/d35c67c9b992a6c3c65f18737d4d91a22cb9f457))
+* **psql:** add mem peak to postgresql ([f129e75](https://github.com/windmill-labs/windmill/commit/f129e7562835cfa1dd61addc1a480cdde9e2f72f))
+* remove oom prio macos ([#3245](https://github.com/windmill-labs/windmill/issues/3245)) ([6ccca62](https://github.com/windmill-labs/windmill/commit/6ccca62876a8153ae9a4a34250895d2a1b63eeea))
+
 ## [1.272.0](https://github.com/windmill-labs/windmill/compare/v1.271.0...v1.272.0) (2024-02-18)
 
 ### Features

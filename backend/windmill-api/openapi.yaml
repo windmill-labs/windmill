@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.272.0
+  version: 1.273.0
   title: Windmill API
 
   contact:
@@ -1197,6 +1197,8 @@ paths:
                     type: boolean
                   plan:
                     type: string
+                  automatic_billing:
+                    type: boolean
                   customer_id:
                     type: string
                   webhook:
@@ -1221,6 +1223,7 @@ paths:
                     type: string
                 required:
                   - code_completion_enabled
+                  - automatic_billing
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -1282,8 +1285,42 @@ paths:
                     type: number
                   seats:
                     type: number
+                  automatic_billing:
+                    type: boolean
                 required:
                   - premium
+                  - automatic_billing
+
+  /w/{workspace}/workspaces/set_automatic_billing:
+    post:
+      summary: set automatic billing
+      operationId: setAutomaticBilling
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: automatic billing
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                automatic_billing:
+                  type: boolean
+                seats:
+                  type: number
+              required:
+                - automatic_billing
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/workspaces/edit_slack_command:
     post:
@@ -5174,7 +5211,6 @@ paths:
           content:
             application/json:
               schema: {}
-
 
   /w/{workspace}/jobs_u/completed/get/{id}:
     get:

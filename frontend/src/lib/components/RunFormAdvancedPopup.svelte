@@ -6,8 +6,8 @@
 	import Tooltip from './Tooltip.svelte'
 	import { userStore, workerTags } from '$lib/stores'
 	import { Button } from './common'
-	import { getToday } from '$lib/utils'
 	import { WorkerService } from '$lib/gen'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	export let runnable:
 		| {
@@ -50,13 +50,12 @@
 				<div class="flex flex-row items-end">
 					<div class="w-max md:w-2/3 mt-2 mb-1">
 						<label for="run-time" />
-						<input
-							class="inline-block"
-							type="datetime-local"
-							id="run-time"
-							name="run-scheduled-time"
-							bind:value={scheduledForStr}
-							min={getToday().toISOString().slice(0, 16)}
+						<DateTimeInput
+							value={scheduledForStr}
+							on:change={(e) => {
+								console.log('e.detail', e.detail)
+								scheduledForStr = e.detail
+							}}
 						/>
 					</div>
 					<Button

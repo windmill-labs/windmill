@@ -12,7 +12,7 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::{
@@ -29,8 +29,9 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::Typ;
 use windmill_parser_sql::parse_pgsql_sig;
+use windmill_queue::CanceledBy;
 
-use crate::common::build_args_values;
+use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
 use crate::AuthedClientBackgroundTask;
 use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;
@@ -59,6 +60,9 @@ pub async fn do_postgresql(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, db).await?;
 
@@ -187,19 +191,33 @@ pub async fn do_postgresql(
         let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
         (client, None)
     };
-    // Now we can execute a simple statement that just returns its parameter.
-    let rows = client
-        .query_raw(query, query_params)
-        .await
-        .map_err(to_anyhow)?;
 
-    let result = json!(rows
-        .try_collect::<Vec<Row>>()
-        .await
-        .map_err(to_anyhow)?
-        .into_iter()
-        .map(postgres_row_to_json_value)
-        .collect::<Result<Vec<_>, _>>()?);
+    let result_f = async {
+        // Now we can execute a simple statement that just returns its parameter.
+        let rows = client
+            .query_raw(query, query_params)
+            .await
+            .map_err(to_anyhow)?;
+
+        let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+        Ok(rows
+            .into_iter()
+            .map(|x: Row| postgres_row_to_json_value(x))
+            .collect::<Result<Vec<_>, _>>()?) as anyhow::Result<Vec<serde_json::Value>>
+    };
+
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        result_f,
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
+
     RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
 
     if let Some(handle) = handle {
@@ -249,8 +267,10 @@ pub async fn do_postgresql(
             handle.abort();
         }
     }
+    let raw_result = to_raw_value(&result);
+    *mem_peak = (raw_result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
-    return Ok(to_raw_value(&result));
+    return Ok(raw_result);
 }
 
 #[derive(Debug)]

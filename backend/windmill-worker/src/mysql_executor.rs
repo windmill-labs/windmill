@@ -12,8 +12,12 @@ use windmill_common::{
     jobs::QueuedJob,
 };
 use windmill_parser_sql::{parse_mysql_sig, RE_ARG_MYSQL_NAMED};
+use windmill_queue::CanceledBy;
 
-use crate::{common::build_args_map, AuthedClientBackgroundTask};
+use crate::{
+    common::{build_args_map, run_future_with_polling_update_job_poller},
+    AuthedClientBackgroundTask,
+};
 
 #[derive(Deserialize)]
 struct MysqlDatabase {
@@ -30,6 +34,9 @@ pub async fn do_mysql(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -129,28 +136,47 @@ pub async fn do_mysql(
             _ => {}
         }
     }
-    let rows: Vec<Row> = conn
-        .exec(
-            query,
-            match statement_values {
-                Params::Positional(v) => Params::Positional(v),
-                Params::Named(m) => Params::Named(m),
-                _ => Params::Empty,
-            },
-        )
-        .await
-        .map_err(to_anyhow)?;
-    let rows = rows
-        .into_iter()
-        .map(|x| convert_row_to_value(x))
-        .collect::<Vec<serde_json::Value>>();
+
+    let result_f = async {
+        let rows: Vec<Row> = conn
+            .exec(
+                query,
+                match statement_values {
+                    Params::Positional(v) => Params::Positional(v),
+                    Params::Named(m) => Params::Named(m),
+                    _ => Params::Empty,
+                },
+            )
+            .await
+            .map_err(to_anyhow)?;
+        Ok(rows
+            .into_iter()
+            .map(|x| convert_row_to_value(x))
+            .collect::<Vec<serde_json::Value>>())
+            as Result<Vec<serde_json::Value>, anyhow::Error>
+    };
+
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        result_f,
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
 
     drop(conn);
 
     pool.disconnect().await.map_err(to_anyhow)?;
 
+    let raw_result = windmill_common::worker::to_raw_value(&json!(result));
+    *mem_peak = (raw_result.get().len() / 1000) as i32;
+
     // And then check that we got back the same string we sent over.
-    return Ok(windmill_common::worker::to_raw_value(&json!(rows)));
+    return Ok(raw_result);
 }
 
 fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {

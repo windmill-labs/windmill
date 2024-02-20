@@ -1,6 +1,5 @@
 import type { Environment } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
@@ -47,7 +46,13 @@ export function buildWorkerDefinition(
 			case 'template':
 			case 'typescript':
 			case 'javascript':
-				return new tsWorker()
+				return new Worker(
+					new URL(
+						'../../../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker',
+						import.meta.url
+					),
+					{ type: 'module' }
+				)
 			case 'html':
 			case 'handlebars':
 			case 'razor':

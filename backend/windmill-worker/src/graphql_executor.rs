@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use futures::TryStreamExt;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
-use windmill_queue::HTTP_CLIENT;
+use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
 
+use crate::common::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
 #[derive(Deserialize)]
@@ -35,6 +37,9 @@ pub async fn do_graphql(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -47,7 +52,9 @@ pub async fn do_graphql(
         serde_json::from_str::<GraphqlApi>(db.get())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
-        return Err(Error::BadRequest("Missing api argument".to_string()));
+        return Err(windmill_common::error::Error::BadRequest(
+            "Missing api argument".to_string(),
+        ));
     };
 
     // variables is job_args except for api
@@ -91,40 +98,54 @@ pub async fn do_graphql(
 
     let mut i = 0;
     let is_cloud_hosted = *CLOUD_HOSTED;
-    let result_f = result_stream
-        .map_err(|x| Error::ExecutionErr(x.to_string()))
-        .try_fold(Vec::new(), |mut acc, x| async move {
-            i += x.len();
-            if (is_cloud_hosted && i > 2_000_000) || (i > 500_000_000) {
-                return Err(Error::ExecutionErr(format!(
-                    "Response too large: {i} bytes"
-                )));
-            }
-            acc.extend_from_slice(&x);
-            Ok(acc)
-        });
 
-    let result_f = tokio::time::timeout(std::time::Duration::from_secs(15), result_f);
+    let result_f = async {
+        let result_f = result_stream
+            .map_err(|x| Error::ExecutionErr(x.to_string()))
+            .try_fold(Vec::new(), |mut acc, x| async move {
+                i += x.len();
+                if (is_cloud_hosted && i > 2_000_000) || (i > 500_000_000) {
+                    return Err(Error::ExecutionErr(format!(
+                        "Response too large: {i} bytes"
+                    )));
+                }
+                acc.extend_from_slice(&x);
+                Ok(acc)
+            });
 
-    let result = serde_json::from_slice::<GraphqlResponse>(
-        &result_f
-            .await
-            .map_err(|_| Error::ExecutionErr("15 timeout for http request".to_string()))??,
-    )
-    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+        let result = serde_json::from_slice::<GraphqlResponse>(
+            &result_f
+                .await
+                .map_err(|_| Error::ExecutionErr("15 timeout for http request".to_string()))?,
+        )
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    if let Some(errors) = result.errors {
-        return Err(Error::ExecutionErr(
-            errors
+        if let Some(errors) = result.errors {
+            return Err(anyhow!(errors
                 .into_iter()
                 .map(|x| x.message)
                 .collect::<Vec<_>>()
-                .join("\n"),
-        ));
-    }
+                .join("\n"),));
+        }
 
-    // And then check that we got back the same string we sent over.
-    return Ok(result
-        .data
-        .unwrap_or_else(|| serde_json::from_str("{}").unwrap()));
+        // And then check that we got back the same string we sent over.
+        Ok(result
+            .data
+            .unwrap_or_else(|| serde_json::from_str("{}").unwrap()))
+    };
+
+    let r = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        result_f,
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
+
+    *mem_peak = (r.get().len() / 1000) as i32;
+    Ok(r)
 }

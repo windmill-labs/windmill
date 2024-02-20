@@ -2374,6 +2374,9 @@ async fn do_nativets(
     client: &AuthedClientBackgroundTask,
     code: String,
     db: &Pool<Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> windmill_common::error::Result<(Box<RawValue>, String)> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -2382,7 +2385,19 @@ async fn do_nativets(
         job.args.as_ref()
     };
 
-    let result = eval_fetch_timeout(code.clone(), transpile_ts(code)?, job_args).await?;
+    let result = eval_fetch_timeout(
+        code.clone(),
+        transpile_ts(code)?,
+        job_args,
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
     Ok((result.0, [logs, result.1].join("\n\n")))
 }
 
@@ -2882,9 +2897,27 @@ async fn handle_code_execution_job(
         };
 
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(job, &client, &inner_content, db).await;
+        return do_postgresql(
+            job,
+            &client,
+            &inner_content,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await;
     } else if language == Some(ScriptLang::Mysql) {
-        return do_mysql(job, &client, &inner_content, db).await;
+        return do_mysql(
+            job,
+            &client,
+            &inner_content,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await;
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
@@ -2895,7 +2928,16 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_bigquery(job, &client, &inner_content, db).await;
+            return do_bigquery(
+                job,
+                &client,
+                &inner_content,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+            )
+            .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
         #[cfg(not(feature = "enterprise"))]
@@ -2907,7 +2949,16 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_snowflake(job, &client, &inner_content, db).await;
+            return do_snowflake(
+                job,
+                &client,
+                &inner_content,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+            )
+            .await;
         }
     } else if language == Some(ScriptLang::Mssql) {
         #[cfg(not(feature = "enterprise"))]
@@ -2919,10 +2970,28 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_mssql(job, &client, &inner_content, db).await;
+            return do_mssql(
+                job,
+                &client,
+                &inner_content,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+            )
+            .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(job, &client, &inner_content, db).await;
+        return do_graphql(
+            job,
+            &client,
+            &inner_content,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await;
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let code = format!(
@@ -2930,7 +2999,17 @@ async fn handle_code_execution_job(
             &client.get_token().await,
             inner_content
         );
-        let (result, ts_logs) = do_nativets(job, logs.clone(), &client, code, db).await?;
+        let (result, ts_logs) = do_nativets(
+            job,
+            logs.clone(),
+            &client,
+            code,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await?;
         *logs = ts_logs;
         return Ok(result);
     }

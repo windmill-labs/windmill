@@ -1,36 +1,20 @@
 <script lang="ts">
-	import { ArrowRight, Calendar } from 'lucide-svelte'
+	import { Calendar } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { Button, Popup } from '..'
+	import { Popup } from '..'
 	import type { Placement } from '@floating-ui/core'
+	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 
 	export let date: string | undefined
 	export let label: string
 
 	const dispatch = createEventDispatcher()
-	let value = date
 	let input: HTMLInputElement
-
-	$: if (date && input) {
-		input.value = new Date(date).toISOString().slice(0, 16)
-	}
-
-	function save() {
-		console.log(value, date, label)
-		dispatch('change', value)
-		input.blur()
-	}
-
-	function bg(e: KeyboardEvent) {
-		if (e.key === 'Tab') {
-			e.stopPropagation()
-		}
-	}
 
 	export let placement: Placement = 'top-end'
 </script>
 
-<Popup floatingConfig={{ placement: placement, strategy: 'absolute' }} let:close>
+<Popup floatingConfig={{ placement: placement, strategy: 'absolute' }}>
 	<svelte:fragment slot="button">
 		<button
 			title="Open calendar picker"
@@ -44,30 +28,17 @@
 		</button>
 	</svelte:fragment>
 
+	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="block text-primary">
 		<div class="pb-1 text-sm text-secondary">{label}</div>
 		<div class="flex w-full">
-			<input
-				type="datetime-local"
-				bind:value
-				class="!w-auto grow"
-				bind:this={input}
-				on:keydown={bg}
-			/>
-			<Button
-				size="xs"
-				color="dark"
-				buttonType="button"
-				btnClasses="!p-1 !w-[34px] !ml-1"
-				aria-label="Save ID"
-				disabled={!value}
-				on:click={() => {
-					save()
-					close(null)
+			<DateTimeInput
+				value={date}
+				on:change={(e) => {
+					date = e.detail
+					dispatch('change', date)
 				}}
-			>
-				<ArrowRight size={18} />
-			</Button>
+			/>
 		</div>
 	</label>
 </Popup>
