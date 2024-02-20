@@ -2928,7 +2928,16 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_bigquery(job, &client, &inner_content, db).await;
+            return do_bigquery(
+                job,
+                &client,
+                &inner_content,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+            )
+            .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
         #[cfg(not(feature = "enterprise"))]
@@ -2940,7 +2949,16 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_snowflake(job, &client, &inner_content, db).await;
+            return do_snowflake(
+                job,
+                &client,
+                &inner_content,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+            )
+            .await;
         }
     } else if language == Some(ScriptLang::Mssql) {
         #[cfg(not(feature = "enterprise"))]
@@ -2952,7 +2970,16 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_mssql(job, &client, &inner_content, db).await;
+            return do_mssql(
+                job,
+                &client,
+                &inner_content,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+            )
+            .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
         return do_graphql(
