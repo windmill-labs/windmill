@@ -23,7 +23,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState } from '$lib/utils'
+	import { classNames, encodeState, sendUserToast } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -119,6 +119,7 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
+	const initialized = writable({ initialized: false, initializedComponents: [] })
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
@@ -127,7 +128,7 @@
 		worldStore,
 		app: appStore,
 		summary: summaryStore,
-		initialized: writable({ initialized: false, initializedComponents: [] }),
+		initialized: initialized,
 		selectedComponent,
 		mode,
 		connectingInput,
@@ -469,6 +470,23 @@
 	let mounted = false
 	onMount(() => {
 		mounted = true
+
+		setTimeout(() => {
+			if ($initialized?.initialized === false) {
+				sendUserToast(
+					'App is not yet initialized, please check the Troubleshoot Panel for more information',
+					true,
+					[
+						{
+							label: 'Open Troubleshoot Panel',
+							callback: () => {
+								appEditorHeader?.openTroubleshootPanel()
+							}
+						}
+					]
+				)
+			}
+		}, 10000)
 
 		parseScroll()
 	})
