@@ -93,7 +93,7 @@ Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 Favor results and flow_input.iter.value over flow inputs.
-If none of the results and of the flow inputs are appropriate, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
+If none of the results and flow inputs are appropriate (or a more appropriate for other step inputs), you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
