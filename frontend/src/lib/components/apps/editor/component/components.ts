@@ -1843,7 +1843,9 @@ This is a paragraph.
 		customCss: {
 			input: {
 				style: '',
-				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+				tooltip:
+					'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md',
+				class: ''
 			}
 		},
 		initialData: {

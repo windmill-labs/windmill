@@ -55,7 +55,7 @@
 				>
 					<div
 						class={classNames(
-							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
 						)}
 					>
 						{#if index === tabs.length - 1}
@@ -75,7 +75,7 @@
 			>
 				<div
 					class={classNames(
-						'!text-red-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+						'!text-red-600 dark:!text-red-400 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
 					)}
 				>
 					{`Reset debug mode`}

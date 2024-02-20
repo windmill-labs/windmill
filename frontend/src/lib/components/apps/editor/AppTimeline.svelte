@@ -109,14 +109,14 @@
 <div class="divide-y">
 	<div class="flex flex-row-reverse mb-2 items-center text-sm text-secondary px-2">
 		<div class="flex gap-4 items-center">
-			<div class="flex gap-2 items-center">
+			<div class="flex gap-2 items-center text-xs">
 				<div>Waiting for executor</div>
-				<div class="h-4 w-4 bg-gray-500" />
+				<div class="h-4 w-4 bg-gray-300 dark:bg-gray-600 rounded" />
 			</div>
 
-			<div class="flex gap-2 items-center">
+			<div class="flex gap-2 items-center text-xs">
 				<div>Execution</div>
-				<div class="h-4 w-4 bg-blue-500/90" />
+				<div class="h-4 w-4 bg-blue-500/90 rounded" />
 			</div>
 		</div>
 	</div>
