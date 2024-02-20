@@ -15,6 +15,8 @@
 	export let displayType = false
 	export let deletable = false
 	export let acceptSelf: boolean = false
+	export let recomputeOnInputChanged = true
+	export let showOnDemandOnlyToggle = false
 
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
 
@@ -35,6 +37,8 @@
 					inputSpecsConfiguration={finalInputSpecsConfiguration?.[k]?.['configuration']}
 					labels={finalInputSpecsConfiguration?.[k]?.['labels']}
 					tooltip={finalInputSpecsConfiguration?.[k]?.['tooltip']}
+					{recomputeOnInputChanged}
+					{showOnDemandOnlyToggle}
 				/>
 			{:else}
 				{@const meta = finalInputSpecsConfiguration?.[k]}
@@ -56,6 +60,8 @@
 					customTitle={meta?.['customTitle']}
 					loading={meta?.['loading']}
 					{displayType}
+					{recomputeOnInputChanged}
+					{showOnDemandOnlyToggle}
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">
