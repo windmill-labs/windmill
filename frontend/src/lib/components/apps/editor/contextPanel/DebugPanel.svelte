@@ -11,7 +11,6 @@
 	import { pluralize } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Trash } from 'lucide-svelte'
-	import AutoDataTable from '$lib/components/table/AutoDataTable.svelte'
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -121,10 +120,3 @@
 		</Section>
 	{/if}
 </div>
-
-<AutoDataTable
-	objects={[
-		{ a: 1, b: 2, c: 3 },
-		{ a: 4, b: 5, c: 6 }
-	]}
-/>

@@ -162,7 +162,7 @@
 	let saveDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
-	let debugAppDrawerOpen = true
+	let debugAppDrawerOpen = false
 	let deploymentMsg: string | undefined = undefined
 
 	function closeSaveDrawer() {
