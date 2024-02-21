@@ -576,7 +576,12 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let zombie_jobs_f = async {
         if server_mode {
             handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
-            let _ = handle_zombie_flows(db, rsmq.clone()).await;
+            match handle_zombie_flows(db, rsmq.clone()).await {
+                Err(err) => {
+                    tracing::error!("Error handling zombie flows: {:?}", err);
+                }
+                _ => {}
+            }
         }
     };
     let expired_items_f = async {
