@@ -255,19 +255,18 @@
 					{#if (resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson) || isTableDisplay}
 						<ToggleButtonGroup
 							class="h-6"
-							selected={isTableDisplay && richRender ? 'table' : forceJson ? 'json' : 'pretty'}
+							selected={isTableDisplay
+								? richRender
+									? 'table'
+									: 'json'
+								: forceJson
+								? 'json'
+								: 'pretty'}
 							on:selected={(ev) => {
 								if (isTableDisplay) {
-									if (ev.detail === 'table') {
-										richRender = true
-									} else {
-										richRender = false
-									}
-								}
-								if (ev.detail === 'json') {
-									forceJson = true
+									richRender = ev.detail === 'table'
 								} else {
-									forceJson = false
+									forceJson = ev.detail === 'json'
 								}
 							}}
 						>
