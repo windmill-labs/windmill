@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.275.0](https://github.com/windmill-labs/windmill/compare/v1.274.1...v1.275.0) (2024-02-21)
+
+
+### Features
+
+* **frontend:** add support for datetime and time ([#3256](https://github.com/windmill-labs/windmill/issues/3256)) ([464604d](https://github.com/windmill-labs/windmill/commit/464604d939b419b3a2ac9f1a9d6b3e09f3bf803f))
+
+
+### Bug Fixes
+
+* add default time to datetime picker ([a09a487](https://github.com/windmill-labs/windmill/commit/a09a487b8442e69d32198aeddc9974e1d503d3a3))
+* **frontend:** improve handling of optional enums ([77d66ef](https://github.com/windmill-labs/windmill/commit/77d66efa45b1d40d5f2ede38e17d121676896bad))
+
 ## [1.274.1](https://github.com/windmill-labs/windmill/compare/v1.274.0...v1.274.1) (2024-02-20)
 
 
