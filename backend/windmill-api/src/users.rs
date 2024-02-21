@@ -564,7 +564,7 @@ pub struct GlobalUserInfo {
     company: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct UserInfo {
     pub workspace_id: String,
     pub email: String,
@@ -576,6 +576,7 @@ pub struct UserInfo {
     pub operator: bool,
     pub disabled: bool,
     pub role: Option<String>,
+    pub folders_read: Vec<String>,
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
 }
@@ -899,6 +900,7 @@ async fn whoami(
     ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
+    tracing::info!("whoami: {email} {user:?}");
     if let Some(user) = user {
         Ok(Json(user))
     } else {
@@ -913,6 +915,7 @@ async fn whoami(
             operator: false,
             disabled: false,
             role: Some("superadmin".to_string()),
+            folders_read: folders.clone().into_iter().map(|x| x.0).collect(),
             folders: folders
                 .clone()
                 .into_iter()
@@ -1029,6 +1032,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         operator: usr.operator,
         disabled: usr.disabled,
         role: usr.role,
+        folders_read: folders.clone().into_iter().map(|x| x.0).collect(),
         folders: folders
             .clone()
             .into_iter()

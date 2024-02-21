@@ -631,11 +631,14 @@ async fn handle_python_deps(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
+            let mut already_visited = vec![];
+
             let requirements = windmill_parser_py_imports::parse_python_imports(
                 inner_content,
                 w_id,
                 script_path,
                 db,
+                &mut already_visited,
             )
             .await?
             .join("\n");
