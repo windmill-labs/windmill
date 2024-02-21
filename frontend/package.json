@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.274.1",
+	"version": "1.275.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
