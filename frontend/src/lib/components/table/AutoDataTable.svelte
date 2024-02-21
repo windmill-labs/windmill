@@ -113,10 +113,10 @@
 <DarkModeObserver bind:darkMode />
 
 <div class="w-full" bind:clientWidth={wrapperWidth}>
-	<div class="flex flex-col gap-2 py-4 my-4" style={`max-width: ${wrapperWidth}px;`}>
+	<div class="flex flex-col gap-2 py-2 my-2" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
-				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs !w-80" />
+				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs" />
 				{#if selection.length > 0}
 					<span class="text-xs text-gray-500 dark:text-gray-200">
 						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
