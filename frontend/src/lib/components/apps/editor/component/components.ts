@@ -2380,14 +2380,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 					value: '',
 					fieldType: 'datetime',
 					tooltip:
-						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z"'
+						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
 				},
 				maxDateTime: {
 					type: 'static',
 					value: '',
 					fieldType: 'datetime',
 					tooltip:
-						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z"'
+						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
 				},
 				outputFormat: {
 					type: 'static',
