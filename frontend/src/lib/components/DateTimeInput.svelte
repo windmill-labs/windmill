@@ -9,6 +9,7 @@
 
 	let date: string | undefined = undefined
 	let time: string | undefined = undefined
+
 	function parseValue(value: string | undefined = undefined) {
 		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
 
@@ -18,7 +19,7 @@
 					.getMinutes()
 					.toString()
 					.padStart(2, '0')}`
-			: undefined
+			: '12:00'
 	}
 
 	$: parseValue(value)
