@@ -46,7 +46,7 @@
 
 	$: {
 		if (value) {
-			if (resolvedConfig.twelveHourClockFormat) {
+			if (resolvedConfig.twelveHourFormat) {
 				let time = value.split(':')
 				let hours = parseInt(time[0])
 				let minutes = time[1]

@@ -2336,9 +2336,9 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information. By default, it is `dd.MM.yyyy HH:mm`',
+					tooltip: 'See date-fns format for more information. By default, it is `dd.MM.yyyy`',
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
-					placeholder: 'dd.MM.yyyy HH:mm'
+					placeholder: 'dd.MM.yyyy'
 				}
 			}
 		}
@@ -2409,7 +2409,7 @@ This is a paragraph.
 						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false'
 				},
 
-				twelveHourClockFormat: {
+				twelveHourFormat: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
