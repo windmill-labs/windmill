@@ -204,7 +204,7 @@
 								?.getSelectedNodes()
 								?.find((row) => row?.data?.__index === e?.data?.__index)
 
-							if (e.rowIndex && !isAlreadySelected) {
+							if (e.rowIndex !== null && !isAlreadySelected) {
 								// We select the row when we start editing, for example when we click on a checkbox
 								e.api.getRowNode(e.rowIndex.toString())?.setSelected(true)
 							}
