@@ -199,6 +199,16 @@
 							onSelectionChanged(e.api)
 							resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
 						},
+						onCellEditingStarted: (e) => {
+							const isAlreadySelected = e.api
+								?.getSelectedNodes()
+								?.find((row) => row?.data?.__index === e?.data?.__index)
+
+							if (e.rowIndex && !isAlreadySelected) {
+								// We select the row when we start editing, for example when we click on a checkbox
+								e.api.getRowNode(e.rowIndex.toString())?.setSelected(true)
+							}
+						},
 						onFilterChanged: (e) => {
 							outputs?.filters?.set(e.api.getFilterModel())
 							outputs?.displayedRowCount?.set(e.api.getDisplayedRowCount())
