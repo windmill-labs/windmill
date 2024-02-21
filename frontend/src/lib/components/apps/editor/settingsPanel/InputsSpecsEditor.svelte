@@ -59,6 +59,8 @@
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
 					loading={meta?.['loading']}
+					documentationLink={meta?.['documentationLink']}
+					markdownTooltip={meta?.['markdownTooltip']}
 					{displayType}
 					{recomputeOnInputChanged}
 					{showOnDemandOnlyToggle}

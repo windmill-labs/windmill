@@ -6,6 +6,8 @@
 
 	export let autofocus: boolean | null = false
 	export let useDropdown: boolean = false
+	export let minDate: string | undefined = undefined
+	export let maxDate: string | undefined = undefined
 
 	let date: string | undefined = undefined
 	let time: string | undefined = undefined
@@ -53,9 +55,9 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
-<div class="flex flex-row gap-1 items-center w-full" id={randomId}>
+<div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
 	<!-- svelte-ignore a11y-autofocus -->
-	<input type="date" bind:value={date} {autofocus} class="!w-3/4" />
+	<input type="date" bind:value={date} {autofocus} class="!w-3/4" min={minDate} max={maxDate} />
 	<input type="time" bind:value={time} class="!w-1/4 min-w-[100px]" />
 	<Button
 		variant="border"
