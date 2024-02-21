@@ -408,7 +408,7 @@
 						Name
 						<Required required={true} />
 					</div>
-					<div class="text-2xs text-tertiary"> Use '/' for subfolders </div>
+					<div class="text-2xs text-tertiary"> '/' for subfolders </div>
 				</div>
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
