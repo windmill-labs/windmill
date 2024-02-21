@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.275.1](https://github.com/windmill-labs/windmill/compare/v1.275.0...v1.275.1) (2024-02-21)
+
+
+### Bug Fixes
+
+* **frontend:** Select the row when clicking on a checkbox ([#3260](https://github.com/windmill-labs/windmill/issues/3260)) ([c6865f8](https://github.com/windmill-labs/windmill/commit/c6865f8a6ce880ef951b0fff70c29feaec31f9e6))
+
 ## [1.275.0](https://github.com/windmill-labs/windmill/compare/v1.274.1...v1.275.0) (2024-02-21)
 
 
