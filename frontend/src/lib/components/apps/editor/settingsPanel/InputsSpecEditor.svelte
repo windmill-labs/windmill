@@ -39,6 +39,8 @@
 	export let acceptSelf: boolean = false
 	export let recomputeOnInputChanged = true
 	export let showOnDemandOnlyToggle = true
+	export let documentationLink: string | undefined = undefined
+	export let markdownTooltip: string | undefined = undefined
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -80,8 +82,8 @@
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
 					{/if}
-					{#if tooltip}
-						<Tooltip small>
+					{#if tooltip || markdownTooltip}
+						<Tooltip small {documentationLink} {markdownTooltip}>
 							{tooltip}
 						</Tooltip>
 					{/if}
