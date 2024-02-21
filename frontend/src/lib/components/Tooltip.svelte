@@ -1,13 +1,16 @@
 <script lang="ts">
+	import Markdown from 'svelte-exmarkdown'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
 	import { ExternalLink, InfoIcon } from 'lucide-svelte'
-
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	export let light = false
 	export let wrapperClass = ''
 	export let placement: PopoverPlacement | undefined = undefined
 	export let documentationLink: string | undefined = undefined
 	export let small = false
+	export let markdownTooltip: string | undefined = undefined
+	const plugins = [gfmPlugin()]
 </script>
 
 <Popover notClickable {placement} class={wrapperClass}>
@@ -19,7 +22,14 @@
 		<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 	</div>
 	<svelte:fragment slot="text">
-		<slot />
+		{#if markdownTooltip}
+			<div class="prose-sm">
+				<Markdown md={markdownTooltip} {plugins} />
+			</div>
+		{:else}
+			<slot />
+		{/if}
+
 		{#if documentationLink}
 			<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
 				<div class="flex flex-row gap-2 mt-4">

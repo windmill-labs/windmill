@@ -41,7 +41,8 @@
 	}
 
 	let outputs = initOutput($worldStore, id, {
-		result: undefined as string | undefined
+		result: undefined as string | undefined,
+		validity: true as boolean | undefined
 	})
 
 	$: handleDefault(resolvedConfig.defaultValue)
@@ -62,6 +63,40 @@
 	$: {
 		if (value) {
 			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
+			const valueDate = new Date(value)
+
+			console.log('valueDate', valueDate)
+
+			if (resolvedConfig.minDateTime) {
+				const minDate = new Date(resolvedConfig.minDateTime)
+				if (
+					minDate.getDay() === valueDate.getDay() &&
+					minDate.getMonth() === valueDate.getMonth() &&
+					minDate.getFullYear() === valueDate.getFullYear()
+				) {
+					outputs?.validity.set(minDate.getTime() < valueDate.getTime())
+				}
+
+				if (minDate.getTime() > valueDate.getTime()) {
+					outputs?.validity.set(false)
+				}
+			}
+
+			if (resolvedConfig.maxDateTime) {
+				const maxDate = new Date(resolvedConfig.maxDateTime)
+
+				if (
+					maxDate.getDay() === valueDate.getDay() &&
+					maxDate.getMonth() === valueDate.getMonth() &&
+					maxDate.getFullYear() === valueDate.getFullYear()
+				) {
+					outputs?.validity.set(maxDate.getTime() > valueDate.getTime())
+				}
+
+				if (maxDate.getTime() < valueDate.getTime()) {
+					outputs?.validity.set(false)
+				}
+			}
 		} else {
 			outputs?.result.set(undefined)
 		}
@@ -105,6 +140,12 @@
 					e.stopPropagation()
 					$selectedComponent = [id]
 				}}
+				minDate={resolvedConfig.minDateTime
+					? formatDate(resolvedConfig.minDateTime, 'yyyy-MM-dd')
+					: undefined}
+				maxDate={resolvedConfig.maxDateTime
+					? formatDate(resolvedConfig.maxDateTime, 'yyyy-MM-dd')
+					: undefined}
 				on:focus={() => ($selectedComponent = [id])}
 			/>
 		{/if}

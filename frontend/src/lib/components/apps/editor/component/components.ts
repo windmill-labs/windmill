@@ -2320,12 +2320,14 @@ This is a paragraph.
 				minDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date'
+					fieldType: 'date',
+					tooltip: 'The minimum date that can be selected. The format is: "yyyy-MM-dd"'
 				},
 				maxDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date'
+					fieldType: 'date',
+					tooltip: 'The maximum date that can be selected. The format is: "yyyy-MM-dd"'
 				},
 				defaultValue: {
 					type: 'static',
@@ -2336,7 +2338,19 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information. By default, it is `dd.MM.yyyy`',
+					markdownTooltip: `### Output format				
+See date-fns format for more information. By default, it is 'dd.MM.yyyy'
+
+| Format      | Result | Description |
+| ----------- | ----------- | ----------- |
+| DD 				| 01, 02, ..., 31 | Day of the month |
+| D 				| 1, 2, ..., 31 | Day of the month |
+| MM 				| 01, 02, ..., 12 | Month |
+| MMM 				| Jan, Feb, ..., Dec | Month |
+| MMMM 				| January, February, ..., December | Month |
+| YYYY 				| 2021, 2022, ... | Year |
+`,
+
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
 					placeholder: 'dd.MM.yyyy'
 				}
@@ -2347,7 +2361,7 @@ This is a paragraph.
 		name: 'Date & Time',
 		icon: CalendarClock,
 		documentationLink: `${documentationBaseUrl}/datetime_input`,
-		dims: '2:1-4:2' as AppComponentDimensions,
+		dims: '2:1-6:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -2361,13 +2375,41 @@ This is a paragraph.
 					fieldType: 'boolean',
 					tooltip: 'Display presets to select the date for example, in 1 week, in 1 month, etc.'
 				},
+				minDateTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'datetime',
+					tooltip:
+						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z"'
+				},
+				maxDateTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'datetime',
+					tooltip:
+						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z"'
+				},
 				outputFormat: {
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information. By default, it is `dd.MM.yyyy HH:mm`',
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
-					placeholder: 'dd.MM.yyyy HH:mm'
+					placeholder: 'dd.MM.yyyy HH:mm',
+					markdownTooltip: `### Output format				
+See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
+
+| Format      | Result | Description |
+| ----------- | ----------- | ----------- |
+| DD 				| 01, 02, ..., 31 | Day of the month |
+| D 				| 1, 2, ..., 31 | Day of the month |
+| MM 				| 01, 02, ..., 12 | Month |
+| MMM 				| Jan, Feb, ..., Dec | Month |
+| MMMM 				| January, February, ..., December | Month |
+| YYYY 				| 2021, 2022, ... | Year |
+| HH 				| 00, 01, ..., 23 | Hours |
+| mm 				| 00, 01, ..., 59 | Minutes |
+| ss 				| 00, 01, ..., 59 | Seconds |
+					`
 				},
 				defaultValue: {
 					type: 'static',
@@ -2392,29 +2434,29 @@ This is a paragraph.
 				minTime: {
 					type: 'static',
 					value: '',
-					fieldType: 'time'
+					fieldType: 'time',
+					tooltip:
+						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
 				},
 				maxTime: {
 					type: 'static',
 					value: '',
 					fieldType: 'time',
 					tooltip:
-						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false'
+						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
 				},
 				defaultValue: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'time',
-					tooltip:
-						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false'
+					fieldType: 'time'
 				},
 
-				twelveHourFormat: {
+				['24hFormat']: {
 					type: 'static',
-					value: false,
+					value: true,
 					fieldType: 'boolean',
 					tooltip:
-						'Use 12-hour time format. Will change the format of the output of the component: HH:mm to hh:mm am/pm'
+						'Use 24h format. Will change the format of the output of the component: HH:mm to hh:mm am/pm'
 				}
 			}
 		}

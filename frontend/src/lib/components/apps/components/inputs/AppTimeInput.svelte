@@ -37,7 +37,7 @@
 		validity: true as boolean
 	})
 
-	$: handleDefault(resolvedConfig.defaultValue)
+	$: !value && handleDefault(resolvedConfig.defaultValue)
 
 	function convertToMinutes(time: string) {
 		const [hours, minutes] = time.split(':').map(Number)
@@ -46,7 +46,7 @@
 
 	$: {
 		if (value) {
-			if (resolvedConfig.twelveHourFormat) {
+			if (!resolvedConfig['24hFormat']) {
 				let time = value.split(':')
 				let hours = parseInt(time[0])
 				let minutes = time[1]
@@ -77,8 +77,6 @@
 
 			// At the end, set the validity
 			outputs?.validity.set(isValid)
-		} else {
-			outputs?.result.set(undefined)
 		}
 	}
 
