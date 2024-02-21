@@ -29,7 +29,6 @@ use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Client, StatusCode,
 };
-use rsmq_async::RsmqConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
@@ -121,15 +120,19 @@ pub struct CanceledBy {
 }
 
 #[async_recursion]
-pub async fn cancel_job<'c: 'async_recursion>(
+pub async fn cancel_job<
+    'c: 'async_recursion,
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
     username: &str,
     reason: Option<String>,
     id: Uuid,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    rsmq: Option<R>,
     force_cancel: bool,
+    toggle_running: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_running = get_queued_job_tx(id, &w_id, &mut tx).await?;
 
@@ -142,6 +145,15 @@ pub async fn cancel_job<'c: 'async_recursion>(
         || (job_running.job_kind == JobKind::Flow || job_running.job_kind == JobKind::FlowPreview))
         && !force_cancel
     {
+        if toggle_running {
+            sqlx::query_scalar!(
+                "UPDATE queue SET running = false WHERE id = $1 AND workspace_id = $2",
+                id,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
         let id = sqlx::query_scalar!(
             "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
             username,
@@ -204,6 +216,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             db,
             rsmq.clone(),
             force_cancel,
+            false,
         )
         .await?;
         tx = ntx;
@@ -275,6 +288,7 @@ async fn cancel_persistent_script_jobs_internal<'c>(
             tx,
             db,
             rsmq.clone(),
+            false,
             false,
         )
         .await?;

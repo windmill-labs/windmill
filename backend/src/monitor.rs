@@ -38,6 +38,7 @@ use windmill_common::{
     },
     BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
+use windmill_queue::cancel_job;
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SendResult, BUNFIG_INSTALL_SCOPES,
     JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
@@ -575,7 +576,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let zombie_jobs_f = async {
         if server_mode {
             handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
-            handle_zombie_flows(db).await;
+            let _ = handle_zombie_flows(db, rsmq.clone()).await;
         }
     };
     let expired_items_f = async {
@@ -858,26 +859,58 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     }
 }
 
-async fn handle_zombie_flows(db: &DB) {
-    let flows = sqlx::query!(
+async fn handle_zombie_flows<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+    db: &DB,
+    rsmq: Option<R>,
+) -> error::Result<()> {
+    let flows = sqlx::query_as::<_, QueuedJob>(
         r#"
-        SELECT workspace_id, id, flow_last_progress_ts
+        SELECT *
         FROM queue
         WHERE running = true AND (job_kind = $1 OR job_kind = $2) AND flow_last_progress_ts IS NOT NULL AND flow_last_progress_ts < NOW() - INTERVAL '1 minute'
         "#,
-        JobKind::Flow as JobKind,
-        JobKind::FlowPreview as JobKind,
-    )
+    ).bind(JobKind::Flow as JobKind).bind(JobKind::FlowPreview as JobKind)
     .fetch_all(db)
-    .await
-    .unwrap_or_default();
+    .await?;
 
     // TODO: for now only log zombie flows
+    let mut tx = db.begin().await.unwrap();
     for flow in flows {
-        tracing::warn!(
-            "Zombie flow detected: {} in workspace {}",
-            flow.id,
-            flow.workspace_id
-        );
+        if flow.parse_flow_status().map(|s| s.step).unwrap_or(1) == 0 {
+            tracing::warn!(
+                "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
+                flow.id,
+                flow.workspace_id
+            );
+            // if the flow hasn't started and is a zombie, we can simply restart it
+            sqlx::query!(
+                "UPDATE queue SET running = false, started_at = null WHERE id = $1",
+                flow.id
+            )
+            .execute(db)
+            .await?;
+        } else {
+            // if it was started, we can't restart it, so we cancel it
+            tracing::warn!(
+                "Zombie flow detected: {} in workspace {}. Cancelling it.",
+                flow.id,
+                flow.workspace_id
+            );
+            let (ntx, _) = cancel_job(
+                "monitor",
+                Some("Flow cancelled as it was hanging in between 2 steps".to_string()),
+                flow.id,
+                flow.workspace_id.as_str(),
+                tx,
+                db,
+                rsmq.clone(),
+                false,
+                true,
+            )
+            .await?;
+            tx = ntx;
+        }
     }
+    tx.commit().await?;
+    Ok(())
 }

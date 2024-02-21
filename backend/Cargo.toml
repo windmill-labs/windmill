@@ -48,6 +48,7 @@ anyhow.workspace = true
 tokio.workspace = true
 dotenv.workspace = true
 windmill-common = { workspace = true, features = ["tracing_init"] }
+windmill-queue.workspace = true
 windmill-git-sync.workspace = true
 windmill-api.workspace = true
 windmill-worker.workspace = true
