@@ -10,7 +10,8 @@ export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
     email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
     opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined,
-    min_object: {a: string, b: number}) {
+    min_object: {a: string, b: number},
+    literals_with_undefined: \"foo\" | \"bar\" | undefined) {
     console.log(42)
 }
 ";
@@ -106,6 +107,13 @@ export function main(test1?: string, test2: string = \"burkina\",
                     ]),
                     default: None,
                     has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "literals_with_undefined".to_string(),
+                    typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
+                    default: None,
+                    has_default: true
                 }
             ]
         }
@@ -113,7 +121,6 @@ export function main(test1?: string, test2: string = \"burkina\",
 
     Ok(())
 }
-
 #[wasm_bindgen_test]
 fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
     let code = "

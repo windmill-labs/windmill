@@ -4,7 +4,7 @@
 
 	export let value: string | undefined = undefined
 
-	export let autofocus: boolean = false
+	export let autofocus: boolean | null = false
 	export let useDropdown: boolean = false
 
 	let date: string | undefined = undefined
