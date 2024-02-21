@@ -47,7 +47,9 @@ pub struct Schedule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<serde_json::Value>,
     pub no_flow_overlap: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
 }
 
