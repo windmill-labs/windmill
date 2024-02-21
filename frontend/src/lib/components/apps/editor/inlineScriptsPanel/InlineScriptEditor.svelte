@@ -209,32 +209,32 @@
 
 				<Button
 					title="Delete"
-					size="xs"
+					size="xs2"
 					color="red"
 					variant="border"
-					btnClasses="!px-2"
 					aria-label="Delete"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
+					iconOnly
 				/>
 				{#if inlineScript.language != 'frontend'}
 					<Button
-						size="xs"
+						size="xs2"
 						color="light"
 						title="Full Editor"
-						btnClasses="!px-2  !bg-surface-secondary hover:!bg-surface-hover"
+						variant="border"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
 						endIcon={{ icon: Maximize2 }}
+						iconOnly
 					/>
 				{/if}
 
 				<Button
 					variant="border"
-					size="xs"
+					size="xs2"
 					color="light"
-					btnClasses="!px-2 !py-1"
 					on:click={async () => {
 						editor?.format()
 						simpleEditor?.format()

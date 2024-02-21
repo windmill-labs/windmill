@@ -2,7 +2,7 @@ export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', '
 
 export namespace ButtonType {
 	export type Size = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-	export type Color = string;
+	export type Color = string
 	export type Variant = 'contained' | 'border' | 'divider'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
@@ -52,15 +52,6 @@ export namespace ButtonType {
 			contained: 'px-4 py-[9px]',
 			divider: ''
 		}
-	} as const
-
-	export const IconScale: Record<ButtonType.Size, number> = {
-		xs2: 0.6,
-		xs: 0.7,
-		sm: 0.8,
-		md: 1,
-		lg: 1.1,
-		xl: 1.2
 	} as const
 
 	export interface ItemProps {

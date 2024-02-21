@@ -105,6 +105,8 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [clearFiles]
 		case 'displaycomponent':
 		case 'dateinputcomponent':
+		case 'timeinputcomponent':
+		case 'datetimeinputcomponent':
 		case 'textinputcomponent':
 		case 'numberinputcomponent':
 		case 'currencycomponent':

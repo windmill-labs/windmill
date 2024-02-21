@@ -13,7 +13,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
-	import type { RunnableComponent } from '../..'
 	import type { Output } from '$lib/components/apps/rx'
 	import type { InitConfig } from '$lib/components/apps/editor/appUtils'
 	import { Button } from '$lib/components/common'
@@ -175,6 +174,10 @@
 						editable: resolvedConfig?.allEditable,
 						onCellValueChanged
 					},
+					infiniteInitialRowCount: 1000,
+					cacheBlockSize: 100,
+					cacheOverflowSize: 2,
+					maxBlocksInCache: 20,
 					suppressColumnMoveAnimation: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
@@ -217,7 +220,13 @@
 
 	$: resolvedConfig && updateOptions()
 
-	$: datasource && api?.updateGridOptions({ datasource })
+	let oldDatasource = datasource
+	$: if (datasource && datasource != oldDatasource) {
+		console.log('datasource changed')
+
+		oldDatasource = datasource
+		api?.updateGridOptions({ datasource })
+	}
 
 	let extraConfig = resolvedConfig.extraConfig
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
@@ -259,12 +268,6 @@
 				: false,
 			...(resolvedConfig?.extraConfig ?? {})
 		})
-	}
-
-	let runnableComponent: RunnableComponent
-
-	export function recompute() {
-		runnableComponent?.runComponent()
 	}
 </script>
 

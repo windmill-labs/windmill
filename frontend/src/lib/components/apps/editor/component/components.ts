@@ -46,7 +46,9 @@ import {
 	Network,
 	Database,
 	UploadCloud,
-	AlertTriangle
+	AlertTriangle,
+	Clock,
+	CalendarClock
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -89,6 +91,8 @@ export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
@@ -291,6 +295,8 @@ export type TypedComponent =
 	| AgChartsComponentEe
 	| AlertComponent
 	| DateSliderComponent
+	| TimeInputComponent
+	| DateTimeInputComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1843,7 +1849,9 @@ This is a paragraph.
 		customCss: {
 			input: {
 				style: '',
-				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+				tooltip:
+					'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md',
+				class: ''
 			}
 		},
 		initialData: {
@@ -2312,12 +2320,14 @@ This is a paragraph.
 				minDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date'
+					fieldType: 'date',
+					tooltip: 'The minimum date that can be selected. The format is: "yyyy-MM-dd"'
 				},
 				maxDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date'
+					fieldType: 'date',
+					tooltip: 'The maximum date that can be selected. The format is: "yyyy-MM-dd"'
 				},
 				defaultValue: {
 					type: 'static',
@@ -2328,8 +2338,125 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information',
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+					markdownTooltip: `### Output format				
+See date-fns format for more information. By default, it is 'dd.MM.yyyy'
+
+| Format      | Result | Description |
+| ----------- | ----------- | ----------- |
+| DD 				| 01, 02, ..., 31 | Day of the month |
+| D 				| 1, 2, ..., 31 | Day of the month |
+| MM 				| 01, 02, ..., 12 | Month |
+| MMM 				| Jan, Feb, ..., Dec | Month |
+| MMMM 				| January, February, ..., December | Month |
+| YYYY 				| 2021, 2022, ... | Year |
+`,
+
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					placeholder: 'dd.MM.yyyy'
+				}
+			}
+		}
+	},
+	datetimeinputcomponent: {
+		name: 'Date & Time',
+		icon: CalendarClock,
+		documentationLink: `${documentationBaseUrl}/datetime_input`,
+		dims: '2:1-6:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				displayPresets: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Display presets to select the date for example, in 1 week, in 1 month, etc.'
+				},
+				minDateTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'datetime',
+					tooltip:
+						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+				},
+				maxDateTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'datetime',
+					tooltip:
+						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					placeholder: 'dd.MM.yyyy HH:mm',
+					markdownTooltip: `### Output format				
+See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
+
+| Format      | Result | Description |
+| ----------- | ----------- | ----------- |
+| DD 				| 01, 02, ..., 31 | Day of the month |
+| D 				| 1, 2, ..., 31 | Day of the month |
+| MM 				| 01, 02, ..., 12 | Month |
+| MMM 				| Jan, Feb, ..., Dec | Month |
+| MMMM 				| January, February, ..., December | Month |
+| YYYY 				| 2021, 2022, ... | Year |
+| HH 				| 00, 01, ..., 23 | Hours |
+| mm 				| 00, 01, ..., 59 | Minutes |
+| ss 				| 00, 01, ..., 59 | Seconds |
+					`
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'datetime'
+				}
+			}
+		}
+	},
+	timeinputcomponent: {
+		name: 'Time',
+		icon: Clock,
+		documentationLink: `${documentationBaseUrl}/time_input`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				minTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'time',
+					tooltip:
+						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+				},
+				maxTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'time',
+					tooltip:
+						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'time'
+				},
+
+				['24hFormat']: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip:
+						'Use 24h format. Will change the format of the output of the component: HH:mm to hh:mm am/pm'
 				}
 			}
 		}
@@ -3217,7 +3344,7 @@ This is a paragraph.
 		}
 	},
 	dbexplorercomponent: {
-		name: 'Database Studio',
+		name: 'Database Studio Table',
 		icon: Database,
 		documentationLink: `${documentationBaseUrl}/database_studio`,
 		dims: '2:8-6:8' as AppComponentDimensions,

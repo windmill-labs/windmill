@@ -15,6 +15,8 @@
 	import { Popup } from '../common'
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
+	import type { Flow } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
@@ -38,16 +40,15 @@
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
-		const idOrders = dfs($flowStore.value.modules, (x) => x.id)
+		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
 		const flowDetails =
 			'Take into account the following information for never tested results:\n<flowDetails>\n' +
-			yamlStringifyExceptKeys(sliceModules($flowStore.value.modules, upToIndex, idOrders), [
-				'lock'
-			]) +
+			yamlStringifyExceptKeys(sliceModules(flow.value.modules, upToIndex, idOrders), ['lock']) +
 			'</flowDetails>'
 
 		try {
@@ -72,8 +73,8 @@ Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 
 Your answer has to be in the following format (one line per input):
-{input_name1}: {expression1}
-{input_name2}: {expression2}
+input_name1: expression1
+input_name2: expression2
 ...`
 
 			generatedContent = await getNonStreamingCompletion(
@@ -171,7 +172,12 @@ Your answer has to be in the following format (one line per input):
 		<Button
 			size="xs"
 			color="light"
-			btnClasses="text-violet-800 dark:text-violet-400"
+			btnClasses={twMerge(
+				'text-violet-800 dark:text-violet-400',
+				!loading && Object.keys($generatedExprs || {}).length > 0
+					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
+					: ''
+			)}
 			on:mouseenter={(ev) => {
 				if (out) {
 					out = false

@@ -25,7 +25,7 @@
 	<div
 		transition:fade={{ duration: 150 }}
 		use:popperContent={{ placement: 'bottom', strategy: 'fixed' }}
-		class="color-picker-input z-[1002]"
+		class="color-picker-input z-[1002] !text-primary"
 		style="width: {width > 280 ? width : 280}px;"
 	>
 		<ColorPicker
@@ -33,7 +33,6 @@
 			bind:hex={value}
 			label={value}
 			components={ChromeVariant}
-			sliderDirection="horizontal"
 			--focus-color="#e0e7ff"
 		/>
 	</div>
@@ -50,6 +49,7 @@
 		border-radius: 0.375rem !important;
 		top: 6px !important;
 		z-index: 30 !important;
+		color: black;
 	}
 
 	.color-picker-input .slider-wrapper {
@@ -69,7 +69,8 @@
 
 	.color-picker-input .input-container > input {
 		background-color: #ffffff;
-		border: 1px solid #d1d5db;
+		border: 1px solid #d1d5db !important;
 		border-radius: 6px;
+		color: black !important;
 	}
 </style>

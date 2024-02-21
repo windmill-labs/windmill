@@ -18,7 +18,15 @@ def main():
     pass
 
 ";
-        let r = parse_python_imports(code, "test-workspace", "f/foo/bar", &db).await?;
+        let mut already_visited = vec![];
+        let r = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut already_visited,
+        )
+        .await?;
         // println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["matplotlib", "wmill", "zanzibar"]);
         Ok(())
@@ -42,7 +50,15 @@ def main():
     pass
 
 ";
-        let r = parse_python_imports(code, "test-workspace", "f/foo/bar", &db).await?;
+        let mut already_visited = vec![];
+        let r = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut already_visited,
+        )
+        .await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
 
@@ -63,7 +79,16 @@ def main():
     pass
 
 ";
-        let r = parse_python_imports(code, "test-workspace", "f/foo/bar", &db).await?;
+        let mut already_visited = vec![];
+
+        let r = parse_python_imports(
+            code,
+            "test-workspace",
+            "f/foo/bar",
+            &db,
+            &mut already_visited,
+        )
+        .await?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(
             r,

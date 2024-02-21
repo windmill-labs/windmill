@@ -296,9 +296,9 @@
 						bind:currencyLocale={property.currencyLocale}
 					/>
 				{:else if property.selectedType == 'object' && property.format !== 'resource-s3'}
-					<Tabs selected="custom-object">
-						<Tab value="custom-object">Custom Object</Tab>
+					<Tabs selected="resource">
 						<Tab value="resource">Resource</Tab>
+						<Tab value="custom-object">Custom Object</Tab>
 						<svelte:fragment slot="content">
 							<div class="pt-2">
 								<TabContent value="custom-object">

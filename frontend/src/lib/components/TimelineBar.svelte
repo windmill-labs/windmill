@@ -20,8 +20,11 @@
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"
-		class="h-4 {gray ? 'bg-gray-500' : running ? 'bg-blue-400/90' : 'bg-blue-500/90'} {position ==
-		'left'
+		class="h-4 {gray
+			? 'bg-gray-300 dark:bg-gray-600'
+			: running
+			? 'bg-blue-400/90'
+			: 'bg-blue-500/90'} {position == 'left'
 			? 'rounded-l-sm'
 			: position == 'right'
 			? 'rounded-r-sm'

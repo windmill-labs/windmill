@@ -15,6 +15,8 @@
 	export let tooltip: string | undefined
 	export let disabledOptions: string[] = []
 	export let acceptSelf: boolean = false
+	export let recomputeOnInputChanged = true
+	export let showOnDemandOnlyToggle = true
 
 	$: {
 		if (oneOf == undefined) {
@@ -82,6 +84,7 @@
 
 			{#if config && oneOf.configuration[oneOf.selected]}
 				<InputsSpecEditor
+					{recomputeOnInputChanged}
 					key={nestedKey}
 					bind:componentInput={oneOf.configuration[oneOf.selected][nestedKey]}
 					{id}
@@ -98,6 +101,8 @@
 					tooltip={config?.['tooltip']}
 					fileUpload={config?.['fileUpload']}
 					loading={config?.['loading']}
+					documentationLink={config?.['documentationLink']}
+					{showOnDemandOnlyToggle}
 				/>
 			{/if}
 		{/each}

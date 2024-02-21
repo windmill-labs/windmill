@@ -533,16 +533,26 @@
 			<Drawer bind:this={jsonViewer} size="900px">
 				<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 					<svelte:fragment slot="actions">
-						<a
-							class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+						<Button
 							download="{filename ?? 'result'}.json"
 							href={workspaceId && jobId
 								? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-							>Download <Download size={14} /></a
+							startIcon={{ icon: Download }}
+							color="light"
+							size="xs"
 						>
-						<Button on:click={() => copyToClipboard(toJsonStr(result))} color="light" size="xs">
-							<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+							Download
+						</Button>
+						<Button
+							on:click={() => copyToClipboard(toJsonStr(result))}
+							color="light"
+							size="xs"
+							startIcon={{
+								icon: ClipboardCopy
+							}}
+						>
+							Copy to clipboard
 						</Button>
 					</svelte:fragment>
 					{#if largeObject}

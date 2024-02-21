@@ -309,6 +309,9 @@
 										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
 										userInputEnabled={component.type === 'formcomponent' ||
 											component.type === 'formbuttoncomponent'}
+										recomputeOnInputChanged={componentSettings.item.data.componentInput
+											.recomputeOnInputChanged}
+										showOnDemandOnlyToggle
 									/>
 								</div>
 							{/if}

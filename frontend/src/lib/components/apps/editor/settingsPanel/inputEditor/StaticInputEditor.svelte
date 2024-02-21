@@ -20,6 +20,7 @@
 	import AgChartWizard from '$lib/components/wizards/AgChartWizard.svelte'
 	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -42,6 +43,10 @@
 			<textarea use:autosize on:keydown|stopPropagation bind:value={componentInput.value} />
 		{:else if fieldType === 'date'}
 			<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
+		{:else if fieldType === 'time'}
+			<input on:keydown|stopPropagation type="time" bind:value={componentInput.value} />
+		{:else if fieldType === 'datetime'}
+			<DateTimeInput bind:value={componentInput.value} />
 		{:else if fieldType === 'boolean'}
 			<Toggle bind:checked={componentInput.value} size="xs" class="mt-2" />
 		{:else if fieldType === 'select' && selectOptions}

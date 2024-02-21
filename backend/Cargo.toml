@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.273.0"
+version = "1.275.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.273.0"
+version = "1.275.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -127,7 +127,7 @@ rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = "0.3.0"
+rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "29c4728dbedc7e69cc2560b9b34058bbba9b1303" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
@@ -220,3 +220,4 @@ polars = { version = "0.35.4", features = ["lazy", "parquet", "aws", "azure", "c
 polars-io = { version = "0.35.4", features = ["csv"] }
 object_store = { version = "0.8.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
+

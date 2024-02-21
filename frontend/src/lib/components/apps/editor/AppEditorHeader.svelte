@@ -92,6 +92,7 @@
 		createUpdatePostgresInput,
 		getPrimaryKeys
 	} from '../components/display/dbtable/utils'
+	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	async function hash(message) {
 		try {
@@ -161,6 +162,7 @@
 	let saveDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
+	let debugAppDrawerOpen = false
 	let deploymentMsg: string | undefined = undefined
 
 	function closeSaveDrawer() {
@@ -208,7 +210,6 @@
 							const whereClause = (c.configuration.whereClause as any).value as unknown as
 								| string
 								| undefined
-							console.log(columnDefs)
 							if (tableValue && resourceValue && columnDefs) {
 								r.push({
 									input: createPostgresInput(resourceValue, tableValue, columnDefs, whereClause),
@@ -672,6 +673,14 @@
 				})
 			},
 			disabled: !savedApp
+		},
+		// App debug menu
+		{
+			displayName: 'Troubleshoot panel',
+			icon: Bug,
+			action: () => {
+				debugAppDrawerOpen = true
+			}
 		}
 	]
 
@@ -684,6 +693,10 @@
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
 
 	let appReportingDrawerOpen = false
+
+	export function openTroubleshootPanel() {
+		debugAppDrawerOpen = true
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -933,6 +946,12 @@
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore {appPath} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={debugAppDrawerOpen} size="800px">
+	<DrawerContent title="Troubleshoot Panel" on:close={() => (debugAppDrawerOpen = false)}>
+		<DebugPanel />
 	</DrawerContent>
 </Drawer>
 

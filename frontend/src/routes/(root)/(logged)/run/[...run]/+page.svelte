@@ -305,13 +305,7 @@
 				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 					<ButtonDropdown target="body" hasPadding={false}>
 						<svelte:fragment slot="buttonReplacement">
-							<Button
-								btnClasses="!py-2"
-								nonCaptureEvent
-								variant="border"
-								size="sm"
-								startIcon={{ icon: Trash }}
-							/>
+							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
 						</svelte:fragment>
 						<svelte:fragment slot="items">
 							<MenuItem
@@ -490,7 +484,7 @@
 						goto(viewHref)
 					}}
 					color="blue"
-					size="md"
+					size="sm"
 					startIcon={{ icon: RefreshCw }}>Run again</Button
 				>
 			{/if}
@@ -503,7 +497,7 @@
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
-							size="md"
+							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
@@ -511,7 +505,7 @@
 				<Button
 					href={viewHref}
 					color="blue"
-					size="md"
+					size="sm"
 					startIcon={{
 						icon:
 							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Scroll

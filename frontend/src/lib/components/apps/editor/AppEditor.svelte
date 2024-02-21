@@ -23,7 +23,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState } from '$lib/utils'
+	import { classNames, encodeState, sendUserToast } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -119,6 +119,7 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
+	const initialized = writable({ initialized: false, initializedComponents: [] })
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
@@ -127,7 +128,7 @@
 		worldStore,
 		app: appStore,
 		summary: summaryStore,
-		initialized: writable({ initialized: false, initializedComponents: [] }),
+		initialized: initialized,
 		selectedComponent,
 		mode,
 		connectingInput,
@@ -470,6 +471,23 @@
 	onMount(() => {
 		mounted = true
 
+		setTimeout(() => {
+			if ($initialized?.initialized === false) {
+				sendUserToast(
+					'App is not yet initialized, please check the Troubleshoot Panel for more information',
+					true,
+					[
+						{
+							label: 'Open Troubleshoot Panel',
+							callback: () => {
+								appEditorHeader?.openTroubleshootPanel()
+							}
+						}
+					]
+				)
+			}
+		}, 10000)
+
 		parseScroll()
 	})
 
@@ -573,7 +591,7 @@
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
 									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
-										<div class="flex flex-row gap-2 text-xs items-center p-0.5">
+										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
 												color="light"
 												size="xs2"
@@ -584,7 +602,9 @@
 											>
 												<Minus size={14} />
 											</Button>
-											{$scale}%
+											<div class="w-8 flex justify-center text-2xs h-full items-center">
+												{$scale}%
+											</div>
 											<Button
 												color="light"
 												size="xs2"

@@ -132,7 +132,7 @@
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
-								autofocus={i == 0 && autofocus}
+								autofocus={i == 0 && autofocus ? true : null}
 								label={argName}
 								description={schema.properties[argName].description}
 								bind:value={args[argName]}

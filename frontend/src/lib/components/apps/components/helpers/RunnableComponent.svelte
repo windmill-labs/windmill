@@ -594,6 +594,7 @@
 			{id}
 			input={fields[key]}
 			bind:value={runnableInputValues[key]}
+			onDemandOnly={v.onDemandOnly}
 		/>
 	{/if}
 {/each}

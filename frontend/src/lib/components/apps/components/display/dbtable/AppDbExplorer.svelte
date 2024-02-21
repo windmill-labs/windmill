@@ -60,14 +60,22 @@
 		resolvedConfig.type.configuration.postgresql.resource
 	)
 
+	let timeoutInput: NodeJS.Timeout | undefined = undefined
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
-		aggrid?.clearRows()
-		input = createPostgresInput(
-			resource,
-			resolvedConfig.type.configuration.postgresql.table,
-			columnDefs,
-			whereClause
-		)
+		if (timeoutInput) {
+			clearTimeout(timeoutInput)
+		}
+		timeoutInput = setTimeout(() => {
+			timeoutInput = undefined
+			console.log('compute input')
+			aggrid?.clearRows()
+			input = createPostgresInput(
+				resource,
+				resolvedConfig.type.configuration.postgresql.table,
+				columnDefs,
+				whereClause
+			)
+		}, 1000)
 	}
 
 	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
@@ -77,8 +85,13 @@
 		resolvedConfig.type.configuration?.postgresql?.table &&
 		listColumnsIfAvailable()
 
+	let firstQuicksearch = true
 	$: if (quicksearch) {
-		aggrid?.clearRows()
+		if (firstQuicksearch) {
+			firstQuicksearch = false
+		} else {
+			aggrid?.clearRows()
+		}
 	}
 
 	initializing = false
@@ -191,7 +204,6 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			refreshCount++
 			let uuid = await runnableComponent?.runComponent(
 				undefined,
 				undefined,
@@ -205,6 +217,10 @@
 				},
 				{
 					done: (x) => {
+						let lastRow = -1
+						if (datasource.rowCount && datasource.rowCount <= params.endRow) {
+							lastRow = datasource.rowCount
+						}
 						if (x && Array.isArray(x)) {
 							params.successCallback(
 								x.map((x) => {
@@ -216,7 +232,7 @@
 									x['__index'] = JSON.stringify(o)
 									return x
 								}),
-								datasource.rowCount
+								lastRow
 							)
 						} else {
 							params.failCallback()
@@ -237,6 +253,8 @@
 	}
 
 	let lastTable: string | undefined = undefined
+
+	let timeout: NodeJS.Timeout | undefined = undefined
 	async function listColumnsIfAvailable() {
 		let table = resolvedConfig.type.configuration?.postgresql?.table
 		if (lastTable === table) return
@@ -291,7 +309,11 @@
 
 		//@ts-ignore
 		resolvedConfig.columnDefs = ncols
-		renderCount += 1
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(() => {
+			timeout = undefined
+			renderCount += 1
+		}, 1500)
 	}
 
 	let isInsertable: boolean = false

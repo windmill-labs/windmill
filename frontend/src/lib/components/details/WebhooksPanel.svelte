@@ -291,7 +291,7 @@ done`
 												copyToClipboard(curlCode())
 											}}
 										>
-											<Highlight language={bash} code={curlCode()} class="" />
+											<Highlight language={bash} code={curlCode()} />
 											<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
 										</div>
 									{/key}

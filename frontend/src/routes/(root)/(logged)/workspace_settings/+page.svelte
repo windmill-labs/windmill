@@ -1094,7 +1094,7 @@
 								<br />By default everything is synced.
 							</Tooltip></h4
 						>
-						<div class="flex flex-col gap-1 mt-1">
+						<div class="flex flex-col gap-2 mt-1">
 							<Toggle
 								bind:checked={gitSyncSettings.include_type.scripts}
 								on:change={(_) => resetGitSyncRepositoryExclude('scripts')}
