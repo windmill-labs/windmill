@@ -500,7 +500,6 @@
 			<AppTimeInput
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
-				inputType="date"
 				id={component.id}
 				customCss={component.customCss}
 				{render}

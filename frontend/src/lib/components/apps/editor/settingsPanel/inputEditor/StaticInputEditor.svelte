@@ -20,6 +20,7 @@
 	import AgChartWizard from '$lib/components/wizards/AgChartWizard.svelte'
 	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -45,7 +46,7 @@
 		{:else if fieldType === 'time'}
 			<input on:keydown|stopPropagation type="time" bind:value={componentInput.value} />
 		{:else if fieldType === 'datetime'}
-			<input on:keydown|stopPropagation type="datetime-local" bind:value={componentInput.value} />
+			<DateTimeInput bind:value={componentInput.value} />
 		{:else if fieldType === 'boolean'}
 			<Toggle bind:checked={componentInput.value} size="xs" class="mt-2" />
 		{:else if fieldType === 'select' && selectOptions}

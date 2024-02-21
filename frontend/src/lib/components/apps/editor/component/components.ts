@@ -2336,8 +2336,9 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information',
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+					tooltip: 'See date-fns format for more information. By default, it is `dd.MM.yyyy HH:mm`',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					placeholder: 'dd.MM.yyyy HH:mm'
 				}
 			}
 		}
@@ -2364,8 +2365,9 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information',
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+					tooltip: 'See date-fns format for more information. By default, it is `dd.MM.yyyy HH:mm`',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					placeholder: 'dd.MM.yyyy HH:mm'
 				},
 				defaultValue: {
 					type: 'static',
@@ -2401,6 +2403,14 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'time'
+				},
+
+				twelveHourClock: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip:
+						'Use 12-hour time format. Will change the format of the output of the component: HH:mm to hh:mm am/pm'
 				}
 			}
 		}

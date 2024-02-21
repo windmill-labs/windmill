@@ -12,7 +12,6 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let inputType: 'date'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'timeinputcomponent'> | undefined = undefined
 	export let render: boolean
@@ -41,7 +40,18 @@
 
 	$: {
 		if (value) {
-			outputs?.result.set(value)
+			if (resolvedConfig.twelveHourClock) {
+				let time = value.split(':')
+				let hours = parseInt(time[0])
+				let minutes = time[1]
+				let ampm = hours >= 12 ? 'pm' : 'am'
+				hours = hours % 12
+				hours = hours ? hours : 12
+
+				outputs?.result.set(hours + ':' + minutes + ' ' + ampm)
+			} else {
+				outputs?.result.set(value)
+			}
 		} else {
 			outputs?.result.set(undefined)
 		}
@@ -75,17 +85,15 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
-	{#if inputType === 'date'}
-		<input
-			on:focus={() => ($selectedComponent = [id])}
-			on:pointerdown|stopPropagation
-			type="time"
-			bind:value
-			min={resolvedConfig.minTime}
-			max={resolvedConfig.maxTime}
-			placeholder="Type..."
-			class={twMerge('w-full ', css?.input?.class)}
-			style={css?.input?.style ?? ''}
-		/>
-	{/if}
+	<input
+		on:focus={() => ($selectedComponent = [id])}
+		on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
+		type="time"
+		bind:value
+		min={resolvedConfig.minTime}
+		max={resolvedConfig.maxTime}
+		placeholder="Type..."
+		class={twMerge('w-full ', css?.input?.class)}
+		style={css?.input?.style ?? ''}
+	/>
 </AlignWrapper>

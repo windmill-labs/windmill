@@ -24,7 +24,8 @@
 	export let customCss: ComponentCustomCSS<'datetimeinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['datetimeinputcomponent'].initialData.configuration,
@@ -93,10 +94,19 @@
 {/each}
 
 <InitializeComponent {id} />
+
 <AlignWrapper {render} {verticalAlignment}>
 	<div class={twMerge(css?.container?.class, 'w-full')} style={css?.container?.style}>
 		{#if inputType === 'date'}
-			<DateTimeInput bind:value useDropdown={resolvedConfig?.displayPresets} />
+			<DateTimeInput
+				bind:value
+				useDropdown={resolvedConfig?.displayPresets}
+				on:pointerdown={(e) => {
+					e.stopPropagation()
+					$selectedComponent = [id]
+				}}
+				on:focus={() => ($selectedComponent = [id])}
+			/>
 		{/if}
 	</div>
 </AlignWrapper>

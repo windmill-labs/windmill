@@ -59,6 +59,7 @@
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
 					loading={meta?.['loading']}
+					documentationLink={meta?.['documentationLink']}
 					{displayType}
 					{recomputeOnInputChanged}
 					{showOnDemandOnlyToggle}

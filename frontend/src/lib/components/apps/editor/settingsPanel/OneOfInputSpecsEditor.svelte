@@ -101,6 +101,7 @@
 					tooltip={config?.['tooltip']}
 					fileUpload={config?.['fileUpload']}
 					loading={config?.['loading']}
+					documentationLink={config?.['documentationLink']}
 					{showOnDemandOnlyToggle}
 				/>
 			{/if}
