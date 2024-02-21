@@ -33,14 +33,20 @@
 	}
 
 	let outputs = initOutput($worldStore, id, {
-		result: undefined as string | undefined
+		result: undefined as string | undefined,
+		validity: true as boolean
 	})
 
 	$: handleDefault(resolvedConfig.defaultValue)
 
+	function convertToMinutes(time: string) {
+		const [hours, minutes] = time.split(':').map(Number)
+		return hours * 60 + minutes
+	}
+
 	$: {
 		if (value) {
-			if (resolvedConfig.twelveHourClock) {
+			if (resolvedConfig.twelveHourClockFormat) {
 				let time = value.split(':')
 				let hours = parseInt(time[0])
 				let minutes = time[1]
@@ -52,6 +58,25 @@
 			} else {
 				outputs?.result.set(value)
 			}
+
+			let currentValueInMinutes = convertToMinutes(value)
+			let isValid = true
+			if (resolvedConfig.minTime) {
+				const minTimeInMinutes = convertToMinutes(resolvedConfig.minTime)
+				if (currentValueInMinutes < minTimeInMinutes) {
+					isValid = false
+				}
+			}
+
+			if (resolvedConfig.maxTime) {
+				const maxTimeInMinutes = convertToMinutes(resolvedConfig.maxTime)
+				if (currentValueInMinutes > maxTimeInMinutes) {
+					isValid = false
+				}
+			}
+
+			// At the end, set the validity
+			outputs?.validity.set(isValid)
 		} else {
 			outputs?.result.set(undefined)
 		}
@@ -93,7 +118,7 @@
 		min={resolvedConfig.minTime}
 		max={resolvedConfig.maxTime}
 		placeholder="Type..."
-		class={twMerge('w-full ', css?.input?.class)}
+		class={twMerge('windmillapp w-full py-1.5 text-sm px-2', css?.input?.class)}
 		style={css?.input?.style ?? ''}
 	/>
 </AlignWrapper>

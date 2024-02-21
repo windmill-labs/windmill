@@ -2397,15 +2397,19 @@ This is a paragraph.
 				maxTime: {
 					type: 'static',
 					value: '',
-					fieldType: 'time'
+					fieldType: 'time',
+					tooltip:
+						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false'
 				},
 				defaultValue: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'time'
+					fieldType: 'time',
+					tooltip:
+						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false'
 				},
 
-				twelveHourClock: {
+				twelveHourClockFormat: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
