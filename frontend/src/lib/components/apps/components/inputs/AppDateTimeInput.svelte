@@ -65,8 +65,6 @@
 			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
 			const valueDate = new Date(value)
 
-			console.log('valueDate', valueDate)
-
 			if (resolvedConfig.minDateTime) {
 				const minDate = new Date(resolvedConfig.minDateTime)
 				if (
