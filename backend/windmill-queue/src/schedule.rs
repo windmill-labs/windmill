@@ -152,7 +152,11 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     language,
                     priority,
                 },
-                schedule.tag.or(tag),
+                if schedule.tag.as_ref().is_some_and(|x| x != "") {
+                    schedule.tag
+                } else {
+                    tag
+                },
                 timeout,
             )
         }
