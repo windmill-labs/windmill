@@ -164,6 +164,7 @@
 
 				{#key ownerKind}
 					<AutoComplete
+						required
 						noInputStyles
 						items={ownerKind === 'user' ? usernames : groups}
 						bind:selectedItem={ownerItem}
@@ -205,7 +206,9 @@
 		{#if folderNotFound}
 			<Alert type="warning" title="Folder not found" size="xs">
 				The folder "{name}" does not exist in the workspace. You can create it by clicking the
-				button below. An item can seemingly be in a folder given its path without the folder existing. A windmill folder has settable permissions that its children inherit. If an item is within a non-existing folders, only admins will see it.
+				button below. An item can seemingly be in a folder given its path without the folder
+				existing. A windmill folder has settable permissions that its children inherit. If an item
+				is within a non-existing folders, only admins will see it.
 			</Alert>
 			<Button
 				color="light"

@@ -139,7 +139,7 @@
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = ''
-				} else if (inputCat == 'enum') {
+				} else if (inputCat == 'enum' && required) {
 					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
 					value = false

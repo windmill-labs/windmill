@@ -55,7 +55,7 @@
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let nestedRequired: string[] | undefined = undefined
-	export let autofocus = false
+	export let autofocus: boolean | null = null
 	export let compact = false
 	export let password = false
 	export let pickForField: string | undefined = undefined
@@ -96,7 +96,7 @@
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = ''
-				} else if (inputCat == 'enum') {
+				} else if (inputCat == 'enum' && required) {
 					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
 					value = false
