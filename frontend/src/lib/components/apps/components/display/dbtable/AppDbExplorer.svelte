@@ -3,6 +3,7 @@
 		AppEditorContext,
 		AppViewerContext,
 		ComponentCustomCSS,
+		OneOfConfiguration,
 		RichConfigurations
 	} from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
@@ -140,6 +141,21 @@
 	})
 
 	let lastResource: string | undefined = undefined
+
+	function updateOneOfConfiguration<T, U extends string, V>(
+		oneOfConfiguration: OneOfConfiguration,
+		resolvedConfig: {
+			configuration: Record<U, V>
+			selected: U
+		},
+		patch: Partial<Record<keyof V, any>>
+	) {
+		oneOfConfiguration.configuration[resolvedConfig.selected] = {
+			...oneOfConfiguration.configuration[resolvedConfig.selected],
+			...patch
+		}
+	}
+
 	async function listTableIfAvailable() {
 		let resource = resolvedConfig.type.configuration?.postgresql?.resource
 		if (lastResource === resource) return
@@ -150,25 +166,21 @@
 			return
 		}
 
-		if (
-			'configuration' in gridItem.data?.configuration?.type &&
-			'selectOptions' in gridItem.data?.configuration?.type?.configuration?.postgresql?.table
-		) {
-			gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = []
-		}
+		updateOneOfConfiguration(
+			gridItem.data.configuration.type as OneOfConfiguration,
+			resolvedConfig.type,
+			{
+				table: {
+					selectOptions: []
+				}
+			}
+		)
 
 		if (!resolvedConfig.type?.configuration?.postgresql?.resource) {
 			$app = {
 				...$app
 			}
 			return
-		}
-
-		if (
-			'configuration' in gridItem.data?.configuration?.type &&
-			gridItem.data.configuration.type.configuration.postgresql.table
-		) {
-			gridItem.data.configuration.type.configuration.postgresql.table.loading = true
 		}
 
 		try {
@@ -182,23 +194,33 @@
 				(message: string) => {}
 			)
 
-			if ('configuration' in gridItem.data.configuration.type) {
-				gridItem.data.configuration.type.configuration.postgresql.table['selectOptions'] = dbSchemas
-					? // @ts-ignore
-					  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
-					: []
-			}
+			updateOneOfConfiguration(
+				gridItem.data.configuration.type as OneOfConfiguration,
+				resolvedConfig.type,
+				{
+					table: {
+						selectOptions: dbSchemas
+							? // @ts-ignore
+							  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
+							: []
+					}
+				}
+			)
 
 			$app = {
 				...$app
 			}
 		} catch (e) {}
-		if (
-			'configuration' in gridItem.data?.configuration?.type &&
-			gridItem.data.configuration.type.configuration.postgresql.table
-		) {
-			gridItem.data.configuration.type.configuration.postgresql.table.loading = false
-		}
+
+		updateOneOfConfiguration(
+			gridItem.data.configuration.type as OneOfConfiguration,
+			resolvedConfig.type,
+			{
+				table: {
+					loading: false
+				}
+			}
+		)
 	}
 
 	let datasource: IDatasource = {
