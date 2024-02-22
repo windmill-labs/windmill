@@ -362,6 +362,8 @@
 			updateResult({ error })
 			$errorByComponent[id] = { error }
 
+			donePromise?.({ error })
+			sendUserToast(error, true)
 			loading = false
 		}
 	}
