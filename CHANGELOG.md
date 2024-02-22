@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.275.6](https://github.com/windmill-labs/windmill/compare/v1.275.5...v1.275.6) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix argenum breaking frontend bug ([1697f4b](https://github.com/windmill-labs/windmill/commit/1697f4b25424b4db5abc7a28640e8465210cc612))
+
 ## [1.275.5](https://github.com/windmill-labs/windmill/compare/v1.275.4...v1.275.5) (2024-02-22)
 
 
