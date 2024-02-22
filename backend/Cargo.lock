@@ -1108,7 +1108,7 @@ dependencies = [
  "num-traits",
  "serde",
  "wasm-bindgen",
- "windows-targets 0.52.1",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -9025,7 +9025,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -9062,7 +9062,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9136,7 +9136,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9154,7 +9154,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "chrono",
  "serde",
@@ -9167,7 +9167,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -9200,7 +9200,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9215,7 +9215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -9223,7 +9223,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9234,7 +9234,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9246,7 +9246,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9257,7 +9257,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9268,7 +9268,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9285,7 +9285,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9296,7 +9296,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9314,7 +9314,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9332,7 +9332,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9365,7 +9365,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.275.5"
+version = "1.275.6"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9434,7 +9434,7 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
 dependencies = [
- "windows-targets 0.52.1",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -9452,7 +9452,7 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
 dependencies = [
- "windows-targets 0.52.1",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -9472,17 +9472,17 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56eb995bed789027c5fa9be885994e944989ce9f1b02956b4bf8744c3dbf449b"
+checksum = "8a18201040b24831fbb9e4eb208f8892e1f50a37feb53cc7ff887feb8f50e7cd"
 dependencies = [
- "windows_aarch64_gnullvm 0.52.1",
- "windows_aarch64_msvc 0.52.1",
- "windows_i686_gnu 0.52.1",
- "windows_i686_msvc 0.52.1",
- "windows_x86_64_gnu 0.52.1",
- "windows_x86_64_gnullvm 0.52.1",
- "windows_x86_64_msvc 0.52.1",
+ "windows_aarch64_gnullvm 0.52.0",
+ "windows_aarch64_msvc 0.52.0",
+ "windows_i686_gnu 0.52.0",
+ "windows_i686_msvc 0.52.0",
+ "windows_x86_64_gnu 0.52.0",
+ "windows_x86_64_gnullvm 0.52.0",
+ "windows_x86_64_msvc 0.52.0",
 ]
 
 [[package]]
@@ -9493,9 +9493,9 @@ checksum = "2b38e32f0abccf9987a4e3079dfb67dcd799fb61361e53e2882c3cbaf0d905d8"
 
 [[package]]
 name = "windows_aarch64_gnullvm"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7269c1442e75af9fa59290383f7665b828efc76c429cc0b7f2ecb33cf51ebae"
+checksum = "cb7764e35d4db8a7921e09562a0304bf2f93e0a51bfccee0bd0bb0b666b015ea"
 
 [[package]]
 name = "windows_aarch64_msvc"
@@ -9505,9 +9505,9 @@ checksum = "dc35310971f3b2dbbf3f0690a219f40e2d9afcf64f9ab7cc1be722937c26b4bc"
 
 [[package]]
 name = "windows_aarch64_msvc"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f70ab2cebf332b7ecbdd98900c2da5298a8c862472fb35c75fc297eabb9d89b8"
+checksum = "bbaa0368d4f1d2aaefc55b6fcfee13f41544ddf36801e793edbbfd7d7df075ef"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -9517,9 +9517,9 @@ checksum = "a75915e7def60c94dcef72200b9a8e58e5091744960da64ec734a6c6e9b3743e"
 
 [[package]]
 name = "windows_i686_gnu"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "679f235acf6b1639408c0f6db295697a19d103b0cdc88146aa1b992c580c647d"
+checksum = "a28637cb1fa3560a16915793afb20081aba2c92ee8af57b4d5f28e4b3e7df313"
 
 [[package]]
 name = "windows_i686_msvc"
@@ -9529,9 +9529,9 @@ checksum = "8f55c233f70c4b27f66c523580f78f1004e8b5a8b659e05a4eb49d4166cca406"
 
 [[package]]
 name = "windows_i686_msvc"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3480ac194b55ae274a7e135c21645656825da4a7f5b6e9286291b2113c94a78b"
+checksum = "ffe5e8e31046ce6230cc7215707b816e339ff4d4d67c65dffa206fd0f7aa7b9a"
 
 [[package]]
 name = "windows_x86_64_gnu"
@@ -9541,9 +9541,9 @@ checksum = "53d40abd2583d23e4718fddf1ebec84dbff8381c07cae67ff7768bbf19c6718e"
 
 [[package]]
 name = "windows_x86_64_gnu"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42c46bab241c121402d1cb47d028ea3680ee2f359dcc287482dcf7fdddc73363"
+checksum = "3d6fa32db2bc4a2f5abeacf2b69f7992cd09dca97498da74a151a3132c26befd"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
@@ -9553,9 +9553,9 @@ checksum = "0b7b52767868a23d5bab768e390dc5f5c55825b6d30b86c844ff2dc7414044cc"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc885a4332ee1afb9a1bacf11514801011725570d35675abc229ce7e3afe4d20"
+checksum = "1a657e1e9d3f514745a572a6846d3c7aa7dbe1658c056ed9c3344c4109a6949e"
 
 [[package]]
 name = "windows_x86_64_msvc"
@@ -9565,9 +9565,9 @@ checksum = "ed94fce61571a4006852b7389a063ab983c02eb1bb37b47f8272ce92d06d9538"
 
 [[package]]
 name = "windows_x86_64_msvc"
-version = "0.52.1"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e440c60457f84b0bee09208e62acc7ade264b38c4453f6312b8c9ab1613e73c"
+checksum = "dff9641d1cd4be8d1a070daf9e3773c5f67e78b4d9d42263020c057706765c04"
 
 [[package]]
 name = "winnow"
