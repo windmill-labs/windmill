@@ -1469,11 +1469,6 @@ git push</code
 				</div>
 			</div>
 			</div>
-			{#if !$enterpriseLicense}
-				<Alert type="info" title="Windmill EE only feature">
-					Workspace secret encryption can only be set on Windmill Enterprise Edition.
-				</Alert>
-			{/if}
 			<div class="mt-5 flex gap-1 mb-10">
 				<Button
 					color="blue"
