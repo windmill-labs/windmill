@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.275.4](https://github.com/windmill-labs/windmill/compare/v1.275.3...v1.275.4) (2024-02-22)
+
+
+### Bug Fixes
+
+* improve scim handling of renames on azure ([bc8e481](https://github.com/windmill-labs/windmill/commit/bc8e481fbb073db48cd3738e46c67195a423feeb))
+
 ## [1.275.3](https://github.com/windmill-labs/windmill/compare/v1.275.2...v1.275.3) (2024-02-22)
 
 
