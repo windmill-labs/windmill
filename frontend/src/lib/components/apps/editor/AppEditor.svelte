@@ -620,7 +620,7 @@
 
 									<div id="app-editor-top-level-drawer" />
 									<div
-										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+										class="absolute inset-0 h-full w-full bg-gray-50 bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
 									/>
 
 									<!-- svelte-ignore a11y-no-static-element-interactions -->

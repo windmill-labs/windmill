@@ -34,7 +34,7 @@
 	import { setContext, tick } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, Kbd, UndoRedo } from './common'
+	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
@@ -1117,8 +1117,11 @@
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={!newFlow && !savedFlow}
+						shortCut={{
+							key: 'S'
+						}}
 					>
-						Draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+						Draft
 					</Button>
 					<Button
 						loading={loadingSave}
