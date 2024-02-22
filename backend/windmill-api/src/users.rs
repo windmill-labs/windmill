@@ -900,7 +900,6 @@ async fn whoami(
     ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
-    tracing::info!("whoami: {email} {user:?}");
     if let Some(user) = user {
         Ok(Json(user))
     } else {
