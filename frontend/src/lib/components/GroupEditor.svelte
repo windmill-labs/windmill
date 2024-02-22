@@ -135,7 +135,7 @@
 	<h2>Members ({members?.length ?? 0})</h2>
 	{#if can_write}
 		<div class="flex items-start">
-			<AutoComplete noInputStyles items={usernames} bind:selectedItem={username} />
+			<AutoComplete required noInputStyles items={usernames} bind:selectedItem={username} />
 			<Button variant="contained" color="blue" size="sm" btnClasses="!ml-4" on:click={addToGroup}>
 				Add member
 			</Button>

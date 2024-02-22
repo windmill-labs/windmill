@@ -3964,11 +3964,14 @@ async fn capture_dependency_job(
             let reqs = if raw_deps {
                 job_raw_code.to_string()
             } else {
+                let mut already_visited = vec![];
+
                 windmill_parser_py_imports::parse_python_imports(
                     job_raw_code,
                     &w_id,
                     script_path,
                     &db,
+                    &mut already_visited,
                 )
                 .await?
                 .join("\n")

@@ -122,6 +122,7 @@
 															<ToggleButtonGroup
 																selected={super_admin}
 																on:selected={async (e) => {
+																	console.log('BAR')
 																	if (email == $userStore?.email) {
 																		sendUserToast('You cannot demote yourself', true)
 																		listUsers()

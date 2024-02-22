@@ -6,7 +6,7 @@
 	export let disabled: boolean
 	export let value: any
 	export let enum_: string[] | undefined
-	export let autofocus: boolean
+	export let autofocus: boolean | null
 	export let defaultValue: string | undefined
 	export let valid: boolean
 	export let create: boolean
@@ -26,7 +26,7 @@
 <div class="w-full flex-col">
 	<div class="w-full">
 		<AutoComplete
-			items={[...(enum_ ?? []), ...customItems]}
+			items={[...(required ? [] : ['']), ...(enum_ ?? []), ...customItems]}
 			bind:selectedItem={value}
 			inputClassName={twMerge(
 				'bg-surface-secondary flex',
@@ -36,6 +36,7 @@
 			)}
 			value={value ?? defaultValue}
 			hideArrow={true}
+			selectFirstIfEmpty={required}
 			dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md !bg-surface-primary"
 			className="w-full"
 			noInputStyles

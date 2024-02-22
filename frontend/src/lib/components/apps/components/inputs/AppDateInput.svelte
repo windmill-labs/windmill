@@ -38,7 +38,7 @@
 		result: undefined as string | undefined
 	})
 
-	$: handleDefault(resolvedConfig.defaultValue)
+	$: !value && handleDefault(resolvedConfig.defaultValue)
 
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
 		if (formatString === '') {
@@ -98,7 +98,7 @@
 			min={resolvedConfig.minDate}
 			max={resolvedConfig.maxDate}
 			placeholder="Type..."
-			class={twMerge(css?.input?.class, 'wm-date-input')}
+			class={twMerge('windmillapp w-full py-1.5 text-sm px-2', css?.input?.class, 'wm-date-input')}
 			style={css?.input?.style ?? ''}
 		/>
 	{/if}

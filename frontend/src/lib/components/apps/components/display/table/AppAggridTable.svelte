@@ -129,7 +129,7 @@
 				column: event.colDef.field,
 				value: dataCell
 			})
-			result[event.node.rowIndex][event.colDef.field] = dataCell
+			result[Number(event.node.data['__index'])][event.colDef.field] = dataCell
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
 		}
@@ -198,6 +198,9 @@
 						onSelectionChanged: (e) => {
 							onSelectionChanged(e.api)
 							resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
+						},
+						onCellEditingStarted: (e) => {
+							e.api.getRowNode(e.data['__index'])?.setSelected(true)
 						},
 						onFilterChanged: (e) => {
 							outputs?.filters?.set(e.api.getFilterModel())

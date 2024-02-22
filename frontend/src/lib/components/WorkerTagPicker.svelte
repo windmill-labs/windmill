@@ -21,10 +21,12 @@
 		{#if workerTags}
 			{#if $workerTags?.length ?? 0 > 0}
 				<select
-					bind:value={tag}
+					value={tag}
 					on:change={(e) => {
 						if (tag == '') {
 							tag = undefined
+						} else if (e?.target?.['value']) {
+							tag = e.target?.['value']
 						}
 					}}
 				>

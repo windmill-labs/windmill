@@ -93,7 +93,6 @@
 	$: schema && reorder()
 
 	function reorder() {
-		console.log('reordering')
 		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
 
@@ -132,7 +131,7 @@
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
-								autofocus={i == 0 && autofocus}
+								autofocus={i == 0 && autofocus ? true : null}
 								label={argName}
 								description={schema.properties[argName].description}
 								bind:value={args[argName]}

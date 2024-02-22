@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.275.3](https://github.com/windmill-labs/windmill/compare/v1.275.2...v1.275.3) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix sqlx build ([e15e206](https://github.com/windmill-labs/windmill/commit/e15e2060262edaeb648adc30245521c721cdb9c2))
+* fix sqlx build ([c6eb0b5](https://github.com/windmill-labs/windmill/commit/c6eb0b5840e860d15361301cf7cd8bf948e62050))
+
+## [1.275.2](https://github.com/windmill-labs/windmill/compare/v1.275.1...v1.275.2) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix app policy quote escaping ([18a7c48](https://github.com/windmill-labs/windmill/commit/18a7c48f9167e739aab185602f8c5fe607a5f1d4))
+* fix app policy quote escaping ([6059a82](https://github.com/windmill-labs/windmill/commit/6059a820a97d3ab6ddd39799fc8735d2760dc108))
+* **frontend:** Fix the selection of the first row ([#3263](https://github.com/windmill-labs/windmill/issues/3263)) ([d696f85](https://github.com/windmill-labs/windmill/commit/d696f854e13a1874ad0cad2937508ca39524fba7))
+* improve aggrid behavior edit when filtered ([1dea611](https://github.com/windmill-labs/windmill/commit/1dea611a4cbb46b0d01db181afca0afdec4ace51))
+* improve display result header ([#3265](https://github.com/windmill-labs/windmill/issues/3265)) ([5ba0bf5](https://github.com/windmill-labs/windmill/commit/5ba0bf5294a1bc5cb6cffcd6d580ee8db5a5e102))
+* support arbitrary azure resource path for blob storage ([d3f60b9](https://github.com/windmill-labs/windmill/commit/d3f60b9f9cd1b7b7891ee92273b0e824f9282e1d))
+
+## [1.275.1](https://github.com/windmill-labs/windmill/compare/v1.275.0...v1.275.1) (2024-02-21)
+
+
+### Bug Fixes
+
+* **frontend:** Select the row when clicking on a checkbox ([#3260](https://github.com/windmill-labs/windmill/issues/3260)) ([c6865f8](https://github.com/windmill-labs/windmill/commit/c6865f8a6ce880ef951b0fff70c29feaec31f9e6))
+
+## [1.275.0](https://github.com/windmill-labs/windmill/compare/v1.274.1...v1.275.0) (2024-02-21)
+
+
+### Features
+
+* **frontend:** add support for datetime and time ([#3256](https://github.com/windmill-labs/windmill/issues/3256)) ([464604d](https://github.com/windmill-labs/windmill/commit/464604d939b419b3a2ac9f1a9d6b3e09f3bf803f))
+
+
+### Bug Fixes
+
+* add default time to datetime picker ([a09a487](https://github.com/windmill-labs/windmill/commit/a09a487b8442e69d32198aeddc9974e1d503d3a3))
+* **frontend:** improve handling of optional enums ([77d66ef](https://github.com/windmill-labs/windmill/commit/77d66efa45b1d40d5f2ede38e17d121676896bad))
+
+## [1.274.1](https://github.com/windmill-labs/windmill/compare/v1.274.0...v1.274.1) (2024-02-20)
+
+
+### Bug Fixes
+
+* **python:** ignore stdlib imports with _ ([806d111](https://github.com/windmill-labs/windmill/commit/806d1110085d68f1fa1f5611d2d0edbbfdcf9f51))
+
+## [1.274.0](https://github.com/windmill-labs/windmill/compare/v1.273.0...v1.274.0) (2024-02-20)
+
+
+### Features
+
+* **app:** fields inputs can be picked to not trigger recompute individually ([33b02b1](https://github.com/windmill-labs/windmill/commit/33b02b1aef9b937ac2ace0e46a2d2c600cc7716a))
+* **frontend:** App debug mode ([#3252](https://github.com/windmill-labs/windmill/issues/3252)) ([247396d](https://github.com/windmill-labs/windmill/commit/247396d04d10aa5fcff04a35615335649e09672f))
+* **frontend:** Button rework ([#3216](https://github.com/windmill-labs/windmill/issues/3216)) ([2138016](https://github.com/windmill-labs/windmill/commit/2138016242e33de1861ea4841ec38aced956d43a))
+* **frontend:** Fix tailwind classes on the Select component ([#3249](https://github.com/windmill-labs/windmill/issues/3249)) ([62824e4](https://github.com/windmill-labs/windmill/commit/62824e4af8a2acd43e38a555200e5726a12d0e8c))
+
+
+### Bug Fixes
+
+* accept multiple dependency map importer for python ([65e09a7](https://github.com/windmill-labs/windmill/commit/65e09a705f0059ae7eb819c955bb2222b5adfa76))
+* ai fill deep copy before slicing modules + minor improvements ([#3255](https://github.com/windmill-labs/windmill/issues/3255)) ([409f338](https://github.com/windmill-labs/windmill/commit/409f3382db1d2e7c4b6dd6ecdeacfc093b6bd878))
+* improve database studio ([30105af](https://github.com/windmill-labs/windmill/commit/30105af0dde06b1d6d176980afc9c1f9f7644d34))
+* **python:** handle recursive python imports with loop ([bf3e417](https://github.com/windmill-labs/windmill/commit/bf3e417acc167583aaef365e92eed6c216e007ec))
+
 ## [1.273.0](https://github.com/windmill-labs/windmill/compare/v1.272.0...v1.273.0) (2024-02-20)
 
 
