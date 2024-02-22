@@ -91,7 +91,15 @@
 	bind:filteredItems={filteredUsers}
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
-
+<div class="flex flex-col gap-4 my-8">
+<div class="flex flex-col gap-1">
+	<div class=" text-primary text-lg font-semibold"> Members & Invites </div>
+	<div class="text-tertiary text-xs">
+		Add members to your workspace and manage their roles. You can also invite or auto-invites users to join your workspace.
+		<a href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions" target="_blank" class="text-blue-500">Learn more</a>.
+	</div>
+</div>
+</div>
 <div class="flex flex-row justify-between items-center">
 	<PageHeader
 		title="Members ({filteredUsers?.length ?? users?.length ?? ''})"
