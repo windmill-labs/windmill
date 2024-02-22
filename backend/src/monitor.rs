@@ -877,7 +877,7 @@ async fn handle_zombie_flows<R: rsmq_async::RsmqConnection + Send + Sync + Clone
         r#"
         SELECT *
         FROM queue
-        WHERE running = true AND (job_kind = $1 OR job_kind = $2) AND flow_last_progress_ts IS NOT NULL AND flow_last_progress_ts < NOW() - INTERVAL '$3'
+        WHERE running = true AND suspend = 0 AND scheduled_for <= now() AND (job_kind = $1 OR job_kind = $2) AND flow_last_progress_ts IS NOT NULL AND flow_last_progress_ts < NOW() - INTERVAL '$3'
         "#,
     ).bind(JobKind::Flow as JobKind).bind(JobKind::FlowPreview as JobKind).bind(hanging_flow_thres)
     .fetch_all(db)

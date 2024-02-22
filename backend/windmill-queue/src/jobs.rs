@@ -609,7 +609,7 @@ pub async fn add_completed_job<
         && queued_job.parent_job.is_some()
     {
         // persist the flow last progress timestamp to avoid zombie flow jobs
-        tracing::warn!("Persisting flow last progress timestamp");
+        tracing::debug!("Persisting flow last progress timestamp to flow job: {:?}", queued_job.parent_job);
         sqlx::query!(
             "UPDATE queue SET flow_last_progress_ts = now() WHERE id = $1 AND workspace_id = $2",
             queued_job.parent_job.unwrap(),

@@ -42,6 +42,7 @@ benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-qu
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 pg_embed = ["dep:pg-embed"]
+testing = ["windmill-worker/testing"]
 
 [dependencies]
 anyhow.workspace = true

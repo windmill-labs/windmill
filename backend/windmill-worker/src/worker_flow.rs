@@ -2026,14 +2026,19 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     }
 
     // after all jobs have been pushed, reset the flow last progress timestamp
-    tracing::warn!("Resetting flow last progress timestamp");
-    sqlx::query!(
-        "UPDATE queue SET flow_last_progress_ts = NULL WHERE id = $1 AND workspace_id = $2",
-        flow_job.id,
-        &flow_job.workspace_id
-    )
-    .execute(&mut tx)
-    .await?;
+    if flow_job.flow_last_progress_ts.is_some() {
+        tracing::debug!(
+            "Resetting flow last progress timestamp for flow job: {}",
+            flow_job.id
+        );
+        sqlx::query!(
+            "UPDATE queue SET flow_last_progress_ts = NULL WHERE id = $1 AND workspace_id = $2",
+            flow_job.id,
+            &flow_job.workspace_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
 
     let is_one_uuid = uuids.len() == 1;
 
@@ -2132,6 +2137,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .await?;
     };
 
+    #[cfg(feature = "testing")]
     if *windmill_common::CRASH_UNEXPECTED_FAILURE == 1 as u8 {
         let crashing_step = arc_flow_job_args
             .get("crash_on")
