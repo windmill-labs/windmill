@@ -868,13 +868,18 @@ async fn handle_zombie_flows<R: rsmq_async::RsmqConnection + Send + Sync + Clone
     db: &DB,
     rsmq: Option<R>,
 ) -> error::Result<()> {
+    let hanging_flow_thres = if *windmill_common::CRASH_UNEXPECTED_FAILURE > 0 as u8 {
+        "3 second"
+    } else {
+        "1 minute"
+    };
     let flows = sqlx::query_as::<_, QueuedJob>(
         r#"
         SELECT *
         FROM queue
-        WHERE running = true AND (job_kind = $1 OR job_kind = $2) AND flow_last_progress_ts IS NOT NULL AND flow_last_progress_ts < NOW() - INTERVAL '1 minute'
+        WHERE running = true AND (job_kind = $1 OR job_kind = $2) AND flow_last_progress_ts IS NOT NULL AND flow_last_progress_ts < NOW() - INTERVAL '$3'
         "#,
-    ).bind(JobKind::Flow as JobKind).bind(JobKind::FlowPreview as JobKind)
+    ).bind(JobKind::Flow as JobKind).bind(JobKind::FlowPreview as JobKind).bind(hanging_flow_thres)
     .fetch_all(db)
     .await?;
 

@@ -50,7 +50,7 @@ services:
     labels:
       dev.windmill.role: worker
     deploy:
-      replicas: 1
+      replicas: 3
       resources:
         limits:
           cpus: "1"

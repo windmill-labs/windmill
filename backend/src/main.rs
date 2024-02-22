@@ -364,9 +364,15 @@ Windmill Community Edition {GIT_VERSION}
             let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db).await;
 
+                let monitor_freq = if *windmill_common::CRASH_UNEXPECTED_FAILURE > 0 as u8 {
+                    Duration::from_secs(3)
+                } else {
+                    Duration::from_secs(30)
+                };
+
                 loop {
                     tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
+                        _ = tokio::time::sleep(monitor_freq) => {
                             monitor_db(
                                 &db,
                                 &base_internal_url,

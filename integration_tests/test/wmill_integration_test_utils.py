@@ -116,6 +116,25 @@ class WindmillClient:
             raise Exception(response.content.decode())
         return response.json()
 
+    def run_async(self, path: str, args: dict, type: str = "p"):
+        print(f"Running {path} with args {args}")
+        response = self._client.post(
+            f"/api/w/{self._workspace}/jobs/run/{type}/{path}",
+            json=args,
+        )
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+        return response.content.decode()
+
+    def force_cancel(self, job_uuid: str):
+        print(f"Cancelling {job_uuid}")
+        response = self._client.post(
+            f"/api/w/{self._workspace}/jobs_u/queue/force_cancel/{job_uuid}",
+            json={},
+        )
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+
     def create_script(self, path: str, content: str, language: str):
         print(f"Creating script {path}")
         response = self._client.post(
@@ -247,6 +266,12 @@ class WindmillClient:
         response = self._client.get(
             f"/api/w/{self._workspace}/jobs/list?script_path_exact={path}"
         )
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+        return response.json()
+
+    def get_job_status(self, job_id: str):
+        response = self._client.get(f"/api/w/{self._workspace}/jobs_u/get/{job_id}")
         if response.status_code // 100 != 2:
             raise Exception(response.content.decode())
         return response.json()

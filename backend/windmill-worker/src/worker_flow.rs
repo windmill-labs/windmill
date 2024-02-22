@@ -2132,9 +2132,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .await?;
     };
 
-    if i > 0 && *windmill_common::CRASH_UNEXPECTED_FAILURE == 1 as u8 {
-        tracing::error!("CRASH#1 - unexpected failure");
-        panic!("CRASH#1 - unexpected failure");
+    if *windmill_common::CRASH_UNEXPECTED_FAILURE == 1 as u8 {
+        let crashing_step = arc_flow_job_args
+            .get("crash_on")
+            .map(|v| serde_json::from_str::<String>(v.get()).ok())
+            .flatten();
+        tracing::warn!("crashing step: {}", status_module.id());
+        if crashing_step.unwrap_or_default() == status_module.id() {
+            tracing::error!("CRASH#1 - unexpected failure");
+            panic!("CRASH#1 - unexpected failure");
+        }
     }
 
     tx.commit().await?;
