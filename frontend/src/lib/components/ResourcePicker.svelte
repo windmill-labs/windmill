@@ -133,14 +133,27 @@
 			/>
 		{/if}
 
-		<Button
-			color="light"
-			variant="border"
-			size="xs"
-			on:click={() => appConnect?.open?.(resourceType)}
-			startIcon={{ icon: Plus }}
-			iconOnly
-		/>
+		{#if resourceType?.includes(',')}
+			{#each resourceType.split(',') as rt}
+				<Button
+					color="light"
+					variant="border"
+					size="xs"
+					on:click={() => appConnect?.open?.(rt)}
+					startIcon={{ icon: Plus }}>{rt}</Button
+				>
+			{/each}
+		{:else}
+			<Button
+				color="light"
+				variant="border"
+				size="xs"
+				on:click={() => appConnect?.open?.(resourceType)}
+				startIcon={{ icon: Plus }}
+				iconOnly
+			/>
+		{/if}
+
 		<Button
 			variant="border"
 			color="light"

@@ -19,17 +19,19 @@
 	const selectedContent = writable(selected)
 
 	function setSelected(selected: any) {
-		selectedContent.set(selected)
+		if ($selectedContent != selected) {
+			selectedContent.set(selected)
+		}
 	}
 
 	$: setSelected(selected)
 
-	$: dispatch('selected', $selectedContent)
 	setContext<ToggleButtonContext>('ToggleButtonGroup', {
 		selected: selectedContent,
 		select: (value: any) => {
 			selectedContent.set(value)
 			selected = value
+			dispatch('selected', value)
 		}
 	})
 </script>

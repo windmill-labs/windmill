@@ -129,7 +129,7 @@
 				column: event.colDef.field,
 				value: dataCell
 			})
-			result[event.node.rowIndex][event.colDef.field] = dataCell
+			result[Number(event.node.data['__index'])][event.colDef.field] = dataCell
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
 		}
@@ -200,14 +200,7 @@
 							resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
 						},
 						onCellEditingStarted: (e) => {
-							const isAlreadySelected = e.api
-								?.getSelectedNodes()
-								?.find((row) => row?.data?.__index === e?.data?.__index)
-
-							if (e.rowIndex && !isAlreadySelected) {
-								// We select the row when we start editing, for example when we click on a checkbox
-								e.api.getRowNode(e.rowIndex.toString())?.setSelected(true)
-							}
+							e.api.getRowNode(e.data['__index'])?.setSelected(true)
 						},
 						onFilterChanged: (e) => {
 							outputs?.filters?.set(e.api.getFilterModel())

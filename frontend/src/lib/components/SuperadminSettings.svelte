@@ -122,6 +122,7 @@
 															<ToggleButtonGroup
 																selected={super_admin}
 																on:selected={async (e) => {
+																	console.log('BAR')
 																	if (email == $userStore?.email) {
 																		sendUserToast('You cannot demote yourself', true)
 																		listUsers()
@@ -147,6 +148,7 @@
 																	class="text-red-500 whitespace-nowrap"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
+																			console.log(email)
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
 																			listUsers()

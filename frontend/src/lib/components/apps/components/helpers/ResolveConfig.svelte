@@ -29,6 +29,7 @@
 				bind:value={resolvedConfig.configuration[choice][nestedKey]}
 				onDemandOnly={initialConfig?.type == 'oneOf' &&
 					initialConfig?.configuration?.[choice]?.[nestedKey]?.onDemandOnly}
+				exportValueFunction
 			/>
 		{/if}
 	{/each}
@@ -41,5 +42,6 @@
 		onDemandOnly={(initialConfig?.type == 'static' || initialConfig?.type == 'evalv2') &&
 			initialConfig?.onDemandOnly}
 		bind:value={resolvedConfig}
+		exportValueFunction
 	/>
 {/if}
