@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.275.3](https://github.com/windmill-labs/windmill/compare/v1.275.2...v1.275.3) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix sqlx build ([e15e206](https://github.com/windmill-labs/windmill/commit/e15e2060262edaeb648adc30245521c721cdb9c2))
+* fix sqlx build ([c6eb0b5](https://github.com/windmill-labs/windmill/commit/c6eb0b5840e860d15361301cf7cd8bf948e62050))
+
 ## [1.275.2](https://github.com/windmill-labs/windmill/compare/v1.275.1...v1.275.2) (2024-02-22)
 
 
