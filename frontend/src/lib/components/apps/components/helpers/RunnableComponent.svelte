@@ -124,6 +124,7 @@
 		refreshIfAutoRefresh('static changed')
 	}
 
+	// $: console.log(runnableInputValues)
 	$: (runnableInputValues || extraQueryParams || args) &&
 		resultJobLoader &&
 		refreshIfAutoRefresh('arg changed')

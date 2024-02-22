@@ -30,6 +30,7 @@
 	export let key: string = ''
 	export let field: string = key
 	export let onDemandOnly: boolean = false
+	export let exportValueFunction: boolean = false
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -98,11 +99,7 @@
 	const debounce_ms = 50
 
 	export async function computeExpr(args?: Record<string, any>) {
-		const nvalue = await evalExpr(lastInput as EvalAppInput, args)
-		if (!deepEqual(nvalue, value)) {
-			value = nvalue
-		}
-		return nvalue
+		return await evalExpr(lastInput as EvalAppInput, args)
 	}
 
 	function debounce(cb: () => Promise<void>) {
@@ -134,6 +131,7 @@
 	const debounceTemplate = async () => {
 		let nvalue = await getValue(lastInput as EvalAppInput)
 		if (!deepEqual(nvalue, value)) {
+			// console.log('template')
 			value = nvalue
 		}
 	}
@@ -157,9 +155,11 @@
 				return x
 			})
 		}
+
 		if (!onDemandOnly) {
 			let nhash = typeof nvalue != 'object' ? nvalue : sum(nvalue)
 			if (lastExprHash != nhash) {
+				// console.log('eval changed', field, nvalue)
 				value = nvalue
 				lastExprHash = nhash
 			}
@@ -172,6 +172,7 @@
 	$: lastInput?.type == 'templatev2' && lastInput.eval && debounceTemplate()
 
 	async function handleConnection() {
+		// console.log('handleCon')
 		if (lastInput?.type === 'connected') {
 			if (lastInput.connection) {
 				const { path, componentId } = lastInput.connection
@@ -195,7 +196,8 @@
 		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
 		} else if (lastInput?.type == 'evalv2') {
-			if (onDemandOnly) {
+			// console.log('evalv2', onDemandOnly, field)
+			if (onDemandOnly && exportValueFunction) {
 				value = (args?: any) => {
 					return evalExpr(lastInput as EvalV2AppInput, args)
 				}
@@ -319,6 +321,8 @@
 				// No connection
 				return
 			}
+
+			// console.log('onValueChange', newValue, connection, previousConnectedValue)
 
 			previousConnectedValue = newValue
 
