@@ -2766,7 +2766,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 Some(path),
                 None,
-                JobKind::SingleScriptFlow,
+                JobKind::Flow,
                 Some(flow_value.clone()),
                 Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,

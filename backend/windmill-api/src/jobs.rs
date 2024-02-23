@@ -665,6 +665,7 @@ pub struct ListQueueQuery {
     pub tag: Option<String>,
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
+    pub is_flow_step: Option<bool>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -707,6 +708,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(dt) = &lq.started_after {
         sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(fs) = &lq.is_flow_step {
+        sqlb.and_where_eq("is_flow_step", fs);
     }
 
     if let Some(dt) = &lq.created_before {
@@ -987,6 +991,7 @@ async fn list_jobs(
                 schedule_path: lq.schedule_path,
                 scheduled_for_before_now: lq.scheduled_for_before_now,
                 all_workspaces: lq.all_workspaces,
+                is_flow_step: lq.is_flow_step,
             },
             &[
                 "'QueuedJob' as typ",
