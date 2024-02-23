@@ -6440,6 +6440,9 @@ paths:
               properties:
                 owner:
                   type: string
+              required:
+                - owner
+                
       responses:
         "200":
           description: owner added to folder
@@ -6467,6 +6470,11 @@ paths:
               properties:
                 owner:
                   type: string
+                write:
+                  type: boolean
+              required:
+                - owner
+                - write
       responses:
         "200":
           description: owner removed from folder

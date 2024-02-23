@@ -257,27 +257,10 @@
 															owner: owner_name
 														}
 													})
-													await GranularAclService.addGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'folder',
-														requestBody: {
-															owner: owner_name,
-															write: true
-														}
-													})
 												} else if (role == 'writer') {
 													await FolderService.removeOwnerToFolder({
 														workspace: $workspaceStore ?? '',
 														name,
-														requestBody: {
-															owner: owner_name
-														}
-													})
-													await GranularAclService.addGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'folder',
 														requestBody: {
 															owner: owner_name,
 															write: true
@@ -287,14 +270,6 @@
 													await FolderService.removeOwnerToFolder({
 														workspace: $workspaceStore ?? '',
 														name,
-														requestBody: {
-															owner: owner_name
-														}
-													})
-													await GranularAclService.addGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'folder',
 														requestBody: {
 															owner: owner_name,
 															write: false
@@ -337,19 +312,22 @@
 									<button
 										class="ml-2 text-red-500"
 										on:click={async () => {
-											await FolderService.removeOwnerToFolder({
-												workspace: $workspaceStore ?? '',
-												name,
-												requestBody: { owner: owner_name }
-											})
-											await GranularAclService.removeGranularAcls({
-												workspace: $workspaceStore ?? '',
-												path: name,
-												kind: 'folder',
-												requestBody: {
-													owner: owner_name
-												}
-											})
+											await Promise.all([
+												FolderService.removeOwnerToFolder({
+													workspace: $workspaceStore ?? '',
+													name,
+													requestBody: { owner: owner_name }
+												}),
+												GranularAclService.removeGranularAcls({
+													workspace: $workspaceStore ?? '',
+													path: name,
+													kind: 'folder',
+													requestBody: {
+														owner: owner_name
+													}
+												})
+											])
+
 											loadFolder()
 										}}>remove</button
 									>
