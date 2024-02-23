@@ -730,7 +730,7 @@ async fn list_users(
                 SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
                   FROM completed_job
                  WHERE workspace_id = $1
-                   AND job_kind NOT IN ('flow', 'flowpreview')
+                   AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow')
                    AND email = usr.email
                    AND now() - '1 week'::interval < created_at 
                ) usage

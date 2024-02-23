@@ -138,8 +138,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
     }
     let job_running = job_running.unwrap();
 
-    if ((job_running.running || job_running.root_job.is_some())
-        || (job_running.job_kind == JobKind::Flow || job_running.job_kind == JobKind::FlowPreview))
+    if ((job_running.running || job_running.root_job.is_some()) || (job_running.is_flow()))
         && !force_cancel
     {
         let id = sqlx::query_scalar!(
@@ -444,8 +443,7 @@ pub async fn add_completed_job<
         ));
     }
 
-    let is_flow =
-        queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
+    let is_flow = queued_job.is_flow();
     let duration = if is_flow {
         let jobs = queued_job.parse_flow_status().map(|s| {
             let mut modules = s.modules;
@@ -574,8 +572,7 @@ pub async fn add_completed_job<
         .await?;
     }
     if !queued_job.is_flow_step
-        && queued_job.job_kind != JobKind::Flow
-        && queued_job.job_kind != JobKind::FlowPreview
+        && !queued_job.is_flow()
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
@@ -2051,7 +2048,7 @@ async fn compute_leaf_jobs_for_completed_flow(
                     }
                 }
             }
-            JobKind::Flow | JobKind::FlowPreview => {
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow => {
                 // Extract the leaf job for this flow and add them to the result map
                 for module in &flow_job_status_modules {
                     // we add the module as an element of ListJob for this step ID and recursiively extract leaf job of the sub-flow
@@ -2999,6 +2996,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         let default = || {
             let ntag = if job_kind == JobKind::Flow
                 || job_kind == JobKind::FlowPreview
+                || job_kind == JobKind::SingleScriptFlow
                 || job_kind == JobKind::Identity
             {
                 "flow".to_string()
