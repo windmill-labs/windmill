@@ -767,7 +767,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval
-                 AND running = true AND job_kind != 'flow' AND job_kind != 'flowpreview' AND job_kind != 'singlescriptflow' AND same_worker = false RETURNING id, workspace_id, last_ping",
+                 AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
             )
             .fetch_all(db)
@@ -788,7 +788,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
     }
 
-    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true  AND job_kind != 'flow' AND job_kind != 'flowpreview' AND job_kind != 'singlescriptflow'".to_string();
+    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow')".to_string();
     if *RESTART_ZOMBIE_JOBS {
         timeout_query.push_str(" AND same_worker = true");
     };
