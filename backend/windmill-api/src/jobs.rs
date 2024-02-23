@@ -666,6 +666,7 @@ pub struct ListQueueQuery {
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
     pub is_flow_step: Option<bool>,
+    pub has_null_parent: Option<bool>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -711,6 +712,11 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
+    }
+    if let Some(fs) = &lq.has_null_parent {
+        if *fs {
+            sqlb.and_where_is_null("parent_job");
+        }
     }
 
     if let Some(dt) = &lq.created_before {
@@ -992,6 +998,7 @@ async fn list_jobs(
                 scheduled_for_before_now: lq.scheduled_for_before_now,
                 all_workspaces: lq.all_workspaces,
                 is_flow_step: lq.is_flow_step,
+                has_null_parent: lq.has_null_parent,
             },
             &[
                 "'QueuedJob' as typ",
@@ -3225,6 +3232,11 @@ fn list_completed_jobs_query(
     if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
     }
+    if let Some(fs) = &lq.has_null_parent {
+        if *fs {
+            sqlb.and_where_is_null("parent_job");
+        }
+    }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
             "job_kind",
@@ -3270,6 +3282,7 @@ pub struct ListCompletedQuery {
     pub tag: Option<String>,
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
+    pub has_null_parent: Option<bool>,
 }
 
 async fn list_completed_jobs(

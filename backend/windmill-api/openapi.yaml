@@ -5032,6 +5032,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: has_null_parent
+          description: has null parent
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All completed jobs
@@ -5073,6 +5078,11 @@ paths:
             type: boolean
         - name: is_flow_step
           description: is the job a flow step
+          in: query
+          schema:
+            type: boolean
+        - name: has_null_parent
+          description: has null parent
           in: query
           schema:
             type: boolean
