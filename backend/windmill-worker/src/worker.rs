@@ -2260,10 +2260,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         )
     };
 
-    let update_job_future = if job.is_flow_step
-        || job.job_kind == JobKind::FlowPreview
-        || job.job_kind == JobKind::Flow
-    {
+    let update_job_future = if job.is_flow_step || job.is_flow() {
         let (flow, job_status_to_update, update_job_future) =
             if let Some(parent_job_id) = job.parent_job {
                 let _ = update_job_future().await;
@@ -2522,144 +2519,141 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             return Ok(());
         }
     };
-    match job.job_kind {
-        JobKind::FlowPreview | JobKind::Flow | JobKind::SingleScriptFlow => {
-            let timer = worker_flow_initial_transition_duration.map(|x| x.start_timer());
-            handle_flow(
+    if job.is_flow() {
+        let timer = worker_flow_initial_transition_duration.map(|x| x.start_timer());
+        handle_flow(
+            &job,
+            db,
+            &client.get_authed().await,
+            None,
+            same_worker_tx,
+            worker_dir,
+            rsmq,
+            job_completed_tx.0.clone(),
+        )
+        .await?;
+        timer.map(|x| x.stop_and_record());
+    } else {
+        let mut logs = "".to_string();
+        let mut mem_peak: i32 = 0;
+        let mut canceled_by: Option<CanceledBy> = None;
+        // println!("handle queue {:?}",  SystemTime::now());
+        if let Some(log_str) = &job.logs {
+            logs.push_str(&log_str);
+            logs.push_str("\n");
+        }
+
+        logs.push_str(&format!(
+            "job {} on worker {} (tag: {})\n",
+            &job.id, &worker_name, &job.tag
+        ));
+
+        #[cfg(not(feature = "enterprise"))]
+        if job.concurrent_limit.is_some() {
+            logs.push_str("---\n");
+            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
+            logs.push_str("---\n");
+        }
+
+        tracing::debug!(
+            worker = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            "handling job {}",
+            job.id
+        );
+
+        let result = match job.job_kind {
+            JobKind::Dependencies => {
+                handle_dependency_job(
+                    &job,
+                    &mut logs,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    worker_dir,
+                    base_internal_url,
+                    &client.get_token().await,
+                    rsmq.clone(),
+                )
+                .await
+            }
+            JobKind::FlowDependencies => handle_flow_dependency_job(
                 &job,
-                db,
-                &client.get_authed().await,
-                None,
-                same_worker_tx,
-                worker_dir,
-                rsmq,
-                job_completed_tx.0.clone(),
-            )
-            .await?;
-            timer.map(|x| x.stop_and_record());
-        }
-        _ => {
-            let mut logs = "".to_string();
-            let mut mem_peak: i32 = 0;
-            let mut canceled_by: Option<CanceledBy> = None;
-            // println!("handle queue {:?}",  SystemTime::now());
-            if let Some(log_str) = &job.logs {
-                logs.push_str(&log_str);
-                logs.push_str("\n");
-            }
-
-            logs.push_str(&format!(
-                "job {} on worker {} (tag: {})\n",
-                &job.id, &worker_name, &job.tag
-            ));
-
-            #[cfg(not(feature = "enterprise"))]
-            if job.concurrent_limit.is_some() {
-                logs.push_str("---\n");
-                logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
-                logs.push_str("---\n");
-            }
-
-            tracing::debug!(
-                worker = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                "handling job {}",
-                job.id
-            );
-
-            let result = match job.job_kind {
-                JobKind::Dependencies => {
-                    handle_dependency_job(
-                        &job,
-                        &mut logs,
-                        &mut mem_peak,
-                        &mut canceled_by,
-                        job_dir,
-                        db,
-                        worker_name,
-                        worker_dir,
-                        base_internal_url,
-                        &client.get_token().await,
-                        rsmq.clone(),
-                    )
-                    .await
-                }
-                JobKind::FlowDependencies => handle_flow_dependency_job(
-                    &job,
-                    &mut logs,
-                    &mut mem_peak,
-                    &mut canceled_by,
-                    job_dir,
-                    db,
-                    worker_name,
-                    worker_dir,
-                    base_internal_url,
-                    &client.get_token().await,
-                    rsmq.clone(),
-                )
-                .await
-                .map(|()| serde_json::from_str("{}").unwrap()),
-                JobKind::AppDependencies => handle_app_dependency_job(
-                    &job,
-                    &mut logs,
-                    &mut mem_peak,
-                    &mut canceled_by,
-                    job_dir,
-                    db,
-                    worker_name,
-                    worker_dir,
-                    base_internal_url,
-                    &client.get_token().await,
-                    rsmq.clone(),
-                )
-                .await
-                .map(|()| serde_json::from_str("{}").unwrap()),
-                JobKind::Identity => Ok(job
-                    .args
-                    .as_ref()
-                    .map(|x| x.get("previous_result"))
-                    .flatten()
-                    .map(|x| x.to_owned())
-                    .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
-                _ => {
-                    let timer = worker_code_execution_duration.map(|x| x.start_timer());
-                    let r = handle_code_execution_job(
-                        job.as_ref(),
-                        db,
-                        client,
-                        job_dir,
-                        worker_dir,
-                        &mut logs,
-                        &mut mem_peak,
-                        &mut canceled_by,
-                        base_internal_url,
-                        worker_name,
-                    )
-                    .await;
-                    timer.map(|x| x.stop_and_record());
-                    r
-                }
-            };
-
-            //it's a test job, no need to update the db
-            if job.as_ref().workspace_id == "" {
-                return Ok(());
-            }
-            process_result(
-                job,
-                result,
+                &mut logs,
+                &mut mem_peak,
+                &mut canceled_by,
                 job_dir,
-                job_completed_tx,
-                logs,
-                mem_peak,
-                canceled_by,
-                cached_res_path,
-                client.get_token().await,
+                db,
+                worker_name,
+                worker_dir,
+                base_internal_url,
+                &client.get_token().await,
+                rsmq.clone(),
             )
-            .await?;
+            .await
+            .map(|()| serde_json::from_str("{}").unwrap()),
+            JobKind::AppDependencies => handle_app_dependency_job(
+                &job,
+                &mut logs,
+                &mut mem_peak,
+                &mut canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                worker_dir,
+                base_internal_url,
+                &client.get_token().await,
+                rsmq.clone(),
+            )
+            .await
+            .map(|()| serde_json::from_str("{}").unwrap()),
+            JobKind::Identity => Ok(job
+                .args
+                .as_ref()
+                .map(|x| x.get("previous_result"))
+                .flatten()
+                .map(|x| x.to_owned())
+                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
+            _ => {
+                let timer = worker_code_execution_duration.map(|x| x.start_timer());
+                let r = handle_code_execution_job(
+                    job.as_ref(),
+                    db,
+                    client,
+                    job_dir,
+                    worker_dir,
+                    &mut logs,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    base_internal_url,
+                    worker_name,
+                )
+                .await;
+                timer.map(|x| x.stop_and_record());
+                r
+            }
+        };
+
+        //it's a test job, no need to update the db
+        if job.as_ref().workspace_id == "" {
+            return Ok(());
         }
-    }
+        process_result(
+            job,
+            result,
+            job_dir,
+            job_completed_tx,
+            logs,
+            mem_peak,
+            canceled_by,
+            cached_res_path,
+            client.get_token().await,
+        )
+        .await?;
+    };
     Ok(())
 }
 

@@ -465,7 +465,7 @@ async fn get_flow_job_debug_info(
 ) -> error::Result<Response> {
     let job = get_queued_job(id, w_id.as_str(), &db).await?;
     if let Some(job) = job {
-        let is_flow = &job.job_kind == &JobKind::FlowPreview || &job.job_kind == &JobKind::Flow;
+        let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
             return Err(error::Error::BadRequest(
                 "This endpoint is only for root flow jobs".to_string(),
