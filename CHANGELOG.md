@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.276.0](https://github.com/windmill-labs/windmill/compare/v1.275.6...v1.276.0) (2024-02-24)
+
+
+### Features
+
+* add filters for schedules ([#3276](https://github.com/windmill-labs/windmill/issues/3276)) ([044ea75](https://github.com/windmill-labs/windmill/commit/044ea75403f7b0752b09df244c98d1de7f567ec8))
+
+
+### Bug Fixes
+
+* improve completed_job index ([9286487](https://github.com/windmill-labs/windmill/commit/9286487c391dc39dc45efabdd8227f89905c1ce6))
+* improve erorr handling when error on app component run request ([#3273](https://github.com/windmill-labs/windmill/issues/3273)) ([b0f9299](https://github.com/windmill-labs/windmill/commit/b0f9299a2cd23583d3e82afc24cda3903860b364))
+* improve s3file browser tester ([4854f18](https://github.com/windmill-labs/windmill/commit/4854f181b11cafc54a8312a00a2cfc5059d35e3b))
+* improve support for singlescriptflow ([0df4322](https://github.com/windmill-labs/windmill/commit/0df43221ec0e0cd2e9349015d3250b6c630d7216))
+* make setting owner for folders a transaction ([37987bf](https://github.com/windmill-labs/windmill/commit/37987bf9adf10da533470971bf82111d94a50aa8))
+* replace no res/var error in app input with warning ([#3274](https://github.com/windmill-labs/windmill/issues/3274)) ([ec65b52](https://github.com/windmill-labs/windmill/commit/ec65b521ce8027c16799f7bd71f1d1956a125925))
+
 ## [1.275.6](https://github.com/windmill-labs/windmill/compare/v1.275.5...v1.275.6) (2024-02-22)
 
 
