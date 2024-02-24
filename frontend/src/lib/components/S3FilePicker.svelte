@@ -314,6 +314,7 @@
 		}
 		try {
 			await HelpersService.datasetStorageTestConnection({ workspace: $workspaceStore! })
+			workspaceSettingsInitialized = true
 		} catch (e) {
 			console.error('Workspace not connected to S3 bucket: ', e)
 			workspaceSettingsInitialized = false
