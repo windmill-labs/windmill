@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.275.6](https://github.com/windmill-labs/windmill/compare/v1.275.5...v1.275.6) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix argenum breaking frontend bug ([1697f4b](https://github.com/windmill-labs/windmill/commit/1697f4b25424b4db5abc7a28640e8465210cc612))
+
+## [1.275.5](https://github.com/windmill-labs/windmill/compare/v1.275.4...v1.275.5) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix sqlx build ([08264e9](https://github.com/windmill-labs/windmill/commit/08264e9c1a1c0e0183ab718f8b3907b750a1605d))
+
+## [1.275.4](https://github.com/windmill-labs/windmill/compare/v1.275.3...v1.275.4) (2024-02-22)
+
+
+### Bug Fixes
+
+* improve scim handling of renames on azure ([bc8e481](https://github.com/windmill-labs/windmill/commit/bc8e481fbb073db48cd3738e46c67195a423feeb))
+
 ## [1.275.3](https://github.com/windmill-labs/windmill/compare/v1.275.2...v1.275.3) (2024-02-22)
 
 

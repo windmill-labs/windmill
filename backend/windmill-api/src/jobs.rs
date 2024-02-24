@@ -9,7 +9,9 @@
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+#[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
+#[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::variables::get_workspace_key;
@@ -52,15 +54,25 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_common::{
-    get_latest_deployed_hash_for_path, BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-};
+
+#[cfg(feature = "prometheus")]
+use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
+
+
+use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
     push, CanceledBy, PushArgs, PushIsolationLevel,
 };
 
-fn setup_list_jobs_debug_metrics() -> Option<prometheus::Histogram> {
+#[cfg(feature = "prometheus")]
+type Histo = prometheus::Histogram;
+
+#[cfg(not(feature = "prometheus"))]
+type Histo = ();
+
+#[cfg(feature = "prometheus")]
+fn setup_list_jobs_debug_metrics() -> Option<Histo> {
     let api_list_jobs_query_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
         && METRICS_ENABLED.load(Ordering::Relaxed)
     {
@@ -76,6 +88,11 @@ fn setup_list_jobs_debug_metrics() -> Option<prometheus::Histogram> {
     };
 
     api_list_jobs_query_duration
+}
+
+#[cfg(not(feature = "prometheus"))]
+fn setup_list_jobs_debug_metrics() -> Option<Histo> {
+    None
 }
 
 pub fn workspaced_service() -> Router {
@@ -467,7 +484,7 @@ async fn get_flow_job_debug_info(
 ) -> error::Result<Response> {
     let job = get_queued_job(id, w_id.as_str(), &db).await?;
     if let Some(job) = job {
-        let is_flow = &job.job_kind == &JobKind::FlowPreview || &job.job_kind == &JobKind::Flow;
+        let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
             return Err(error::Error::BadRequest(
                 "This endpoint is only for root flow jobs".to_string(),
@@ -667,6 +684,8 @@ pub struct ListQueueQuery {
     pub tag: Option<String>,
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
+    pub is_flow_step: Option<bool>,
+    pub has_null_parent: Option<bool>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -709,6 +728,14 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(dt) = &lq.started_after {
         sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(fs) = &lq.is_flow_step {
+        sqlb.and_where_eq("is_flow_step", fs);
+    }
+    if let Some(fs) = &lq.has_null_parent {
+        if *fs {
+            sqlb.and_where_is_null("parent_job");
+        }
     }
 
     if let Some(dt) = &lq.created_before {
@@ -909,7 +936,7 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-    Extension(api_list_jobs_query_duration): Extension<Option<prometheus::Histogram>>,
+    Extension(_api_list_jobs_query_duration): Extension<Option<Histo>>,
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("listjobs"))?;
 
@@ -990,6 +1017,8 @@ async fn list_jobs(
                 schedule_path: lq.schedule_path,
                 scheduled_for_before_now: lq.scheduled_for_before_now,
                 all_workspaces: lq.all_workspaces,
+                is_flow_step: lq.is_flow_step,
+                has_null_parent: lq.has_null_parent,
             },
             &[
                 "'QueuedJob' as typ",
@@ -1043,12 +1072,14 @@ async fn list_jobs(
     };
     let mut tx = user_db.begin(&authed).await?;
 
+    #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
-    if let Some(api_list_jobs_query_duration) = api_list_jobs_query_duration {
+    #[cfg(feature = "prometheus")]
+    if let Some(api_list_jobs_query_duration) = _api_list_jobs_query_duration {
         let duration = start.elapsed().as_secs_f64();
         api_list_jobs_query_duration.observe(duration);
         tracing::info!("list_jobs query took {}s: {}", duration, sql);
@@ -3227,6 +3258,11 @@ fn list_completed_jobs_query(
     if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
     }
+    if let Some(fs) = &lq.has_null_parent {
+        if *fs {
+            sqlb.and_where_is_null("parent_job");
+        }
+    }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
             "job_kind",
@@ -3272,6 +3308,7 @@ pub struct ListCompletedQuery {
     pub tag: Option<String>,
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
+    pub has_null_parent: Option<bool>,
 }
 
 async fn list_completed_jobs(

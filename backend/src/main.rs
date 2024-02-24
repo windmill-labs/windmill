@@ -110,9 +110,14 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     match cli_arg.as_str() {
         "cache" => {
-            tracing::info!("Caching embedding model...");
-            windmill_api::embeddings::ModelInstance::load_model_files().await?;
-            tracing::info!("Cached embedding model");
+            #[cfg(feature = "embeddings")] {
+                tracing::info!("Caching embedding model...");
+                windmill_api::embeddings::ModelInstance::load_model_files().await?;
+                tracing::info!("Cached embedding model");
+            }
+            #[cfg(not(feature = "embedding"))] {
+                tracing::warn!("Embeddings are not enabled, ignoring...");
+            }
             return Ok(());
         }
         "-v" | "--version" | "version" => {

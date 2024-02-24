@@ -1138,12 +1138,30 @@ fn build_args(
     args: HashMap<String, Box<RawValue>>,
 ) -> Result<PushArgs<HashMap<String, Box<RawValue>>>> {
     // disallow var and res access in args coming from the user for security reasons
-    for (_, v) in &args {
+    let mut safe_args: HashMap<String, Box<RawValue>> = args.clone();
+    for (k, v) in args {
         let args_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
         if args_str.contains("$var:") || args_str.contains("$res:") {
-            return Err(Error::BadRequest(format!(
-            "For security reasons, variable or resource access is not allowed as dynamic argument"
-        )));
+            safe_args.insert(
+                k.to_string(),
+                RawValue::from_string(
+                    args_str
+                        .replace(
+                            "$var:",
+                            "The following variable has been ommited for security reasons: ",
+                        )
+                        .replace(
+                            "$res:",
+                            "The following resource has been ommited for security reasons: ",
+                        ),
+                )
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "failed to remove sensitive variable(s)/resource(s) with error: {}",
+                        e
+                    ))
+                })?,
+            );
         }
     }
     let key = format!("{}:{}", component, &path);
@@ -1166,5 +1184,5 @@ fn build_args(
     for (k, v) in static_args {
         extra.insert(k.to_string(), v.to_owned());
     }
-    Ok(PushArgs { extra, args: sqlx::types::Json(args) })
+    Ok(PushArgs { extra, args: sqlx::types::Json(safe_args) })
 }

@@ -28,7 +28,7 @@ use windmill_common::{
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
-    jobs::{JobKind, QueuedJob},
+    jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
     users::truncate_token,
@@ -773,10 +773,9 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 ) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND job_kind != $3 AND same_worker = false RETURNING id, workspace_id, last_ping",
+                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval
+                 AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
-                JobKind::Flow as JobKind,
-                JobKind::FlowPreview as JobKind,
             )
             .fetch_all(db)
             .await
@@ -796,14 +795,12 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
     }
 
-    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND job_kind != $3".to_string();
+    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow')".to_string();
     if *RESTART_ZOMBIE_JOBS {
         timeout_query.push_str(" AND same_worker = true");
     };
     let timeouts = sqlx::query_as::<_, QueuedJob>(&timeout_query)
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
-        .bind(JobKind::Flow)
-        .bind(JobKind::FlowPreview)
         .fetch_all(db)
         .await
         .ok()

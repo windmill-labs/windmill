@@ -119,7 +119,10 @@ impl QueuedJob {
             .unwrap_or("tmp/main")
     }
     pub fn is_flow(&self) -> bool {
-        matches!(self.job_kind, JobKind::Flow | JobKind::FlowPreview)
+        matches!(
+            self.job_kind,
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
+        )
     }
 
     pub fn full_path_with_workspace(&self) -> String {

@@ -67,6 +67,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            features=embedding,parquet
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}
@@ -128,7 +130,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus
             nsjail=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT name FROM instance_group WHERE external_id = $1",
+  "query": "SELECT name FROM instance_group WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "1498f1920ae2d47fd7c369285569344890a8fc50e503b15182ab3d2f90c75c2e"
+  "hash": "51dbf8e3814c2d63df1958db12d5bacbb4bbe3bb4725eece43fb82944212f21d"
 }

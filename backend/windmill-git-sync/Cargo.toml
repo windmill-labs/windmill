@@ -18,7 +18,7 @@ serde.workspace = true
 sqlx.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-windmill-common = { workspace = true, features = ["axum"] }
+windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 rsmq_async.workspace = true
 regex = "1.10.3"
