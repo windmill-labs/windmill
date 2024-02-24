@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[derive(Serialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 pub struct Flow {
     pub workspace_id: String,
     pub path: String,
@@ -48,7 +48,7 @@ pub struct Flow {
 }
 
 #[derive(Serialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 pub struct ListableFlow {
     pub workspace_id: String,
     pub path: String,
@@ -67,7 +67,7 @@ pub struct ListableFlow {
 }
 
 #[derive(Deserialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,

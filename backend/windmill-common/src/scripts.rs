@@ -23,11 +23,8 @@ use serde_json::to_string_pretty;
 use crate::utils::StripPath;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash, Eq)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(
-    feature = "sqlx",
-    sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")
-)]
+#[derive(sqlx::Type)]
+#[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
     Nativets,
@@ -66,13 +63,13 @@ impl ScriptLang {
 }
 
 #[derive(PartialEq, Debug, Hash, Clone, Copy)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
 
 #[derive(PartialEq)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent, no_pg_array))]
+#[derive(sqlx::Type)]
+#[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
 
 impl Display for ScriptHash {
@@ -113,11 +110,8 @@ impl Serialize for ScriptHashes {
 }
 
 #[derive(Serialize, Deserialize, Debug, Hash)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(
-    feature = "sqlx",
-    sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")
-)]
+#[derive(sqlx::Type)]
+#[sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ScriptKind {
     Trigger,
@@ -139,7 +133,7 @@ impl Display for ScriptKind {
 }
 
 #[derive(Serialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 pub struct Script {
     pub workspace_id: String,
     pub hash: ScriptHash,
@@ -187,7 +181,7 @@ pub struct Script {
 }
 
 #[derive(Serialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 pub struct ListableScript {
     pub hash: ScriptHash,
     pub path: String,
@@ -219,9 +213,8 @@ pub struct ScriptHistoryUpdate {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx)]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
 #[serde(transparent)]
 pub struct Schema(pub serde_json::Value);
 
@@ -352,7 +345,6 @@ pub fn to_hex_string(i: &i64) -> String {
     hex::encode(i.to_be_bytes())
 }
 
-#[cfg(feature = "reqwest")]
 pub async fn get_hub_script_by_path(
     path: StripPath,
     http_client: &reqwest::Client,
@@ -377,7 +369,6 @@ pub async fn get_hub_script_by_path(
     Ok(content)
 }
 
-#[cfg(feature = "reqwest")]
 pub async fn get_full_hub_script_by_path(
     path: StripPath,
     http_client: &reqwest::Client,

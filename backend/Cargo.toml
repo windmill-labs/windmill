@@ -35,21 +35,24 @@ opt-level = 0
 incremental = true
 
 [features]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise"]
+default = []
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 pg_embed = ["dep:pg-embed"]
+embedding = ["windmill-api/embedding"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet"]
 
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
 dotenv.workspace = true
-windmill-common = { workspace = true, features = ["tracing_init"] }
+windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
-windmill-api.workspace = true
+windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
 futures.workspace = true
 tracing.workspace = true
@@ -82,10 +85,10 @@ windmill-api-client.workspace = true
 
 
 [workspace.dependencies]
-windmill-api = { path = "./windmill-api" }
+windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
-windmill-common = { path = "./windmill-common" }
+windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-parser = { path = "./parsers/windmill-parser" }
