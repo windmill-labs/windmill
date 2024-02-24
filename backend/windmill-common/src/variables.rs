@@ -25,7 +25,7 @@ pub struct ContextualVariable {
 }
 
 #[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 
 pub struct ListableVariable {
     pub workspace_id: String,
@@ -43,7 +43,7 @@ pub struct ListableVariable {
 }
 
 #[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(sqlx::FromRow)]
 
 pub struct ExportableListableVariable {
     pub workspace_id: String,

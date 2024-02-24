@@ -763,6 +763,7 @@ async fn retrieve_flow_jobs_results(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    tracing::debug!("Retrieved results for flow jobs {:?}", results);
     Ok(to_raw_value(&results))
 }
 

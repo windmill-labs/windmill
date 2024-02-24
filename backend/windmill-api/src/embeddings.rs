@@ -1,27 +1,54 @@
+#[cfg(feature = "embeddings")]
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
-
+#[cfg(feature = "embeddings")]
 use anyhow::{anyhow, Error, Result};
+
+use axum::Router;
+
+#[cfg(feature = "embeddings")]
 use axum::{
     extract::{Path, Query},
-    routing::get,
-    Extension, Json, Router,
+    Json, 
 };
+
+
+#[cfg(feature = "embeddings")]
+use axum::{
+    routing::get, Extension
+};
+#[cfg(feature = "embeddings")]
 use candle_core::{Device, Tensor};
+#[cfg(feature = "embeddings")]
 use candle_nn::VarBuilder;
+#[cfg(feature = "embeddings")]
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
+#[cfg(feature = "embeddings")]
 use hf_hub::{api::sync::Api, Cache, Repo};
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "embeddings")]
+use serde::Deserialize;
+use serde::Serialize;
+#[cfg(feature = "embeddings")]
 use sqlx::{Pool, Postgres};
+#[cfg(feature = "embeddings")]
 use tinyvector::{
     db::{Db, Embedding},
     similarity::Distance,
 };
+#[cfg(feature = "embeddings")]
 use tokenizers::Tokenizer;
+#[cfg(feature = "embeddings")]
 use tokio::sync::RwLock;
-use windmill_common::{error::JsonResult, utils::http_get_from_hub};
+#[cfg(feature = "embeddings")]
+use windmill_common::utils::http_get_from_hub;
+
+#[cfg(feature = "embeddings")]
+use windmill_common::error::JsonResult;
+
+#[cfg(feature = "embeddings")]
 
 use crate::{resources::ResourceType, HTTP_CLIENT};
 
+#[cfg(feature = "embeddings")]
 #[derive(Deserialize)]
 struct HubScriptsQuery {
     text: String,
@@ -41,6 +68,7 @@ pub struct HubScriptResult {
     score: f32,
 }
 
+#[cfg(feature = "embeddings")]
 async fn query_hub_scripts(
     Query(query): Query<HubScriptsQuery>,
     Extension(embeddings_db): Extension<Arc<RwLock<Option<EmbeddingsDb>>>>,
@@ -60,6 +88,8 @@ async fn query_hub_scripts(
     }
 }
 
+
+#[cfg(feature = "embeddings")]
 #[derive(Deserialize)]
 struct ResourceTypesQuery {
     text: String,
@@ -72,6 +102,7 @@ pub struct ResourceTypeResult {
     score: f32,
     schema: Option<serde_json::Value>,
 }
+#[cfg(feature = "embeddings")]
 async fn query_resource_types(
     Query(query): Query<ResourceTypesQuery>,
     Path(w_id): Path<String>,
@@ -92,6 +123,8 @@ async fn query_resource_types(
     }
 }
 
+
+#[cfg(feature = "embeddings")]
 #[derive(Deserialize, Debug, Clone)]
 struct HubScript {
     ask_id: i64,
@@ -103,17 +136,20 @@ struct HubScript {
     embedding: Vec<f32>,
 }
 
+#[cfg(feature = "embeddings")]
 #[derive(Deserialize, Debug)]
 struct HubResourceType {
     name: String,
     embedding: Vec<f32>,
 }
 
+#[cfg(feature = "embeddings")]
 pub struct ModelInstance {
     model: BertModel,
     tokenizer: Tokenizer,
 }
 
+#[cfg(feature = "embeddings")]
 impl ModelInstance {
     pub async fn load_model_files() -> Result<(PathBuf, PathBuf, PathBuf)> {
         let repo = Repo::model("thenlper/gte-small".to_string());
@@ -223,11 +259,13 @@ impl ModelInstance {
     }
 }
 
+#[cfg(feature = "embeddings")]
 pub struct EmbeddingsDb {
     db: Db,
     model_instance: Arc<ModelInstance>,
 }
 
+#[cfg(feature = "embeddings")]
 impl EmbeddingsDb {
     pub async fn new(pg_db: &Pool<Postgres>, model_instance: Arc<ModelInstance>) -> Result<Self> {
         let db = Db::new();
@@ -510,10 +548,12 @@ impl EmbeddingsDb {
     }
 }
 
+#[cfg(feature = "embeddings")]
 fn normalize_l2(v: &Tensor) -> Result<Tensor> {
     Ok(v.broadcast_div(&v.sqr()?.sum_keepdim(1)?.sqrt()?)?)
 }
 
+#[cfg(feature = "embeddings")]
 pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb>>> {
     let embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
 
@@ -556,6 +596,7 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb
     embeddings_db
 }
 
+#[cfg(feature = "embeddings")]
 pub fn workspaced_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) -> Router {
     if let Some(embeddings_db) = embeddings_db {
         Router::new()
@@ -566,6 +607,7 @@ pub fn workspaced_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>
     }
 }
 
+#[cfg(feature = "embeddings")]
 pub fn global_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) -> Router {
     if let Some(embeddings_db) = embeddings_db {
         Router::new()
@@ -574,4 +616,15 @@ pub fn global_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) 
     } else {
         Router::new()
     }
+}
+
+
+#[cfg(not(feature = "embeddings"))]
+pub fn workspaced_service(_embeddings_db: Option<()>) -> Router {
+        Router::new()
+}
+
+#[cfg(not(feature = "embeddings"))]
+pub fn global_service(_embeddings_db: Option<()>) -> Router {
+        Router::new()
 }
