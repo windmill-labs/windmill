@@ -122,6 +122,11 @@ pub fn parse_python_signature(code: &str) -> anyhow::Result<MainArgSignature> {
 fn parse_expr(e: &Box<Expr>) -> Typ {
     match e.as_ref() {
         Expr::Name(ExprName { id, .. }) => parse_typ(id.as_ref()),
+        Expr::Attribute(x) => if x.value.as_name_expr().is_some_and(|x| x.id.as_str() == "wmill") {
+            parse_typ(x.attr.as_str())
+        } else {
+            Typ::Unknown
+        },
         Expr::Subscript(x) => match x.value.as_ref() {
             Expr::Name(ExprName { id, .. }) => match id.as_str() {
                 "Literal" => {
@@ -365,6 +370,7 @@ def main(test1: str,
 import os
 
 def main(test1: str,
+    s3o: wmill.S3Object,
     name = \"test\",
     byte: bytes = bytes(1)): return
 
@@ -380,6 +386,13 @@ def main(test1: str,
                         otyp: None,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "s3o".to_string(),
+                        typ: Typ::Resource("S3Object".to_string()),
                         default: None,
                         has_default: false
                     },
