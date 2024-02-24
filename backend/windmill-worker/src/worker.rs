@@ -14,6 +14,11 @@ use prometheus::{
     core::{AtomicI64, GenericGauge},
     IntCounter,
 };
+#[cfg(feature = "prometheus")]
+use windmill_common::METRICS_ENABLED;
+#[cfg(feature = "prometheus")]
+use windmill_common::METRICS_DEBUG_ENABLED;
+
 use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
@@ -46,10 +51,6 @@ use windmill_common::{
     DB, IS_READY,
 };
 
-
-
-#[cfg(feature = "prometheus")]
-use windmill_common::worker::METRICS_ENABLED;
 
 use windmill_queue::{
     canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy,
@@ -569,8 +570,8 @@ async fn handle_receive_completed_job<
 #[derive(Clone)]
 pub struct JobCompletedSender(
     Sender<SendResult>,
-    Option<Histo>,
     Option<GGauge>,
+    Option<Histo>,
 );
 
 impl JobCompletedSender {

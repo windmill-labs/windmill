@@ -10,9 +10,6 @@ use axum::{Extension, Json};
 use axum::Router;
 
 #[cfg(feature = "enterprise")]
-#[cfg(feature = "parquet")]
-use polars::prelude::IntoVec;
-#[cfg(feature = "enterprise")]
 use serde::Serialize;
 #[cfg(feature = "enterprise")]
 use std::collections::HashMap;

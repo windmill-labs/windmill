@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-prometheus = ["dep:prometheus"]
+prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:openidconnect", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util"]
 benchmark = ["windmill-queue/benchmark"]
 flamegraph = []

@@ -58,7 +58,8 @@ mod granular_acls;
 mod groups;
 mod inputs;
 mod integration;
-pub mod job_helpers_ee;
+#[cfg(feature = "parquet")]
+mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
 pub mod oauth2_ee;
@@ -180,6 +181,19 @@ pub async fn run_server(
     };
 
 
+    let job_helpers_service = {
+        #[cfg(feature = "parquet")]
+        {
+        job_helpers_ee::workspaced_service()
+        }
+
+
+        #[cfg(not(feature = "parquet"))]
+        {
+        Router::new()
+        }
+    };
+
 
     // build our application with a route
     let app = Router::new()
@@ -205,7 +219,7 @@ pub async fn run_server(
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
-                        .nest("/job_helpers", job_helpers_ee::workspaced_service())
+                        .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2_ee::workspaced_service())
                         .nest("/openai", openai::workspaced_service())

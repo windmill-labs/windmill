@@ -9,7 +9,9 @@
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+#[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
+#[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::variables::get_workspace_key;
@@ -52,15 +54,25 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_common::{
-    get_latest_deployed_hash_for_path, BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-};
+
+#[cfg(feature = "prometheus")]
+use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
+
+
+use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
     push, CanceledBy, PushArgs, PushIsolationLevel,
 };
 
-fn setup_list_jobs_debug_metrics() -> Option<prometheus::Histogram> {
+#[cfg(feature = "prometheus")]
+type Histo = prometheus::Histogram;
+
+#[cfg(not(feature = "prometheus"))]
+type Histo = ();
+
+#[cfg(feature = "prometheus")]
+fn setup_list_jobs_debug_metrics() -> Option<Histo> {
     let api_list_jobs_query_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
         && METRICS_ENABLED.load(Ordering::Relaxed)
     {
@@ -76,6 +88,11 @@ fn setup_list_jobs_debug_metrics() -> Option<prometheus::Histogram> {
     };
 
     api_list_jobs_query_duration
+}
+
+#[cfg(not(feature = "prometheus"))]
+fn setup_list_jobs_debug_metrics() -> Option<Histo> {
+    None
 }
 
 pub fn workspaced_service() -> Router {
@@ -917,7 +934,7 @@ async fn list_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-    Extension(api_list_jobs_query_duration): Extension<Option<prometheus::Histogram>>,
+    Extension(_api_list_jobs_query_duration): Extension<Option<Histo>>,
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("listjobs"))?;
 
@@ -1051,12 +1068,14 @@ async fn list_jobs(
     };
     let mut tx = user_db.begin(&authed).await?;
 
+    #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
-    if let Some(api_list_jobs_query_duration) = api_list_jobs_query_duration {
+    #[cfg(feature = "prometheus")]
+    if let Some(api_list_jobs_query_duration) = _api_list_jobs_query_duration {
         let duration = start.elapsed().as_secs_f64();
         api_list_jobs_query_duration.observe(duration);
         tracing::info!("list_jobs query took {}s: {}", duration, sql);
