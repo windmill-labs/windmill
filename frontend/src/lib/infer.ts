@@ -201,8 +201,6 @@ function argSigToJsonSchemaType(
 				delete oldS[prop]
 			}
 		}
-	} else if (oldS.format == 'date-time' && newS.format != 'date-time') {
-		delete oldS.format
 	} else if (oldS.items?.type != newS.items?.type) {
 		delete oldS.items
 	}
