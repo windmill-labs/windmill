@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.276.1](https://github.com/windmill-labs/windmill/compare/v1.276.0...v1.276.1) (2024-02-24)
+
+
+### Bug Fixes
+
+* parse wmill.S3Object as S3Object ([8171eb3](https://github.com/windmill-labs/windmill/commit/8171eb30ff2d75e52a1a593a49ec14e497441f57))
+
 ## [1.276.0](https://github.com/windmill-labs/windmill/compare/v1.275.6...v1.276.0) (2024-02-24)
 
 
