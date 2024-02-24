@@ -7,7 +7,7 @@
  */
 
 use crate::db::ApiAuthed;
-#[cfg(feature = "embeddings")]
+#[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
 use crate::tracing_init::MyOnFailure;
@@ -168,11 +168,11 @@ pub async fn run_server(
     let sp_extension = Arc::new(saml_ee::build_sp_extension().await?);
 
     let embeddings_db = if server_mode {
-        #[cfg(feature = "embeddings")]
+        #[cfg(feature = "embedding")]
         {
         Some(load_embeddings_db(&db))
         }
-        #[cfg(not(feature = "embeddings"))]
+        #[cfg(not(feature = "embedding"))]
         {
         Some(())
         }
