@@ -1033,7 +1033,6 @@ pub async fn hash_args(
 }
 
 
-#[cfg(feature = "polars")]
 async fn get_workspace_s3_resource_path(
     db: &DB,
     client: &AuthedClient,
