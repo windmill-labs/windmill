@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND running = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "database_length!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8481d1bd91b7d23f946b4cf0d312acfc0ed4973309b4860e93882a37a21a0bd0"
+}
