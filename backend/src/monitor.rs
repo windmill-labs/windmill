@@ -571,9 +571,10 @@ pub async fn monitor_db(
     base_internal_url: &str,
     rsmq: Option<MultiplexedRsmq>,
     server_mode: bool,
+    initial_load: bool,
 ) {
     let zombie_jobs_f = async {
-        if server_mode {
+        if server_mode && !initial_load {
             handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
             match handle_zombie_flows(db, rsmq.clone()).await {
                 Err(err) => {
@@ -584,7 +585,7 @@ pub async fn monitor_db(
         }
     };
     let expired_items_f = async {
-        if server_mode {
+        if server_mode && !initial_load {
             delete_expired_items(&db).await;
         }
     };
@@ -605,7 +606,7 @@ pub async fn monitor_db(
     };
 
     let expose_queue_metrics_f = async {
-        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) && server_mode {
+        if !initial_load && METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) && server_mode {
             expose_queue_metrics(&db).await;
         }
     };
