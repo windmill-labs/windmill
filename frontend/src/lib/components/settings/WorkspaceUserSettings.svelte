@@ -48,12 +48,16 @@
 	let usage: Record<string, number> | undefined = undefined
 
 	async function getUsage() {
-		getUsagePromise = UserService.listUsersUsage({ workspace: $workspaceStore! })
-		const res = await getUsagePromise
-		usage = res.reduce((acc, { email, executions }) => {
-			acc[email] = executions ?? 0
-			return acc
-		}, {} as Record<string, number>)
+		try {
+			getUsagePromise = UserService.listUsersUsage({ workspace: $workspaceStore! })
+			const res = await getUsagePromise
+			usage = res.reduce((acc, { email, executions }) => {
+				acc[email] = executions ?? 0
+				return acc
+			}, {} as Record<string, number>)
+		} catch (e) {
+			console.warn(e)
+		}
 	}
 
 	async function listUsers(): Promise<void> {
@@ -83,7 +87,11 @@
 	}
 
 	onDestroy(() => {
-		getUsagePromise?.cancel()
+		try {
+			getUsagePromise?.cancel()
+		} catch (e) {
+			console.warn(e)
+		}
 	})
 
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
