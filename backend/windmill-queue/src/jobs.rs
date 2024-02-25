@@ -564,6 +564,22 @@ pub async fn add_completed_job<
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
+    if queued_job.is_flow_step
+    {
+        if let Some(parent_job) = queued_job.parent_job  {
+            // persist the flow last progress timestamp to avoid zombie flow jobs
+            tracing::debug!("Persisting flow last progress timestamp to flow job: {:?}", parent_job);
+            sqlx::query!(
+                "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2",
+                parent_job,
+                &queued_job.workspace_id
+            )
+            .execute(&mut tx)
+            .await?;
+        }
+
+    }
+
     if !queued_job.is_flow_step
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()

@@ -2373,12 +2373,12 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     };
 
     let update_job_future = if job.is_flow_step || job.is_flow() {
-        let (flow, job_status_to_update, update_job_future) =
+        let (flow, job_status_to_update) =
             if let Some(parent_job_id) = job.parent_job {
                 let _ = update_job_future().await;
-                (parent_job_id, job.id, None)
+                (parent_job_id, job.id)
             } else {
-                (job.id, Uuid::nil(), Some(update_job_future))
+                (job.id, Uuid::nil())
             };
 
         let wrapped_error = WrappedError { error: err.clone() };
@@ -2421,7 +2421,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             }
         }
 
-        update_job_future
+        None
     } else {
         Some(update_job_future)
     };

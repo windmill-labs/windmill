@@ -15,6 +15,7 @@ enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "dep:
 benchmark = ["windmill-queue/benchmark"]
 flamegraph = []
 parquet = ["windmill-common/parquet"]
+flow_testing = []
 
 [dependencies]
 windmill-queue.workspace = true
