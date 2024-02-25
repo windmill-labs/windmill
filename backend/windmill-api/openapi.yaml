@@ -1734,6 +1734,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
+  /w/{workspace}/users/list_usage:
+    get:
+      summary: list users usage
+      operationId: listUsersUsage
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    email:
+                      type: string
+                    executions:
+                      type: number
+                  required:
+                    email
+
   /w/{workspace}/users/list_usernames:
     get:
       summary: list usernames
@@ -8399,8 +8424,6 @@ components:
           type: array
           items:
             type: string
-        usage:
-          $ref: "#/components/schemas/Usage"
       required:
         - email
         - username
@@ -8411,12 +8434,6 @@ components:
         - disabled
         - folders
         - folders_owners
-
-    Usage:
-      type: object
-      properties:
-        executions:
-          type: number
 
     Login:
       type: object

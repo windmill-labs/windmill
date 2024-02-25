@@ -11,16 +11,18 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { User } from '$lib/gen'
+	import type { CancelablePromise, User } from '$lib/gen'
 	import { UserService, WorkspaceService, type WorkspaceInvite } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Mails, Search } from 'lucide-svelte'
+	import { Loader2, Mails, Search } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
 	import Row from '../table/Row.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { truncate } from '$lib/utils'
+	import { onDestroy } from 'svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -36,6 +38,22 @@
 		auto_invite_domain = settings.auto_invite_domain
 		operatorOnly = settings.auto_invite_operator
 		autoAdd = settings.auto_add
+	}
+
+	let getUsagePromise: CancelablePromise<Array<{
+        email: string;
+        executions?: number;
+    }>> | undefined = undefined
+
+	let usage: Record<string, number> | undefined = undefined
+
+	async function getUsage() {
+		getUsagePromise = UserService.listUsersUsage({ workspace: $workspaceStore! })
+		const res = await getUsagePromise
+		usage = res.reduce((acc, { email, executions }) => {
+			acc[email] = executions ?? 0
+			return acc
+		}, {} as Record<string, number>)
 	}
 
 	async function listUsers(): Promise<void> {
@@ -58,10 +76,15 @@
 		if ($workspaceStore) {
 			getDisallowedAutoDomain()
 			listUsers()
+			getUsage()
 			listInvites()
 			loadSettings()
 		}
 	}
+
+	onDestroy(() => {
+		getUsagePromise?.cancel()
+	})
 
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
 
@@ -145,11 +168,11 @@
 		</Head>
 		<tbody class="divide-y bg-surface">
 			{#if filteredUsers}
-				{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, usage, disabled } (email)}
+				{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator,  disabled } (email)}
 					<tr class="!hover:bg-surface-hover">
-						<Cell first>{email}</Cell>
-						<Cell>{username}</Cell>
-						<Cell>{usage?.executions}</Cell>
+						<Cell first>{truncate(email, 20)}</Cell>
+						<Cell>{truncate(username, 30)}</Cell>
+						<Cell>{#if usage?.[email] != undefined}{usage?.[email]}{:else}<Loader2 size={14} class="animate-spin" />{/if}</Cell>
 						<Cell>
 							<div class="flex gap-1">
 								{#if disabled}
