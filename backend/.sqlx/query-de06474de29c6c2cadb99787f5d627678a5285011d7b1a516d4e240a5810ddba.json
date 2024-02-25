@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9, dedicated_worker = $10\n        WHERE path = $7 AND workspace_id = $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Varchar",
+        "Text",
+        "Text",
+        "Text",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de06474de29c6c2cadb99787f5d627678a5285011d7b1a516d4e240a5810ddba"
+}

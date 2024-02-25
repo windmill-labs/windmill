@@ -1750,14 +1750,8 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    email:
-                      type: string
-                    executions:
-                      type: number
-                  required:
-                    email
+                  $ref: "#/components/schemas/UserUsage"
+
 
   /w/{workspace}/users/list_usernames:
     get:
@@ -8434,6 +8428,14 @@ components:
         - disabled
         - folders
         - folders_owners
+
+    UserUsage:
+      type: object
+      properties:
+        email:
+          type: string
+        executions:
+          type: number
 
     Login:
       type: object
