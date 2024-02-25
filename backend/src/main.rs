@@ -300,7 +300,7 @@ Windmill Community Edition {GIT_VERSION}
 
         initial_load(&db, killpill_tx.clone(), worker_mode, server_mode).await;
 
-        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
+        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode, true).await;
 
         monitor_pool(&db).await;
 
@@ -377,6 +377,7 @@ Windmill Community Edition {GIT_VERSION}
                                 &base_internal_url,
                                 rsmq.clone(),
                                 server_mode,
+                                false
                             )
                             .await;
                         },
