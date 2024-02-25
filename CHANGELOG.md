@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.277.0](https://github.com/windmill-labs/windmill/compare/v1.276.1...v1.277.0) (2024-02-25)
+
+
+### Features
+
+* more resilient flows in case of crash during transitions ([32a45b5](https://github.com/windmill-labs/windmill/commit/32a45b544dff5e31e4875c8ccfda68c77aa3a03c))
+
+
+### Bug Fixes
+
+* improve performance of list users ([88799b9](https://github.com/windmill-labs/windmill/commit/88799b935ef3c306a5bc81788bfda4df3502d827))
+* improve relative bun loader ([136c04e](https://github.com/windmill-labs/windmill/commit/136c04eed4ed6aa484b72b000f7821d2ec2a5406))
+
 ## [1.276.1](https://github.com/windmill-labs/windmill/compare/v1.276.0...v1.276.1) (2024-02-24)
 
 
