@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.277.1](https://github.com/windmill-labs/windmill/compare/v1.277.0...v1.277.1) (2024-02-25)
+
+
+### Bug Fixes
+
+* do not handle zombie jobs on initial_load of monitor db ([86ca005](https://github.com/windmill-labs/windmill/commit/86ca005c546382407a47adbf431af0f7657ae48b))
+
 ## [1.277.0](https://github.com/windmill-labs/windmill/compare/v1.276.1...v1.277.0) (2024-02-25)
 
 
