@@ -624,6 +624,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         })
         .unwrap_or_else(|| rd_string(5));
 
+    #[cfg(tokio_unstable)]
     let monitor = tokio_metrics::TaskMonitor::new();
 
     let ip = windmill_common::external_ip::get_ip()
@@ -678,9 +679,11 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
         let sync_barrier = sync_barrier.clone();
-        handles.push(tokio::spawn(monitor.instrument(async move {
+
+        handles.push(tokio::spawn(async move {
             tracing::info!(worker = %worker_name, "starting worker");
-            windmill_worker::run_worker(
+
+            let f = windmill_worker::run_worker(
                 &db1,
                 &instance_name,
                 worker_name,
@@ -693,9 +696,18 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 rsmq2,
                 sync_barrier,
                 agent_mode,
-            )
-            .await
-        })));
+            );
+
+            #[cfg(tokio_unstable)]
+            {
+                monitor.monitor(f, "worker").await
+            }
+
+            #[cfg(not(tokio_unstable))]
+            {
+                f.await
+            }
+        }));
     }
 
     futures::future::try_join_all(handles).await?;

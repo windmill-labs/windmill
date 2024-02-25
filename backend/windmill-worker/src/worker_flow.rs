@@ -9,7 +9,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -73,6 +73,8 @@ pub async fn update_flow_status_after_job_completion<
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
     // todo!();
+    potentially_crash_for_testing();
+
     let mut rec = update_flow_status_after_job_completion_internal(
         db,
         client,
@@ -92,6 +94,7 @@ pub async fn update_flow_status_after_job_completion<
     )
     .await?;
     while let Some(nrec) = rec {
+        potentially_crash_for_testing();
         rec = match update_flow_status_after_job_completion_internal(
             db,
             client,
@@ -578,13 +581,13 @@ pub async fn update_flow_status_after_job_completion_internal<
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
-            "Flow job canceled".to_string()
+            "Flow job canceled\n".to_string()
         } else if stop_early {
-            format!("Flow job stopped early because of a stop early predicate returning true")
+            format!("Flow job stopped early because of a stop early predicate returning true\n")
         } else if success {
-            "Flow job completed with success".to_string()
+            "Flow job completed with success\n".to_string()
         } else {
-            "Flow job completed with error".to_string()
+            "Flow job completed with error\n".to_string()
         };
 
         #[cfg(feature = "enterprise")]
@@ -1038,30 +1041,6 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
 
-    if !flow_job.is_flow_step
-        && flow_job.schedule_path.is_some()
-        && flow_job.script_path.is_some()
-        && status.step == 0
-    {
-        let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
-
-        match handle_maybe_scheduled_job(
-            tx,
-            db,
-            flow_job.schedule_path.as_ref().unwrap(),
-            flow_job.script_path.as_ref().unwrap(),
-            &flow_job.workspace_id,
-        )
-        .await
-        {
-            Ok(tx) => {
-                tx.commit().await?;
-            }
-            Err(e) => {
-                tracing::error!("Error during handle_maybe_scheduled_job: {e}");
-            }
-        }
-    }
 
     push_next_flow_job(
         flow_job,
@@ -1104,6 +1083,25 @@ pub struct ResumeRow {
 #[derive(FromRow)]
 pub struct RawArgs {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
+}
+
+lazy_static::lazy_static! {
+    static ref CRASH_FORCEFULLY_AT_STEP: Option<usize> = std::env::var("CRASH_FORCEFULLY_AT_STEP")
+        .ok()
+        .and_then(|x| x.parse::<usize>().ok());
+
+    static ref CRASH_STEP_COUNTER: AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+}
+
+#[inline(always)]
+fn potentially_crash_for_testing() {
+    #[cfg(feature = "flow_testing")]
+    if let Some(crash_at) = CRASH_FORCEFULLY_AT_STEP.as_ref() {  
+        let counter = CRASH_STEP_COUNTER.fetch_add(1, Ordering::SeqCst);
+        if &counter == crash_at {
+            panic!("CRASH#1 - expected crash for testing at step {}", crash_at);
+        }
+    }
 }
 
 // #[async_recursion]
@@ -1160,29 +1158,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     "error sending update flow message to job completed channel: {e}"
                 ))
             })?;
-        // let r;
-        // return update_flow_status_after_job_completion(
-        //     db,
-        //     client,
-        //     flow_job.id,
-        //     &Uuid::nil(),
-        //     flow_job.workspace_id.as_str(),
-        //     true,
-        //     if flow.modules.is_empty() {
-        //         r = to_raw_value(&flow_job_args);
-        //         &r
-        //     } else {
-        //         // it has to be an empty for loop event
-        //         serde_json::from_str("[]").unwrap()
-        //     },
-        //     true,
-        //     same_worker_tx,
-        //     worker_dir,
-        //     None,
-        //     rsmq,
-        //     worker_name,
-        // )
-        // .await;
+
         return Ok(());
     }
 
@@ -1229,25 +1205,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                 "error sending update flow message to job completed channel: {e}"
                             ))
                         })?;
-                    // return update_flow_status_after_job_completion(
-                    //     db,
-                    //     client,
-                    //     flow_job.id,
-                    //     &Uuid::nil(),
-                    //     flow_job.workspace_id.as_str(),
-                    //     true,
-                    //     serde_json::from_str(
-                    //         "\"not allowed to overlap, scheduling next iteration\"",
-                    //     )
-                    //     .unwrap(),
-                    //     true,
-                    //     same_worker_tx,
-                    //     worker_dir,
-                    //     Some(true),
-                    //     rsmq,
-                    //     worker_name,
-                    // )
-                    // .await;
+
                     return Ok(());
                 }
             }
@@ -1280,22 +1238,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         ))
                     })?;
 
-                // return update_flow_status_after_job_completion(
-                //     db,
-                //     client,
-                //     flow_job.id,
-                //     &Uuid::nil(),
-                //     flow_job.workspace_id.as_str(),
-                //     true,
-                //     serde_json::from_str("\"stopped early\"").unwrap(),
-                //     true,
-                //     same_worker_tx,
-                //     worker_dir,
-                //     Some(true),
-                //     rsmq,
-                //     worker_name,
-                // )
-                // .await;
+
                 return Ok(());
             }
         }
@@ -1487,6 +1430,14 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .execute(&mut *tx)
                 .await?;
 
+                sqlx::query!(
+                    "UPDATE queue
+                    SET last_ping = null
+                    WHERE id = $1 AND last_ping = $2",
+                    flow_job.id,
+                    flow_job.last_ping
+                ).execute(&mut *tx).await?;
+
                 tx.commit().await?;
                 return Ok(());
 
@@ -1536,23 +1487,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                 "error sending update flow message to job completed channel: {e}"
                             ))
                             })?;
-                        // update_flow_status_after_job_completion(
-                        //     db,
-                        //     client,
-                        //     parent_job,
-                        //     &flow_job.id,
-                        //     &flow_job.workspace_id,
-                        //     true,
-                        //     &to_raw_value(&result),
-                        //     false,
-                        //     same_worker_tx.clone(),
-                        //     &worker_dir,
-                        //     None,
-                        //     rsmq,
-                        //     worker_name,
-                        // )
-                        // .await?;
-                        return Ok(());
                     }
                 }
                 return Ok(());
@@ -2122,6 +2056,34 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .execute(&mut tx)
         .await?;
     };
+
+
+    potentially_crash_for_testing();
+
+    if !flow_job.is_flow_step
+        && status.step == 0
+    {
+
+        if flow_job.schedule_path.is_some()
+            && flow_job.script_path.is_some() {
+            tx = handle_maybe_scheduled_job(
+                tx,
+                db,
+                flow_job.schedule_path.as_ref().unwrap(),
+                flow_job.script_path.as_ref().unwrap(),
+                &flow_job.workspace_id,
+            )
+            .await?;
+        }
+        sqlx::query!(
+            "UPDATE queue
+            SET last_ping = null
+            WHERE id = $1",
+            flow_job.id
+        ).execute(&mut tx).await?;
+    }
+
+
 
     tx.commit().await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");

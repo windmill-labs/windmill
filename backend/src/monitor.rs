@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use rsmq_async::MultiplexedRsmq;
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
@@ -19,25 +20,19 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 use windmill_common::{
-    error,
-    global_settings::{
+    error, flow_status::FlowStatusModule, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-    },
-    jobs::QueuedJob,
-    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
-    server::load_server_config,
-    users::truncate_token,
-    worker::{
+    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, users::truncate_token, worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
-    },
-    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    }, BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED
 };
+use windmill_queue::cancel_job;
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SendResult, BUNFIG_INSTALL_SCOPES,
     JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
@@ -57,6 +52,11 @@ lazy_static::lazy_static! {
     .ok()
     .and_then(|x| x.parse::<String>().ok())
     .unwrap_or_else(|| "30".to_string());
+
+    static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<String>().ok())
+    .unwrap_or_else(|| "10".to_string());
 
 
     pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
@@ -566,15 +566,21 @@ pub async fn monitor_pool(db: &DB) {
     }
 }
 
-pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn monitor_db(
     db: &Pool<Postgres>,
     base_internal_url: &str,
-    rsmq: Option<R>,
+    rsmq: Option<MultiplexedRsmq>,
     server_mode: bool,
 ) {
     let zombie_jobs_f = async {
         if server_mode {
             handle_zombie_jobs(db, base_internal_url, rsmq.clone(), "server").await;
+            match handle_zombie_flows(db, rsmq.clone()).await {
+                Err(err) => {
+                    tracing::error!("Error handling zombie flows: {:?}", err);
+                }
+                _ => {}
+            }
         }
     };
     let expired_items_f = async {
@@ -766,7 +772,8 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 ) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval
+                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' 
+                WHERE last_ping < now() - ($1 || ' seconds')::interval
                  AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
             )
@@ -779,8 +786,8 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
         for r in restarted {
-            tracing::info!(
-                "restarted zombie job {} {} {}",
+            tracing::error!(
+                "Zombie job detected, restarting it: {} {} {:?}",
                 r.id,
                 r.workspace_id,
                 r.last_ping
@@ -788,7 +795,8 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
     }
 
-    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow')".to_string();
+    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
+    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow')".to_string();
     if *RESTART_ZOMBIE_JOBS {
         timeout_query.push_str(" AND same_worker = true");
     };
@@ -852,4 +860,71 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         )
         .await;
     }
+}
+
+
+async fn handle_zombie_flows(
+    db: &DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+) -> error::Result<()> {
+
+    let flows = sqlx::query_as::<_, QueuedJob>(
+        r#"
+        SELECT *
+        FROM queue
+        WHERE running = true AND suspend = 0 AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview')
+            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
+        "#,
+    ).bind(FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str())
+    .fetch_all(db)
+    .await?;
+
+    // TODO: for now only log zombie flows
+    let mut tx = db.begin().await.unwrap();
+    for flow in flows {
+        let status = flow.parse_flow_status();
+        if status.is_some_and(|s| s.modules.get(0).is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. })))
+        {
+            tracing::error!(
+                "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
+                flow.id,
+                flow.workspace_id
+            );
+            // if the flow hasn't started and is a zombie, we can simply restart it
+            sqlx::query!(
+                "UPDATE queue SET running = false, started_at = null WHERE id = $1",
+                flow.id
+            )
+            .execute(db)
+            .await?;
+        } else {
+            // if it was started, we can't restart it, so we cancel it
+            tracing::error!(
+                "Zombie flow detected: {} in workspace {}. Cancelling it.",
+                flow.id,
+                flow.workspace_id
+            );
+            let (mut ntx, _) = cancel_job(
+                "monitor",
+                Some("Flow cancelled as it was hanging in between 2 steps".to_string()),
+                flow.id,
+                flow.workspace_id.as_str(),
+                tx,
+                db,
+                rsmq.clone(),
+                false,
+            )
+            .await?;
+            // if the flow hasn't started and is a zombie, we can simply restart it
+            sqlx::query!(
+                "UPDATE queue SET running = false, started_at = null WHERE id = $1",
+                flow.id
+            )
+            .execute(&mut *ntx)
+            .await?;
+            tx = ntx;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
 }

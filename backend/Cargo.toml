@@ -46,11 +46,13 @@ pg_embed = ["dep:pg-embed"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
+flow_testing = ["windmill-worker/flow_testing"]
 
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
 dotenv.workspace = true
+windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
