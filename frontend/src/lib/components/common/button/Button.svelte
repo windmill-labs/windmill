@@ -4,7 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropdown from './ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { classNames } from '$lib/utils'
+	import { classNames, getModifierKey } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 
 	export let size: ButtonType.Size = 'md'
@@ -32,6 +32,9 @@
 	export let portalTarget: string | undefined = undefined
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
+	export let shortCut:
+		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
+		| undefined = undefined
 
 	type MenuItem = {
 		label: string
@@ -207,6 +210,14 @@
 					size={lucideIconSize}
 				/>
 			{/if}
+			{#if shortCut && !shortCut.hide}
+				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
+							class="w-4 h-4"
+							size={lucideIconSize}
+						/>{:else}{shortCut.key}{/if}
+				</div>
+			{/if}
 		</a>
 	{:else}
 		<button
@@ -244,6 +255,14 @@
 					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
 					size={lucideIconSize}
 				/>
+			{/if}
+			{#if shortCut && !shortCut.hide}
+				{@const Icon = shortCut.Icon}
+				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
+							size={lucideIconSize}
+						/>{:else}{shortCut.key}{/if}
+				</div>
 			{/if}
 		</button>
 	{/if}
