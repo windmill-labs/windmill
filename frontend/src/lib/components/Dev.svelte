@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { Button, Kbd } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
@@ -11,11 +11,11 @@
 		OpenAPI,
 		Preview,
 		type OpenFlow,
-		type FlowModule,
+		type FlowModule
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import {  userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -31,7 +31,7 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
-	import { Play } from 'lucide-svelte'
+	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 
@@ -418,12 +418,12 @@
 							icon: Play,
 							classes: 'animate-none'
 						}}
+						shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 					>
 						{#if testIsLoading}
 							Running
 						{:else}
-							Test&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-							<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
+							Test
 						{/if}
 					</Button>
 				{/if}

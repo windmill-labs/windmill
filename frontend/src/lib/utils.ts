@@ -501,7 +501,7 @@ export function isMac(): boolean {
 }
 
 export function getModifierKey(): string {
-	return isMac() ? '⌘' : 'Ctrl'
+	return isMac() ? '⌘' : 'Ctrl+'
 }
 
 export function isValidHexColor(color: string): boolean {

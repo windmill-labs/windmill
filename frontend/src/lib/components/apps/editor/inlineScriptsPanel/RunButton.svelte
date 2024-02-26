@@ -6,9 +6,8 @@
 		CancelablePromise,
 		InlineScript
 	} from '../../types'
-	import { Button, Kbd } from '$lib/components/common'
-	import { getModifierKey } from '$lib/utils'
-	import { Loader2 } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 
 	export let id: string
 	export let inlineScript: InlineScript | undefined = undefined
@@ -36,16 +35,9 @@
 				} catch {}
 				runLoading = false
 			}}
+			shortCut={{ Icon: CornerDownLeft, hide: hideShortcut }}
 		>
-			<div class="flex flex-row gap-1 items-center">
-				Run
-				{#if !hideShortcut}
-					<div class="flex flex-row items-center">
-						<Kbd small isModifier>{getModifierKey()}</Kbd>
-						<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
-					</div>
-				{/if}
-			</div>
+			Run
 		</Button>
 	{:else}
 		<Button

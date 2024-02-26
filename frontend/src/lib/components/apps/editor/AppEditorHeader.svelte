@@ -1,16 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import {
-		Alert,
-		Badge,
-		Drawer,
-		DrawerContent,
-		Kbd,
-		Tab,
-		Tabs,
-		UndoRedo
-	} from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -1337,8 +1328,9 @@
 			on:click={() => saveDraft()}
 			size="xs"
 			disabled={$page.params.path !== undefined && !savedApp}
+			shortCut={{ key: 'S' }}
 		>
-			Draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+			Draft
 		</Button>
 		<Button
 			loading={loading.save}

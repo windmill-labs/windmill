@@ -8,11 +8,10 @@
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import { defaultIfEmptyString, emptySchema, getModifierKey, itemsExists } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
-	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './RunButton.svelte'
@@ -239,15 +238,11 @@
 						editor?.format()
 						simpleEditor?.format()
 					}}
+					shortCut={{
+						key: 'S'
+					}}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						Format
-
-						<div class="flex flex-row items-center">
-							<Kbd small isModifier>{getModifierKey()}</Kbd>
-							<Kbd small>S</Kbd>
-						</div>
-					</div>
+					Format
 				</Button>
 				<RunButton bind:runLoading {id} inlineScript={!transformer ? inlineScript : undefined} />
 			</div>
