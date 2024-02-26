@@ -178,9 +178,9 @@
 						blockOpen={blockPopupOpen}
 					>
 						<svelte:fragment slot="button">
-							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light"
-								>Advanced</Button
-							>
+							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
+								Advanced
+							</Button>
 						</svelte:fragment>
 						<RunFormAdvancedPopup
 							bind:scheduledForStr
