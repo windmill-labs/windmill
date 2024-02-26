@@ -226,7 +226,7 @@
 			// @ts-ignore
 			return Object.keys(Object.values(schema)?.[0]?.schema?.public ?? {})
 		} else if (resolvedConfig.type.selected === 'mysql') {
-			return Object.keys(Object.values(schema)?.[0]?.schema ?? {})
+			return Object.keys(Object.values(Object.values(schema)?.[0]?.schema ?? {})?.[0])
 		}
 		return []
 	}

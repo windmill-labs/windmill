@@ -7,17 +7,20 @@ import { tryEvery } from '$lib/utils'
 export function makeQuery(
 	table: string,
 	tableMetadata: TableMetadata,
-	whereClause: string | undefined
+	whereClause: string | undefined,
+	type: string
 ) {
 	if (!table) throw new Error('Table name is required')
 
-	const filteredColumns = tableMetadata
-		.filter((x) => x != undefined)
-		.map((column) => `"${column?.field}"::text`)
+	switch (type) {
+		case 'postgreql': {
+			const filteredColumns = tableMetadata
+				.filter((x) => x != undefined)
+				.map((column) => `"${column?.field}"::text`)
 
-	let selectClause = filteredColumns.join(', ')
+			let selectClause = filteredColumns.join(', ')
 
-	let orderBy = `
+			let orderBy = `
 	${tableMetadata
 		.map(
 			(column) =>
@@ -27,7 +30,7 @@ export function makeQuery(
 		)
 		.join(',\n')}`
 
-	let query = `
+			let query = `
 -- $1 limit
 -- $2 offset
 -- $3 quicksearch
@@ -35,15 +38,57 @@ export function makeQuery(
 -- $5 is_desc
 
 SELECT ${selectClause} FROM "${table}" WHERE `
-	if (whereClause) {
-		query += ` ${whereClause} AND `
+			if (whereClause) {
+				query += ` ${whereClause} AND `
+			}
+			query += ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
+
+			query += ` ORDER BY ${orderBy}`
+			query += ` LIMIT $1::INT OFFSET $2::INT`
+
+			return query
+		}
+
+		case 'mysql': {
+			const filteredColumns = tableMetadata
+				.filter((x) => x !== undefined)
+				.map((column) => `\`${column?.field}\``)
+
+			let selectClause = filteredColumns.join(', ')
+
+			let orderBy = tableMetadata
+				.map((column) => {
+					return `
+	CASE WHEN :order_by = '${column.field}' AND :is_desc IS false THEN \`${column.field}\` END,
+	CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.field}\` END DESC`
+				})
+				.join(',\n')
+
+			let query = `
+-- :limit (int)
+-- :offset (int)
+-- :quicksearch (text)
+-- :order_by (text)
+-- :is_desc (boolean)
+	
+	SELECT ${selectClause} FROM \`${table}\` where `
+
+			if (whereClause) {
+				query += ` ${whereClause} AND `
+			}
+			query += ` (:quicksearch = '' OR  CONCAT_WS(' ', ${filteredColumns.join(
+				', '
+			)}) LIKE CONCAT('%', :quicksearch, '%'))`
+			query += ` ORDER BY ${orderBy}`
+
+			query += ` LIMIT :limit OFFSET :offset`
+
+			return query
+		}
+
+		default:
+			throw new Error('Unsupported database type')
 	}
-	query += ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
-
-	query += ` ORDER BY ${orderBy}`
-	query += ` LIMIT $1::INT OFFSET $2::INT`
-
-	return query
 }
 
 export function createDbInsert(
@@ -139,7 +184,7 @@ export function createDbInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeQuery(table, columns, whereClause),
+			content: makeQuery(table, columns, whereClause, resourceType),
 			language: getLanguageByResourceType(resourceType)
 		}
 	}
@@ -376,35 +421,56 @@ export async function loadTableMetaData(
 		return undefined
 	}
 
-	const code = `
-	SELECT 
-	a.attname as field,
-	pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
-	(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
-	 FROM pg_catalog.pg_attrdef d
-	 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
-	(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
-	 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
-	 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-							 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
-	CASE a.attidentity
-			WHEN 'd' THEN 'By Default'
-			WHEN 'a' THEN 'Always'
-			ELSE 'No'
-	END as IsIdentity,
-	CASE a.attnotnull
-			WHEN false THEN 'YES'
-			ELSE 'NO'
-	END as IsNullable,
-	(SELECT true
-	 FROM pg_catalog.pg_enum e
-	 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
-FROM pg_catalog.pg_attribute a
-WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
-	AND a.attnum > 0 AND NOT a.attisdropped
-ORDER BY a.attnum;
+	let code: string = ''
 
-`
+	if (resourceType === 'mysql') {
+		code = `
+	SELECT 
+			COLUMN_NAME as field,
+			COLUMN_TYPE as DataType,
+			COLUMN_DEFAULT as DefaultValue,
+			CASE WHEN COLUMN_KEY = 'PRI' THEN true ELSE 'NO' END as IsPrimaryKey,
+			CASE WHEN EXTRA like '%auto_increment%' THEN 'By Default' ELSE 'No' END as IsIdentity,
+			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
+	FROM 
+			INFORMATION_SCHEMA.COLUMNS
+	WHERE 
+			TABLE_NAME = '${table}'
+	ORDER BY 
+			ORDINAL_POSITION;
+	`
+	} else if (resourceType === 'postgresql') {
+		code = `
+		SELECT 
+		a.attname as field,
+		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
+		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
+		 FROM pg_catalog.pg_attrdef d
+		 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
+		(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
+		 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
+		 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
+								 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
+		CASE a.attidentity
+				WHEN 'd' THEN 'By Default'
+				WHEN 'a' THEN 'Always'
+				ELSE 'No'
+		END as IsIdentity,
+		CASE a.attnotnull
+				WHEN false THEN 'YES'
+				ELSE 'NO'
+		END as IsNullable,
+		(SELECT true
+		 FROM pg_catalog.pg_enum e
+		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
+	FROM pg_catalog.pg_attribute a
+	WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
+		AND a.attnum > 0 AND NOT a.attisdropped
+	ORDER BY a.attnum;
+	
+	`
+	}
 
 	const maxRetries = 3
 	let attempts = 0
@@ -503,7 +569,7 @@ const scripts: Record<
 		argName: 'database'
 	},
 	mysql: {
-		code: "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'information_schema'",
+		code: "SELECT DATABASE() AS default_db_name, TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT FROM information_schema.columns WHERE table_schema = DATABASE() OR table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys', '_vt');",
 		processingFn: (rows) => {
 			const schemas = rows.reduce((acc, a) => {
 				const table_schema = a.TABLE_SCHEMA
