@@ -6503,7 +6503,6 @@ paths:
                   type: boolean
               required:
                 - owner
-                - write
       responses:
         "200":
           description: owner removed from folder
