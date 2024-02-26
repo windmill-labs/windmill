@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.278.2](https://github.com/windmill-labs/windmill/compare/v1.278.1...v1.278.2) (2024-02-26)
+
+
+### Bug Fixes
+
+* add HOME to pip install ([b242251](https://github.com/windmill-labs/windmill/commit/b24225124a9591f719e7b2219682f2e143c405c1))
+
 ## [1.278.1](https://github.com/windmill-labs/windmill/compare/v1.278.0...v1.278.1) (2024-02-26)
 
 
