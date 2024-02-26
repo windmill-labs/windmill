@@ -24,7 +24,6 @@
 	export let jobKinds: string = ''
 	export let queue_count: Tweened<number> | undefined = undefined
 	export let autoRefresh: boolean = true
-
 	export let completedJobs: CompletedJob[] | undefined = undefined
 	export let argError = ''
 	export let resultError = ''
@@ -46,7 +45,7 @@
 			user &&
 			folder &&
 			hideSchedules != undefined &&
-			allWorkspaces != undefined)
+			allWorkspaces != undefined && argFilter != undefined && resultFilter != undefined)
 
 	$: if (!intervalId && autoRefresh) {
 		intervalId = setInterval(syncer, refreshRate)
