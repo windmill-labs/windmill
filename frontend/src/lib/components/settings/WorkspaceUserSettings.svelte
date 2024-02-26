@@ -11,7 +11,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { CancelablePromise, User } from '$lib/gen'
+	import type { CancelablePromise, User, UserUsage } from '$lib/gen'
 	import { UserService, WorkspaceService, type WorkspaceInvite } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -40,10 +40,7 @@
 		autoAdd = settings.auto_add
 	}
 
-	let getUsagePromise: CancelablePromise<Array<{
-        email: string;
-        executions?: number;
-    }>> | undefined = undefined
+	let getUsagePromise: CancelablePromise<UserUsage[]> | undefined = undefined
 
 	let usage: Record<string, number> | undefined = undefined
 
@@ -51,8 +48,10 @@
 		try {
 			getUsagePromise = UserService.listUsersUsage({ workspace: $workspaceStore! })
 			const res = await getUsagePromise
-			usage = res.reduce((acc, { email, executions }) => {
-				acc[email] = executions ?? 0
+			usage = res?.reduce((acc, { email, executions }) => {
+				if (email) {
+					acc[email] = executions ?? 0
+				}
 				return acc
 			}, {} as Record<string, number>)
 		} catch (e) {
@@ -123,13 +122,18 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 <div class="flex flex-col gap-4 my-8">
-<div class="flex flex-col gap-1">
-	<div class=" text-primary text-lg font-semibold"> Members & Invites </div>
-	<div class="text-tertiary text-xs">
-		Add members to your workspace and manage their roles. You can also invite or auto-invites users to join your workspace.
-		<a href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions" target="_blank" class="text-blue-500">Learn more</a>.
+	<div class="flex flex-col gap-1">
+		<div class=" text-primary text-lg font-semibold"> Members & Invites </div>
+		<div class="text-tertiary text-xs">
+			Add members to your workspace and manage their roles. You can also invite or auto-invites
+			users to join your workspace.
+			<a
+				href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+				target="_blank"
+				class="text-blue-500">Learn more</a
+			>.
+		</div>
 	</div>
-</div>
 </div>
 <div class="flex flex-row justify-between items-center">
 	<PageHeader
@@ -176,11 +180,16 @@
 		</Head>
 		<tbody class="divide-y bg-surface">
 			{#if filteredUsers}
-				{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator,  disabled } (email)}
+				{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, disabled } (email)}
 					<tr class="!hover:bg-surface-hover">
 						<Cell first>{truncate(email, 20)}</Cell>
 						<Cell>{truncate(username, 30)}</Cell>
-						<Cell>{#if usage?.[email] != undefined}{usage?.[email]}{:else}<Loader2 size={14} class="animate-spin" />{/if}</Cell>
+						<Cell
+							>{#if usage?.[email] != undefined}{usage?.[email]}{:else}<Loader2
+									size={14}
+									class="animate-spin"
+								/>{/if}</Cell
+						>
 						<Cell>
 							<div class="flex gap-1">
 								{#if disabled}
