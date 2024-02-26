@@ -31,7 +31,7 @@ pub mod s3_helpers;
 pub mod schedule;
 pub mod scripts;
 pub mod server;
-pub mod stats;
+pub mod stats_ee;
 pub mod users;
 pub mod utils;
 pub mod variables;
