@@ -2,10 +2,9 @@
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type Job, Script, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getModifierKey } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
 
-	import { Loader2 } from 'lucide-svelte'
+	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Button from './common/button/Button.svelte'
@@ -14,7 +13,6 @@
 	import LogViewer from './LogViewer.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
-	import { Kbd } from './common'
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
@@ -111,10 +109,17 @@
 					Cancel
 				</Button>
 			{:else}
-				<Button color="dark" btnClasses="truncate" size="sm" on:click={() => runTest(stepArgs)}
-					>Run&nbsp; <Kbd small isModifier>{getModifierKey()}</Kbd>
-					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd></Button
+				<Button
+					color="dark"
+					btnClasses="truncate"
+					size="sm"
+					on:click={() => runTest(stepArgs)}
+					shortCut={{
+						Icon: CornerDownLeft
+					}}
 				>
+					Run
+				</Button>
 			{/if}
 		</div>
 

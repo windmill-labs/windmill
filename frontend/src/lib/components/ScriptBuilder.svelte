@@ -10,12 +10,11 @@
 		emptySchema,
 		emptyString,
 		encodeState,
-		getModifierKey,
 		orderedJsonStringify
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
+	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -962,11 +961,11 @@
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={initialPath != '' && !savedScript}
+						shortCut={{
+							key: 'S'
+						}}
 					>
-						<span class="hidden lg:flex">
-							Draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-						</span>
-						<Kbd small>S</Kbd>
+						<span class="hidden lg:flex"> Draft </span>
 					</Button>
 					<Button
 						loading={loadingSave}
