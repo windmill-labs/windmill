@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{AuthedClient, PreviousResult, SendResult, KEEP_JOB_DIR};
+use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, KEEP_JOB_DIR};
 use anyhow::Context;
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -64,7 +64,7 @@ pub async fn update_flow_status_after_job_completion<
     success: bool,
     result: &'a RawValue,
     unrecoverable: bool,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     rsmq: Option<R>,
@@ -168,7 +168,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     mut success: bool,
     result: &'a RawValue,
     unrecoverable: bool,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
@@ -1029,7 +1029,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_result: Option<Box<RawValue>>,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<SendResult>,
@@ -1113,7 +1113,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Box<RawValue>>,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<SendResult>,
@@ -1767,7 +1767,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             // flow is reprocessed by the worker in a state where the module has completed successfully.
             // The next steps are pull -> handle flow -> push next flow job -> update flow status since module status is success
             same_worker_tx
-                .send(flow_job.id)
+                .send(SameWorkerPayload { job_id: flow_job.id, recoverable: true })
                 .await
                 .expect("send to same worker");
             return Ok(());
@@ -2092,7 +2092,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 "Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker".to_string(),
             ));
         }
-        same_worker_tx.send(first_uuid).await.map_err(to_anyhow)?;
+        same_worker_tx.send(SameWorkerPayload { job_id: first_uuid, recoverable: true }).await.map_err(to_anyhow)?;
     }
     return Ok(());
 }

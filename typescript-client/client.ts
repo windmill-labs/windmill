@@ -320,7 +320,7 @@ export async function denoS3LightClientSettings(
  */
 export async function loadS3File(
   s3object: S3Object,
-  s3ResourcePath: string | undefined
+  s3ResourcePath: string | undefined = undefined
 ): Promise<Uint8Array | undefined> {
   !clientSet && setClient();
   const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath);
@@ -362,7 +362,7 @@ export async function loadS3File(
  */
 export async function loadS3FileStream(
   s3object: S3Object,
-  s3ResourcePath: string | undefined
+  s3ResourcePath: string | undefined = undefined
 ): Promise<Blob | undefined> {
   !clientSet && setClient();
 
@@ -400,7 +400,7 @@ export async function loadS3FileStream(
 export async function writeS3File(
   s3object: S3Object | undefined,
   fileContent: string | Blob,
-  s3ResourcePath: string | undefined
+  s3ResourcePath: string | undefined = undefined
 ): Promise<S3Object> {
   !clientSet && setClient();
   let fileContentBlob: Blob;

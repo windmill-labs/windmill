@@ -346,6 +346,8 @@ lazy_static::lazy_static! {
 //only matter if CLOUD_HOSTED
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
+pub const INIT_SCRIPT_TAG: &str = "init_script";
+
 pub struct AuthedClientBackgroundTask {
     pub base_internal_url: String,
     pub workspace: String,
@@ -517,7 +519,7 @@ async fn handle_receive_completed_job<
     base_internal_url: String,
     db: Pool<Postgres>,
     worker_dir: String,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     rsmq: Option<R>,
     worker_name: &str,
     worker_save_completed_job_duration: Option<Histo>,
@@ -573,6 +575,11 @@ pub struct JobCompletedSender(
     Option<GGauge>,
     Option<Histo>,
 );
+
+pub struct SameWorkerPayload {
+    pub job_id: Uuid,
+    pub recoverable: bool,
+}
 
 impl JobCompletedSender {
     pub async fn send(
@@ -954,7 +961,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
     }
 
-    let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
+    let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
     let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<SendResult>(3);
 
@@ -1163,6 +1170,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             }
                         });
                     } else {
+                        let is_init_script_and_failure = !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                         handle_receive_completed_job(
                             jc,
                             base_internal_url2,
@@ -1176,6 +1184,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             job_completed_sender.clone(),
                         )
                         .await;
+                        if is_init_script_and_failure {
+                            tracing::error!("init script errored, exiting");
+                            killpill_tx2.send(()).unwrap_or_default();
+                        }
                     }
                 }
                 SendResult::UpdateFlow {
@@ -1427,13 +1439,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     job_completed_tx.0.send(SendResult::Kill).await.unwrap();
                     break
                 },
-                Some(job_id) = same_worker_rx.recv() => {
-                    tracing::debug!("received {job_id} from same worker channel");
-                    sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                    .bind(job_id)
-                    .fetch_optional(db)
-                    .await
-                    .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
+                Some(same_worker_job) = same_worker_rx.recv() => {
+                    tracing::debug!("received {} from same worker channel", same_worker_job.job_id);
+                    let r = sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                        .bind(same_worker_job.job_id)
+                        .fetch_optional(db)
+                        .await
+                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
+                    if r.is_err() && !same_worker_job.recoverable {
+                        tracing::error!("failed to fetch same_worker job on a non recoverable job, exiting");
+                        job_completed_tx.0.send(SendResult::Kill).await.unwrap();
+                        break;
+                    } else {
+                        r
+                    }
                 },
                 (job, timer) = async {
                     let pull_time = Instant::now();
@@ -1685,6 +1704,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     .await
                     .err()
                     {
+                        let is_init_script = arc_job.tag.as_str() == INIT_SCRIPT_TAG;
                         handle_job_error(
                             db,
                             &authed_client.get_authed().await,
@@ -1700,6 +1720,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             (&job_completed_tx.0).clone(),
                         )
                         .await;
+                        if  is_init_script {
+                            tracing::error!("failed to execute init_script, exiting");
+                            killpill_tx.send(()).unwrap();
+                            break;
+                        }
                     };
 
                     #[cfg(feature = "prometheus")]
@@ -1798,7 +1823,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     drop(job_completed_tx);
 
     send_result.await.expect("send result failed");
-    println!("worker {} exited", i_worker);
+    tracing::info!("worker {} exited", worker_name);
+    println!("worker {} exited", worker_name);
 }
 
 type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, Option<JoinHandle<()>>);
@@ -2137,7 +2163,7 @@ async fn spawn_dedicated_worker(
 
 async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     db: &Pool<Postgres>,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     worker_name: &str,
     rsmq: Option<R>,
 ) -> error::Result<()> {
@@ -2177,7 +2203,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         )
         .await?;
         inner_tx.commit().await?;
-        same_worker_tx.send(uuid).await.map_err(to_anyhow)?;
+        same_worker_tx.send(SameWorkerPayload{ job_id: uuid, recoverable: false}).await.map_err(to_anyhow)?;
         tracing::info!("Creating initial job {uuid} from initial script script: {content}");
     }
     Ok(())
@@ -2213,7 +2239,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     rsmq: Option<R>,
     worker_name: &str,
     _worker_save_completed_job_duration: Option<Histo>,
@@ -2355,7 +2381,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     canceled_by: Option<CanceledBy>,
     err: Error,
     unrecoverable: bool,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     worker_dir: &str,
     rsmq: Option<R>,
     worker_name: &str,
@@ -2532,7 +2558,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    same_worker_tx: Sender<Uuid>,
+    same_worker_tx: Sender<SameWorkerPayload>,
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
