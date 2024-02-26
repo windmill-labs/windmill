@@ -24,7 +24,6 @@
 	})
 
 	function onFocus() {
-		console.log('onFocus', id, selectedConditionIndex)
 		$focusedGrid = {
 			parentComponentId: id,
 			subGridIndex: selectedConditionIndex

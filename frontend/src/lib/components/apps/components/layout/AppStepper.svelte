@@ -202,7 +202,8 @@
 						color="light"
 						variant="contained"
 						disabled={selectedIndex === 0}
-						on:click={() => {
+						on:click={(e) => {
+							e.preventDefault()
 							directionClicked = 'left'
 							runStep(selectedIndex - 1)
 						}}
@@ -222,7 +223,8 @@
 						color="dark"
 						variant="contained"
 						disabled={lastStep}
-						on:click={() => {
+						on:click={(e) => {
+							e.preventDefault()
 							directionClicked = 'right'
 							runStep(selectedIndex + 1)
 						}}

@@ -17,11 +17,16 @@
 	export let component: AppComponent
 	let dragDisabled = true
 
-	let items = conditions.map((condition, index) => {
+	let items = conditions.slice(0, -1).map((condition, index) => {
 		return { value: condition, id: generateRandomString(), originalIndex: index }
 	})
 
-	$: conditions = items.map((item) => item.value)
+	$: conditions = items.map((item) => item.value).concat([{
+			type: 'evalv2',
+			expr: 'true',
+			fieldType: 'boolean',
+			connections: []
+		}])
 
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -83,6 +88,7 @@
 				delete $runnableComponents[key]
 			}
 		}
+
 		$runnableComponents = $runnableComponents
 		for (let i = index; i < items.length - 1; i++) {
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
@@ -91,14 +97,14 @@
 		// Remove the corresponding item from the items array
 		const nitems = items.filter((item) => item.originalIndex !== index)
 
-		component.numberOfSubgrids = nitems.length
+		component.numberOfSubgrids = nitems.length + 1
 		// Update the originalIndex of the remaining items
 		nitems.forEach((item, i) => {
 			item.originalIndex = i
 		})
 		items = nitems
 
-		delete $app!.subgrids![`${component.id}-${items.length}`]
+		delete $app!.subgrids![`${component.id}-${items.length + 1}`]
 		$app = $app
 	}
 
@@ -111,6 +117,7 @@
 
 		$app.subgrids[`${component.id}-${numberOfConditions}`] =
 			$app.subgrids[`${component.id}-${numberOfConditions - 1}`]
+		
 		$app.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
 
 		const newCondition: AppInputSpec<'boolean', boolean> = {
@@ -143,54 +150,63 @@
 			use:dndzone={{
 				items: items,
 				flipDurationMs: 200,
-				dropTargetStyle: {}
+				dropTargetStyle: {},
+				dragDisabled
 			}}
 			on:consider={handleConsider}
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				{#if index < items.length - 1}
-					{@const condition = item.value}
-					<div class="w-full flex flex-row gap-2 items-center relative">
-						<div class={twMerge('grow border p-3 my-2 rounded-md bg-surface')}>
-							<InputsSpecEditor
-								key={`Condition ${index + 1}`}
-								bind:componentInput={item.value}
-								id={component.id}
-								userInputEnabled={false}
-								shouldCapitalize={true}
-								resourceOnly={false}
-								fieldType={condition?.['fieldType']}
-								subFieldType={condition?.['subFieldType']}
-								format={condition?.['format']}
-								selectOptions={condition?.['selectOptions']}
-								tooltip={condition?.['tooltip']}
-								fileUpload={condition?.['fileUpload']}
-								placeholder={condition?.['placeholder']}
-								customTitle={condition?.['customTitle']}
-								displayType={false}
-							/>
+				{@const condition = item.value}
+				<div class="w-full flex flex-row gap-2 items-center relative">
+					<div class={twMerge('grow border p-3 my-2 rounded-md bg-surface relative')}>
+						{#if dragDisabled}
+						<InputsSpecEditor
+							key={`Condition ${index + 1}`}
+							bind:componentInput={item.value}
+							id={component.id}
+							userInputEnabled={false}
+							shouldCapitalize={true}
+							resourceOnly={false}
+							fieldType={condition?.['fieldType']}
+							subFieldType={condition?.['subFieldType']}
+							format={condition?.['format']}
+							selectOptions={condition?.['selectOptions']}
+							tooltip={condition?.['tooltip']}
+							fileUpload={condition?.['fileUpload']}
+							placeholder={condition?.['placeholder']}
+							customTitle={condition?.['customTitle']}
+							displayType={false}
+						/>
+						{:else}
+						<pre><code>{condition?.['expr']}</code></pre>
+						{/if}
+
+					</div>
+
+					<div class="flex flex-col justify-center gap-2">
+						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<div on:click={() => deleteSubgrid(index)}>
+							<X size={16} />
 						</div>
 
-						<div class="flex flex-col justify-center gap-2">
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<div on:click={() => deleteSubgrid(index)}>
-								<X size={16} />
-							</div>
-
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-							<div
-								tabindex={dragDisabled ? 0 : -1}
-								class="w-4 h-4"
-								on:mousedown={startDrag}
-								on:touchstart={startDrag}
-								on:keydown={handleKeyDown}
-							>
-								<GripVertical size={16} />
-							</div>
+						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<div
+							tabindex={dragDisabled ? 0 : -1}
+							class="w-4 h-4"
+							on:mousedown={startDrag}
+							on:touchstart={startDrag}
+							on:keydown={handleKeyDown}
+							aria-label="drag-handle"
+							style={dragDisabled ? 'cursor: grab' : 'cursor: grabbing'}
+						>
+							<GripVertical size={16} />
 						</div>
 					</div>
-				{/if}
+				</div>
+
 			{/each}
 		</section>
 		<div class="border rounded-md p-3 mb-2">
