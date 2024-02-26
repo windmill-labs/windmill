@@ -2060,28 +2060,26 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     potentially_crash_for_testing();
 
-    if !flow_job.is_flow_step
-        && status.step == 0
-    {
 
-        if flow_job.schedule_path.is_some()
-            && flow_job.script_path.is_some() {
-            tx = handle_maybe_scheduled_job(
-                tx,
-                db,
-                flow_job.schedule_path.as_ref().unwrap(),
-                flow_job.script_path.as_ref().unwrap(),
-                &flow_job.workspace_id,
-            )
-            .await?;
-        }
-        sqlx::query!(
-            "UPDATE queue
-            SET last_ping = null
-            WHERE id = $1",
-            flow_job.id
-        ).execute(&mut tx).await?;
+    if status.step == 0 && !flow_job.is_flow_step && flow_job.schedule_path.is_some()
+        && flow_job.script_path.is_some() {
+        tx = handle_maybe_scheduled_job(
+            tx,
+            db,
+            flow_job.schedule_path.as_ref().unwrap(),
+            flow_job.script_path.as_ref().unwrap(),
+            &flow_job.workspace_id,
+        )
+        .await?;
     }
+    
+
+    sqlx::query!(
+        "UPDATE queue
+        SET last_ping = null
+        WHERE id = $1",
+        flow_job.id
+    ).execute(&mut tx).await?;
 
 
 
