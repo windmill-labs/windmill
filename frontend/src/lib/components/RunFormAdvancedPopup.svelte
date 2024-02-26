@@ -47,8 +47,8 @@
 					</svelte:fragment>
 				</Label>
 
-				<div class="flex flex-row items-end">
-					<div class="w-max md:w-2/3 mt-2 mb-1">
+				<div class="flex flex-row items-center my-1">
+					<div>
 						<label for="run-time" />
 						<DateTimeInput
 							value={scheduledForStr}
@@ -61,8 +61,8 @@
 					<Button
 						variant="border"
 						color="light"
-						size="sm"
-						btnClasses="mx-2 mb-1"
+						size="xs"
+						btnClasses="mx-2 "
 						on:click={() => {
 							scheduledForStr = undefined
 						}}
