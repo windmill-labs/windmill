@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.278.4](https://github.com/windmill-labs/windmill/compare/v1.278.3...v1.278.4) (2024-02-26)
+
+
+### Bug Fixes
+
+* clarify pg migration logs ([2ba5bc6](https://github.com/windmill-labs/windmill/commit/2ba5bc673faf11e419e0c8600acd7dbcdb2d7601))
+
 ## [1.278.3](https://github.com/windmill-labs/windmill/compare/v1.278.2...v1.278.3) (2024-02-26)
 
 
