@@ -1090,7 +1090,7 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
-			fontSize: !small ? 12 : 10,
+			fontSize: !small ? 14 : 12,
 			// overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding

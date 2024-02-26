@@ -426,7 +426,7 @@
 					color="light"
 					on:click={contextualVariablePicker.openDrawer}
 					size="xs"
-					btnClasses="!font-medium text-secondary"
+					btnClasses="!font-medium text-tertiary"
 					spacingSize="md"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
@@ -437,7 +437,7 @@
 				<Button
 					title="Add variable"
 					color="light"
-					btnClasses="!font-medium text-secondary"
+					btnClasses="!font-medium text-tertiary"
 					on:click={variablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
@@ -451,7 +451,7 @@
 			{#if showResourcePicker}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-secondary"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -466,7 +466,7 @@
 			{#if showResourceTypePicker}
 				<Button
 					title="Add resource type"
-					btnClasses="!font-medium text-secondary"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -480,7 +480,7 @@
 
 			<Button
 				title="Reset Content"
-				btnClasses="!font-medium text-secondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -493,7 +493,7 @@
 
 			{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
 				<Button
-					btnClasses="!font-medium text-secondary"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -532,7 +532,7 @@
 					/>
 					<Popover>
 						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
-						<Users class="ml-1 text-secondary" size={14} />
+						<Users class="ml-1 text-tertiary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
@@ -567,7 +567,7 @@
 	<div class="flex flex-row items-center gap-2">
 		{#if scriptPath && !noHistory}
 			<Button
-				btnClasses="!font-medium text-secondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -581,7 +581,7 @@
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 			<Button
-				btnClasses="!font-medium text-secondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"

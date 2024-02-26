@@ -8,8 +8,8 @@ const lightTheme = {
 	surfaceSelected: '#d1d5db',
 
 	textPrimary: '#2d3748',
-	textSecondary: '#666E7B',
-	textTertiary: '#A4A9B2',
+	textSecondary: '#4a5568',
+	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
 	border: '#ddd',
@@ -26,8 +26,8 @@ const darkTheme = {
 	surfaceSelected: '#434c5e',
 
 	textPrimary: '#f3f6f8',
-	textSecondary: '#D3D6D8',
-	textTertiary: '#A8A9AC',
+	textSecondary: '#e0e7ed',
+	textTertiary: '#c7ccd6',
 	textDisabled: '#a0aec0',
 
 	border: '#3e4c60',
