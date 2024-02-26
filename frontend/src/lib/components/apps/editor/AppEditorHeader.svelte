@@ -87,9 +87,9 @@
 	import {
 		type ColumnDef,
 		getCountPostgresql,
-		createPostgresInput,
-		createPostgresInsert,
-		createUpdatePostgresInput,
+		createDbInput,
+		createDbInsert,
+		createUpdateDbInput,
 		getPrimaryKeys
 	} from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
@@ -212,15 +212,21 @@
 								| undefined
 							if (tableValue && resourceValue && columnDefs) {
 								r.push({
-									input: createPostgresInput(resourceValue, tableValue, columnDefs, whereClause),
+									input: createDbInput(
+										resourceValue,
+										tableValue,
+										columnDefs,
+										whereClause,
+										'postgresql'
+									),
 									id: x.id
 								})
 								r.push({
-									input: getCountPostgresql(resourceValue, tableValue),
+									input: getCountPostgresql(resourceValue, tableValue, 'postgresql'),
 									id: x.id + '_count'
 								})
 								r.push({
-									input: createPostgresInsert(tableValue, columnDefs, resourceValue),
+									input: createDbInsert(tableValue, columnDefs, resourceValue, 'postgresql'),
 									id: x.id + '_insert'
 								})
 								let primaryColumns = getPrimaryKeys(columnDefs)
@@ -230,7 +236,13 @@
 									.filter((col) => col.editable || config.allEditable.value)
 									.forEach((column) => {
 										r.push({
-											input: createUpdatePostgresInput(resourceValue, tableValue, column, columns),
+											input: createUpdateDbInput(
+												resourceValue,
+												tableValue,
+												column,
+												columns,
+												'postgresql'
+											),
 											id: x.id + '_update'
 										})
 									})

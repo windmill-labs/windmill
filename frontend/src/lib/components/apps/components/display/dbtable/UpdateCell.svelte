@@ -5,7 +5,7 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdatePostgresInput, type ColumnMetadata, getPrimaryKeys } from './utils'
+	import { createUpdateDbInput, type ColumnMetadata, getPrimaryKeys } from './utils'
 	import { sendUserToast } from '$lib/toast'
 
 	export let id: string
@@ -30,14 +30,15 @@
 		allColumns: ColumnMetadata[],
 		valueToUpdate: string,
 		data: Record<string, any>,
-		oldValue: string | undefined = undefined
+		oldValue: string | undefined = undefined,
+		resourceType: string
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
 		let primaryColumns = getPrimaryKeys(allColumns)
 		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
 
-		input = createUpdatePostgresInput(resource, table, column, columns)
+		input = createUpdateDbInput(resource, table, column, columns, resourceType)
 
 		await tick()
 

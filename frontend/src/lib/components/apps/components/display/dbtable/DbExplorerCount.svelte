@@ -12,6 +12,7 @@
 	export let resource: string
 	export let renderCount: number
 	export let quicksearch: string
+	export let resourceType: string
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -47,7 +48,7 @@
 	}
 
 	async function getCount(resource: string, table: string, quicksearch: string) {
-		input = getCountPostgresql(resource, table)
+		input = getCountPostgresql(resource, table, resourceType)
 
 		await tick()
 

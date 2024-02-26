@@ -5,7 +5,7 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnMetadata, createDeletePostgresInput } from './utils'
+	import { type ColumnMetadata, createDeleteDbInput } from './utils'
 	import { sendUserToast } from '$lib/toast'
 
 	export let id: string
@@ -29,11 +29,12 @@
 		resource: string,
 		table: string,
 		columns: ColumnMetadata[],
-		data: Record<string, any>
+		data: Record<string, any>,
+		resourceType: string
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
-		input = createDeletePostgresInput(resource, table, columns)
+		input = createDeleteDbInput(resource, table, columns, resourceType)
 
 		await tick()
 

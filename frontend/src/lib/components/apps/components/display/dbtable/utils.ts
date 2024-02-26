@@ -46,10 +46,11 @@ SELECT ${selectClause} FROM "${table}" WHERE `
 	return query
 }
 
-export function createPostgresInsert(
+export function createDbInsert(
 	table: string,
 	columns: ColumnDef[],
-	resource: string
+	resource: string,
+	resourceType: string
 ): AppInput {
 	return {
 		runnable: {
@@ -57,7 +58,7 @@ export function createPostgresInsert(
 			type: 'runnableByName',
 			inlineScript: {
 				content: makeInsertQuery(table, columns),
-				language: Preview.language.POSTGRESQL,
+				language: getLanguageByResourceType(resourceType),
 				schema: {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
 					properties: {},
@@ -71,12 +72,20 @@ export function createPostgresInsert(
 				type: 'static',
 				value: resource,
 				fieldType: 'object',
-				format: 'resource-postgresql'
+				format: `resource-${resourceType}`
 			}
 		},
 		type: 'runnable',
 		fieldType: 'object'
 	}
+}
+
+function getLanguageByResourceType(name: string) {
+	const language = {
+		postgresql: Preview.language.POSTGRESQL,
+		mysql: Preview.language.MYSQL
+	}
+	return language[name]
 }
 
 export function makeInsertQuery(table: string, columns: ColumnDef[]) {
@@ -110,11 +119,12 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 	return r ?? []
 }
 
-export function createPostgresInput(
+export function createDbInput(
 	resource: string,
 	table: string | undefined,
 	columns: TableMetadata,
-	whereClause: string | undefined
+	whereClause: string | undefined,
+	resourceType: string
 ): AppInput | undefined {
 	if (!resource || !table || !columns) {
 		// Return undefined if resource or table is not defined
@@ -130,7 +140,7 @@ export function createPostgresInput(
 		type: 'runnableByName',
 		inlineScript: {
 			content: makeQuery(table, columns, whereClause),
-			language: Preview.language.POSTGRESQL
+			language: getLanguageByResourceType(resourceType)
 		}
 	}
 
@@ -141,7 +151,7 @@ export function createPostgresInput(
 				type: 'static',
 				value: resource,
 				fieldType: 'object',
-				format: 'resource-postgresql'
+				format: `resource-${resourceType}`
 			}
 		},
 		type: 'runnable',
@@ -151,11 +161,12 @@ export function createPostgresInput(
 	return getQuery
 }
 
-export function createUpdatePostgresInput(
+export function createUpdateDbInput(
 	resource: string,
 	table: string,
 	column: ColumnMetadata,
-	columns: ColumnMetadata[]
+	columns: ColumnMetadata[],
+	resourceType: string
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined
@@ -180,7 +191,7 @@ RETURNING 1`
 		type: 'runnableByName',
 		inlineScript: {
 			content: query,
-			language: Preview.language.POSTGRESQL,
+			language: getLanguageByResourceType(resourceType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
 				properties: {},
@@ -197,7 +208,7 @@ RETURNING 1`
 				type: 'static',
 				value: resource,
 				fieldType: 'object',
-				format: 'resource-postgresql'
+				format: `resource-${resourceType}`
 			}
 		},
 		type: 'runnable',
@@ -207,10 +218,11 @@ RETURNING 1`
 	return updateQuery
 }
 
-export function createDeletePostgresInput(
+export function createDeleteDbInput(
 	resource: string,
 	table: string,
-	columns: ColumnMetadata[]
+	columns: ColumnMetadata[],
+	resourceType: string
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined
@@ -234,7 +246,7 @@ DELETE FROM ${table} WHERE ${columns
 		type: 'runnableByName',
 		inlineScript: {
 			content: query,
-			language: Preview.language.POSTGRESQL,
+			language: getLanguageByResourceType(resourceType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
 				properties: {},
@@ -251,7 +263,7 @@ DELETE FROM ${table} WHERE ${columns
 				type: 'static',
 				value: resource,
 				fieldType: 'object',
-				format: 'resource-postgresql'
+				format: `resource-${resourceType}`
 			}
 		},
 		type: 'runnable',
@@ -261,7 +273,11 @@ DELETE FROM ${table} WHERE ${columns
 	return updateQuery
 }
 
-export function getCountPostgresql(resource: string, table: string): AppInput | undefined {
+export function getCountPostgresql(
+	resource: string,
+	table: string,
+	resourceType: string
+): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined
 	}
@@ -275,14 +291,14 @@ SELECT COUNT(*) FROM ${table} WHERE ($1 = '' OR ${table}::text ILIKE '%' || $1 |
 		type: 'runnableByName',
 		inlineScript: {
 			content: query,
-			language: Preview.language.POSTGRESQL,
+			language: getLanguageByResourceType(resourceType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
 				properties: {
 					database: {
 						description: 'Database name',
 						type: 'object',
-						format: 'resource-postgresql'
+						format: `resource-${resourceType}`
 					}
 				},
 				required: ['database'],
@@ -353,7 +369,8 @@ export type ColumnDef = {
 export async function loadTableMetaData(
 	resource: string,
 	workspace: string | undefined,
-	table: string | undefined
+	table: string | undefined,
+	resourceType: string
 ): Promise<TableMetadata | undefined> {
 	if (!resource || !table || !workspace) {
 		return undefined
@@ -397,7 +414,7 @@ ORDER BY a.attnum;
 			const job = await JobService.runScriptPreview({
 				workspace: workspace,
 				requestBody: {
-					language: Preview.language.POSTGRESQL,
+					language: getLanguageByResourceType(resourceType),
 					content: code,
 					args: {
 						database: resource
@@ -457,6 +474,7 @@ const scripts: Record<
 				acc[table_schema].push(a)
 				return acc
 			}, {})
+
 			const data = {}
 			for (const key in schemas) {
 				data[key] = schemas[key].reduce((acc, a) => {
@@ -478,6 +496,7 @@ const scripts: Record<
 					return acc
 				}, {})
 			}
+
 			return data
 		},
 		lang: 'postgresql',
@@ -493,6 +512,7 @@ const scripts: Record<
 				acc[table_schema].push(a)
 				return acc
 			}, {})
+
 			const data = {}
 			for (const key in schemas) {
 				data[key] = schemas[key].reduce((acc, a) => {
@@ -657,6 +677,7 @@ export async function getDbSchemas(
 								const { processingFn } = scripts[resourceType]
 								const schema =
 									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
+
 								dbSchemas[resourcePath] = {
 									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 									schema,

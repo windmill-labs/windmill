@@ -10,7 +10,7 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
-		createPostgresInput,
+		createDbInput,
 		getDbSchemas,
 		loadTableMetaData,
 		type ColumnMetadata,
@@ -19,7 +19,7 @@
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
-	import { workspaceStore, type DBSchemas } from '$lib/stores'
+	import { workspaceStore, type DBSchemas, type DBSchema } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -58,7 +58,7 @@
 	$: computeInput(
 		resolvedConfig.columnDefs,
 		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration.postgresql.resource
+		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
 	)
 
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
@@ -70,11 +70,12 @@
 			timeoutInput = undefined
 			console.log('compute input')
 			aggrid?.clearRows()
-			input = createPostgresInput(
+			input = createDbInput(
 				resource,
-				resolvedConfig.type.configuration.postgresql.table,
+				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
 				columnDefs,
-				whereClause
+				whereClause,
+				resolvedConfig.type.selected
 			)
 		}, 1000)
 	}
@@ -83,7 +84,7 @@
 
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
-		resolvedConfig.type.configuration?.postgresql?.table &&
+		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
 		listColumnsIfAvailable()
 
 	let firstQuicksearch = true
@@ -117,13 +118,14 @@
 		const { columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
-			resolvedConfig.type.configuration.postgresql.resource,
-			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			columnDef,
 			resolvedConfig.columnDefs,
 			value,
 			data,
-			oldValue
+			oldValue,
+			resolvedConfig.type.selected
 		)
 	}
 
@@ -150,14 +152,21 @@
 		},
 		patch: Partial<Record<keyof V, any>>
 	) {
-		oneOfConfiguration.configuration[resolvedConfig.selected] = {
-			...oneOfConfiguration.configuration[resolvedConfig.selected],
-			...patch
+		const selectedConfig = oneOfConfiguration.configuration[resolvedConfig.selected]
+		if (!selectedConfig) {
+			console.warn(`Selected configuration '${resolvedConfig.selected}' does not exist.`)
+			return
 		}
+		Object.keys(patch).forEach((key) => {
+			oneOfConfiguration.configuration[resolvedConfig.selected][key] = {
+				...oneOfConfiguration.configuration[resolvedConfig.selected][key],
+				...patch[key]
+			}
+		})
 	}
 
 	async function listTableIfAvailable() {
-		let resource = resolvedConfig.type.configuration?.postgresql?.resource
+		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
 		if (lastResource === resource) return
 		lastResource = resource
 		const gridItem = findGridItem($app, id)
@@ -171,12 +180,13 @@
 			resolvedConfig.type,
 			{
 				table: {
-					selectOptions: []
+					selectOptions: [],
+					loading: true
 				}
 			}
 		)
 
-		if (!resolvedConfig.type?.configuration?.postgresql?.resource) {
+		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
 			$app = {
 				...$app
 			}
@@ -187,8 +197,8 @@
 			const dbSchemas: DBSchemas = {}
 
 			await getDbSchemas(
-				'postgresql',
-				resolvedConfig.type.configuration.postgresql.resource.split(':')[1],
+				resolvedConfig?.type?.selected,
+				resolvedConfig.type.configuration[resolvedConfig?.type?.selected].resource.split(':')[1],
 				$workspaceStore,
 				dbSchemas,
 				(message: string) => {}
@@ -199,10 +209,8 @@
 				resolvedConfig.type,
 				{
 					table: {
-						selectOptions: dbSchemas
-							? // @ts-ignore
-							  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
-							: []
+						selectOptions: dbSchemas ? getTablesByResource(dbSchemas) : [],
+						loading: false
 					}
 				}
 			)
@@ -211,16 +219,16 @@
 				...$app
 			}
 		} catch (e) {}
+	}
 
-		updateOneOfConfiguration(
-			gridItem.data.configuration.type as OneOfConfiguration,
-			resolvedConfig.type,
-			{
-				table: {
-					loading: false
-				}
-			}
-		)
+	function getTablesByResource(schema: Partial<Record<string, DBSchema>>) {
+		if (resolvedConfig.type.selected === 'postgresql') {
+			// @ts-ignore
+			return Object.keys(Object.values(schema)?.[0]?.schema?.public ?? {})
+		} else if (resolvedConfig.type.selected === 'mysql') {
+			return Object.keys(Object.values(schema)?.[0]?.schema ?? {})
+		}
+		return []
 	}
 
 	let datasource: IDatasource = {
@@ -278,15 +286,18 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	async function listColumnsIfAvailable() {
-		let table = resolvedConfig.type.configuration?.postgresql?.table
+		const selected = resolvedConfig.type.selected
+		let table = resolvedConfig.type.configuration?.[selected]?.table
 		if (lastTable === table) return
 		lastTable = table
 
 		let tableMetadata = await loadTableMetaData(
-			resolvedConfig.type.configuration.postgresql.resource,
+			resolvedConfig.type.configuration[selected].resource,
 			$workspaceStore,
-			resolvedConfig.type.configuration.postgresql.table
+			resolvedConfig.type.configuration[selected].table,
+			selected
 		)
+
 		if (!tableMetadata) return
 
 		const gridItem = findGridItem($app, id)
@@ -361,12 +372,14 @@
 
 	async function insert() {
 		try {
+			const selected = resolvedConfig.type.selected
 			await insertRowRunnable?.insertRow(
-				resolvedConfig.type.configuration.postgresql.resource,
+				resolvedConfig.type.configuration[selected].resource,
 				$workspaceStore,
-				resolvedConfig.type.configuration.postgresql.table,
+				resolvedConfig.type.configuration[selected].table,
 				resolvedConfig.columnDefs,
-				args
+				args,
+				selected
 			)
 
 			insertDrawer?.closeDrawer()
@@ -390,11 +403,13 @@
 		let getPrimaryKeysresolvedConfig = resolvedConfig.columnDefs?.filter((x) =>
 			primaryColumns.includes(x.field)
 		)
+		const selected = resolvedConfig.type.selected
 		deleteRow?.triggerDelete(
-			resolvedConfig.type.configuration.postgresql.resource,
-			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
+			resolvedConfig.type.configuration[selected].resource,
+			resolvedConfig.type.configuration[selected].table ?? 'unknown',
 			getPrimaryKeysresolvedConfig,
-			data
+			data,
+			selected
 		)
 	}
 
@@ -434,8 +449,9 @@
 	renderCount={refreshCount}
 	{id}
 	{quicksearch}
-	table={resolvedConfig?.type?.configuration?.postgresql?.table ?? ''}
-	resource={resolvedConfig?.type?.configuration?.postgresql?.resource ?? ''}
+	table={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.table ?? ''}
+	resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource ?? ''}
+	resourceType={resolvedConfig?.type?.selected}
 />
 
 <InitializeComponent {id} />
@@ -472,7 +488,7 @@
 				Insert
 			</Button>
 		</div>
-		{#if resolvedConfig.type.configuration?.postgresql?.resource && resolvedConfig.type.configuration?.postgresql?.table}
+		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
 			{#key renderCount}

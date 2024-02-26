@@ -5,7 +5,7 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, createPostgresInsert } from './utils'
+	import { type ColumnDef, createDbInsert } from './utils'
 	import { sendUserToast } from '$lib/toast'
 
 	export let id: string
@@ -29,13 +29,14 @@
 		workspace: string | undefined,
 		table: string | undefined,
 		columns: ColumnDef[],
-		values: Record<string, any>
+		values: Record<string, any>,
+		resourceType: string
 	): Promise<boolean> {
 		if (!resource || !table || !workspace) {
 			return false
 		}
 
-		input = createPostgresInsert(table, columns, resource)
+		input = createDbInsert(table, columns, resource, resourceType)
 
 		await tick()
 
