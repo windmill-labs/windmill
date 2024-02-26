@@ -110,7 +110,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     match cli_arg.as_str() {
         "cache" => {
-            #[cfg(feature = "embeddings")] {
+            #[cfg(feature = "embedding")] {
                 tracing::info!("Caching embedding model...");
                 windmill_api::embeddings::ModelInstance::load_model_files().await?;
                 tracing::info!("Cached embedding model");
