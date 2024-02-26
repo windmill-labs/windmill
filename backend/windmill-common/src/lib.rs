@@ -38,7 +38,6 @@ pub mod variables;
 pub mod worker;
 pub mod workspaces;
 
-#[cfg(feature = "tracing_init")]
 pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
@@ -69,7 +68,6 @@ lazy_static::lazy_static! {
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
 
-#[cfg(feature = "tokio")]
 pub async fn shutdown_signal(
     tx: tokio::sync::broadcast::Sender<()>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
@@ -159,6 +157,7 @@ pub async fn serve_metrics(
     })
 }
 
+#[cfg(feature = "prometheus")]
 async fn metrics() -> Result<String, Error> {
     let metric_families = prometheus::gather();
     Ok(prometheus::TextEncoder::new()
@@ -166,11 +165,11 @@ async fn metrics() -> Result<String, Error> {
         .map_err(anyhow::Error::from)?)
 }
 
+#[cfg(feature = "prometheus")]
 async fn reset() -> () {
     todo!()
 }
 
-#[cfg(feature = "sqlx")]
 pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
     use std::env::var;
@@ -210,7 +209,6 @@ pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Po
     Ok(connect(&database_url, max_connections).await?)
 }
 
-#[cfg(feature = "sqlx")]
 pub async fn connect(
     database_url: &str,
     max_connections: u32,

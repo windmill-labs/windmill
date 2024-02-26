@@ -148,6 +148,7 @@
 																	class="text-red-500 whitespace-nowrap"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
+																			console.log(email)
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
 																			listUsers()

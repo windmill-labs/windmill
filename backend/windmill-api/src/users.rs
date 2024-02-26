@@ -57,6 +57,7 @@ const COOKIE_PATH: &str = "/";
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_users))
+        .route("/list_usage", get(list_user_usage))
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
         .route("/update/:user", post(update_workspace_user))
@@ -542,16 +543,11 @@ pub struct User {
     pub role: Option<String>,
 }
 
-#[derive(FromRow, Serialize)]
-pub struct Usage {
-    pub executions: i64,
-}
 
 #[derive(Serialize)]
 pub struct UserWithUsage {
-    #[serde(flatten)]
-    pub user: User,
-    pub usage: Usage,
+    pub email: String,
+    pub executions: Option<i64>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -717,35 +713,53 @@ async fn list_users(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<UserWithUsage>> {
+) -> JsonResult<Vec<User>> {
     if *CLOUD_HOSTED && w_id == "demo" {
         require_admin(authed.is_admin, &authed.username)?;
     }
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query(
+    let rows = sqlx::query_as!(User,
         "
-        SELECT usr.*, usage.*
+        SELECT *
           FROM usr
-             , LATERAL (
-                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
-                  FROM completed_job
-                 WHERE workspace_id = $1
-                   AND job_kind NOT IN ('flow', 'flowpreview')
-                   AND email = usr.email
-                   AND now() - '1 week'::interval < created_at 
-               ) usage
          WHERE workspace_id = $1
-         ",
+         ", w_id
     )
-    .bind(&w_id)
-    .try_map(|row| {
-        // flatten not released yet https://github.com/launchbadge/sqlx/pull/1959
-        Ok(UserWithUsage { user: FromRow::from_row(&row)?, usage: FromRow::from_row(&row)? })
-    })
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+async fn list_user_usage(    
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>) -> JsonResult<Vec<UserWithUsage>> {
+if *CLOUD_HOSTED && w_id == "demo" {
+    require_admin(authed.is_admin, &authed.username)?;
+}
+let mut tx = user_db.begin(&authed).await?;
+let rows = sqlx::query_as!(
+    UserWithUsage,
+    "
+    SELECT usr.email, usage.executions
+        FROM usr
+            , LATERAL (
+            SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
+                FROM completed_job
+                WHERE workspace_id = $1
+                AND job_kind NOT IN ('flow', 'flowpreview')
+                AND email = usr.email
+                AND now() - '1 week'::interval < created_at 
+            ) usage
+        WHERE workspace_id = $1
+        ",
+        w_id
+)
+.fetch_all(&mut *tx)
+.await?;
+tx.commit().await?;
+Ok(Json(rows))
 }
 
 async fn list_users_as_super_admin(
@@ -900,7 +914,6 @@ async fn whoami(
     ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
-    tracing::info!("whoami: {email} {user:?}");
     if let Some(user) = user {
         Ok(Json(user))
     } else {

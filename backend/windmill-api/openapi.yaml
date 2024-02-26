@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.275.3
+  version: 1.277.1
   title: Windmill API
 
   contact:
@@ -1733,6 +1733,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/User"
+
+  /w/{workspace}/users/list_usage:
+    get:
+      summary: list users usage
+      operationId: listUsersUsage
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserUsage"
+
 
   /w/{workspace}/users/list_usernames:
     get:
@@ -5032,6 +5051,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: has_null_parent
+          description: has null parent
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All completed jobs
@@ -5073,6 +5097,11 @@ paths:
             type: boolean
         - name: is_flow_step
           description: is the job a flow step
+          in: query
+          schema:
+            type: boolean
+        - name: has_null_parent
+          description: has null parent
           in: query
           schema:
             type: boolean
@@ -6440,6 +6469,9 @@ paths:
               properties:
                 owner:
                   type: string
+              required:
+                - owner
+                
       responses:
         "200":
           description: owner added to folder
@@ -6467,6 +6499,11 @@ paths:
               properties:
                 owner:
                   type: string
+                write:
+                  type: boolean
+              required:
+                - owner
+                - write
       responses:
         "200":
           description: owner removed from folder
@@ -8381,8 +8418,6 @@ components:
           type: array
           items:
             type: string
-        usage:
-          $ref: "#/components/schemas/Usage"
       required:
         - email
         - username
@@ -8394,9 +8429,11 @@ components:
         - folders
         - folders_owners
 
-    Usage:
+    UserUsage:
       type: object
       properties:
+        email:
+          type: string
         executions:
           type: number
 

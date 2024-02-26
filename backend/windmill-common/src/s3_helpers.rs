@@ -1,8 +1,13 @@
+#[cfg(feature = "parquet")]
 use crate::error;
+#[cfg(feature = "parquet")]
 use object_store::azure::MicrosoftAzureBuilder;
+#[cfg(feature = "parquet")]
 use object_store::ObjectStore;
+#[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "parquet")]
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -70,6 +75,7 @@ pub struct S3Object {
     pub s3: String,
 }
 
+#[cfg(feature = "parquet")]
 pub async fn get_etag_or_empty(
     object_store_resource: &ObjectStoreResource,
     s3_object: S3Object,
@@ -106,6 +112,7 @@ pub fn render_endpoint(raw_endpoint: String, use_ssl: bool, port: Option<u16>) -
     }
 }
 
+#[cfg(feature = "parquet")]
 pub fn build_object_store_client(
     resource_ref: &ObjectStoreResource,
 ) -> error::Result<Arc<dyn ObjectStore>> {
@@ -117,6 +124,7 @@ pub fn build_object_store_client(
     }
 }
 
+#[cfg(feature = "parquet")]
 fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
     let s3_resource = s3_resource_ref.clone();
     let endpoint = render_endpoint(s3_resource.endpoint, s3_resource.use_ssl, s3_resource.port);
@@ -156,6 +164,7 @@ fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn Object
     return Ok(Arc::new(store));
 }
 
+#[cfg(feature = "parquet")]
 fn build_azure_blob_client(
     azure_blob_resource_ref: &AzureBlobResource,
 ) -> error::Result<Arc<dyn ObjectStore>> {

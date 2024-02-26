@@ -117,6 +117,11 @@ pub async fn eval_timeout(
 ) -> anyhow::Result<Box<RawValue>> {
     let expr = expr.trim().to_string();
 
+    tracing::debug!(
+        "evaluating js eval: {} with context {:?}",
+        expr,
+        transform_context
+    );
     for (k, v) in transform_context.iter() {
         if k == &expr {
             return Ok(v.as_ref().clone());
@@ -343,6 +348,7 @@ async fn eval(
     by_id: Option<IdContext>,
     has_client: bool,
 ) -> anyhow::Result<Box<RawValue>> {
+    tracing::debug!("evaluating: {} {:#?}", expr, by_id);
     let (api_code, by_id_code) = if has_client {
         let by_id_code = if let Some(by_id) = by_id {
             format!(

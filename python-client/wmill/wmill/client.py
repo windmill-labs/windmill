@@ -715,7 +715,7 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
 
 
 @init_global_client
-def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
+def load_s3_file(s3object: S3Object, s3_resource_path: str | None = None) -> bytes:
     """
     Load the entire content of a file stored in S3 as bytes
     """
@@ -723,7 +723,7 @@ def load_s3_file(s3object: S3Object, s3_resource_path: str = "") -> bytes:
 
 
 @init_global_client
-def load_s3_file_reader(s3object: S3Object, s3_resource_path: str = "") -> BufferedReader:
+def load_s3_file_reader(s3object: S3Object, s3_resource_path: str | None = None) -> BufferedReader:
     """
     Load the content of a file stored in S3
     """
@@ -734,7 +734,7 @@ def load_s3_file_reader(s3object: S3Object, s3_resource_path: str = "") -> Buffe
 def write_s3_file(
     s3object: S3Object | None,
     file_content: BufferedReader | bytes,
-    s3_resource_path: str = "",
+    s3_resource_path: str | None = None,
 ) -> S3Object:
     """
     Upload a file to S3

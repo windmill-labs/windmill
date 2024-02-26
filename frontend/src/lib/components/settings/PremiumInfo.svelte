@@ -99,18 +99,20 @@
 	}
 </script>
 
-<div class="my-8" />
-<div class="flex flex-col gap-1">
-	<div class=" text-primary text-md font-semibold"> Plans </div>
+<div class="flex flex-col gap-4 my-8">
+	<div class="flex flex-col gap-1">
+		<div class=" text-primary text-lg font-semibold">Plans</div>
+	</div>
 </div>
 {#if customer_id}
 	<div class="mt-2 mb-2">
 		<Button
 			endIcon={{ icon: ExternalLink }}
+			color="dark"
 			href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
 		<p class="text-xs text-tertiary mt-1">
-			See invoices, change billing information or subscription details
+			See invoices, change billing information or subscription details.
 		</p>
 	</div>
 {/if}
