@@ -1,14 +1,4 @@
-use std::str::FromStr;
-
-use crate::{
-    error::{to_anyhow, Result},
-    global_settings::{BASE_URL_SETTING, DISABLE_STATS_SETTING},
-    scripts::ScriptLang,
-    utils::{get_uid, Mode, GIT_VERSION},
-    DB,
-};
-use chrono::Utc;
-use cron::Schedule;
+use crate::{error::Result, scripts::ScriptLang, utils::Mode, DB};
 
 pub async fn get_disable_stats_setting(_db: &DB) -> bool {
     // stats details are closed source
