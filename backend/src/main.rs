@@ -30,7 +30,7 @@ use windmill_common::{
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
-    stats::schedule_stats,
+    stats_ee::schedule_stats,
     utils::{rd_string, Mode},
     worker::{reload_custom_tags_setting, WORKER_GROUP},
     DB, METRICS_ENABLED,
@@ -110,12 +110,14 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     match cli_arg.as_str() {
         "cache" => {
-            #[cfg(feature = "embeddings")] {
+            #[cfg(feature = "embeddings")]
+            {
                 tracing::info!("Caching embedding model...");
                 windmill_api::embeddings::ModelInstance::load_model_files().await?;
                 tracing::info!("Cached embedding model");
             }
-            #[cfg(not(feature = "embedding"))] {
+            #[cfg(not(feature = "embedding"))]
+            {
                 tracing::warn!("Embeddings are not enabled, ignoring...");
             }
             return Ok(());
@@ -543,7 +545,7 @@ Windmill Community Edition {GIT_VERSION}
                 &HTTP_CLIENT,
                 cfg!(feature = "enterprise"),
             )
-            .await;    
+            .await;
         }
 
         futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
