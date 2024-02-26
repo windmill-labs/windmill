@@ -107,7 +107,11 @@ pub async fn do_mysql(
             }
             Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
             Value::Number(n)
-                if n.is_i64() && (arg_t == "int" || arg_t == "integer" || arg_t == "smallint") =>
+                if n.is_i64()
+                    && (arg_t == "int"
+                        || arg_t == "integer"
+                        || arg_t == "smallint"
+                        || arg_t == "bigint") =>
             {
                 mysql_async::Value::Int(n.as_i64().unwrap())
             }
