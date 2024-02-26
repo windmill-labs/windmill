@@ -4,7 +4,7 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
+	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -14,7 +14,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import { Button, Kbd } from './common'
+	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
@@ -22,7 +22,7 @@
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
-	import { Clipboard, Github, Play } from 'lucide-svelte'
+	import { Clipboard, CornerDownLeft, Github, Play } from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 
 	// Exported
@@ -345,12 +345,12 @@
 								icon: Play,
 								classes: 'animate-none'
 							}}
+							shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 						>
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-								<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
+								Test
 							{/if}
 						</Button>
 					{/if}

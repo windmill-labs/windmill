@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.278.2](https://github.com/windmill-labs/windmill/compare/v1.278.1...v1.278.2) (2024-02-26)
+
+
+### Bug Fixes
+
+* add HOME to pip install ([b242251](https://github.com/windmill-labs/windmill/commit/b24225124a9591f719e7b2219682f2e143c405c1))
+
+## [1.278.1](https://github.com/windmill-labs/windmill/compare/v1.278.0...v1.278.1) (2024-02-26)
+
+
+### Bug Fixes
+
+* add HOME to pip install ([ee0f8b6](https://github.com/windmill-labs/windmill/commit/ee0f8b691409cdb96d1d358f9822406c123fd429))
+
+## [1.278.0](https://github.com/windmill-labs/windmill/compare/v1.277.1...v1.278.0) (2024-02-26)
+
+
+### Features
+
+* **frontend:** Update shortcuts design ([#3285](https://github.com/windmill-labs/windmill/issues/3285)) ([000a481](https://github.com/windmill-labs/windmill/commit/000a4814e8aedd3d9b5a7b240bcc2be5372e9d72))
+
+
+### Bug Fixes
+
+* **frontend:** fix layout ([#3289](https://github.com/windmill-labs/windmill/issues/3289)) ([cec19c8](https://github.com/windmill-labs/windmill/commit/cec19c87b59d7c337b3fb11a792f32d67827de06))
+* handle better flow hanging monitor ([024f80a](https://github.com/windmill-labs/windmill/commit/024f80aee4c10918e011fd74f9762110bbcb1f8e))
+* improve conditional wrapper and prevent more app errors ([074a2f4](https://github.com/windmill-labs/windmill/commit/074a2f440d28d2023b04dc54f2165469dc37f048))
+
 ## [1.277.1](https://github.com/windmill-labs/windmill/compare/v1.277.0...v1.277.1) (2024-02-25)
 
 

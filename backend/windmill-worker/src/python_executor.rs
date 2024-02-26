@@ -864,6 +864,8 @@ pub async fn handle_python_reqs(
                 envs.push(("NO_PROXY", no_proxy));
             }
 
+            envs.push(("HOME", HOME_ENV.as_str()));
+
             tracing::debug!("pip install command: {:?}", command_args);
 
             let mut flock_cmd = Command::new(FLOCK_PATH.as_str());

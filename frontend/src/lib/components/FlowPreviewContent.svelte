@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Badge, Button, Drawer, Kbd, Popup } from './common'
+	import { Badge, Button, Drawer, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
@@ -9,8 +9,8 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { AlertTriangle, ArrowRight, Play, RefreshCw, X } from 'lucide-svelte'
-	import { emptyString, getModifierKey } from '$lib/utils'
+	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
+	import { emptyString } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
@@ -261,9 +261,9 @@
 					btnClasses="w-full max-w-lg"
 					on:click={() => runPreview($previewArgs, undefined)}
 					id="flow-editor-test-flow-drawer"
+					shortCut={{ Icon: CornerDownLeft }}
 				>
-					Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
+					Test flow
 				</Button>
 			</div>
 		{/if}

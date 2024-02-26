@@ -4,7 +4,7 @@
 	import type { AppViewerContext } from '../../types'
 	import Section from '$lib/components/Section.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { findGridItem } from '../appUtils'
+	import { deleteGridItem, findGridItem, findGridItemParentGrid } from '../appUtils'
 	import { pluralize } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Trash } from 'lucide-svelte'
@@ -21,8 +21,13 @@
 		.map((x) => {
 			const parentId = x.split('-')[0]
 			const parent = findGridItem($app, parentId)
-
-			if (parent === undefined) {
+			const subgrid = x.replace(`${parentId}-`, '')
+			if (subgrid == '-1') {
+				return {
+					subGridId: x,
+					error: 'Invalid subgrid index -1 '
+				}
+			} else if (parent === undefined) {
 				return {
 					subGridId: x,
 					error: 'Parent not found'
@@ -57,7 +62,7 @@
 					There are {pluralize(unintitializedComponents.length, 'uninitialized component')} in the app.
 				</div>
 
-				<div class="grid grid-cols-3 border rounded-md overflow-hidden">
+				<div class="grid grid-cols-4 border rounded-md overflow-hidden">
 					<!-- Header -->
 					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
 						>Component Id</div
@@ -68,9 +73,15 @@
 					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
 						>Status</div
 					>
+					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
+						>Action</div>
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each unintitializedComponents as c}
+						{@const item = findGridItem($app, c)}
+						{#if !item}
+							<div>Item {c} not found</div>
+						{:else}
 						<!-- Component Id -->
 						<div class="text-xs flex items-center px-2 py-2">
 							<Badge>
@@ -80,13 +91,32 @@
 
 						<div class="text-xs flex items-center px-2 py-2">
 							<Badge color="blue">
-								{findGridItem($app, c)?.data?.type || 'Unknown'}
+								{item?.data?.type || 'Unknown'}
 							</Badge>
 						</div>
 
 						<div class="text-xs flex items-center px-2 py-2">
 							<Badge color="red">Uninitialized</Badge>
 						</div>
+						<div class="text-xs flex items-center px-2 py-2">
+
+							<Button
+								color="light"
+								startIcon={{
+									icon: Trash
+								}}
+								size="xs2"
+								on:click={() => {
+									let parent = findGridItemParentGrid($app, c)
+									deleteGridItem($app, item.data, parent)
+									$app = $app
+								}}
+							>
+								Remove
+							</Button>
+						</div>
+						{/if}
+
 					{/each}
 				</div>
 			</div>
@@ -140,7 +170,7 @@
 									}
 								}}
 							>
-								Remove subgrid
+								Remove
 							</Button>
 						</div>
 					{/each}

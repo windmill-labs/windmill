@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { Job, JobService, type FlowModule, type RestartedFrom } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Button, Kbd } from './common'
+	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import { Play, RefreshCw, X } from 'lucide-svelte'
-	import { getModifierKey } from '$lib/utils'
+	import { CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 
 	export let open: boolean
@@ -123,9 +122,11 @@
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview(previewArgs, undefined)}
 				id="flow-editor-test-flow-drawer"
+				shortCut={{
+					Icon: CornerDownLeft
+				}}
 			>
-				Test iteration &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
+				Test iteration
 			</Button>
 		{/if}
 		<div />

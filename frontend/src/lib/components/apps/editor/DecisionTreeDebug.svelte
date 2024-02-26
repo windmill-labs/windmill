@@ -15,7 +15,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let currentNodeId: string = ''
+	let currentNodeId: string = $worldStore.outputsById[id]?.currentNodeId?.peak() ?? 'a'
 
 	$worldStore.outputsById[id]?.currentNodeId?.subscribe(
 		{

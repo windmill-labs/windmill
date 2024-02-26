@@ -29,7 +29,7 @@
 					componentCallbacks?.handleCut(new KeyboardEvent('keydown'))
 				},
 				icon: Scissors,
-				shortcut: `${getModifierKey()} + X`,
+				shortcut: `${getModifierKey()}X`,
 				disabled: $movingcomponents?.includes($selectedComponent?.[0] ?? '')
 			},
 			{
@@ -38,7 +38,7 @@
 					componentCallbacks?.handleCopy(new KeyboardEvent('keydown'))
 				},
 				icon: Copy,
-				shortcut: `${getModifierKey()} + C`
+				shortcut: `${getModifierKey()}C`
 			},
 
 			{
@@ -47,7 +47,7 @@
 					deleteComponent?.removeGridElement()
 				},
 				icon: Trash,
-				shortcut: `${getModifierKey()} + Del`,
+				shortcut: `Del`,
 				color: 'red'
 			}
 		]

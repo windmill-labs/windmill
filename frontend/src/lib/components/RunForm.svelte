@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { defaultIfEmptyString, emptyString, getModifierKey, truncateHash } from '$lib/utils'
+	import { defaultIfEmptyString, emptyString, truncateHash } from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
 	import CliHelpBox from './CliHelpBox.svelte'
-	import { Badge, Button, Kbd } from './common'
+	import { Badge, Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
 
@@ -13,7 +13,7 @@
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Popup from './common/popup/Popup.svelte'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Calendar } from 'lucide-svelte'
+	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
 
 	export let runnable:
@@ -154,14 +154,9 @@
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid}
 					on:click={() => runAction(scheduledForStr, args, invisible_to_owner, overrideTag)}
+					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
-					{#if viewKeybinding}
-						<div class="inline-flex gap-0 items-center">
-							<Kbd small isModifier>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd>
-						</div>{/if}
-					<div>
-						{scheduledForStr ? 'Schedule to run later' : buttonText}
-					</div>
+					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 				<div>
 					<Popup
@@ -183,9 +178,9 @@
 						blockOpen={blockPopupOpen}
 					>
 						<svelte:fragment slot="button">
-							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light"
-								>Advanced</Button
-							>
+							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
+								Advanced
+							</Button>
 						</svelte:fragment>
 						<RunFormAdvancedPopup
 							bind:scheduledForStr
@@ -213,11 +208,8 @@
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}
 			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
+			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
-			{#if viewKeybinding}
-				<div>
-					<Kbd small isModifier>{getModifierKey()}</Kbd>+<Kbd small>Enter</Kbd>
-				</div>{/if}
 			{buttonText}
 		</Button>
 	{/if}
