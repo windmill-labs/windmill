@@ -447,7 +447,7 @@
 							close(null)
 						}}
 					>
-						Set
+						Set args/result filter
 					</Button>
 				</div>
 			</div>
