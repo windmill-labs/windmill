@@ -7,7 +7,7 @@
 	import TableActions from './TableActions.svelte'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
-	import { classNames, getModifierKey, isMac } from '$lib/utils'
+	import { classNames, getModifierKey } from '$lib/utils'
 	import { buildExtraLib } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -22,9 +22,8 @@
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
-	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import StylePanel from './StylePanel.svelte'
-	import { ChevronLeft, Delete, ExternalLink } from 'lucide-svelte'
+	import { ChevronLeft, DeleteIcon, ExternalLink, ArrowBigUp } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -446,39 +445,43 @@
 		{#if duplicateMoveAllowed}
 			<PanelSection title="Copy/Move">
 				<div slot="action">
-					<Button size="xs" color="red" variant="border" on:click={removeGridElement}>
-						Delete&nbsp;&nbsp;
-						{#if isMac()}
-							<Kbd kbdClass="center-center">
-								<span class="text-lg leading-none">⌘</span>
-								<span class="px-0.5">+</span>
-								<Delete size={16} />
-							</Kbd>
-						{:else}
-							<Kbd>Del</Kbd>
-						{/if}
+					<Button
+						size="xs"
+						color="red"
+						variant="border"
+						on:click={removeGridElement}
+						shortCut={{
+							Icon: DeleteIcon
+						}}
+					>
+						Delete
 					</Button>
 				</div>
-				<div class="flex flex-col gap-1">
+				<div class="flex flex-col gap-1 text-tertiary">
 					<div>
 						<span class="text-secondary text-xs mr-2"> Copy:</span>
-						<Kbd>{getModifierKey()}</Kbd>+<Kbd>C</Kbd>,
-						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
+						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'C'}</span>
+						<span class="text-xs">{'->'}</span>
+						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'V'}</span>
 					</div>
 					<div>
 						<span class="text-secondary text-xs mr-2">Move: </span>
-						<Kbd>{getModifierKey()}</Kbd>+<Kbd>X</Kbd>,
-						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
+						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'X'}</span>
+						<span class="text-xs">{'->'}</span>
+						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'V'}</span>
 					</div>
 					<div>
 						<span class="text-secondary text-xs mr-2">Navigate:</span>
-						<Kbd>&leftarrow;</Kbd>
-						<Kbd>&uparrow;</Kbd><Kbd>&rightarrow;</Kbd>
-						<Kbd>ESC</Kbd>
+						<span class="text-xs border py-1 px-1.5 rounded-md">&leftarrow;</span>
+						<span class="text-xs border py-1 px-1.5 rounded-md">&uparrow;</span>
+						<span class="text-xs border py-1 px-1.5 rounded-md">&rightarrow;</span>
+						<span class="text-xs border py-1 px-1.5 rounded-md">ESC</span>
 					</div>
-					<div>
+					<div class="flex flex-row items-center gap-1">
 						<span class="text-secondary text-xs mr-2">Add to selection:</span>
-						<Kbd>&DoubleUpArrow;</Kbd>+<Kbd>click</Kbd>
+						<span class="text-xs border py-1 px-1.5 rounded-md">
+							<ArrowBigUp size="14" />
+						</span>+<span class="text-xs border py-1 px-1.5 rounded-md">Click</span>
 					</div>
 				</div>
 			</PanelSection>

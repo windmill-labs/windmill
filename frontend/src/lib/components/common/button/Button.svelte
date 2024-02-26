@@ -32,7 +32,9 @@
 	export let portalTarget: string | undefined = undefined
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
-	export let shortCut: { key?: string; hide?: boolean; Icon?: any } | undefined = undefined
+	export let shortCut:
+		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
+		| undefined = undefined
 
 	type MenuItem = {
 		label: string
@@ -210,7 +212,7 @@
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-					{getModifierKey()}{#if shortCut.Icon}<shortCut.Icon
+					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
 							class="w-4 h-4"
 							size={lucideIconSize}
 						/>{:else}{shortCut.key}{/if}
@@ -257,7 +259,7 @@
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}
 				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-					{getModifierKey()}{#if shortCut.Icon}<Icon
+					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
 							size={lucideIconSize}
 						/>{:else}{shortCut.key}{/if}
 				</div>

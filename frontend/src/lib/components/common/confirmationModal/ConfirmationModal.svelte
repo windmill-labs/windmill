@@ -3,8 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import Badge from '../badge/Badge.svelte'
-	import { AlertTriangle, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 
 	export let title: string
 	export let confirmationText: string
@@ -75,24 +74,26 @@
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						<Button disabled={loading} on:click={() => dispatch('confirmed')} color="red" size="sm">
+						<Button
+							disabled={loading}
+							on:click={() => dispatch('confirmed')}
+							color="red"
+							size="sm"
+							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
+						>
 							{#if loading}
 								<Loader2 class="animate-spin" />
 							{/if}
-							<span
-								>{confirmationText}
-								{#if keyListen}<Badge>Enter</Badge>{/if}</span
-							>
+							<span>{confirmationText} </span>
 						</Button>
 						<Button
 							disabled={loading}
 							on:click={() => dispatch('canceled')}
 							color="light"
 							size="sm"
+							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
 						>
-							<span
-								>Cancel {#if keyListen}<Badge color="dark-gray">Escape</Badge>{/if}</span
-							>
+							Cancel
 						</Button>
 					</div>
 				</div>
