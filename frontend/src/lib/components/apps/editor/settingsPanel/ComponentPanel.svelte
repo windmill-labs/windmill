@@ -458,28 +458,40 @@
 						Delete
 					</Button>
 				</div>
-				<div class="flex flex-col gap-1 text-tertiary">
+
+				<div class="grid grid-cols-2 gap-1 text-tertiary">
 					<div>
-						<span class="text-secondary text-xs mr-2"> Copy:</span>
-						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'C'}</span>
-						<span class="text-xs">{'->'}</span>
+						<span class="text-secondary text-xs">Copy:</span>
+					</div>
+					<div class="flex items-center gap-1">
+						<div class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'C'}</div>
+						<span class="text-xs">&rightarrow;</span>
 						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'V'}</span>
 					</div>
+
 					<div>
-						<span class="text-secondary text-xs mr-2">Move: </span>
-						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'X'}</span>
-						<span class="text-xs">{'->'}</span>
+						<span class="text-secondary text-xs">Move: </span>
+					</div>
+					<div class="flex items-center gap-1">
+						<div class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'X'}</div>
+						<span class="text-xs">&rightarrow;</span>
 						<span class="text-xs border py-1 px-1.5 rounded-md">{getModifierKey() + 'V'}</span>
 					</div>
+
 					<div>
-						<span class="text-secondary text-xs mr-2">Navigate:</span>
+						<span class="text-secondary text-xs">Navigate:</span>
+					</div>
+					<div class="flex items-center gap-1">
 						<span class="text-xs border py-1 px-1.5 rounded-md">&leftarrow;</span>
 						<span class="text-xs border py-1 px-1.5 rounded-md">&uparrow;</span>
 						<span class="text-xs border py-1 px-1.5 rounded-md">&rightarrow;</span>
 						<span class="text-xs border py-1 px-1.5 rounded-md">ESC</span>
 					</div>
-					<div class="flex flex-row items-center gap-1">
-						<span class="text-secondary text-xs mr-2">Add to selection:</span>
+
+					<div>
+						<span class="text-secondary text-xs whitespace-nowrap">Add to selection:</span>
+					</div>
+					<div class="flex items-center gap-1">
 						<span class="text-xs border py-1 px-1.5 rounded-md">
 							<ArrowBigUp size="14" />
 						</span>+<span class="text-xs border py-1 px-1.5 rounded-md">Click</span>
