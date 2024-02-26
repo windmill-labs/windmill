@@ -47,7 +47,7 @@
 					deleteComponent?.removeGridElement()
 				},
 				icon: Trash,
-				shortcut: `${getModifierKey()}Del`,
+				shortcut: `Del`,
 				color: 'red'
 			}
 		]

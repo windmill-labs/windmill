@@ -23,7 +23,7 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import StylePanel from './StylePanel.svelte'
-	import { ChevronLeft, DeleteIcon, ExternalLink, ArrowBigUp } from 'lucide-svelte'
+	import { ChevronLeft, ExternalLink, ArrowBigUp } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -451,7 +451,8 @@
 						variant="border"
 						on:click={removeGridElement}
 						shortCut={{
-							Icon: DeleteIcon
+							key: 'Del',
+							withoutModifier: true
 						}}
 					>
 						Delete
