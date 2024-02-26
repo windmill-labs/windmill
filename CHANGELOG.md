@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.278.5](https://github.com/windmill-labs/windmill/compare/v1.278.4...v1.278.5) (2024-02-26)
+
+
+### Bug Fixes
+
+* fix scheduling of overlapping flows ([49be282](https://github.com/windmill-labs/windmill/commit/49be282d215bf9802a073c390c778c531f782c4b))
+
 ## [1.278.4](https://github.com/windmill-labs/windmill/compare/v1.278.3...v1.278.4) (2024-02-26)
 
 
