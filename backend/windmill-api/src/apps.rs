@@ -800,19 +800,15 @@ async fn update_app(
             npolicy.on_behalf_of_email = Some(authed.email.clone());
             sqlb.set(
                 "policy",
-                &format!(
-                    "'{}'",
-                    serde_json::to_string(&json!(npolicy)).map_err(|e| {
-                        Error::BadRequest(format!("failed to serialize policy: {}", e))
-                    })?
-                ),
+                quote(serde_json::to_string(&json!(npolicy)).map_err(|e| {
+                    Error::BadRequest(format!("failed to serialize policy: {}", e))
+                })?),
             );
         }
 
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        tracing::error!("update_app sql: {}", sql);
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {

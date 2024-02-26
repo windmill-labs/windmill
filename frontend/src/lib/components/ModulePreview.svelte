@@ -135,11 +135,12 @@
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<pre class="overflow-x-auto break-words relative h-full px-2"
-						><DisplayResult
+					<div class="break-words relative h-full p-2">
+						<DisplayResult
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
-							result={testJob.result}>
+							result={testJob.result}
+						>
 							<svelte:fragment slot="copilot-fix">
 								{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
 									<ScriptFix
@@ -152,7 +153,7 @@
 								{/if}
 							</svelte:fragment>
 						</DisplayResult>
-					</pre>
+					</div>
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}

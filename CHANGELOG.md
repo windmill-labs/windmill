@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.275.4](https://github.com/windmill-labs/windmill/compare/v1.275.3...v1.275.4) (2024-02-22)
+
+
+### Bug Fixes
+
+* improve scim handling of renames on azure ([bc8e481](https://github.com/windmill-labs/windmill/commit/bc8e481fbb073db48cd3738e46c67195a423feeb))
+
+## [1.275.3](https://github.com/windmill-labs/windmill/compare/v1.275.2...v1.275.3) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix sqlx build ([e15e206](https://github.com/windmill-labs/windmill/commit/e15e2060262edaeb648adc30245521c721cdb9c2))
+* fix sqlx build ([c6eb0b5](https://github.com/windmill-labs/windmill/commit/c6eb0b5840e860d15361301cf7cd8bf948e62050))
+
+## [1.275.2](https://github.com/windmill-labs/windmill/compare/v1.275.1...v1.275.2) (2024-02-22)
+
+
+### Bug Fixes
+
+* fix app policy quote escaping ([18a7c48](https://github.com/windmill-labs/windmill/commit/18a7c48f9167e739aab185602f8c5fe607a5f1d4))
+* fix app policy quote escaping ([6059a82](https://github.com/windmill-labs/windmill/commit/6059a820a97d3ab6ddd39799fc8735d2760dc108))
+* **frontend:** Fix the selection of the first row ([#3263](https://github.com/windmill-labs/windmill/issues/3263)) ([d696f85](https://github.com/windmill-labs/windmill/commit/d696f854e13a1874ad0cad2937508ca39524fba7))
+* improve aggrid behavior edit when filtered ([1dea611](https://github.com/windmill-labs/windmill/commit/1dea611a4cbb46b0d01db181afca0afdec4ace51))
+* improve display result header ([#3265](https://github.com/windmill-labs/windmill/issues/3265)) ([5ba0bf5](https://github.com/windmill-labs/windmill/commit/5ba0bf5294a1bc5cb6cffcd6d580ee8db5a5e102))
+* support arbitrary azure resource path for blob storage ([d3f60b9](https://github.com/windmill-labs/windmill/commit/d3f60b9f9cd1b7b7891ee92273b0e824f9282e1d))
+
+## [1.275.1](https://github.com/windmill-labs/windmill/compare/v1.275.0...v1.275.1) (2024-02-21)
+
+
+### Bug Fixes
+
+* **frontend:** Select the row when clicking on a checkbox ([#3260](https://github.com/windmill-labs/windmill/issues/3260)) ([c6865f8](https://github.com/windmill-labs/windmill/commit/c6865f8a6ce880ef951b0fff70c29feaec31f9e6))
+
 ## [1.275.0](https://github.com/windmill-labs/windmill/compare/v1.274.1...v1.275.0) (2024-02-21)
 
 

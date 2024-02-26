@@ -565,7 +565,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
 
   log.info(
     colors.gray(
-      "Computing the files to update locally to match remote (taking .wmillignore into account)"
+      "Computing the files to update locally to match remote (taking wmill.yaml into account)"
     )
   );
   const remote = ZipFSElement(

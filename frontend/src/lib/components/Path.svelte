@@ -403,10 +403,13 @@
 				{/if}
 			</div>
 			<label class="block grow w-full max-w-md">
-				<span class="text-secondary text-sm">
-					Name
-					<Required required={true} />
-				</span>
+				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+					<div>
+						Name
+						<Required required={true} />
+					</div>
+					<div class="text-2xs text-tertiary"> '/' for subfolders </div>
+				</div>
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					{disabled}

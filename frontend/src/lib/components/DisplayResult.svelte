@@ -4,7 +4,15 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy, Download, Expand, PanelRightOpen, Table2 } from 'lucide-svelte'
+	import {
+		ClipboardCopy,
+		Download,
+		Expand,
+		PanelRightOpen,
+		Table2,
+		Braces,
+		Highlighter
+	} from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -15,7 +23,8 @@
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
 	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
-	import { twMerge } from 'tailwind-merge'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -241,40 +250,48 @@
 {:else}
 	<div class="inline-highlight relative grow min-h-[200px]">
 		{#if result != undefined && length != undefined && largeObject != undefined}
-			{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson}
-				<div class="top-1 absolute flex flex-row w-full justify-between items-center"
-					><div class="mb-2 text-tertiary text-sm">
-						as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
-					><slot name="copilot-fix" />
-				</div><div
-					class="py-3"
-				/>{/if}{#if result && typeof result == 'object' && Object.keys(result).length > 0}<div
-					class="top-1 mb-2 w-full min-w-[400px] text-sm absolute"
-					>{#if !disableExpand}
-						<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2 z-10">
-							<button on:click={() => copyToClipboard(toJsonStr(result))}
-								><ClipboardCopy size={16} /></button
-							>
-							<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
-							{#if isTableDisplay}
-								<button
-									aria-label="Render as table"
-									on:click={() => {
-										richRender = !richRender
-									}}
-									class={twMerge(
-										'flex flex-row gap-1 items-center',
-										richRender ? 'text-blue-500' : ''
-									)}
-								>
-									<Table2 size={16} class={richRender ? 'text-blue-500' : ''} />
-
-									Table view {richRender ? 'enabled' : 'disabled'}
-								</button>
+			<div class="flex justify-between items-center w-full pb-1">
+				<div class="text-tertiary text-sm flex items-center">
+					{#if (resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson) || isTableDisplay}
+						<ToggleButtonGroup
+							class="h-6"
+							selected={isTableDisplay
+								? richRender
+									? 'table'
+									: 'json'
+								: forceJson
+								? 'json'
+								: 'pretty'}
+							on:selected={(ev) => {
+								if (isTableDisplay) {
+									richRender = ev.detail === 'table'
+								} else {
+									forceJson = ev.detail === 'json'
+								}
+							}}
+						>
+							{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson}
+								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
 							{/if}
-						</div>
-					{/if}</div
-				>{/if}{#if !forceJson && resultKind == 'table-col'}
+							{#if isTableDisplay}
+								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
+							{/if}
+							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+						</ToggleButtonGroup>
+					{/if}
+				</div>
+				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
+					<slot name="copilot-fix" />
+					{#if !disableExpand}
+						<button on:click={() => copyToClipboard(toJsonStr(result))}
+							><ClipboardCopy size={16} /></button
+						>
+						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+					{/if}
+				</div>
+			</div>
+
+			{#if !forceJson && resultKind == 'table-col'}
 				{@const data = 'table-col' in result ? result['table-col'] : result}
 				<AutoDataTable objects={transform(data)} />
 			{:else if !forceJson && resultKind == 'table-row'}
@@ -393,8 +410,7 @@
 				</div>
 			{:else if !forceJson && resultKind == 's3object'}
 				<div
-					class="absolute top-1 h-full w-full {typeof result?.s3 == 'string' &&
-					result?.s3?.endsWith('.parquet')
+					class="h-full w-full {typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')
 						? 'h-min-[600px]'
 						: ''}"
 				>
@@ -434,7 +450,7 @@
 					{/if}
 				</div>
 			{:else if !forceJson && resultKind == 's3object-list'}
-				<div class="absolute top-1 h-full w-full">
+				<div class="h-full w-full">
 					<div class="flex flex-col gap-2">
 						<Toggle
 							class="flex"
@@ -518,7 +534,7 @@
 				</div>
 			{:else}
 				<Highlight
-					class={forceJson ? '' : 'absolute top-1 h-full w-full'}
+					class={forceJson ? '' : 'h-full w-full'}
 					language={json}
 					code={toJsonStr(result).replace(/\\n/g, '\n')}
 				/>
