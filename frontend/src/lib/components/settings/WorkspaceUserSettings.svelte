@@ -11,7 +11,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { CancelablePromise, User } from '$lib/gen'
+	import type { CancelablePromise, User, UserUsage } from '$lib/gen'
 	import { UserService, WorkspaceService, type WorkspaceInvite } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -40,10 +40,7 @@
 		autoAdd = settings.auto_add
 	}
 
-	let getUsagePromise: CancelablePromise<Array<{
-        email: string;
-        executions?: number;
-    }>> | undefined = undefined
+	let getUsagePromise: CancelablePromise<UserUsage[]> | undefined = undefined
 
 	let usage: Record<string, number> | undefined = undefined
 
@@ -52,7 +49,9 @@
 			getUsagePromise = UserService.listUsersUsage({ workspace: $workspaceStore! })
 			const res = await getUsagePromise
 			usage = res.reduce((acc, { email, executions }) => {
-				acc[email] = executions ?? 0
+				if (email) {
+					acc[email] = executions ?? 0
+				}
 				return acc
 			}, {} as Record<string, number>)
 		} catch (e) {
