@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.278.3](https://github.com/windmill-labs/windmill/compare/v1.278.2...v1.278.3) (2024-02-26)
+
+
+### Bug Fixes
+
+* add bigint support to mysql ([#3294](https://github.com/windmill-labs/windmill/issues/3294)) ([6a0ed19](https://github.com/windmill-labs/windmill/commit/6a0ed19c807f618b2eb7c50a56412452af890b75))
+* crash on init script failure ([c7f6e6f](https://github.com/windmill-labs/windmill/commit/c7f6e6f9d5ab4f1f5ca93d054804b2053c3afce6))
+
 ## [1.278.2](https://github.com/windmill-labs/windmill/compare/v1.278.1...v1.278.2) (2024-02-26)
 
 
