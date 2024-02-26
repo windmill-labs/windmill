@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use futures::FutureExt;
 #[cfg(feature = "enterprise")]
 use sqlx::Executor;
 
@@ -46,19 +47,24 @@ impl Migrate for CustomMigrator {
     fn lock(
         &mut self,
     ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
-        tracing::info!("Started locking PG for migration purposes");
-        let r = self.inner.lock();
-        tracing::info!("Locked PG for migration purposes");
-        r
+        async {
+            tracing::info!("Acquiring global PG lock  for migration purposes (if there are migrations to apply, will apply migrations or wait for the first acquirer of the lock to apply them)");
+            let r = self.inner.lock().await;
+            tracing::info!("Acquired global PG lock for migration purposes");
+            r
+        }.boxed()
     }
 
     fn unlock(
         &mut self,
     ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
-        tracing::info!("Started unlocking PG for migration purposes");
-        let r = self.inner.unlock();
-        tracing::info!("Unlocked PG for migration purposes");
-        r
+        async {
+            tracing::info!("Releasing PG lock");
+            let r = self.inner.unlock().await;
+            tracing::info!("Released PG lock");
+            r
+        }.boxed()
+        
     }
 
     fn apply<'e: 'm, 'm>(
@@ -68,14 +74,16 @@ impl Migrate for CustomMigrator {
         'm,
         Result<std::time::Duration, sqlx::migrate::MigrateError>,
     > {
-        tracing::info!(
-            "Started applying migration {}: {}",
-            migration.version,
-            migration.description
-        );
-        let r = self.inner.apply(migration);
-        tracing::info!("Finished applying migration {}", migration.version);
-        r
+        async {
+            tracing::info!(
+                "Started applying migration {}: {}",
+                migration.version,
+                migration.description
+            );
+            let r = self.inner.apply(migration).await;
+            tracing::info!("Finished applying migration {}", migration.version);
+            r
+        }.boxed()
     }
 
     fn revert<'e: 'm, 'm>(
