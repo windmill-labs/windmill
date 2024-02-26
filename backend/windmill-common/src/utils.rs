@@ -60,7 +60,6 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
     (per_page, offset)
 }
 
-#[cfg(feature = "sqlx")]
 pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
 ) -> Result<chrono::DateTime<chrono::Utc>> {
@@ -82,7 +81,6 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
     }
 }
 
-#[cfg(feature = "reqwest")]
 pub async fn query_elems_from_hub(
     http_client: &reqwest::Client,
     url: &str,
@@ -96,7 +94,6 @@ pub async fn query_elems_from_hub(
     Ok((status, response.headers().clone(), response))
 }
 
-#[cfg(feature = "reqwest")]
 pub async fn http_get_from_hub(
     http_client: &reqwest::Client,
     url: &str,

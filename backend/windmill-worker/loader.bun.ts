@@ -41,7 +41,7 @@ const p = {
         ? `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${file_path}/../${args.path}`
         : `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${args.path}`;
       const file = isRelative
-        ? resolve("./" + current_path + "/../" + args.path + ".url")
+        ? resolve("./" + file_path + "/../" + args.path + ".url")
         : resolve("./" + args.path + ".url");
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);

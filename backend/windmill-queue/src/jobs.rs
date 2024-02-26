@@ -7,9 +7,7 @@
  */
 
 use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    vec,
+    collections::{HashMap, HashSet}, sync::Arc, vec
 };
 
 use anyhow::Context;
@@ -23,6 +21,7 @@ use axum::{
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
+#[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 use regex::Regex;
 use reqwest::{
@@ -72,14 +71,8 @@ use crate::{
     QueueTransaction,
 };
 
+#[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .build().unwrap();
-
-    pub static ref HTTP_CLIENT_WORKER: Client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .build().unwrap();
 
     // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
     static ref QUEUE_PUSH_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
@@ -102,7 +95,18 @@ lazy_static::lazy_static! {
 
     pub static ref WORKER_EXECUTION_FAILED: Arc<RwLock<HashMap<String, IntCounter>>> = Arc::new(RwLock::new(HashMap::new()));
 
+}
 
+
+lazy_static::lazy_static! {
+    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build().unwrap();
+
+    pub static ref HTTP_CLIENT_WORKER: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build().unwrap();
+    
 }
 
 #[cfg(feature = "enterprise")]
@@ -138,8 +142,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
     }
     let job_running = job_running.unwrap();
 
-    if ((job_running.running || job_running.root_job.is_some())
-        || (job_running.job_kind == JobKind::Flow || job_running.job_kind == JobKind::FlowPreview))
+    if ((job_running.running || job_running.root_job.is_some()) || (job_running.is_flow()))
         && !force_cancel
     {
         let id = sqlx::query_scalar!(
@@ -357,8 +360,9 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     canceled_by: Option<CanceledBy>,
     e: serde_json::Value,
     rsmq: Option<R>,
-    worker_name: &str,
+    _worker_name: &str,
 ) -> Result<WrappedError, Error> {
+    #[cfg(feature = "prometheus")]
     register_metric(
         &WORKER_EXECUTION_FAILED,
         &queued_job.tag,
@@ -367,7 +371,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
                 "worker_execution_failed",
                 "Number of jobs having failed"
             )
-            .const_label("name", worker_name)
+            .const_label("name", _worker_name)
             .const_label("tag", s))
             .expect("register prometheus metric");
             counter.inc();
@@ -444,8 +448,7 @@ pub async fn add_completed_job<
         ));
     }
 
-    let is_flow =
-        queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
+    let is_flow = queued_job.is_flow();
     let duration = if is_flow {
         let jobs = queued_job.parse_flow_status().map(|s| {
             let mut modules = s.modules;
@@ -474,6 +477,12 @@ pub async fn add_completed_job<
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
+
+    tracing::debug!(
+        "completed job {} {}",
+        queued_job.id,
+        serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
+    );
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     let _duration: i64 = sqlx::query_scalar!(
@@ -555,6 +564,22 @@ pub async fn add_completed_job<
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
+    if queued_job.is_flow_step
+    {
+        if let Some(parent_job) = queued_job.parent_job  {
+            // persist the flow last progress timestamp to avoid zombie flow jobs
+            tracing::debug!("Persisting flow last progress timestamp to flow job: {:?}", parent_job);
+            sqlx::query!(
+                "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2",
+                parent_job,
+                &queued_job.workspace_id
+            )
+            .execute(&mut tx)
+            .await?;
+        }
+
+    }
+
     if !queued_job.is_flow_step
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
@@ -574,8 +599,7 @@ pub async fn add_completed_job<
         .await?;
     }
     if !queued_job.is_flow_step
-        && queued_job.job_kind != JobKind::Flow
-        && queued_job.job_kind != JobKind::FlowPreview
+        && !queued_job.is_flow()
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
@@ -1437,6 +1461,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job.unwrap();
         if pulled_job.script_path.is_none() || !has_concurent_limit || pulled_job.canceled {
+            #[cfg(feature = "prometheus")]
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
@@ -1525,6 +1550,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             concurrent_jobs_for_this_script
         );
         if concurrent_jobs_for_this_script <= job_custom_concurrent_limit {
+            #[cfg(feature = "prometheus")]
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
@@ -1845,6 +1871,13 @@ pub struct ResultR {
     result: Option<Json<Box<RawValue>>>,
 }
 
+#[derive(FromRow)]
+pub struct ResultWithId {
+    result: Option<Json<Box<RawValue>>>,
+    id: Uuid,
+}
+
+
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
@@ -1861,8 +1894,11 @@ pub async fn get_result_by_id(
     )
     .await
     {
-        Ok(res) => Ok(res),
+        Ok(res) => {
+            Ok(res)
+        },
         Err(_) => {
+
             let running_flow_job = sqlx::query_as::<_, QueuedJob>(
                 "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
             ).bind(flow_id)
@@ -1971,11 +2007,7 @@ async fn get_result_by_id_from_original_flow(
     )
     .await?;
 
-    tracing::debug!(
-        "Fetching leaf jobs for flow {} : {:?}",
-        flow_job.id,
-        leaf_jobs_for_flow
-    );
+
     if !leaf_jobs_for_flow.contains_key(&node_id.to_string()) {
         // if the flow is itself a restart flow, the step job might be from the upstream flow
         let restarted_from = windmill_common::utils::not_found_if_none(
@@ -2051,7 +2083,7 @@ async fn compute_leaf_jobs_for_completed_flow(
                     }
                 }
             }
-            JobKind::Flow | JobKind::FlowPreview => {
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow => {
                 // Extract the leaf job for this flow and add them to the result map
                 for module in &flow_job_status_modules {
                     // we add the module as an element of ListJob for this step ID and recursiively extract leaf job of the sub-flow
@@ -2098,16 +2130,25 @@ async fn extract_result_from_job_result(
     match job_result {
         JobResult::ListJob(job_ids) => {
             let rows = sqlx::query(
-                "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+                "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
             )
             .bind(job_ids.as_slice())
             .bind(w_id)
             .fetch_all(db)
             .await?
             .into_iter()
-            .filter_map(|x| ResultR::from_row(&x).ok().and_then(|x| x.result))
-            .collect::<Vec<Json<Box<RawValue>>>>();
-            Ok(to_raw_value(&rows))
+            .filter_map(|x| ResultWithId::from_row(&x).ok().and_then(|x| x.result.map(|y| (x.id, y))))
+            .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
+            let result = job_ids
+                .into_iter()
+                .map(|id| {
+                    rows
+                        .get(&id)
+                        .map(|x| x.0.clone())
+                        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
+                })
+                .collect::<Vec<_>>();
+            Ok(to_raw_value(&result))
         }
         JobResult::SingleJob(x) => Ok(sqlx::query(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
@@ -2137,6 +2178,7 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     w_id: &str,
     job_id: Uuid,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
@@ -2769,7 +2811,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 Some(path),
                 None,
-                JobKind::SingleScriptFlow,
+                JobKind::Flow,
                 Some(flow_value.clone()),
                 Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
@@ -2999,6 +3041,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         let default = || {
             let ntag = if job_kind == JobKind::Flow
                 || job_kind == JobKind::FlowPreview
+                || job_kind == JobKind::SingleScriptFlow
                 || job_kind == JobKind::Identity
             {
                 "flow".to_string()
@@ -3104,6 +3147,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
+    #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_PUSH_COUNT.inc();
     }

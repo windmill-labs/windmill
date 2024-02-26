@@ -393,7 +393,7 @@
 						View Runs
 					</Button>
 				</div>
-				<div class="mr-8 center-center -mt-2">
+				<div class="mr-8 center-center -mt-1">
 					<Toggle
 						disabled={!can_write}
 						checked={enabled}

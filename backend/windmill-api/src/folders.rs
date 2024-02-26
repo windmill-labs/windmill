@@ -76,6 +76,7 @@ pub struct UpdateFolder {
 #[derive(Deserialize)]
 pub struct Owner {
     pub owner: String,
+    pub write: Option<bool>,
 }
 
 async fn list_folders(
@@ -521,7 +522,7 @@ async fn add_owner(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(Owner { owner }): Json<Owner>,
+    Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -531,9 +532,19 @@ async fn add_owner(
     sqlx::query!(
         "UPDATE folder SET owners = array_append(owners::text[], $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name",
         owner,
-        name,
+        &name,
         &w_id,
     )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
+         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
+    ))
+    .bind(true)
+    .bind(&name)
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -588,7 +599,7 @@ async fn remove_owner(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(Owner { owner }): Json<Owner>,
+    Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -598,11 +609,23 @@ async fn remove_owner(
     sqlx::query!(
         "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 RETURNING name",
         owner,
-        name,
+        &name,
         &w_id,
     )
     .fetch_optional(&mut *tx)
     .await?;
+
+    if let Some(write) = write {
+        sqlx::query(&format!(
+        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
+         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
+    ))
+        .bind(write)
+        .bind(&name)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

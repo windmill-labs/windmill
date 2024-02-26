@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
-	import { canWrite, displayDate } from '$lib/utils'
+	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -11,13 +11,30 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Circle, Eye, List, Loader2, Pen, Play, Plus, Share, Trash } from 'lucide-svelte'
+	import {
+		Calendar,
+		Circle,
+		Code,
+		Eye,
+		List,
+		Loader2,
+		Pen,
+		Play,
+		Plus,
+		Share,
+		Trash
+	} from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { setQuery } from '$lib/navigation'
+	import { onMount } from 'svelte'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
@@ -101,14 +118,127 @@
 	let scheduleEditor: ScheduleEditor
 
 	let filteredItems: (ScheduleW & { marked?: any })[] | undefined = []
+	let items: typeof filteredItems | undefined = []
+	let preFilteredItems: typeof filteredItems | undefined = []
 	let filter = ''
+	let ownerFilter: string | undefined = undefined
+
+	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = 'all'
+
+	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
+	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
+	let selectedFilterKind =
+		(getLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING) as 'schedule' | 'script_flow') ?? 'schedule'
+	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+
+	$: storeLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+
+	function filterItemsPathsBaseOnUserFilters(
+		item: ScheduleW,
+		selectedFilterKind: 'schedule' | 'script_flow',
+		filterUserFolders: boolean
+	) {
+		if ($workspaceStore == 'admins') return true
+		if (filterUserFolders) {
+			if (selectedFilterKind === 'schedule') {
+				return (
+					!item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
+				)
+			} else {
+				return (
+					!item.script_path.startsWith('u/') ||
+					item.script_path.startsWith('u/' + $userStore?.username + '/')
+				)
+			}
+		} else {
+			return true
+		}
+	}
+
+	function filterItemsBasedOnEnabledDisabled(
+		item: ScheduleW,
+		filterEnabledDisabled: 'all' | 'enabled' | 'disabled'
+	) {
+		if (filterEnabledDisabled === 'all') return true
+		if (filterEnabledDisabled === 'enabled') return item.enabled
+		if (filterEnabledDisabled === 'disabled') return !item.enabled
+	}
+
+	$: preFilteredItems =
+		ownerFilter != undefined
+			? selectedFilterKind === 'schedule'
+				? schedules?.filter(
+						(x) =>
+							x.path.startsWith(ownerFilter + '/' ?? '') &&
+							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
+							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
+				  )
+				: schedules?.filter(
+						(x) =>
+							x.script_path.startsWith(ownerFilter + '/' ?? '') &&
+							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
+							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
+				  )
+			: schedules?.filter(
+					(x) =>
+						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
+						filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
+			  )
+
+	$: if ($workspaceStore) {
+		ownerFilter = undefined
+	}
+
+	$: owners =
+		selectedFilterKind === 'schedule'
+			? Array.from(
+					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			  ).sort()
+			: Array.from(
+					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
+			  ).sort()
+
+	$: items = filter !== '' ? filteredItems : preFilteredItems
+
+	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
+		setQuery(new URL(window.location.href), 'scheduleFilterKind', selectedFilterKind).then(() => {
+			setQuery(new URL(window.location.href), 'filterUserFolders', String(filterUserFolders)).then(
+				() => {
+					setQuery(new URL(window.location.href), 'filterEnabledDisabled', filterEnabledDisabled)
+				}
+			)
+		})
+	}
+
+	function loadQueryFilters() {
+		let url = new URL(window.location.href)
+		let queryFilterKind = url.searchParams.get('scheduleFilterKind')
+		let queryFilterUserFolders = url.searchParams.get('filterUserFolders')
+		let queryFilterEnabledDisabled = url.searchParams.get('filterEnabledDisabled')
+		if (queryFilterKind) {
+			selectedFilterKind = queryFilterKind as 'schedule' | 'script_flow'
+		}
+		if (queryFilterUserFolders) {
+			filterUserFolders = queryFilterUserFolders == 'true'
+		}
+		if (queryFilterEnabledDisabled) {
+			filterEnabledDisabled = queryFilterEnabledDisabled as 'all' | 'enabled' | 'disabled'
+		}
+	}
+
+	onMount(() => {
+		loadQueryFilters()
+	})
+
+	$: updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
 </script>
 
 <ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
 
 <SearchItems
 	{filter}
-	items={schedules}
+	items={preFilteredItems}
 	bind:filteredItems
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
@@ -124,8 +254,33 @@
 		</Button>
 	</PageHeader>
 	<div class="w-full h-full flex flex-col">
-		<div class="w-12/12 pb-4 pt-6">
+		<div class="w-full pb-4 pt-6">
 			<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
+			<div class="flex flex-row items-center gap-2 mt-6">
+				<div class="text-sm shrink-0"> Filter by path of </div>
+				<ToggleButtonGroup bind:selected={selectedFilterKind}>
+					<ToggleButton small value="schedule" label="Schedule" icon={Calendar} />
+					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+				</ToggleButtonGroup>
+			</div>
+			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+
+			<div class="flex flex-row items-center justify-end gap-4">
+				<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
+					<ToggleButton small value="all" label="All" />
+					<ToggleButton small value="enabled" label="Enabled" />
+					<ToggleButton small value="disabled" label="Disabled" />
+				</ToggleButtonGroup>
+				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+					<Toggle
+						size="xs"
+						bind:checked={filterUserFolders}
+						options={{ right: `Only u/${$userStore.username} and f/*` }}
+					/>
+				{/if}
+			</div>
 		</div>
 		{#if loading}
 			{#each new Array(6) as _}
@@ -133,9 +288,9 @@
 			{/each}
 		{:else if !schedules?.length}
 			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
-		{:else if filteredItems?.length}
+		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each filteredItems as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs } (path)}
+				{#each items as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
 						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length

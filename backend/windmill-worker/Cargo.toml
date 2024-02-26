@@ -10,19 +10,17 @@ path = "src/lib.rs"
 
 [features]
 default = []
+prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:openidconnect", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util"]
 benchmark = ["windmill-queue/benchmark"]
 flamegraph = []
+parquet = ["windmill-common/parquet"]
+flow_testing = []
 
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
-windmill-common = { workspace = true, features = [
-    "tokio",
-    "sqlx",
-    "prometheus",
-    "tracing_init",
-] }
+windmill-common = { workspace = true, default-features = false }
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
@@ -43,7 +41,7 @@ async-recursion.workspace = true
 anyhow.workspace = true
 itertools.workspace = true
 regex.workspace = true
-prometheus.workspace = true
+prometheus = { workspace = true, optional = true }
 lazy_static.workspace = true
 chrono.workspace = true
 dotenv.workspace = true

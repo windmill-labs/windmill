@@ -31,7 +31,7 @@
 	{#if Boolean(options?.left)}
 		<span
 			class={twMerge(
-				'mr-2 font-medium duration-50',
+				'mr-2 font-medium duration-50 select-none',
 				bothOptions ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
 				size === 'xs' ? 'text-xs' : 'text-sm',
 				textClass
@@ -70,7 +70,7 @@
 	{#if Boolean(options?.right)}
 		<span
 			class={twMerge(
-				'ml-2 font-medium duration-50',
+				'ml-2 font-medium duration-50 select-none',
 				bothOptions ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
 				size === 'xs' ? 'text-xs' : 'text-sm',
 				textClass

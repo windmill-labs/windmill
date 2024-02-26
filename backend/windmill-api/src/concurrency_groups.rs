@@ -10,8 +10,6 @@ use axum::{Extension, Json};
 use axum::Router;
 
 #[cfg(feature = "enterprise")]
-use polars::prelude::IntoVec;
-#[cfg(feature = "enterprise")]
 use serde::Serialize;
 #[cfg(feature = "enterprise")]
 use std::collections::HashMap;
@@ -72,7 +70,7 @@ async fn list_concurrency_groups(
         })?;
         concurrency_groups.push(ConcurrencyGroups {
             concurrency_id: concurrency_id.clone(),
-            job_uuids: job_uuids_map.keys().into_vec(),
+            job_uuids: job_uuids_map.keys().cloned().collect(),
         })
     }
 
