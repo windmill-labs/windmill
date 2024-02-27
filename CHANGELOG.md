@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.279.0](https://github.com/windmill-labs/windmill/compare/v1.278.5...v1.279.0) (2024-02-27)
+
+
+### Features
+
+* add ee flag to common ([#3300](https://github.com/windmill-labs/windmill/issues/3300)) ([ec10b3f](https://github.com/windmill-labs/windmill/commit/ec10b3ff8135e66a91209bcd4f2321e5272421e7))
+
+
+### Bug Fixes
+
+* handle very large ints as floats in snowflake ([#3302](https://github.com/windmill-labs/windmill/issues/3302)) ([66e4699](https://github.com/windmill-labs/windmill/commit/66e46990b23fbae94910501120bc2c0d501e49d9))
+* improve handling of parallel flow branches of more than 30s ([4285f1e](https://github.com/windmill-labs/windmill/commit/4285f1e47dd3d77f8916cda174f96468b808105e))
+
 ## [1.278.5](https://github.com/windmill-labs/windmill/compare/v1.278.4...v1.278.5) (2024-02-26)
 
 
