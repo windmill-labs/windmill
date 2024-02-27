@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = []
+enterprise = ["windmill-common/enterprise"]
 benchmark = []
 prometheus = ["dep:prometheus"]
 
