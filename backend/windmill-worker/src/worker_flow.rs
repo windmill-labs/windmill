@@ -366,23 +366,25 @@ pub async fn update_flow_status_after_job_completion_internal<
                     };
                     (true, Some(new_status))
                 } else {
+                    tx.commit().await?;
+
                     if parallelism.is_some() {
                         sqlx::query!(
                             "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1",
                             flow
                         )
-                        .execute(&mut tx)
+                        .execute(db)
                         .await?;
                     }
+
 
                     sqlx::query!(
                         "UPDATE queue
                         SET last_ping = null
                         WHERE id = $1",
                         flow
-                    ).execute(&mut tx).await?;
+                    ).execute(db).await?;
 
-                    tx.commit().await?;
                     return Ok(None);
                 }
             }
