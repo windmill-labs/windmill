@@ -2,6 +2,7 @@ use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
+use windmill_parser_bash::{parse_powershell_sig};
 
 #[wasm_bindgen_test]
 fn test_parse_deno_sig() -> anyhow::Result<()> {
@@ -314,6 +315,54 @@ export type foo = number
     let mut l = parse_expr_for_imports(code)?;
     l.sort();
     assert_eq!(l, vec![] as Vec<String>);
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+fn test_parse_powershell_sig() -> anyhow::Result<()> {
+    let code = "
+param($test1, [int]$test2, [decimal]$test3, [datetime]$test4)
+
+Write-Output 'Hello $a $b $c $d'
+";
+    assert_eq!(
+        parse_powershell_sig(code)?,
+        MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![
+                Arg {
+                    otyp: None,
+                    name: "test1".to_string(),
+                    typ: Typ::Str(None),
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test2".to_string(),
+                    typ: Typ::Int,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test3".to_string(),
+                    typ: Typ::Float,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test4".to_string(),
+                    typ: Typ::Datetime,
+                    default: None,
+                    has_default: false
+                }
+            ]
+        }
+    );
 
     Ok(())
 }
