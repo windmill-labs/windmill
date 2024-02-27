@@ -1,19 +1,20 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
-	import { ColumnIdentity, type ColumnMetadata } from './utils'
+	import { ColumnIdentity, getFieldType, type ColumnMetadata } from './utils'
 
 	export let args: Record<string, any> = {}
-	export let columnDefs: Array<
-		{
-			field: string
-			ignored: boolean
-			hideInsert: boolean
-			overrideDefaultValue: boolean
-			defaultUserValue: any
-			defaultValueNull: boolean
-		} & ColumnMetadata
-	> = []
+	export let databaseType: 'postgresql' | 'mysql' = 'postgresql'
+	type ColumnDef = {
+		field: string
+		ignored: boolean
+		hideInsert: boolean
+		overrideDefaultValue: boolean
+		defaultUserValue: any
+		defaultValueNull: boolean
+	}
+
+	export let columnDefs: Array<ColumnDef & ColumnMetadata> = []
 
 	type FieldMetadata = {
 		type: string
@@ -36,21 +37,7 @@
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-
-			const baseType = type.split('(')[0]
-			const validTextTypes = ['character varying', 'text']
-			const validNumberTypes = ['integer', 'bigint', 'numeric', 'double precision']
-			const validDateTypes = ['date', 'timestamp without time zone', 'timestamp with time zone']
-
-			const fieldType = validTextTypes.includes(baseType)
-				? 'text'
-				: validNumberTypes.includes(baseType)
-				? 'number'
-				: baseType === 'boolean'
-				? 'checkbox'
-				: validDateTypes.includes(baseType)
-				? 'date'
-				: 'text'
+			const fieldType = getFieldType(type, databaseType)
 
 			return {
 				type,

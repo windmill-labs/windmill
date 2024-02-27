@@ -5,7 +5,8 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { getCountPostgresql } from './utils'
+	import { type ColumnDef } from './utils'
+	import { getCountInput } from './queries/count'
 
 	export let id: string
 	export let table: string
@@ -13,6 +14,8 @@
 	export let renderCount: number
 	export let quicksearch: string
 	export let resourceType: string
+	export let columnDefs: ColumnDef[]
+	export let whereClause: string | undefined
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -24,14 +27,13 @@
 
 	let runnableComponent: RunnableComponent
 	let loading = false
-
 	let input: AppInput | undefined = undefined
-
-	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
-
 	let lastTableCount = ''
 	let renderCountLast = -1
 	let quicksearchLast: string | undefined = undefined
+
+	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
+
 	async function computeCount() {
 		if (
 			lastTableCount === table &&
@@ -48,7 +50,7 @@
 	}
 
 	async function getCount(resource: string, table: string, quicksearch: string) {
-		input = getCountPostgresql(resource, table, resourceType)
+		input = getCountInput(resource, table, resourceType, columnDefs, whereClause)
 
 		await tick()
 

@@ -11,7 +11,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, Job, Policy } from '$lib/gen'
+	import { AppService, DraftService, Job, Policy, Preview } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
@@ -77,13 +77,13 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
 		type ColumnDef,
-		getCountPostgresql,
-		createDbInput,
 		createDbInsert,
 		createUpdateDbInput,
 		getPrimaryKeys
 	} from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
+	import { getCountInput } from '../components/display/dbtable/queries/count'
+	import { getSelectInput } from '../components/display/dbtable/queries/select'
 
 	async function hash(message) {
 		try {
@@ -203,17 +203,17 @@
 								| undefined
 							if (tableValue && resourceValue && columnDefs) {
 								r.push({
-									input: createDbInput(
+									input: getSelectInput(
 										resourceValue,
 										tableValue,
 										columnDefs,
 										whereClause,
-										'postgresql'
+										'postgresql' as Preview.language
 									),
 									id: x.id
 								})
 								r.push({
-									input: getCountPostgresql(resourceValue, tableValue, 'postgresql'),
+									input: getCountInput(resourceValue, tableValue, 'postgresql', [], undefined),
 									id: x.id + '_count'
 								})
 								r.push({

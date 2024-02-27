@@ -1,42 +1,68 @@
-import type { TableMetadata } from './utils'
+import { type ColumnDef } from './utils'
 
-export function makeMySQLQuery(
-	tableMetadata: TableMetadata,
-	table: string,
-	whereClause: string | undefined = undefined
-) {
-	const filteredColumns = tableMetadata
-		.filter((x) => x !== undefined)
-		.map((column) => `\`${column?.field}\``)
+// INSERT
 
-	let selectClause = filteredColumns.join(', ')
+export function makeMySQLInsertQuery(table: string, columns: ColumnDef[]) {
+	if (!table) throw new Error('Table name is required')
 
-	let orderBy = tableMetadata
-		.map((column) => {
-			return `
-CASE WHEN :order_by = '${column.field}' AND :is_desc IS false THEN \`${column.field}\` END,
-CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.field}\` END DESC`
-		})
-		.join(',\n')
+	const columnsInsert = columns.filter((x) => !x.hideInsert)
+	const columnsDefault = columns.filter(
+		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null)
+	)
 
-	let query = `
--- :limit (int)
--- :offset (int)
--- :quicksearch (text)
--- :order_by (text)
--- :is_desc (boolean)
+	const allInsertColumns = columnsInsert.concat(columnsDefault)
+	const query = `
+${buildParamters(columnsInsert, 'mysql')}
 
-SELECT ${selectClause} FROM \`${table}\` where `
-
-	if (whereClause) {
-		query += ` ${whereClause} AND `
-	}
-	query += ` (:quicksearch = '' OR  CONCAT_WS(' ', ${filteredColumns.join(
-		', '
-	)}) LIKE CONCAT('%', :quicksearch, '%'))`
-	query += ` ORDER BY ${orderBy}`
-
-	query += ` LIMIT :limit OFFSET :offset`
+INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
+VALUES (${columnsInsert.map((c) => `:${c.field}`).join(', ')}${
+		columnsDefault.length > 0 ? ',' : ''
+	} ${columnsDefault
+		.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}`))
+		.join(', ')})`
 
 	return query
+}
+
+export function makePostgresInsertQuery(table: string, columns: ColumnDef[]) {
+	if (!table) throw new Error('Table name is required')
+
+	const columnsInsert = columns.filter((x) => !x.hideInsert)
+	const columnsDefault = columns.filter(
+		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null)
+	)
+
+	const allInsertColumns = columnsInsert.concat(columnsDefault)
+	const query = `
+${buildParamters(columnsInsert, 'postgresql')}
+
+INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
+VALUES (${columnsInsert.map((c, i) => `$${i + 1}::${c.datatype}`).join(', ')}${
+		columnsDefault.length > 0 ? ',' : ''
+	} ${columnsDefault
+		.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}::${c.datatype}`))
+		.join(', ')})`
+
+	return query
+}
+
+export function buildParamters(
+	columns: Array<{
+		field: string
+		datatype: string
+	}>,
+	databaseType: string
+) {
+	return columns
+		.map((column, i) => {
+			switch (databaseType) {
+				case 'postgresql':
+					return `-- $${i + 1} ${column.field}`
+				case 'mysql':
+					return `-- :${column.field} (${column.datatype.split('(')[0]})`
+				case 'mssql':
+					return `-- @${column.field} (${column.datatype.split('(')[0]})`
+			}
+		})
+		.join('\n')
 }

@@ -3,60 +3,7 @@ import { JobService, Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
 import { tryEvery } from '$lib/utils'
-
-export function makeQuery(
-	table: string,
-	tableMetadata: TableMetadata,
-	whereClause: string | undefined,
-	type: string
-) {
-	if (!table) throw new Error('Table name is required')
-
-	switch (type) {
-		case 'postgreql': {
-			const filteredColumns = tableMetadata
-				.filter((x) => x != undefined)
-				.map((column) => `"${column?.field}"::text`)
-
-			let selectClause = filteredColumns.join(', ')
-
-			let orderBy = `
-	${tableMetadata
-		.map(
-			(column) =>
-				`
-(CASE WHEN $4 = '${column.field}' AND $5 IS false THEN "${column.field}"::text END),
-(CASE WHEN $4 = '${column.field}' AND $5 IS true THEN "${column.field}"::text END) DESC`
-		)
-		.join(',\n')}`
-
-			let query = `
--- $1 limit
--- $2 offset
--- $3 quicksearch
--- $4 orderBy
--- $5 is_desc
-
-SELECT ${selectClause} FROM "${table}" WHERE `
-			if (whereClause) {
-				query += ` ${whereClause} AND `
-			}
-			query += ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
-
-			query += ` ORDER BY ${orderBy}`
-			query += ` LIMIT $1::INT OFFSET $2::INT`
-
-			return query
-		}
-
-		case 'mysql': {
-			return makeMySQLQuery(tableMetadata, table, whereClause)
-		}
-
-		default:
-			throw new Error('Unsupported database type')
-	}
-}
+import { makeMySQLInsertQuery, makePostgresInsertQuery } from './queries'
 
 export function createDbInsert(
 	table: string,
@@ -69,7 +16,7 @@ export function createDbInsert(
 			name: 'AppDbExplorer',
 			type: 'runnableByName',
 			inlineScript: {
-				content: makeInsertQuery(table, columns),
+				content: makeInsertQuery(table, columns, resourceType),
 				language: getLanguageByResourceType(resourceType),
 				schema: {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -92,35 +39,17 @@ export function createDbInsert(
 	}
 }
 
-function getLanguageByResourceType(name: string) {
-	const language = {
-		postgresql: Preview.language.POSTGRESQL,
-		mysql: Preview.language.MYSQL
+export function makeInsertQuery(table: string, columns: ColumnDef[], resourceType: string) {
+	switch (resourceType) {
+		case 'postgresql': {
+			return makePostgresInsertQuery(table, columns)
+		}
+		case 'mysql': {
+			return makeMySQLInsertQuery(table, columns)
+		}
+		default:
+			throw new Error('Unsupported database type')
 	}
-	return language[name]
-}
-
-export function makeInsertQuery(table: string, columns: ColumnDef[]) {
-	if (!table) throw new Error('Table name is required')
-
-	const columnsInsert = columns.filter((x) => !x.hideInsert)
-	const columnsDefault = columns.filter(
-		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null)
-	)
-
-	const allInsertColumns = columnsInsert.concat(columnsDefault)
-	// Constructing the query
-	const query = `
-${columnsInsert.map((column, i) => `-- $${i + 1} ${column.field}`).join('\n')}
-
-INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
-VALUES (${columnsInsert.map((c, i) => `$${i + 1}::${c.datatype}`).join(', ')}${
-		columnsDefault.length > 0 ? ',' : ''
-	} ${columnsDefault
-		.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}::${c.datatype}`))
-		.join(', ')})`
-
-	return query
 }
 
 export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
@@ -129,48 +58,6 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 		r = tableMetadata?.map((x) => x.field) ?? []
 	}
 	return r ?? []
-}
-
-export function createDbInput(
-	resource: string,
-	table: string | undefined,
-	columns: TableMetadata,
-	whereClause: string | undefined,
-	resourceType: string
-): AppInput | undefined {
-	if (!resource || !table || !columns) {
-		// Return undefined if resource or table is not defined
-		return undefined
-	}
-
-	if (columns.length === 0) {
-		return undefined
-	}
-
-	const getRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: makeQuery(table, columns, whereClause, resourceType),
-			language: getLanguageByResourceType(resourceType)
-		}
-	}
-
-	const getQuery: AppInput = {
-		runnable: getRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${resourceType}`
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return getQuery
 }
 
 export function createUpdateDbInput(
@@ -187,7 +74,9 @@ export function createUpdateDbInput(
 	const query = updateWithAllValues()
 
 	function updateWithAllValues() {
-		let query = `
+		switch (resourceType) {
+			case 'postgresql': {
+				let query = `
 -- $1 valueToUpdate
 ${columns.map((c, i) => `-- $${i + 2} ${c.field}`).join('\n')}
 		
@@ -195,7 +84,21 @@ UPDATE ${table} SET ${column.field} = $1::text::${column.datatype} WHERE
 ${columns.map((c, i) => `${c.field} = $${i + 2}::text::${c.datatype} `).join(' AND ')}		
 RETURNING 1`
 
-		return query
+				return query
+			}
+			case 'mysql': {
+				let query = `
+-- :value_to_update (${column.datatype.split('(')[0]})
+${columns.map((c, i) => `-- :${c.field} (${c.datatype.split('(')[0]})`).join('\n')}
+
+UPDATE ${table} SET ${column.field} = :value_to_update WHERE
+${columns.map((c, i) => `${c.field} = :${c.field}`).join(' AND ')}`
+
+				return query
+			}
+			default:
+				throw new Error('Unsupported database type')
+		}
 	}
 
 	const updateRunnable: RunnableByName = {
@@ -276,57 +179,6 @@ DELETE FROM ${table} WHERE ${columns
 				value: resource,
 				fieldType: 'object',
 				format: `resource-${resourceType}`
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return updateQuery
-}
-
-export function getCountPostgresql(
-	resource: string,
-	table: string,
-	resourceType: string
-): AppInput | undefined {
-	if (!resource || !table) {
-		return undefined
-	}
-
-	const query = `
--- $1 quicksearch
-SELECT COUNT(*) FROM ${table} WHERE ($1 = '' OR ${table}::text ILIKE '%' || $1 || '%')`
-
-	const updateRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: query,
-			language: getLanguageByResourceType(resourceType),
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {
-					database: {
-						description: 'Database name',
-						type: 'object',
-						format: `resource-${resourceType}`
-					}
-				},
-				required: ['database'],
-				type: 'object'
-			}
-		}
-	}
-
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: 'resource-postgresql'
 			}
 		},
 		type: 'runnable',
@@ -769,74 +621,69 @@ export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
 	return printSchema(buildClientSchema(dbSchema.schema))
 }
 
-/**
- * Base class for embedding a svelte component within an AGGrid call.
- * See: https://stackoverflow.com/a/72608215
- */
-import type { ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
-import { makeMySQLQuery } from './queries'
+export function getFieldType(type: string, databaseType: 'postgresql' | 'mysql') {
+	switch (databaseType) {
+		case 'postgresql': {
+			const baseType = type.split('(')[0]
+			const validTextTypes = ['character varying', 'text']
+			const validNumberTypes = ['integer', 'bigint', 'numeric', 'double precision']
+			const validDateTypes = ['date', 'timestamp without time zone', 'timestamp with time zone']
 
-/**
- * Class for defining a cell renderer.
- * If you don't need to define a separate class you could use cellRendererFactory
- * to create a component with the column definitions.
- */
-export abstract class AbstractCellRenderer implements ICellRendererComp {
-	eGui: any
-	protected value: any
-	protected params: any
-	constructor(parentElement = 'span') {
-		// create empty span (or other element) to place svelte component in
-		this.eGui = document.createElement(parentElement)
-	}
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'boolean'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
+		case 'mysql': {
+			const baseType = type.split('(')[0].toLowerCase() // Ensure case-insensitive comparison
+			const validTextTypes = ['varchar', 'text', 'char', 'mediumtext', 'longtext', 'tinytext']
+			const validNumberTypes = ['int', 'bigint', 'decimal', 'numeric', 'float', 'double']
+			const validDateTypes = ['date', 'datetime', 'timestamp', 'time', 'year']
 
-	init(params: ICellRendererParams & { onClick?: (data: any) => void }) {
-		this.value = params.value
-		this.createComponent(params)
-		this.eGui.addEventListener('click', () => params.onClick?.(params.data))
-		this.params = params
-	}
-
-	getGui() {
-		return this.eGui
-	}
-
-	refresh(params: ICellRendererParams) {
-		this.value = params.value
-		this.eGui.innerHTML = ''
-
-		return true
-	}
-
-	/**
-	 * Define and create the svelte component to use in the cell
-	 * @example
-	 * // This is all you need to do within this method: create the component with new, specify the target
-	 * // is the class, and pass in props via the params.
-	 * new CampusIcon({
-	 *    target: this.eGui,
-	 *    props: {
-	 *        color: params.data?.color,
-	 *        name: params.data?.name
-	 * }
-	 * @param params params for rendering the call, including the value for the cell
-	 */
-	abstract createComponent(params: ICellRendererParams): void
-}
-
-/**
- * Creates a cell renderer using the given callback for how to initialise a svelte component.
- * See AbstractCellRenderer.createComponent
- * @param svelteComponent function for how to create the svelte component
- * @returns
- */
-export function cellRendererFactory(
-	svelteComponent: (cell: AbstractCellRenderer, params: ICellRendererParams) => void
-) {
-	class Renderer extends AbstractCellRenderer {
-		createComponent(params: ICellRendererParams<any, any>): void {
-			svelteComponent(this, params)
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'boolean'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
+		default: {
+			return 'text'
 		}
 	}
-	return Renderer
+}
+
+export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: Preview.language) {
+	// Filter out hidden columns to avoid counting the wrong number of rows
+	return columnDefs
+		.filter((columnDef: ColumnDef) => columnDef && columnDef.hide !== true)
+		.map((column) => {
+			switch (dbType) {
+				case 'postgresql':
+					return `"${column?.field}"` // PostgreSQL uses double quotes for identifiers
+				case 'mssql':
+					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
+				case 'mysql':
+					return `\`${column?.field}\`` // MySQL uses backticks
+				default:
+					throw new Error('Unsupported database type')
+			}
+		})
+}
+
+export function getLanguageByResourceType(name: string) {
+	const language = {
+		postgresql: Preview.language.POSTGRESQL,
+		mysql: Preview.language.MYSQL,
+		mssql: Preview.language.MSSQL
+	}
+	return language[name]
 }

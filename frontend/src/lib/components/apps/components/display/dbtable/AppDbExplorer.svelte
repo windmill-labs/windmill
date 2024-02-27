@@ -10,7 +10,6 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
-		createDbInput,
 		getDbSchemas,
 		loadTableMetaData,
 		type ColumnMetadata,
@@ -35,6 +34,8 @@
 	import InsertRowRunnable from './InsertRowRunnable.svelte'
 	import DeleteRow from './DeleteRow.svelte'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+	import { getSelectInput } from './queries/select'
+	import type { Preview } from '$lib/gen'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -61,6 +62,11 @@
 		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
 	)
 
+	// NOT SURE
+	$: if (resolvedConfig.whereClause || resolvedConfig.columnDefs) {
+		refreshCount++
+	}
+
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
 		if (timeoutInput) {
@@ -70,12 +76,12 @@
 			timeoutInput = undefined
 			console.log('compute input')
 			aggrid?.clearRows()
-			input = createDbInput(
+			input = getSelectInput(
 				resource,
 				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
 				columnDefs,
 				whereClause,
-				resolvedConfig.type.selected
+				resolvedConfig.type.selected as Preview.language
 			)
 		}, 1000)
 	}
@@ -248,9 +254,11 @@
 				{
 					done: (x) => {
 						let lastRow = -1
+
 						if (datasource.rowCount && datasource.rowCount <= params.endRow) {
 							lastRow = datasource.rowCount
 						}
+
 						if (x && Array.isArray(x)) {
 							params.successCallback(
 								x.map((x) => {
@@ -267,6 +275,8 @@
 						} else {
 							params.failCallback()
 						}
+
+						console.log('DONE', params, datasource.rowCount)
 					},
 					cancel: () => {
 						console.log('cancel datasource request')
@@ -327,6 +337,15 @@
 			if (!oldMap[key]) {
 				ncols.push(value)
 			}
+		})
+
+		// Mysql capitalizes the column names, so we make sure to lowercase them
+		ncols = ncols.map((x) => {
+			let o = {}
+			Object.keys(x).forEach((k) => {
+				o[k.toLowerCase()] = x[k]
+			})
+			return o
 		})
 
 		state = undefined
@@ -452,6 +471,8 @@
 	table={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.table ?? ''}
 	resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource ?? ''}
 	resourceType={resolvedConfig?.type?.selected}
+	columnDefs={resolvedConfig?.columnDefs}
+	whereClause={resolvedConfig?.whereClause}
 />
 
 <InitializeComponent {id} />
@@ -517,7 +538,12 @@
 				<Button color="dark" size="xs" on:click={insert} disabled={!isInsertable}>Insert</Button>
 			</svelte:fragment>
 
-			<InsertRow bind:args bind:isInsertable columnDefs={resolvedConfig.columnDefs} />
+			<InsertRow
+				bind:args
+				bind:isInsertable
+				columnDefs={resolvedConfig.columnDefs}
+				databaseType={resolvedConfig.type.selected}
+			/>
 		</DrawerContent>
 	</Drawer>
 </Portal>

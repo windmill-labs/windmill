@@ -16,7 +16,7 @@
 	import type { Output } from '$lib/components/apps/rx'
 	import type { InitConfig } from '$lib/components/apps/editor/appUtils'
 	import { Button } from '$lib/components/common'
-	import { cellRendererFactory } from '../dbtable/utils'
+	import { cellRendererFactory } from './utils'
 	import { Trash2 } from 'lucide-svelte'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -31,6 +31,8 @@
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
+
+	$: console.trace('datasource', datasource)
 
 	const { app, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -222,9 +224,8 @@
 
 	let oldDatasource = datasource
 	$: if (datasource && datasource != oldDatasource) {
-		console.log('datasource changed')
-
 		oldDatasource = datasource
+
 		api?.updateGridOptions({ datasource })
 	}
 

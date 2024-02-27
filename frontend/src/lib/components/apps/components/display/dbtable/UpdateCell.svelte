@@ -23,6 +23,12 @@
 
 	let input: AppInput | undefined = undefined
 
+	const keyByDatabase: Record<string, string> = {
+		mysql: 'value_to_update',
+		postgresql: 'valueToUpdate',
+		mssql: 'valueToUpdate'
+	}
+
 	export async function triggerUpdate(
 		resource: string,
 		table: string,
@@ -52,7 +58,7 @@
 				undefined,
 				undefined,
 				undefined,
-				{ valueToUpdate, ...ndata },
+				{ [keyByDatabase[resourceType]]: valueToUpdate, ...ndata },
 				{
 					done: (x) => {
 						sendUserToast('Value updated', false)
