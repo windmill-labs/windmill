@@ -300,12 +300,25 @@ fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
 
 fn parse_val(value: &Value, typ: &str) -> Value {
     let str_value = value.as_str().unwrap_or("").to_string();
-    match typ.to_lowercase().as_str() {
-        "boolean" => json!(str_value.parse::<bool>().ok().unwrap_or(false)),
+    let val = match typ.to_lowercase().as_str() {
+        "boolean" => str_value.parse::<bool>().ok().map(|v| json!(v)),
         "real" | "time" | "timestamp_ltz" | "timestamp_ntz" => {
-            json!(str_value.parse::<f64>().ok().unwrap_or(0.0))
+            str_value.parse::<f64>().ok().map(|v| json!(v))
         }
-        "fixed" | "date" | "number" => json!(str_value.parse::<i64>().ok().unwrap_or(0)),
-        _ => value.clone(),
+        "fixed" | "date" | "number" => str_value
+            .parse::<i64>()
+            .ok()
+            .map(|v| json!(v))
+            .or(str_value.parse::<f64>().ok().map(|v| json!(v))),
+        _ => Some(value.clone()),
+    };
+
+    if let Some(val) = val {
+        val
+    } else {
+        json!(format!(
+            "ERR: Could not parse {} argument with value {}",
+            typ, str_value
+        ))
     }
 }
