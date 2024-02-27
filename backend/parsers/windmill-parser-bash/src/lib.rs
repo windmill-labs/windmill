@@ -88,6 +88,7 @@ fn parse_powershell_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                     "string" => Typ::Str(None),
                     "int" | "long" => Typ::Int,
                     "decimal" | "double" | "single" => Typ::Float,
+                    "datetime" | "DateTime" => Typ::Datetime,
                     _ => Typ::Str(None),
                 },
                 default: default.clone(),

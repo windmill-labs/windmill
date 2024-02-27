@@ -1,5 +1,68 @@
 # Changelog
 
+## [1.279.0](https://github.com/windmill-labs/windmill/compare/v1.278.5...v1.279.0) (2024-02-27)
+
+
+### Features
+
+* add ee flag to common ([#3300](https://github.com/windmill-labs/windmill/issues/3300)) ([ec10b3f](https://github.com/windmill-labs/windmill/commit/ec10b3ff8135e66a91209bcd4f2321e5272421e7))
+
+
+### Bug Fixes
+
+* handle very large ints as floats in snowflake ([#3302](https://github.com/windmill-labs/windmill/issues/3302)) ([66e4699](https://github.com/windmill-labs/windmill/commit/66e46990b23fbae94910501120bc2c0d501e49d9))
+* improve handling of parallel flow branches of more than 30s ([4285f1e](https://github.com/windmill-labs/windmill/commit/4285f1e47dd3d77f8916cda174f96468b808105e))
+
+## [1.278.5](https://github.com/windmill-labs/windmill/compare/v1.278.4...v1.278.5) (2024-02-26)
+
+
+### Bug Fixes
+
+* fix scheduling of overlapping flows ([49be282](https://github.com/windmill-labs/windmill/commit/49be282d215bf9802a073c390c778c531f782c4b))
+
+## [1.278.4](https://github.com/windmill-labs/windmill/compare/v1.278.3...v1.278.4) (2024-02-26)
+
+
+### Bug Fixes
+
+* clarify pg migration logs ([2ba5bc6](https://github.com/windmill-labs/windmill/commit/2ba5bc673faf11e419e0c8600acd7dbcdb2d7601))
+
+## [1.278.3](https://github.com/windmill-labs/windmill/compare/v1.278.2...v1.278.3) (2024-02-26)
+
+
+### Bug Fixes
+
+* add bigint support to mysql ([#3294](https://github.com/windmill-labs/windmill/issues/3294)) ([6a0ed19](https://github.com/windmill-labs/windmill/commit/6a0ed19c807f618b2eb7c50a56412452af890b75))
+* crash on init script failure ([c7f6e6f](https://github.com/windmill-labs/windmill/commit/c7f6e6f9d5ab4f1f5ca93d054804b2053c3afce6))
+
+## [1.278.2](https://github.com/windmill-labs/windmill/compare/v1.278.1...v1.278.2) (2024-02-26)
+
+
+### Bug Fixes
+
+* add HOME to pip install ([b242251](https://github.com/windmill-labs/windmill/commit/b24225124a9591f719e7b2219682f2e143c405c1))
+
+## [1.278.1](https://github.com/windmill-labs/windmill/compare/v1.278.0...v1.278.1) (2024-02-26)
+
+
+### Bug Fixes
+
+* add HOME to pip install ([ee0f8b6](https://github.com/windmill-labs/windmill/commit/ee0f8b691409cdb96d1d358f9822406c123fd429))
+
+## [1.278.0](https://github.com/windmill-labs/windmill/compare/v1.277.1...v1.278.0) (2024-02-26)
+
+
+### Features
+
+* **frontend:** Update shortcuts design ([#3285](https://github.com/windmill-labs/windmill/issues/3285)) ([000a481](https://github.com/windmill-labs/windmill/commit/000a4814e8aedd3d9b5a7b240bcc2be5372e9d72))
+
+
+### Bug Fixes
+
+* **frontend:** fix layout ([#3289](https://github.com/windmill-labs/windmill/issues/3289)) ([cec19c8](https://github.com/windmill-labs/windmill/commit/cec19c87b59d7c337b3fb11a792f32d67827de06))
+* handle better flow hanging monitor ([024f80a](https://github.com/windmill-labs/windmill/commit/024f80aee4c10918e011fd74f9762110bbcb1f8e))
+* improve conditional wrapper and prevent more app errors ([074a2f4](https://github.com/windmill-labs/windmill/commit/074a2f440d28d2023b04dc54f2165469dc37f048))
+
 ## [1.277.1](https://github.com/windmill-labs/windmill/compare/v1.277.0...v1.277.1) (2024-02-25)
 
 

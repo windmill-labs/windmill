@@ -14,7 +14,6 @@ use tokio::{
     join,
     sync::{mpsc, RwLock},
 };
-use uuid::Uuid;
 use windmill_api::{
     oauth2_ee::{build_oauth_clients, OAuthClient},
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
@@ -34,9 +33,7 @@ use windmill_common::{
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SendResult, BUNFIG_INSTALL_SCOPES,
-    JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SendResult, BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY
 };
 
 #[cfg(feature = "enterprise")]
@@ -816,7 +813,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         tracing::info!("timedout zombie job {} {}", job.id, job.workspace_id,);
 
         // since the job is unrecoverable, the same worker queue should never be sent anything
-        let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
+        let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<SameWorkerPayload>(1);
         let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
         let token = create_token_for_owner(
@@ -907,7 +904,7 @@ async fn handle_zombie_flows(
             );
             let (mut ntx, _) = cancel_job(
                 "monitor",
-                Some("Flow cancelled as it was hanging in between 2 steps".to_string()),
+                Some(format!("Flow {} cancelled as it was hanging in between 2 steps", flow.id)),
                 flow.id,
                 flow.workspace_id.as_str(),
                 tx,

@@ -9,7 +9,7 @@ name = "windmill_git_sync"
 path = "./src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise"]
+enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise"]
 default = []
 
 [dependencies]

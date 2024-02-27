@@ -94,6 +94,6 @@
 			: undefined}
 		on:click={() => {
 			setTimeLater(0)
-		}}>now</Button
+		}}>Now</Button
 	>
 </div>

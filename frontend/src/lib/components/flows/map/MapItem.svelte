@@ -165,7 +165,7 @@
 					on:click={() => dispatch('select', mod.id)}
 					id={mod.id}
 					{...itemProps}
-					label={mod.summary || 'Run all branches'}
+					label={mod.summary || `Run all branches${ mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
 				>
 					<div slot="icon">
