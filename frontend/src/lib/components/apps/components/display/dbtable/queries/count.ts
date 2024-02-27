@@ -1,6 +1,6 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { Preview } from '$lib/gen'
-import { buildParamters } from '../queries'
+import { buildParamters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeCountQuery(

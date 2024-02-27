@@ -75,15 +75,12 @@
 	import { cloneDeep } from 'lodash'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import {
-		type ColumnDef,
-		createDbInsert,
-		createUpdateDbInput,
-		getPrimaryKeys
-	} from '../components/display/dbtable/utils'
+	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
 	import { getSelectInput } from '../components/display/dbtable/queries/select'
+	import { getInsertInput } from '../components/display/dbtable/queries/insert'
+	import { getUpdateInput } from '../components/display/dbtable/queries/update'
 
 	async function hash(message) {
 		try {
@@ -217,7 +214,12 @@
 									id: x.id + '_count'
 								})
 								r.push({
-									input: createDbInsert(tableValue, columnDefs, resourceValue, 'postgresql'),
+									input: getInsertInput(
+										tableValue,
+										columnDefs,
+										resourceValue,
+										Preview.language.POSTGRESQL
+									),
 									id: x.id + '_insert'
 								})
 								let primaryColumns = getPrimaryKeys(columnDefs)
@@ -227,12 +229,12 @@
 									.filter((col) => col.editable || config.allEditable.value)
 									.forEach((column) => {
 										r.push({
-											input: createUpdateDbInput(
+											input: getUpdateInput(
 												resourceValue,
 												tableValue,
 												column,
 												columns,
-												'postgresql'
+												'postgresql' as Preview.language
 											),
 											id: x.id + '_update'
 										})

@@ -5,8 +5,10 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnMetadata, createDeleteDbInput } from './utils'
+	import { type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
+	import { getDeleteInput } from './queries/delete'
+	import { Preview } from '$lib/gen'
 
 	export let id: string
 
@@ -28,13 +30,13 @@
 	export async function triggerDelete(
 		resource: string,
 		table: string,
-		columns: ColumnMetadata[],
+		columns: ColumnDef[],
 		data: Record<string, any>,
-		resourceType: string
+		dbType: Preview.language
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
-		input = createDeleteDbInput(resource, table, columns, resourceType)
+		input = getDeleteInput(resource, table, columns, dbType)
 
 		await tick()
 

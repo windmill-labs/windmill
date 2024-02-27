@@ -5,8 +5,10 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdateDbInput, type ColumnMetadata, getPrimaryKeys } from './utils'
+	import { getPrimaryKeys, type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
+	import { getUpdateInput } from './queries/update'
+	import { Preview } from '$lib/gen'
 
 	export let id: string
 
@@ -32,19 +34,19 @@
 	export async function triggerUpdate(
 		resource: string,
 		table: string,
-		column: ColumnMetadata,
-		allColumns: ColumnMetadata[],
+		column: ColumnDef,
+		allColumns: ColumnDef[],
 		valueToUpdate: string,
 		data: Record<string, any>,
 		oldValue: string | undefined = undefined,
-		resourceType: string
+		dbType: Preview.language
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
 		let primaryColumns = getPrimaryKeys(allColumns)
 		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
 
-		input = createUpdateDbInput(resource, table, column, columns, resourceType)
+		input = getUpdateInput(resource, table, column, columns, dbType)
 
 		await tick()
 
@@ -58,7 +60,7 @@
 				undefined,
 				undefined,
 				undefined,
-				{ [keyByDatabase[resourceType]]: valueToUpdate, ...ndata },
+				{ [keyByDatabase[dbType]]: valueToUpdate, ...ndata },
 				{
 					done: (x) => {
 						sendUserToast('Value updated', false)

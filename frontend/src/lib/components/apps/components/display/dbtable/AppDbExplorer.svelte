@@ -12,9 +12,9 @@
 	import {
 		getDbSchemas,
 		loadTableMetaData,
-		type ColumnMetadata,
 		type TableMetadata,
-		getPrimaryKeys
+		getPrimaryKeys,
+		type ColumnDef
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
@@ -114,7 +114,7 @@
 	function onUpdate(
 		e: CustomEvent<{
 			row: number
-			columnDef: ColumnMetadata
+			columnDef: ColumnDef
 			column: string
 			value: any
 			data: any
@@ -131,7 +131,7 @@
 			value,
 			data,
 			oldValue,
-			resolvedConfig.type.selected
+			resolvedConfig.type.selected as Preview.language
 		)
 	}
 
@@ -428,7 +428,7 @@
 			resolvedConfig.type.configuration[selected].table ?? 'unknown',
 			getPrimaryKeysresolvedConfig,
 			data,
-			selected
+			selected as Preview.language
 		)
 	}
 

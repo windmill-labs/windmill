@@ -1,6 +1,6 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { Preview } from '$lib/gen'
-import { buildParamters } from '../queries'
+import { buildParamters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeSelectQuery(
@@ -22,11 +22,8 @@ function makeSelectQuery(
 		],
 		dbType
 	)
-	query += '\n'
 
-	if (whereClause) {
-		quicksearchCondition = ` ${whereClause} AND `
-	}
+	query += '\n'
 
 	const filteredColumns = buildVisibleFieldList(columnDefs, dbType)
 	const selectClause = filteredColumns.join(', ')
@@ -44,8 +41,8 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			quicksearchCondition = ` (:quicksearch = '' OR CONCAT_WS(' ', ${filteredColumns.join(
 				', '
 			)}) LIKE CONCAT('%', :quicksearch, '%'))`
-			query += `SELECT ${selectClause} FROM \`${table}\``
 
+			query += `SELECT ${selectClause} FROM \`${table}\``
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
 			query += ` ORDER BY ${orderBy}`
 			query += ` LIMIT :limit OFFSET :offset`
@@ -65,7 +62,9 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				.join(',\n')}`
 
 			quicksearchCondition = ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
-			query += `SELECT ${selectClause} FROM "${table}"`
+			query += `SELECT ${filteredColumns
+				.map((column) => `${column}::text`)
+				.join(', ')} FROM "${table}"`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
 			query += ` ORDER BY ${orderBy}`
 			query += ` LIMIT $1::INT OFFSET $2::INT`
@@ -85,10 +84,9 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				.join(',\n')
 
 			quicksearchCondition = ` (@quicksearch = '' OR CONCAT(${selectClause}) LIKE '%' + @quicksearch + '%')`
+
 			query += `SELECT ${selectClause} FROM ${table}`
-
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
-
 			query += ` ORDER BY ${orderBy}`
 			query += ` OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`
 			break

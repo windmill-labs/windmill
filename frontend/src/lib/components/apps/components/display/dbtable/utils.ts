@@ -1,192 +1,7 @@
-import type { AppInput, RunnableByName } from '../../../inputType'
 import { JobService, Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
 import { tryEvery } from '$lib/utils'
-import { makeMySQLInsertQuery, makePostgresInsertQuery } from './queries'
-
-export function createDbInsert(
-	table: string,
-	columns: ColumnDef[],
-	resource: string,
-	resourceType: string
-): AppInput {
-	return {
-		runnable: {
-			name: 'AppDbExplorer',
-			type: 'runnableByName',
-			inlineScript: {
-				content: makeInsertQuery(table, columns, resourceType),
-				language: getLanguageByResourceType(resourceType),
-				schema: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: ['database'],
-					type: 'object'
-				}
-			}
-		},
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${resourceType}`
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-}
-
-export function makeInsertQuery(table: string, columns: ColumnDef[], resourceType: string) {
-	switch (resourceType) {
-		case 'postgresql': {
-			return makePostgresInsertQuery(table, columns)
-		}
-		case 'mysql': {
-			return makeMySQLInsertQuery(table, columns)
-		}
-		default:
-			throw new Error('Unsupported database type')
-	}
-}
-
-export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
-	let r = tableMetadata?.filter((x) => x.isprimarykey)?.map((x) => x.field) ?? []
-	if (r?.length === 0) {
-		r = tableMetadata?.map((x) => x.field) ?? []
-	}
-	return r ?? []
-}
-
-export function createUpdateDbInput(
-	resource: string,
-	table: string,
-	column: ColumnMetadata,
-	columns: ColumnMetadata[],
-	resourceType: string
-): AppInput | undefined {
-	if (!resource || !table) {
-		return undefined
-	}
-
-	const query = updateWithAllValues()
-
-	function updateWithAllValues() {
-		switch (resourceType) {
-			case 'postgresql': {
-				let query = `
--- $1 valueToUpdate
-${columns.map((c, i) => `-- $${i + 2} ${c.field}`).join('\n')}
-		
-UPDATE ${table} SET ${column.field} = $1::text::${column.datatype} WHERE 
-${columns.map((c, i) => `${c.field} = $${i + 2}::text::${c.datatype} `).join(' AND ')}		
-RETURNING 1`
-
-				return query
-			}
-			case 'mysql': {
-				let query = `
--- :value_to_update (${column.datatype.split('(')[0]})
-${columns.map((c, i) => `-- :${c.field} (${c.datatype.split('(')[0]})`).join('\n')}
-
-UPDATE ${table} SET ${column.field} = :value_to_update WHERE
-${columns.map((c, i) => `${c.field} = :${c.field}`).join(' AND ')}`
-
-				return query
-			}
-			default:
-				throw new Error('Unsupported database type')
-		}
-	}
-
-	const updateRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: query,
-			language: getLanguageByResourceType(resourceType),
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {},
-				required: ['database'],
-				type: 'object'
-			}
-		}
-	}
-
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${resourceType}`
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return updateQuery
-}
-
-export function createDeleteDbInput(
-	resource: string,
-	table: string,
-	columns: ColumnMetadata[],
-	resourceType: string
-): AppInput | undefined {
-	if (!resource || !table) {
-		return undefined
-	}
-
-	const query = updateWithAllValues()
-
-	function updateWithAllValues() {
-		let query = `
-${columns.map((c, i) => `-- $${i + 1} ${c.field}`).join('\n')}
-
-DELETE FROM ${table} WHERE ${columns
-			.map((c, i) => `${c.field} = $${i + 1}::text::${c.datatype}`)
-			.join(' AND ')} RETURNING 1;`
-
-		return query
-	}
-
-	const updateRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: query,
-			language: getLanguageByResourceType(resourceType),
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {},
-				required: ['database'],
-				type: 'object'
-			}
-		}
-	}
-
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${resourceType}`
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return updateQuery
-}
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -686,4 +501,33 @@ export function getLanguageByResourceType(name: string) {
 		mssql: Preview.language.MSSQL
 	}
 	return language[name]
+}
+
+export function buildParamters(
+	columns: Array<{
+		field: string
+		datatype: string
+	}>,
+	databaseType: string
+) {
+	return columns
+		.map((column, i) => {
+			switch (databaseType) {
+				case 'postgresql':
+					return `-- $${i + 1} ${column.field}`
+				case 'mysql':
+					return `-- :${column.field} (${column.datatype.split('(')[0]})`
+				case 'mssql':
+					return `-- @${column.field} (${column.datatype.split('(')[0]})`
+			}
+		})
+		.join('\n')
+}
+
+export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
+	let r = tableMetadata?.filter((x) => x.isprimarykey)?.map((x) => x.field) ?? []
+	if (r?.length === 0) {
+		r = tableMetadata?.map((x) => x.field) ?? []
+	}
+	return r ?? []
 }

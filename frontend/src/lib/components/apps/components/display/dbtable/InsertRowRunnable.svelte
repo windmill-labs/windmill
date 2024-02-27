@@ -5,8 +5,10 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, createDbInsert } from './utils'
+	import { type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
+	import { getInsertInput } from './queries/insert'
+	import type { Preview } from '$lib/gen'
 
 	export let id: string
 
@@ -36,7 +38,7 @@
 			return false
 		}
 
-		input = createDbInsert(table, columns, resource, resourceType)
+		input = getInsertInput(table, columns, resource, resourceType as Preview.language)
 
 		await tick()
 
