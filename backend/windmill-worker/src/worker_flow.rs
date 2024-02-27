@@ -374,6 +374,14 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .execute(&mut tx)
                         .await?;
                     }
+
+                    sqlx::query!(
+                        "UPDATE queue
+                        SET last_ping = null
+                        WHERE id = $1",
+                        flow
+                    ).execute(&mut tx).await?;
+
                     tx.commit().await?;
                     return Ok(None);
                 }

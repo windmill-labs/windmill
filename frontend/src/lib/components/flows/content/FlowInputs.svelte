@@ -100,7 +100,7 @@
 			</Alert>
 		{/if}
 
-		{#if kind == 'script'}
+		{#if kind == 'script' && !noEditor}
 			<div class="mt-2" />
 			<Alert title="Action Scripts" role="info">
 				An action script is simply a script that is neither a trigger nor an approval script. Those
@@ -109,6 +109,8 @@
 		{/if}
 
 		{#if kind == 'approval'}
+			{#if !noEditor}
+				
 			<div class="mt-2" />
 			<Alert title="Approval/Prompt Step" role="info">
 				An approval/prompt step will suspend the execution of a flow until it has been approved
@@ -127,6 +129,14 @@
 					<SuspendDrawer text="Approval/Step prompt helpers" />
 				</div>
 			</Alert>
+			{:else}
+			<a
+				href="https://www.windmill.dev/docs/flows/flow_approval"
+				target="_blank"
+				class="text-blue-500">Approval/Prompt Steps Documentation</a
+			>
+			{/if}
+
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script

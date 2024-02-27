@@ -904,7 +904,7 @@ async fn handle_zombie_flows(
             );
             let (mut ntx, _) = cancel_job(
                 "monitor",
-                Some("Flow cancelled as it was hanging in between 2 steps".to_string()),
+                Some(format!("Flow {} cancelled as it was hanging in between 2 steps", flow.id)),
                 flow.id,
                 flow.workspace_id.as_str(),
                 tx,
