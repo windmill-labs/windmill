@@ -6,6 +6,7 @@ edition.workspace = true
 
 [features]
 default = []
+enterprise = []
 prometheus = ["dep:prometheus"]
 flamegraph = ["dep:tracing-flame"]
 loki = ["dep:tracing-loki"]
