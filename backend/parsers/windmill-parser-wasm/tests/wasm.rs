@@ -322,7 +322,7 @@ export type foo = number
 #[wasm_bindgen_test]
 fn test_parse_powershell_sig() -> anyhow::Result<()> {
     let code = "
-param($test1, [int]$test2, [decimal]$test3, [datetime]$test4)
+param($test_none, [string]$test_string [int]$test_int, [decimal]$test_decimal, [double]$test_double, [single]$test_single, [datetime]$test_datetime_lower, [DateTime]$test_datetime_upper)
 
 Write-Output 'Hello $a $b $c $d'
 ";
@@ -334,28 +334,56 @@ Write-Output 'Hello $a $b $c $d'
             args: vec![
                 Arg {
                     otyp: None,
-                    name: "test1".to_string(),
+                    name: "test_none".to_string(),
                     typ: Typ::Str(None),
                     default: None,
                     has_default: false
                 },
                 Arg {
                     otyp: None,
-                    name: "test2".to_string(),
+                    name: "test_string".to_string(),
+                    typ: Typ::Str(None),
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_int".to_string(),
                     typ: Typ::Int,
                     default: None,
                     has_default: false
                 },
                 Arg {
                     otyp: None,
-                    name: "test3".to_string(),
+                    name: "test_decimal".to_string(),
                     typ: Typ::Float,
                     default: None,
                     has_default: false
                 },
                 Arg {
                     otyp: None,
-                    name: "test4".to_string(),
+                    name: "test_double".to_string(),
+                    typ: Typ::Float,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_single".to_string(),
+                    typ: Typ::Float,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_datetime_lower".to_string(),
+                    typ: Typ::Datetime,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_datetime_upper".to_string(),
                     typ: Typ::Datetime,
                     default: None,
                     has_default: false
