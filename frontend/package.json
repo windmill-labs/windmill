@@ -133,7 +133,7 @@
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.1.0",
-		"windmill-parser-wasm": "^1.278.5",
+		"windmill-parser-wasm": "^1.279.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yaml": "^2.3.4",

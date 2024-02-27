@@ -16,7 +16,8 @@ import init, {
 	parse_powershell,
 	parse_outputs,
 	parse_mssql,
-	parse_ts_imports
+	parse_ts_imports,
+	parse_db_resource
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -53,6 +54,11 @@ export async function inferArgs(
 		if (code == '') {
 			code = ' '
 		}
+
+		let inlineDBResource: string | undefined = undefined
+		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language)) {
+			inlineDBResource = parse_db_resource(code)
+		}
 		if (language == 'python3') {
 			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
@@ -63,31 +69,47 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'postgresql') {
 			inferedSchema = JSON.parse(parse_sql(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'postgresql' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{
+						name: 'database',
+						typ: { resource: 'postgresql' }
+					},
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'mysql') {
 			inferedSchema = JSON.parse(parse_mysql(code))
-			inferedSchema.args = [{ name: 'database', typ: { resource: 'mysql' } }, ...inferedSchema.args]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'mysql' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'bigquery') {
 			inferedSchema = JSON.parse(parse_bigquery(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'bigquery' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'bigquery' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'snowflake' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'snowflake' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'mssql') {
 			inferedSchema = JSON.parse(parse_mssql(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'ms_sql_server' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'ms_sql_server' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'graphql') {
 			inferedSchema = JSON.parse(parse_graphql(code))
 			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
