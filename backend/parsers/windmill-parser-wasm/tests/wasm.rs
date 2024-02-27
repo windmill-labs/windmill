@@ -324,7 +324,7 @@ fn test_parse_powershell_sig() -> anyhow::Result<()> {
     let code = "
 param($test_none, [string]$test_string [int]$test_int, [decimal]$test_decimal, [double]$test_double, [single]$test_single, [datetime]$test_datetime_lower, [DateTime]$test_datetime_upper)
 
-Write-Output 'Hello $a $b $c $d'
+Write-Output 'Testing...'
 ";
     assert_eq!(
         parse_powershell_sig(code)?,
