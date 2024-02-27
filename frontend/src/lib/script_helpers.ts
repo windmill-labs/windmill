@@ -137,29 +137,34 @@ export async function main(message: string, name: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `-- $1 name1 = default arg
+export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
 INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *
 `
 
-export const MYSQL_INIT_CODE = `-- :name1 (text) = default arg
+export const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- :name1 (text) = default arg
 -- :name2 (int)
 INSERT INTO demo VALUES (:name1, :name2)
 `
 
-export const BIGQUERY_INIT_CODE = `-- @name1 (string) = default arg
+export const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
 INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3)
 `
 
-export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
+export const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?)
 `
 
-export const MSSQL_INIT_CODE = `-- @p1 name1 (varchar) = default arg
+export const MSSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
 INSERT INTO demo VALUES (@p1, @p2)
 `

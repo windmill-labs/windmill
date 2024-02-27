@@ -57,8 +57,15 @@ pub fn parse_mssql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
+pub fn parse_db_resource(code: &str) -> Option<String> {
+    let cap = RE_DB.captures(code);
+    cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
+}
+
 lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
+
+    static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
