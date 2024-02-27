@@ -238,6 +238,7 @@
 	{isSkipped}
 	{argFilter}
 	{resultFilter}
+	{hideSchedules}
 	{schedulePath}
 	{jobKindsCat}
 	computeMinAndMax={manualDatePicker?.computeMinMax}
