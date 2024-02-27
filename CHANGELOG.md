@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.280.0](https://github.com/windmill-labs/windmill/compare/v1.279.0...v1.280.0) (2024-02-27)
+
+
+### Features
+
+* allow to pin database in sql scripts ([#3304](https://github.com/windmill-labs/windmill/issues/3304)) ([1c6e767](https://github.com/windmill-labs/windmill/commit/1c6e767617d0c7ac9bd2975c070c64128ce2ed02))
+
+
+### Bug Fixes
+
+* solve deadlock issues for parallel branches with new progress monitor ([be7c03b](https://github.com/windmill-labs/windmill/commit/be7c03bda2a0ab61fd0f10924446b234b642f2a0))
+
 ## [1.279.0](https://github.com/windmill-labs/windmill/compare/v1.278.5...v1.279.0) (2024-02-27)
 
 
