@@ -13,6 +13,7 @@ export function parse_mysql(a: number, b: number, c: number): void;
 export function parse_bigquery(a: number, b: number, c: number): void;
 export function parse_snowflake(a: number, b: number, c: number): void;
 export function parse_mssql(a: number, b: number, c: number): void;
+export function parse_db_resource(a: number, b: number, c: number): void;
 export function parse_graphql(a: number, b: number, c: number): void;
 export function __wbindgen_malloc(a: number, b: number): number;
 export function __wbindgen_realloc(a: number, b: number, c: number, d: number): number;

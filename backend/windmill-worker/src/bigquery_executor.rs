@@ -3,7 +3,7 @@ use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::parse_bigquery_sig;
+use windmill_parser_sql::{parse_bigquery_sig, parse_db_resource};
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
@@ -68,14 +68,28 @@ pub async fn do_bigquery(
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, db).await?;
 
-    let database = bigquery_args
-        .get("database")
-        .unwrap_or(&json!({}))
-        .to_string();
+    let inline_db_res_path = parse_db_resource(&query);
 
-    if database == "{}" {
-        return Err(Error::ExecutionErr("Invalid database".to_string()));
-    }
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
+    } else {
+        bigquery_args.get("database").cloned()
+    };
+
+    let database = if let Some(db) = db_arg {
+        db.to_string()
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
 
     let service_account = CustomServiceAccount::from_json(&database)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;

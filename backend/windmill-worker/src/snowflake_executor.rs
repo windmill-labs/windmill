@@ -9,7 +9,7 @@ use windmill_common::error::to_anyhow;
 
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::parse_snowflake_sig;
+use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig};
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
@@ -74,10 +74,29 @@ pub async fn do_snowflake(
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let snowflake_args = build_args_values(job, client, db).await?;
 
-    let database = serde_json::from_value::<SnowflakeDatabase>(
-        snowflake_args.get("database").unwrap_or(&json!({})).clone(),
-    )
-    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let inline_db_res_path = parse_db_resource(&query);
+
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
+    } else {
+        snowflake_args.get("database").cloned()
+    };
+
+    let database = if let Some(db) = db_arg {
+        serde_json::from_value::<SnowflakeDatabase>(db.clone())
+            .map_err(|e| Error::ExecutionErr(e.to_string()))?
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
 
     let qualified_username = format!(
         "{}.{}",
