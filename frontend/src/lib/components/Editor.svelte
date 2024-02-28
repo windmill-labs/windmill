@@ -789,7 +789,7 @@
 					}
 					await initWasm()
 					const root = await genRoot(hostname)
-
+					console.log('SETUP TYPE ACQUISITION', { root, path })
 					ata = setupTypeAcquisition({
 						projectName: 'Windmill',
 						depsParser: (c) => {
