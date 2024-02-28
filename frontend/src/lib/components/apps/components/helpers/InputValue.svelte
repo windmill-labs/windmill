@@ -267,7 +267,6 @@
 			const r = await eval_like(
 				input.expr,
 				context,
-				true,
 				$state,
 				$mode == 'dnd',
 				$componentControl,
@@ -292,7 +291,6 @@
 				const r = await eval_like(
 					'`' + input.eval + '`',
 					computeGlobalContext($worldStore, fullContext),
-					true,
 					$state,
 					$mode == 'dnd',
 					$componentControl,
