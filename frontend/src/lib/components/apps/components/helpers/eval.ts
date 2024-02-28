@@ -64,7 +64,6 @@ function make_context_evaluator(
 	showToast
 ) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
-	console.log(template)
 	let functor = Function(template)
 
 	return functor()
@@ -144,7 +143,6 @@ export async function eval_like(
 		}
 	})
 	let evaluator = make_context_evaluator(text, context, noReturn)
-	console.log("BAR")
 	const r = await evaluator(
 		context,
 		proxiedState,
@@ -203,7 +201,5 @@ export async function eval_like(
 			sendUserToast(message, error)
 		}
 	)
-	console.log("FOO")
-	console.log(r)
 	return r
 }
