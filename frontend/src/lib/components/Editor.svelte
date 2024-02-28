@@ -762,7 +762,7 @@
 					const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
 					languages.typescript.javascriptDefaults.setExtraLibs([stdLib, denoFetch])
 				}
-				if (scriptLang == 'bun') {
+				if (scriptLang == 'bun' && ata == undefined) {
 					const addLibraryToRuntime = async (code: string, _path: string) => {
 						const path = 'file://' + _path
 						let uri = mUri.parse(path)
@@ -954,6 +954,7 @@
 		console.log('path changed, reloading language server', initialPath, path)
 		initialPath = path
 		pathTimeout && clearTimeout(pathTimeout)
+		ata = undefined
 		pathTimeout = setTimeout(reloadWebsocket, 1000)
 	}
 
