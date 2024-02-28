@@ -11,10 +11,11 @@
 		OpenAPI,
 		Preview,
 		type OpenFlow,
-		type FlowModule
+		type FlowModule,
+		WorkspaceService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
@@ -34,6 +35,7 @@
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import { workspacedOpenai } from './copilot/lib'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -45,8 +47,24 @@
 		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
 	}
 
+	async function setCopilotInfo() {
+		if (workspace) {
+			workspacedOpenai.init(workspace)
+			try {
+				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
+			} catch (err) {
+				copilotInfo.set({
+					exists_openai_resource_path: false,
+					code_completion_enabled: false
+				})
+
+				console.error('Could not get copilot info')
+			}
+		}
+	}
 	$: if (workspace) {
 		$workspaceStore = workspace
+		setCopilotInfo()
 	}
 
 	$: if (workspace && token) {
