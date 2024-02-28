@@ -19,6 +19,9 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 }
 
 function create_context_function_template(eval_string: string, context, noReturn: boolean) {
+	let lastBreak = eval_string.lastIndexOf('\n')
+	let lines = lastBreak == -1 ? "" : eval_string.substring(0, lastBreak)
+	let lastLine = lastBreak == -1 ? eval_string : eval_string.substring(lastBreak + 1)
 	return `
 return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
 "use strict";
@@ -27,10 +30,11 @@ ${
 		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
 		: ``
 }
+${lines}
 ${
 	noReturn
-		? `return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
-		: eval_string
+		? `return ${lastLine.startsWith('return ') ? lastLine.substring(7) : lastLine}`
+		: lastLine
 }
 }                                                                                                                   
 `
@@ -60,6 +64,7 @@ function make_context_evaluator(
 	showToast
 ) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
+	console.log(template)
 	let functor = Function(template)
 
 	return functor()
@@ -139,8 +144,8 @@ export async function eval_like(
 		}
 	})
 	let evaluator = make_context_evaluator(text, context, noReturn)
-
-	return await evaluator(
+	console.log("BAR")
+	const r = await evaluator(
 		context,
 		proxiedState,
 		async (x, newTab) => {
@@ -198,4 +203,7 @@ export async function eval_like(
 			sendUserToast(message, error)
 		}
 	)
+	console.log("FOO")
+	console.log(r)
+	return r
 }
