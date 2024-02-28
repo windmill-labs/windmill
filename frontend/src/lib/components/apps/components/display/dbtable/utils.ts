@@ -108,19 +108,20 @@ export async function loadTableMetaData(
 		// TODO: TEST
 		code = `
 		SELECT 
-		COLUMN_NAME as field,
-		DATA_TYPE as DataType,
-		COLUMN_DEFAULT as DefaultValue,
-		CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
-		CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN true ELSE 'NO' END as IsPrimaryKey,
-		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-		CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
-	FROM	
-		INFORMATION_SCHEMA.COLUMNS
-	WHERE	
-		TABLE_NAME = '${table}'
-	ORDER BY
-		ORDINAL_POSITION;
+    COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    COLUMN_DEFAULT as DefaultValue,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
+    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+FROM    
+    INFORMATION_SCHEMA.COLUMNS
+WHERE   
+    TABLE_NAME = '${table}'
+ORDER BY
+    ORDINAL_POSITION;
+
 	`
 	}
 
@@ -150,7 +151,11 @@ export async function loadTableMetaData(
 			if (testResult.success) {
 				attempts = maxRetries
 
-				return testResult.result
+				if (resourceType === 'ms_sql_server') {
+					return testResult.result[0]
+				} else {
+					return testResult.result
+				}
 			} else {
 				attempts++
 			}

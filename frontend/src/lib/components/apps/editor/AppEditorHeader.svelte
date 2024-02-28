@@ -234,7 +234,7 @@
 												tableValue,
 												column,
 												columns,
-												'postgresql' as Preview.language
+												'postgresql' as DbType
 											),
 											id: x.id + '_update'
 										})

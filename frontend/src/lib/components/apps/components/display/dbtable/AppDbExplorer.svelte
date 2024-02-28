@@ -72,6 +72,7 @@
 			timeoutInput = undefined
 			console.log('compute input')
 			aggrid?.clearRows()
+
 			input = getSelectInput(
 				resource,
 				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
@@ -127,7 +128,7 @@
 			value,
 			data,
 			oldValue,
-			resolvedConfig.type.selected as Preview.language
+			resolvedConfig.type.selected as DbType
 		)
 	}
 
@@ -272,6 +273,7 @@
 			if (!cache.promise || paramsChanged(currentParams)) {
 				console.debug('Parameters changed or no ongoing request, fetching new data for ID:', id)
 				cache.params = currentParams // Update the cache with the new parameters
+
 				cache.promise = runnableComponent?.runComponent(
 					undefined,
 					undefined,
@@ -286,6 +288,11 @@
 							}
 
 							if (x && Array.isArray(x)) {
+								// MsSql response have an outer array, we need to flatten it
+								if (resolvedConfig.type.selected === 'ms_sql_server') {
+									x = x?.[0]
+								}
+
 								let processedData = x.map((x) => {
 									let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
 									let o = {}
@@ -330,10 +337,11 @@
 	let timeout: NodeJS.Timeout | undefined = undefined
 	async function listColumnsIfAvailable() {
 		const selected = resolvedConfig.type.selected
-		let table = resolvedConfig.type.configuration?.[selected]?.table
-		if (lastTable === table) return
-		lastTable = table
+		let table = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.table
 
+		if (lastTable === table) return
+
+		lastTable = table
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
 			$workspaceStore,
@@ -383,7 +391,6 @@
 
 		state = undefined
 
-		debugger
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
 		gridItem.data = gridItem.data

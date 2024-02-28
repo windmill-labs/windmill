@@ -77,17 +77,17 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			const orderBy = columnDefs
 				.map((column) => {
 					return `
-(CASE WHEN @order_by = '${column.field}' AND @is_desc = 0 THEN ${column.field} END) ASC,
-(CASE WHEN @order_by = '${column.field}' AND @is_desc = 1 THEN ${column.field} END) DESC`
+(CASE WHEN @p4 = '${column.field}' AND @p5 = 0 THEN ${column.field} END) ASC,
+(CASE WHEN @p4 = '${column.field}' AND @p5 = 1 THEN ${column.field} END) DESC`
 				})
 				.join(',\n')
 
-			quicksearchCondition = ` (@quicksearch = '' OR CONCAT(${selectClause}) LIKE '%' + @quicksearch + '%')`
+			quicksearchCondition = ` (@p3 = '' OR CONCAT(${selectClause}) LIKE '%' + @p3 + '%')`
 
 			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
 			query += ` ORDER BY ${orderBy}`
-			query += ` OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`
+			query += ` OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
 			break
 		default:
 			throw new Error('Unsupported database type')

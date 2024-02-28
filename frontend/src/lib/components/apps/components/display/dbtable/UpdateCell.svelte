@@ -5,10 +5,9 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { getPrimaryKeys, type ColumnDef } from './utils'
+	import { getPrimaryKeys, type ColumnDef, type DbType } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getUpdateInput } from './queries/update'
-	import { Preview } from '$lib/gen'
 
 	export let id: string
 
@@ -39,7 +38,7 @@
 		valueToUpdate: string,
 		data: Record<string, any>,
 		oldValue: string | undefined = undefined,
-		dbType: Preview.language
+		dbType: DbType
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
