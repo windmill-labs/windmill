@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.281.3](https://github.com/windmill-labs/windmill/compare/v1.281.2...v1.281.3) (2024-02-28)
+
+
+### Bug Fixes
+
+* table-col/row switch issue in display result ([#3311](https://github.com/windmill-labs/windmill/issues/3311)) ([0e6b164](https://github.com/windmill-labs/windmill/commit/0e6b164e166ba1abe2dfcf6b219146c25b1191f2))
+
 ## [1.281.2](https://github.com/windmill-labs/windmill/compare/v1.281.1...v1.281.2) (2024-02-28)
 
 
