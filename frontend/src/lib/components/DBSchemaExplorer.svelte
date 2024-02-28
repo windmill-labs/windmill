@@ -42,7 +42,6 @@
 					}
 				}
 			)
-
 			$dbSchemas = $dbSchemas
 		} catch (e) {
 			console.error(e)
