@@ -23,9 +23,7 @@ function create_context_function_template(
 	contextKeys: string[],
 	noReturn: boolean
 ) {
-	let lastBreak = eval_string.lastIndexOf('\n')
-	let lines = lastBreak == -1 ? '' : eval_string.substring(0, lastBreak)
-	let lastLine = lastBreak == -1 ? eval_string : eval_string.substring(lastBreak + 1)
+	let hasReturnAsLastLine = eval_string.split('\n').some((x) => x.trim().startsWith('return '))
 	return `
 return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
 "use strict";
@@ -34,12 +32,13 @@ ${
 		? `let ${contextKeys.map((key) => ` ${key} = context['${key}']`)};`
 		: ``
 }
-${lines}
 ${
-	noReturn
-		? `return ${lastLine.startsWith('return ') ? lastLine.substring(7) : lastLine}`
-		: lastLine
+	hasReturnAsLastLine
+		? eval_string
+		: `
+return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
 }
+
 }                                                                                                                   
 `
 }
@@ -71,6 +70,7 @@ function make_context_evaluator(eval_string, contextKeys: string[], noReturn: bo
 		return functorCache[cacheKey]
 	}
 	let template = create_context_function_template(eval_string, contextKeys, noReturn)
+	console.log(template)
 	let functor = Function(template)
 	let r = functor()
 	functorCache[cacheKey] = r
