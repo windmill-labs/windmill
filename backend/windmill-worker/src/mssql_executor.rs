@@ -11,7 +11,7 @@ use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
-use windmill_parser_sql::parse_mssql_sig;
+use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::CanceledBy;
 
 use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
@@ -38,7 +38,24 @@ pub async fn do_mssql(
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
-    let database = if let Some(db) = mssql_args.get("database") {
+    let inline_db_res_path = parse_db_resource(&query);
+
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
+    } else {
+        mssql_args.get("database").cloned()
+    };
+
+    let database = if let Some(db) = db_arg {
         serde_json::from_value::<MssqlDatabase>(db.clone())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {

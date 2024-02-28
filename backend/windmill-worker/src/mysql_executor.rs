@@ -11,7 +11,7 @@ use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
 };
-use windmill_parser_sql::{parse_mysql_sig, RE_ARG_MYSQL_NAMED};
+use windmill_parser_sql::{parse_db_resource, parse_mysql_sig, RE_ARG_MYSQL_NAMED};
 use windmill_queue::CanceledBy;
 
 use crate::{
@@ -45,7 +45,27 @@ pub async fn do_mysql(
         job.args.as_ref()
     };
 
-    let database = if let Some(db) = job_args.and_then(|x| x.get("database")) {
+    let inline_db_res_path = parse_db_resource(&query);
+
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        let val = client
+            .get_authed()
+            .await
+            .get_resource_value_interpolated::<serde_json::Value>(
+                &inline_db_res_path,
+                Some(job.id.to_string()),
+            )
+            .await?;
+
+        let as_raw = serde_json::from_value(val)
+            .map_err(|e| Error::InternalErr(format!("Error while parsing inline resource: {e}")))?;
+
+        Some(as_raw)
+    } else {
+        job_args.and_then(|x| x.get("database").cloned())
+    };
+
+    let database = if let Some(db) = db_arg {
         serde_json::from_str::<MysqlDatabase>(db.get())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {

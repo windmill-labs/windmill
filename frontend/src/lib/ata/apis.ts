@@ -1,21 +1,19 @@
-import type { ATABootstrapConfig } from './index'
-
 //  https://github.com/jsdelivr/data.jsdelivr.com
 
-export const getNPMVersionsForModule = (config: ATABootstrapConfig, moduleName: string) => {
+export const getNPMVersionsForModule = (moduleName: string, resLimit: ResLimit) => {
 	const url = `https://data.jsdelivr.com/v1/package/npm/${moduleName}`
-	return api<{ tags: Record<string, string>; versions: string[] }>(config, url, {
+	return api<{ tags: Record<string, string>; versions: string[] }>(url, resLimit, {
 		cache: 'no-store'
 	})
 }
 
 export const getNPMVersionForModuleReference = (
-	config: ATABootstrapConfig,
 	moduleName: string,
-	reference: string
+	reference: string,
+	resLimit: ResLimit
 ) => {
 	const url = `https://data.jsdelivr.com/v1/package/resolve/npm/${moduleName}@${reference}`
-	return api<{ version: string | null }>(config, url)
+	return api<{ version: string | null }>(url, resLimit)
 }
 
 export type NPMTreeMeta = {
@@ -27,13 +25,13 @@ export type NPMTreeMeta = {
 }
 
 export const getFiletreeForModuleWithVersion = async (
-	config: ATABootstrapConfig,
 	moduleName: string,
 	version: string,
-	raw: string
+	raw: string,
+	resLimit: ResLimit
 ) => {
 	const url = `https://data.jsdelivr.com/v1/package/npm/${moduleName}@${version}/flat`
-	const res = await api<NPMTreeMeta>(config, url)
+	const res = await api<NPMTreeMeta>(url, resLimit)
 	if (res instanceof Error) {
 		return res
 	} else {
@@ -47,7 +45,6 @@ export const getFiletreeForModuleWithVersion = async (
 }
 
 export const getDTSFileForModuleWithVersion = async (
-	config: ATABootstrapConfig,
 	moduleName: string,
 	version: string,
 	file: string
@@ -62,10 +59,30 @@ export const getDTSFileForModuleWithVersion = async (
 	}
 }
 
-function api<T>(config: ATABootstrapConfig, url: string, init?: RequestInit): Promise<T | Error> {
+export interface ResLimit {
+	usage: number
+}
+
+export function isOverlimit(resLimit: ResLimit) {
+	return resLimit.usage > 500000
+}
+
+function api<T>(url: string, resLimit: ResLimit, init?: RequestInit): Promise<T | Error> {
+	if (isOverlimit(resLimit)) {
+		console.warn(
+			`Exceeded limit of types downloaded for the needs of the assistant fetching: ${url}`
+		)
+		return new Promise(() => new Error('Exceeded limit of 100MB of data downloaded.'))
+	}
+
 	return fetch(url, init).then((res) => {
 		if (res.ok) {
-			return res.json().then((f) => f as T)
+			return res.text().then((text) => {
+				resLimit.usage += text.length
+				console.log('resLimit', url, resLimit.usage)
+
+				return JSON.parse(text) as T
+			}) as Promise<T | Error>
 		} else {
 			return new Error('OK')
 		}

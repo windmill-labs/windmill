@@ -263,7 +263,7 @@ const scripts: Record<
 		argName: 'api'
 	},
 	bigquery: {
-		code: `import { BigQuery } from 'npm:@google-cloud/bigquery@7.2.0';
+		code: `import { BigQuery } from '@google-cloud/bigquery';
 export async function main(args: bigquery) {
 const bq = new BigQuery({
 	credentials: args
@@ -290,7 +290,7 @@ GROUP BY table_name".replace('{dataset.id}', dataset.id)
 }
 return schema
 }`, // nested template literals
-		lang: 'deno',
+		lang: 'bun',
 		argName: 'args'
 	},
 	snowflake: {

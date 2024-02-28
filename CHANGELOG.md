@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.281.1](https://github.com/windmill-labs/windmill/compare/v1.281.0...v1.281.1) (2024-02-28)
+
+
+### Bug Fixes
+
+* fix app expr break ([d1bb6a6](https://github.com/windmill-labs/windmill/commit/d1bb6a6924eded9a333e0314df362f480b14e0ef))
+
+## [1.281.0](https://github.com/windmill-labs/windmill/compare/v1.280.0...v1.281.0) (2024-02-28)
+
+
+### Features
+
+* implement progress monitor for parallel branches last transition ([fc34594](https://github.com/windmill-labs/windmill/commit/fc34594aeb95f7a4a7f936032447b3289a12642b))
+* improve performance of exprs in apps using memoized expr functors ([afa3c54](https://github.com/windmill-labs/windmill/commit/afa3c54140537fffdbab4193adf6af4a737cc2e7))
+
+
+### Bug Fixes
+
+* add limits to bun auto-type fetching ([ad3c551](https://github.com/windmill-labs/windmill/commit/ad3c551d664816ff4ef12d237e48a079d91af037))
+* allow eval with return in last line ([260468c](https://github.com/windmill-labs/windmill/commit/260468cf737e9836cf9ac6b7bc274b98e55fdc93))
+
+## [1.280.0](https://github.com/windmill-labs/windmill/compare/v1.279.0...v1.280.0) (2024-02-27)
+
+
+### Features
+
+* allow to pin database in sql scripts ([#3304](https://github.com/windmill-labs/windmill/issues/3304)) ([1c6e767](https://github.com/windmill-labs/windmill/commit/1c6e767617d0c7ac9bd2975c070c64128ce2ed02))
+
+
+### Bug Fixes
+
+* solve deadlock issues for parallel branches with new progress monitor ([be7c03b](https://github.com/windmill-labs/windmill/commit/be7c03bda2a0ab61fd0f10924446b234b642f2a0))
+
 ## [1.279.0](https://github.com/windmill-labs/windmill/compare/v1.278.5...v1.279.0) (2024-02-27)
 
 

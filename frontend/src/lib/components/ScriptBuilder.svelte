@@ -800,7 +800,7 @@
 									<Section label="Custom env variables">
 										<svelte:fragment slot="header">
 											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
+												documentationLink="https://www.windmill.dev/docs/script_editor/custom_environment_variables"
 											>
 												Additional static custom env variables to pass to the script.
 											</Tooltip>

@@ -3,7 +3,9 @@ import {
 	getFiletreeForModuleWithVersion,
 	getNPMVersionForModuleReference,
 	getNPMVersionsForModule,
-	type NPMTreeMeta
+	isOverlimit,
+	type NPMTreeMeta,
+	type ResLimit
 } from './apis'
 import { isRelativePath, mapModuleNameToModule } from './edgeCases'
 
@@ -50,11 +52,13 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 	let estimatedToDownload = 0
 	let estimatedDownloaded = 0
 
+	let resLimit = { usage: 0 }
+
 	return (initialSourceFile: string) => {
 		estimatedToDownload = 0
 		estimatedDownloaded = 0
 
-		return resolveDeps(initialSourceFile, 0).then((t) => {
+		return resolveDeps(initialSourceFile, 0, resLimit).then((t) => {
 			if (estimatedDownloaded > 0) {
 				config.delegate.finished?.(fsMap)
 			}
@@ -73,11 +77,10 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		return 'latest'
 	}
 
-	async function resolveDeps(initialSourceFile: string, depth: number) {
+	async function resolveDeps(initialSourceFile: string, depth: number, resLimit: ResLimit) {
 		// if (depth > 2) {
 		// 	return
 		// }
-
 		let depsToGet = config
 			.depsParser(initialSourceFile)
 			.map((d: string) => {
@@ -93,6 +96,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		if (depsToGet.length === 0) {
 			return
 		}
+
 		// Make it so it won't get re-downloaded
 		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
@@ -113,24 +117,27 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 
 		// Grab the module trees which gives us a list of files to download
 		const trees = await Promise.all(
-			depsToGet.map((f) => getFileTreeForModuleWithTag(config, f.module, f.version, f.raw))
+			depsToGet.map((f) => getFileTreeForModuleWithTag(f.module, f.version, f.raw, resLimit))
 		)
 		const treesOnly = trees.filter((t) => !('error' in t)) as NPMTreeMeta[]
 
 		// These are the modules which we can grab directly
 		const hasDTS = treesOnly.filter((t) => t.files.find((f) => f.name.endsWith('.d.ts')))
 		const dtsFilesFromNPM = hasDTS.map((t) => treeToDTSFiles(t, `/node_modules/${t.raw}`))
-
+		// console.log(dtsFilesFromNPM, 'dtsFilesFromNPM')
 		// These are ones we need to look on DT for (which may not be there, who knows)
 		const mightBeOnDT = treesOnly.filter((t) => !hasDTS.includes(t))
+		// console.log(mightBeOnDT, 'mightBeOnDT')
+		// return
+
 		const dtTrees = await Promise.all(
 			// TODO: Switch from 'latest' to the version from the original tree which is user-controlled
 			mightBeOnDT.map((f) =>
 				getFileTreeForModuleWithTag(
-					config,
 					`@types/${getDTName(f.moduleName)}`,
 					'latest',
-					`@types/${getDTName(f.raw)}`
+					`@types/${getDTName(f.raw)}`,
+					resLimit
 				)
 			)
 		)
@@ -150,7 +157,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		// Grab the package.jsons for each dependency
 		for (const tree of treesOnly) {
 			const pkgJSON = await getDTSFileForModuleWithVersion(
-				config,
 				tree.moduleName,
 				tree.version,
 				'/package.json'
@@ -171,8 +177,11 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		// Grab all dts files
 		await Promise.all(
 			allDTSFiles.map(async (dts) => {
+				if (isOverlimit(resLimit)) {
+					console.warn('Exceeded limit of types downloaded for the needs of the assistant')
+					return
+				}
 				const dtsCode = await getDTSFileForModuleWithVersion(
-					config,
 					dts.moduleName,
 					dts.moduleVersion,
 					dts.path
@@ -192,7 +201,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 
 					if (dts.moduleName != 'bun-types') {
 						// Recurse through deps
-						await resolveDeps(dtsCode, depth + 1)
+						await resolveDeps(dtsCode, depth + 1, resLimit)
 					}
 				}
 			})
@@ -225,10 +234,10 @@ function treeToDTSFiles(tree: NPMTreeMeta, vfsPrefix: string) {
 
 /** The bulk load of the work in getting the filetree based on how people think about npm names and versions */
 export const getFileTreeForModuleWithTag = async (
-	config: ATABootstrapConfig,
 	moduleName: string,
 	tag: string | undefined,
-	raw: string
+	raw: string,
+	resLimit: ResLimit
 ) => {
 	let toDownload = tag || 'latest'
 
@@ -237,7 +246,7 @@ export const getFileTreeForModuleWithTag = async (
 	if (toDownload.split('.').length < 2) {
 		// The jsdelivr API needs a _version_ not a tag. So, we need to switch out
 		// the tag to the version via an API request.
-		const response = await getNPMVersionForModuleReference(config, moduleName, toDownload)
+		const response = await getNPMVersionForModuleReference(moduleName, toDownload, resLimit)
 		if (response instanceof Error) {
 			return {
 				error: response,
@@ -247,7 +256,7 @@ export const getFileTreeForModuleWithTag = async (
 
 		const neededVersion = response.version
 		if (!neededVersion) {
-			const versions = await getNPMVersionsForModule(config, moduleName)
+			const versions = await getNPMVersionsForModule(moduleName, resLimit)
 			if (versions instanceof Error) {
 				return {
 					error: response,
@@ -265,7 +274,7 @@ export const getFileTreeForModuleWithTag = async (
 		toDownload = neededVersion
 	}
 
-	const res = await getFiletreeForModuleWithVersion(config, moduleName, toDownload, raw)
+	const res = await getFiletreeForModuleWithVersion(moduleName, toDownload, raw, resLimit)
 	if (res instanceof Error) {
 		return {
 			error: res,
