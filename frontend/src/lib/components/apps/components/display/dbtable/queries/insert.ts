@@ -1,9 +1,8 @@
 import type { AppInput } from '$lib/components/apps/inputType'
-import { Preview } from '$lib/gen'
-import { buildParamters } from '../utils'
+import { buildParamters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
-function makeInsertQuery(table: string, columns: ColumnDef[], dbType: Preview.language) {
+function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
 	const columnsInsert = columns.filter((x) => !x.hideInsert)
@@ -17,7 +16,7 @@ function makeInsertQuery(table: string, columns: ColumnDef[], dbType: Preview.la
 	query += '\n'
 
 	switch (dbType) {
-		case Preview.language.MYSQL:
+		case 'mysql':
 			query += `INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
       VALUES (${columnsInsert.map((c) => `:${c.field}`).join(', ')}${
 				columnsDefault.length > 0 ? ',' : ''
@@ -25,7 +24,7 @@ function makeInsertQuery(table: string, columns: ColumnDef[], dbType: Preview.la
 				.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}`))
 				.join(', ')})`
 			break
-		case Preview.language.POSTGRESQL:
+		case 'postgresql':
 			query += `INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
       VALUES (${columnsInsert.map((c, i) => `$${i + 1}::${c.datatype}`).join(', ')}${
 				columnsDefault.length > 0 ? ',' : ''
@@ -33,9 +32,9 @@ function makeInsertQuery(table: string, columns: ColumnDef[], dbType: Preview.la
 				.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}::${c.datatype}`))
 				.join(', ')})`
 			break
-		case Preview.language.MSSQL:
+		case 'ms_sql_server':
 			query += `INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
-      VALUES (${columnsInsert.map((c) => `:${c.field}`).join(', ')}${
+      VALUES (${columnsInsert.map((c, i) => `@p${i + 1}`).join(', ')}${
 				columnsDefault.length > 0 ? ',' : ''
 			} ${columnsDefault
 				.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}`))
@@ -46,8 +45,6 @@ function makeInsertQuery(table: string, columns: ColumnDef[], dbType: Preview.la
 			throw new Error('Unsupported database type')
 	}
 
-	debugger
-
 	return query
 }
 
@@ -55,7 +52,7 @@ export function getInsertInput(
 	table: string,
 	columns: ColumnDef[],
 	resource: string,
-	dbType: Preview.language
+	dbType: DbType
 ): AppInput {
 	return {
 		runnable: {

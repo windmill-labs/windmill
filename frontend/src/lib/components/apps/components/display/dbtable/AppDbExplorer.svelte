@@ -280,27 +280,27 @@
 					undefined,
 					currentParams,
 					{
-						done: (x) => {
+						done: (items) => {
 							let lastRow = -1
 
 							if (datasource.rowCount && datasource.rowCount <= params.endRow) {
 								lastRow = datasource.rowCount
 							}
 
-							if (x && Array.isArray(x)) {
+							if (items && Array.isArray(items)) {
 								// MsSql response have an outer array, we need to flatten it
 								if (resolvedConfig.type.selected === 'ms_sql_server') {
-									x = x?.[0]
+									items = items?.[0]
 								}
 
-								let processedData = x.map((x) => {
+								let processedData = items.map((item) => {
 									let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
 									let o = {}
 									primaryKeys.forEach((pk) => {
-										o[pk] = x[pk]
+										o[pk] = item[pk]
 									})
-									x['__index'] = JSON.stringify(o)
-									return x
+									item['__index'] = JSON.stringify(o)
+									return item
 								})
 
 								cache.data = processedData // Update cache with new data

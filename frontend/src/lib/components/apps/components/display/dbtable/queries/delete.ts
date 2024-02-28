@@ -1,8 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import type { Preview } from '$lib/gen'
-import { getLanguageByResourceType, type ColumnDef, buildParamters } from '../utils'
+import { getLanguageByResourceType, type ColumnDef, buildParamters, type DbType } from '../utils'
 
-function updateWithAllValues(table: string, columns: ColumnDef[], dbType: Preview.language) {
+function updateWithAllValues(table: string, columns: ColumnDef[], dbType: DbType) {
 	let query = buildParamters(columns, dbType)
 
 	switch (dbType) {
@@ -19,8 +18,8 @@ function updateWithAllValues(table: string, columns: ColumnDef[], dbType: Previe
 			query += `\nDELETE FROM ${table} WHERE ${conditions}`
 			return query
 		}
-		case 'mssql': {
-			const conditions = columns.map((c) => `${c.field} = @${c.field}`).join(' AND ')
+		case 'ms_sql_server': {
+			const conditions = columns.map((c, i) => `${c.field} = @p${i + 1} `).join(' AND ')
 			query += `\nDELETE FROM ${table} WHERE ${conditions}`
 			return query
 		}
@@ -33,7 +32,7 @@ export function getDeleteInput(
 	resource: string,
 	table: string,
 	columns: ColumnDef[],
-	dbType: Preview.language
+	dbType: DbType
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined

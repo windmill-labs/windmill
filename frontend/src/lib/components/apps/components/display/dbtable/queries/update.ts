@@ -10,7 +10,7 @@ function updateWithAllValues(
 	let query = buildParamters(
 		[
 			{
-				field: 'valueToUpdate',
+				field: 'value_to_update',
 				datatype: column.datatype
 			},
 			...columns
@@ -35,8 +35,8 @@ function updateWithAllValues(
 			return query
 		}
 		case 'ms_sql_server': {
-			const conditions = columns.map((c) => `${c.field} = @${c.field}`).join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update WHERE ${conditions}`
+			const conditions = columns.map((c, i) => `${c.field} = @p${i + 2} `).join(' AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = @p1 WHERE ${conditions}`
 			return query
 		}
 		default:

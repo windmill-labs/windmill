@@ -11,7 +11,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, Job, Policy, Preview } from '$lib/gen'
+	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
@@ -75,7 +75,7 @@
 	import { cloneDeep } from 'lodash'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { type ColumnDef, getPrimaryKeys, type DbType } from '../components/display/dbtable/utils'
+	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
 	import { getSelectInput } from '../components/display/dbtable/queries/select'
@@ -189,8 +189,12 @@
 					if (c.type === 'dbexplorercomponent') {
 						let nr: { id: string; input: AppInput }[] = []
 						let config = c.configuration as any
-						let pg = config?.type?.configuration?.postgresql
-						if (pg) {
+
+						const dbType = config?.type?.selected
+
+						let pg = config?.type?.configuration?.[dbType]
+
+						if (pg && dbType) {
 							const { table, resource } = pg
 							const tableValue = table.value
 							const resourceValue = resource.value
@@ -200,28 +204,18 @@
 								| undefined
 							if (tableValue && resourceValue && columnDefs) {
 								r.push({
-									input: getSelectInput(
-										resourceValue,
-										tableValue,
-										columnDefs,
-										whereClause,
-										'postgresql' as DbType
-									),
+									input: getSelectInput(resourceValue, tableValue, columnDefs, whereClause, dbType),
 									id: x.id
 								})
 								r.push({
-									input: getCountInput(resourceValue, tableValue, 'postgresql', [], undefined),
+									input: getCountInput(resourceValue, tableValue, dbType, [], undefined),
 									id: x.id + '_count'
 								})
 								r.push({
-									input: getInsertInput(
-										tableValue,
-										columnDefs,
-										resourceValue,
-										Preview.language.POSTGRESQL
-									),
+									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
 								})
+
 								let primaryColumns = getPrimaryKeys(columnDefs)
 								let columns = columnDefs?.filter((x) => primaryColumns.includes(x.field))
 
@@ -229,13 +223,7 @@
 									.filter((col) => col.editable || config.allEditable.value)
 									.forEach((column) => {
 										r.push({
-											input: getUpdateInput(
-												resourceValue,
-												tableValue,
-												column,
-												columns,
-												'postgresql' as DbType
-											),
+											input: getUpdateInput(resourceValue, tableValue, column, columns, dbType),
 											id: x.id + '_update'
 										})
 									})
@@ -261,6 +249,8 @@
 				)
 		)) as ([string, Record<string, any>] | undefined)[]
 
+		console.log('allTriggers', allTriggers)
+
 		policy.triggerables = Object.fromEntries(
 			allTriggers.filter(Boolean) as [string, Record<string, any>][]
 		)
@@ -273,7 +263,8 @@
 	): Promise<[string, Record<string, any>] | undefined> {
 		const staticInputs = collectStaticFields(fields)
 		if (runnable?.type == 'runnableByName') {
-			console.log(runnable.inlineScript?.content)
+			console.log('processRunnable:content', runnable.inlineScript?.content)
+
 			let hex = await hash(runnable.inlineScript?.content)
 			console.log('hex', hex, id)
 			return [`${id}:rawscript/${hex}`, staticInputs]

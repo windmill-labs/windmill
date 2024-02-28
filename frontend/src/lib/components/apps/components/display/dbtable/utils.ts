@@ -459,7 +459,7 @@ export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
 	return printSchema(buildClientSchema(dbSchema.schema))
 }
 
-export function getFieldType(type: string, databaseType: Preview.language) {
+export function getFieldType(type: string, databaseType: DbType) {
 	switch (databaseType) {
 		case 'postgresql': {
 			const baseType = type.split('(')[0]
@@ -493,6 +493,39 @@ export function getFieldType(type: string, databaseType: Preview.language) {
 				? 'date'
 				: 'text'
 		}
+		case 'ms_sql_server': {
+			const baseType = type.split('(')[0].toLowerCase() // Ensure case-insensitive comparison
+			const validTextTypes = ['varchar', 'text', 'char', 'nchar', 'nvarchar', 'ntext']
+			const validNumberTypes = [
+				'int',
+				'bigint',
+				'decimal',
+				'numeric',
+				'float',
+				'real',
+				'smallint',
+				'tinyint'
+			]
+			const validDateTypes = [
+				'date',
+				'datetime',
+				'datetime2',
+				'smalldatetime',
+				'datetimeoffset',
+				'time'
+			]
+
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'bit'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
+
 		default: {
 			return 'text'
 		}

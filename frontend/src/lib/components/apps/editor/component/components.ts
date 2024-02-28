@@ -3359,7 +3359,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					labels: {
 						postgresql: 'PostgreSQL',
 						mysql: 'MySQL',
-						mssql: 'MS SQL Server'
+						ms_sql_server: 'MS SQL Server'
 					},
 					configuration: {
 						postgresql: {
