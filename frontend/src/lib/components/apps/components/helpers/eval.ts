@@ -66,7 +66,6 @@ function make_context_evaluator(eval_string, contextKeys: string[]): WmFunctor {
 		return functorCache[cacheKey]
 	}
 	let template = create_context_function_template(eval_string, contextKeys)
-	console.log(template)
 	let functor = Function(template)
 	let r = functor()
 	functorCache[cacheKey] = r
