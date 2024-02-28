@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.281.1](https://github.com/windmill-labs/windmill/compare/v1.281.0...v1.281.1) (2024-02-28)
+
+
+### Bug Fixes
+
+* fix app expr break ([d1bb6a6](https://github.com/windmill-labs/windmill/commit/d1bb6a6924eded9a333e0314df362f480b14e0ef))
+
 ## [1.281.0](https://github.com/windmill-labs/windmill/compare/v1.280.0...v1.281.0) (2024-02-28)
 
 
