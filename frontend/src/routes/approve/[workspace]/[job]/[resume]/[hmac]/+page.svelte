@@ -118,7 +118,7 @@
 			approver,
 			requestBody: {}
 		})
-		sendUserToast('Flow disapproved!')
+		sendUserToast('Flow denied!')
 		getJob()
 	}
 
@@ -155,9 +155,9 @@
 	{:else}
 		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
 			<div class="w-full">
-				<h2 class="mt-4">Current approvers</h2>
+				<h2 class="mt-4">Approvers:</h2>
 				<p class="text-xs italic"
-					>Each approver can only approve once and cannot change his approver name set by the
+					>Each approver can only approve once and cannot change their approver name set by the
 					approval sender</p
 				>
 				<div class="my-4">
@@ -192,7 +192,7 @@
 		<JobArgs args={job?.args} />
 		<div class="mt-8">
 			{#if approver}
-				<p>Dis/approving as: <b>{approver}</b></p>
+				<p>Approving as: <b>{approver}</b></p>
 			{/if}
 		</div>
 		{#if completed}
@@ -221,14 +221,14 @@
 				color="red"
 				on:click|once={cancel}
 				size="md"
-				disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
+				disabled={completed || alreadyResumed}>Deny</Button
 			>
 			<Button
 				btnClasses="grow"
 				color="green"
 				on:click|once={resume}
 				size="md"
-				disabled={completed || alreadyResumed || !valid}>Approve/Resume</Button
+				disabled={completed || alreadyResumed || !valid}>Approve</Button
 			>
 		</div>
 		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && $userStore.is_admin}
@@ -240,8 +240,7 @@
 			</div>
 		{/if}
 
-		<div class="mt-4 flex flex-row flex-wrap justify-between"
-			><a href="https://windmill.dev">Learn more about Windmill</a>
+		<div class="mt-4 flex flex-row flex-wrap justify-between">
 			<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
 				>Flow run details (require auth)</a
 			>
