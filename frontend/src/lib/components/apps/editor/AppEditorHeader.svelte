@@ -75,7 +75,7 @@
 	import { cloneDeep } from 'lodash'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
+	import { type ColumnDef, getPrimaryKeys, type DbType } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
 	import { getSelectInput } from '../components/display/dbtable/queries/select'
@@ -205,7 +205,7 @@
 										tableValue,
 										columnDefs,
 										whereClause,
-										'postgresql' as Preview.language
+										'postgresql' as DbType
 									),
 									id: x.id
 								})

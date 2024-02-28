@@ -104,6 +104,24 @@ export async function loadTableMetaData(
 	ORDER BY a.attnum;
 	
 	`
+	} else if (resourceType === 'ms_sql_server') {
+		// TODO: TEST
+		code = `
+		SELECT 
+		COLUMN_NAME as field,
+		DATA_TYPE as DataType,
+		COLUMN_DEFAULT as DefaultValue,
+		CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
+		CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN true ELSE 'NO' END as IsPrimaryKey,
+		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+		CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
+	FROM	
+		INFORMATION_SCHEMA.COLUMNS
+	WHERE	
+		TABLE_NAME = '${table}'
+	ORDER BY
+		ORDINAL_POSITION;
+	`
 	}
 
 	const maxRetries = 3
@@ -476,7 +494,9 @@ export function getFieldType(type: string, databaseType: Preview.language) {
 	}
 }
 
-export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: Preview.language) {
+export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql'
+
+export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
 	return columnDefs
 		.filter((columnDef: ColumnDef) => columnDef && columnDef.hide !== true)
@@ -484,7 +504,7 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: Preview.l
 			switch (dbType) {
 				case 'postgresql':
 					return `"${column?.field}"` // PostgreSQL uses double quotes for identifiers
-				case 'mssql':
+				case 'ms_sql_server':
 					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
 				case 'mysql':
 					return `\`${column?.field}\`` // MySQL uses backticks
@@ -498,7 +518,7 @@ export function getLanguageByResourceType(name: string) {
 	const language = {
 		postgresql: Preview.language.POSTGRESQL,
 		mysql: Preview.language.MYSQL,
-		mssql: Preview.language.MSSQL
+		ms_sql_server: Preview.language.MSSQL
 	}
 	return language[name]
 }
@@ -517,8 +537,8 @@ export function buildParamters(
 					return `-- $${i + 1} ${column.field}`
 				case 'mysql':
 					return `-- :${column.field} (${column.datatype.split('(')[0]})`
-				case 'mssql':
-					return `-- @${column.field} (${column.datatype.split('(')[0]})`
+				case 'ms_sql_server':
+					return `-- @p${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
 			}
 		})
 		.join('\n')

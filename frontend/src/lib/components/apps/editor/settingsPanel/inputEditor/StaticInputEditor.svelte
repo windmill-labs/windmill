@@ -99,6 +99,22 @@
 				showSchemaExplorer
 				resourceType="mysql"
 			/>
+		{:else if fieldType === 'resource' && subFieldType === 'ms_sql_server'}
+			<ResourcePicker
+				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
+				on:change={(e) => {
+					let path = e.detail
+					if (componentInput) {
+						if (path) {
+							componentInput.value = `$res:${path}`
+						} else {
+							componentInput.value = undefined
+						}
+					}
+				}}
+				showSchemaExplorer
+				resourceType="ms_sql_server"
+			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}

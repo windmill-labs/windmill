@@ -5,7 +5,7 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef } from './utils'
+	import { type ColumnDef, type DbType } from './utils'
 	import { getCountInput } from './queries/count'
 
 	export let id: string
@@ -50,7 +50,7 @@
 	}
 
 	async function getCount(resource: string, table: string, quicksearch: string) {
-		input = getCountInput(resource, table, resourceType, columnDefs, whereClause)
+		input = getCountInput(resource, table, resourceType as DbType, columnDefs, whereClause)
 
 		await tick()
 

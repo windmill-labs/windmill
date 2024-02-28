@@ -1,13 +1,13 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { Preview } from '$lib/gen'
-import { buildParamters } from '../utils'
+import { buildParamters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeSelectQuery(
 	table: string,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
-	dbType: Preview.language
+	dbType: DbType
 ) {
 	if (!table) throw new Error('Table name is required')
 	let quicksearchCondition = ''
@@ -72,7 +72,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			break
 		}
 
-		case Preview.language.MSSQL:
+		case 'ms_sql_server':
 			// MSSQL uses CONCAT for string concatenation and supports OFFSET FETCH for pagination
 			// Note: MSSQL does not have a built-in ILIKE function, so we use LIKE with a case-insensitive collation if needed
 			const orderBy = columnDefs
@@ -102,7 +102,7 @@ export function getSelectInput(
 	table: string | undefined,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
-	dbType: Preview.language
+	dbType: DbType
 ): AppInput | undefined {
 	if (!resource || !table || !columnDefs) {
 		return undefined

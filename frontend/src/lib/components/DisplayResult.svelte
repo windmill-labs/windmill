@@ -253,6 +253,7 @@
 			<div class="flex justify-between items-center w-full pb-1">
 				<div class="text-tertiary text-sm flex items-center">
 					{#if (resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson) || isTableDisplay}
+						{isTableDisplay ? (richRender ? 'table' : 'json') : forceJson ? 'json' : 'pretty'}
 						<ToggleButtonGroup
 							class="h-6"
 							selected={isTableDisplay

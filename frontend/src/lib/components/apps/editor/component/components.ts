@@ -3392,11 +3392,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								value: undefined
 							}
 						},
-						mssql: {
+						ms_sql_server: {
 							resource: {
 								type: 'static',
 								fieldType: 'resource',
-								subFieldType: 'mssql',
+								subFieldType: 'ms_sql_server',
 								value: ''
 							} as StaticAppInput,
 							table: {

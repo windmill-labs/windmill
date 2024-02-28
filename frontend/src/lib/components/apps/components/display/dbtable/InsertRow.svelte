@@ -5,7 +5,7 @@
 	import { ColumnIdentity, getFieldType, type ColumnMetadata } from './utils'
 
 	export let args: Record<string, any> = {}
-	export let databaseType: 'postgresql' | 'mysql' | 'mssql' = 'postgresql'
+	export let databaseType: 'postgresql' | 'mysql' | 'ms_sql_server' = 'postgresql'
 	type ColumnDef = {
 		field: string
 		ignored: boolean

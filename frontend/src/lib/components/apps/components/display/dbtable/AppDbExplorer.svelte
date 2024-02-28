@@ -14,7 +14,8 @@
 		loadTableMetaData,
 		type TableMetadata,
 		getPrimaryKeys,
-		type ColumnDef
+		type ColumnDef,
+		type DbType
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
@@ -59,7 +60,7 @@
 	$: computeInput(
 		resolvedConfig.columnDefs,
 		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
+		resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
 	)
 
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
@@ -76,7 +77,7 @@
 				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
 				columnDefs,
 				whereClause,
-				resolvedConfig.type.selected as Preview.language
+				resolvedConfig.type.selected as DbType
 			)
 		}, 1000)
 	}
@@ -227,6 +228,8 @@
 			// @ts-ignore
 			return Object.keys(Object.values(schema)?.[0]?.schema?.public ?? {})
 		} else if (resolvedConfig.type.selected === 'mysql') {
+			return Object.keys(Object.values(Object.values(schema)?.[0]?.schema ?? {})?.[0])
+		} else if (resolvedConfig.type.selected === 'ms_sql_server') {
 			return Object.keys(Object.values(Object.values(schema)?.[0]?.schema ?? {})?.[0])
 		}
 		return []
@@ -380,6 +383,7 @@
 
 		state = undefined
 
+		debugger
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
 		gridItem.data = gridItem.data
@@ -405,12 +409,22 @@
 	function connectToComponents() {
 		if ($worldStore && datasource) {
 			const outputs = $worldStore.outputsById[`${id}_count`]
+
 			if (outputs) {
 				outputs.result.subscribe(
 					{
 						id: 'dbexplorer-count-' + id,
 						next: (value) => {
-							datasource.rowCount = value?.[0]?.count
+							// MsSql response have an outer array, we need to flatten it
+							if (
+								Array.isArray(value) &&
+								value.length === 1 &&
+								resolvedConfig.type.selected === 'ms_sql_server'
+							) {
+								datasource.rowCount = value?.[0]?.[0]?.count
+							} else {
+								datasource.rowCount = value?.[0]?.count
+							}
 						}
 					},
 					datasource.rowCount

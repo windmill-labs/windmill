@@ -1,10 +1,11 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { Preview } from '$lib/gen'
-import { buildParamters } from '../utils'
+import { el } from 'date-fns/locale'
+import { buildParamters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeCountQuery(
-	dbType: Preview.language,
+	dbType: DbType,
 	table: string,
 	whereClause: string | undefined = undefined,
 	columnDefs: ColumnDef[]
@@ -23,23 +24,34 @@ function makeCountQuery(
 	const filteredColumns = buildVisibleFieldList(columnDefs, dbType)
 
 	switch (dbType) {
-		case Preview.language.MYSQL:
-			quicksearchCondition += ` (:quicksearch = '' OR CONCAT_WS(' ', ${filteredColumns.join(
-				', '
-			)}) LIKE CONCAT('%', :quicksearch, '%'))`
+		case 'mysql':
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += ` (:quicksearch = '' OR CONCAT_WS(' ', ${filteredColumns.join(
+					', '
+				)}) LIKE CONCAT('%', :quicksearch, '%'))`
+			} else {
+				quicksearchCondition += ` (:quicksearch = '' OR 1 = 1)`
+			}
 			query += `SELECT COUNT(*) as count FROM \`${table}\``
 			break
-		case Preview.language.POSTGRESQL:
-			quicksearchCondition += `($1 = '' OR CONCAT(${filteredColumns.join(
-				', '
-			)}) ILIKE '%' || $1 || '%')`
+		case 'postgresql':
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += `($1 = '' OR CONCAT(${filteredColumns.join(
+					', '
+				)}) ILIKE '%' || $1 || '%')`
+			} else {
+				quicksearchCondition += `($1 = '' OR 1 = 1)`
+			}
 			query += `SELECT COUNT(*) as count FROM "${table}"`
 			break
-		case Preview.language.MSSQL:
-			// TODO, this is not tested
-			quicksearchCondition += `(@quicksearch = '' OR CONCAT(${filteredColumns.join(
-				', +'
-			)}) LIKE '%' + @quicksearch + '%')`
+		case 'ms_sql_server':
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += `(@p1 = '' OR CONCAT(${filteredColumns.join(
+					', +'
+				)}) LIKE '%' + @p1 + '%')`
+			} else {
+				quicksearchCondition += `(@p1 = '' OR 1 = 1)`
+			}
 			query += `SELECT COUNT(*) as count FROM [${table}]`
 			break
 		default:
@@ -49,14 +61,11 @@ function makeCountQuery(
 	if (whereClause) {
 		query += `${wherePrefix}${quicksearchCondition}`
 	} else {
-		query += dbType === Preview.language.MSSQL && !whereClause ? wherePrefix : andCondition
+		query += dbType === 'ms_sql_server' && !whereClause ? wherePrefix : andCondition
 		query += quicksearchCondition
 	}
 
-	if (
-		!whereClause &&
-		(dbType === Preview.language.MYSQL || dbType === Preview.language.POSTGRESQL)
-	) {
+	if (!whereClause && (dbType === Preview.language.MYSQL || dbType === 'postgresql')) {
 		query = query.replace(`${andCondition}`, wherePrefix)
 	}
 
@@ -66,7 +75,7 @@ function makeCountQuery(
 export function getCountInput(
 	resource: string,
 	table: string,
-	resourceType: string,
+	resourceType: DbType,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined
 ): AppInput | undefined {
@@ -76,7 +85,7 @@ export function getCountInput(
 		return undefined
 	}
 
-	const query = makeCountQuery(resourceType as Preview.language, table, whereClause, columnDefs)
+	const query = makeCountQuery(resourceType, table, whereClause, columnDefs)
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
