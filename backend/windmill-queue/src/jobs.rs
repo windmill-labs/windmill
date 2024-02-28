@@ -171,6 +171,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             e,
             rsmq.clone(),
             "server",
+            false
         )
         .await;
         if let Err(e) = add_job {
@@ -361,6 +362,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     e: serde_json::Value,
     rsmq: Option<R>,
     _worker_name: &str,
+    flow_is_done: bool
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -397,6 +399,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         mem_peak,
         canceled_by,
         rsmq,
+        flow_is_done,
     )
     .await?;
     Ok(result)
@@ -438,6 +441,7 @@ pub async fn add_completed_job<
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     rsmq: Option<R>,
+    flow_is_done: bool,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -576,6 +580,16 @@ pub async fn add_completed_job<
             )
             .execute(&mut tx)
             .await?;
+            if flow_is_done {
+                let r = sqlx::query_scalar!(
+                    "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
+                    parent_job,
+                    &queued_job.id
+                ).fetch_optional(&mut tx).await?;
+                if r.is_some() {
+                    tracing::info!("parallel flow is done, setting parallel monitor last ping lock for job {}", &queued_job.id);
+                }
+            }
         }
 
     }
