@@ -18,12 +18,8 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 	}
 }
 
-function create_context_function_template(
-	eval_string: string,
-	contextKeys: string[],
-	noReturn: boolean
-) {
-	let hasReturnAsLastLine = eval_string.split('\n').some((x) => x.trim().startsWith('return '))
+function create_context_function_template(eval_string: string, contextKeys: string[]) {
+	let hasReturnAsLastLine = eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
 return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
 "use strict";
@@ -64,12 +60,12 @@ type WmFunctor = (
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
-function make_context_evaluator(eval_string, contextKeys: string[], noReturn: boolean): WmFunctor {
-	let cacheKey = hashCode(JSON.stringify({ eval_string, contextKeys, noReturn }))
+function make_context_evaluator(eval_string, contextKeys: string[]): WmFunctor {
+	let cacheKey = hashCode(JSON.stringify({ eval_string, contextKeys }))
 	if (functorCache[cacheKey]) {
 		return functorCache[cacheKey]
 	}
-	let template = create_context_function_template(eval_string, contextKeys, noReturn)
+	let template = create_context_function_template(eval_string, contextKeys)
 	console.log(template)
 	let functor = Function(template)
 	let r = functor()
@@ -124,7 +120,6 @@ function hashCode(s: string): number {
 export async function eval_like(
 	text: string,
 	context = {},
-	noReturn: boolean,
 	state: Record<string, any>,
 	editor: boolean,
 	controlComponents: Record<
@@ -163,7 +158,7 @@ export async function eval_like(
 		}
 	})
 
-	let evaluator = make_context_evaluator(text, Object.keys(context ?? {}), noReturn)
+	let evaluator = make_context_evaluator(text, Object.keys(context ?? {}))
 	// console.log(i, j)
 	return await evaluator(
 		context,
