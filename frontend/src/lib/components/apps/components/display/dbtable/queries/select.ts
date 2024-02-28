@@ -1,5 +1,4 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { Preview } from '$lib/gen'
 import { buildParamters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
@@ -29,7 +28,7 @@ function makeSelectQuery(
 	const selectClause = filteredColumns.join(', ')
 
 	switch (dbType) {
-		case Preview.language.MYSQL: {
+		case 'mysql': {
 			const orderBy = columnDefs
 				.map((column) => {
 					return `
@@ -50,7 +49,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			break
 		}
 
-		case Preview.language.POSTGRESQL: {
+		case 'postgresql': {
 			const orderBy = `
       ${columnDefs
 				.map(

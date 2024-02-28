@@ -1,13 +1,11 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import type { Preview } from '$lib/gen'
-
-import { getLanguageByResourceType, type ColumnDef, buildParamters } from '../utils'
+import { getLanguageByResourceType, type ColumnDef, buildParamters, type DbType } from '../utils'
 
 function updateWithAllValues(
 	table: string,
 	column: ColumnDef,
 	columns: ColumnDef[],
-	dbType: Preview.language
+	dbType: DbType
 ) {
 	let query = buildParamters(
 		[
@@ -36,7 +34,7 @@ function updateWithAllValues(
 			query += `\nUPDATE ${table} SET ${column.field} = :value_to_update WHERE ${conditions}`
 			return query
 		}
-		case 'mssql': {
+		case 'ms_sql_server': {
 			const conditions = columns.map((c) => `${c.field} = @${c.field}`).join(' AND ')
 			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update WHERE ${conditions}`
 			return query
@@ -51,7 +49,7 @@ export function getUpdateInput(
 	table: string,
 	column: ColumnDef,
 	columns: ColumnDef[],
-	dbType: Preview.language
+	dbType: DbType
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined

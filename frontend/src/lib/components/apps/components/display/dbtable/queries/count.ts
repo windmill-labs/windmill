@@ -1,6 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { Preview } from '$lib/gen'
-import { el } from 'date-fns/locale'
 import { buildParamters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
