@@ -258,7 +258,8 @@
 					isEditor,
 					$componentControl,
 					$worldStore,
-					$runnableComponents
+					$runnableComponents,
+					true
 				)
 
 				await setResult(r, job, setRunnableJobEditorPanel)
@@ -459,7 +460,8 @@
 					isEditor,
 					$componentControl,
 					$worldStore,
-					$runnableComponents
+					$runnableComponents,
+					true
 				)
 				return transformerResult
 			} catch (err) {
