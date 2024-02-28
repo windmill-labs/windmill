@@ -23,7 +23,7 @@ function create_context_function_template(
 	contextKeys: string[],
 	noReturn: boolean
 ) {
-	let hasReturnAsLastLine = eval_string.split('\n').some((x) => x.startsWith('return '))
+	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
 return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
 "use strict";
@@ -33,7 +33,7 @@ ${
 		: ``
 }
 ${
-	hasReturnAsLastLine || noReturn
+	hasReturnAsLastLine
 		? eval_string
 		: `
 return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
@@ -65,7 +65,7 @@ type WmFunctor = (
 
 let functorCache: Record<number, WmFunctor> = {}
 function make_context_evaluator(eval_string, contextKeys: string[], noReturn: boolean): WmFunctor {
-	let cacheKey = hashCode(JSON.stringify({ eval_string, contextKeys }))
+	let cacheKey = hashCode(JSON.stringify({ eval_string, contextKeys, noReturn }))
 	if (functorCache[cacheKey]) {
 		return functorCache[cacheKey]
 	}
