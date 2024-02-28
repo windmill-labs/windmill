@@ -3,6 +3,7 @@ import {
 	getFiletreeForModuleWithVersion,
 	getNPMVersionForModuleReference,
 	getNPMVersionsForModule,
+	isOverlimit,
 	type NPMTreeMeta,
 	type ResLimit
 } from './apis'
@@ -51,11 +52,13 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 	let estimatedToDownload = 0
 	let estimatedDownloaded = 0
 
+	let resLimit = { usage: 0 }
+
 	return (initialSourceFile: string) => {
 		estimatedToDownload = 0
 		estimatedDownloaded = 0
 
-		return resolveDeps(initialSourceFile, 0, { usage: 0 }).then((t) => {
+		return resolveDeps(initialSourceFile, 0, resLimit).then((t) => {
 			if (estimatedDownloaded > 0) {
 				config.delegate.finished?.(fsMap)
 			}
@@ -116,7 +119,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		const trees = await Promise.all(
 			depsToGet.map((f) => getFileTreeForModuleWithTag(f.module, f.version, f.raw, resLimit))
 		)
-		console.log(trees, 'trees')
 		const treesOnly = trees.filter((t) => !('error' in t)) as NPMTreeMeta[]
 
 		// These are the modules which we can grab directly
@@ -175,6 +177,10 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		// Grab all dts files
 		await Promise.all(
 			allDTSFiles.map(async (dts) => {
+				if (isOverlimit(resLimit)) {
+					console.warn('Exceeded limit of types downloaded for the needs of the assistant')
+					return
+				}
 				const dtsCode = await getDTSFileForModuleWithVersion(
 					dts.moduleName,
 					dts.moduleVersion,
