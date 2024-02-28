@@ -2266,6 +2266,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             mem_peak.to_owned(),
             canceled_by,
             rsmq.clone(),
+            false,
         )
         .await?;
 
@@ -2311,6 +2312,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             ),
             rsmq.clone(),
             worker_name,
+            false,
         )
         .await?;
         if job.is_flow_step {
@@ -2403,13 +2405,16 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             err.clone(),
             rsmq_2,
             worker_name,
+            false
         )
     };
 
     let update_job_future = if job.is_flow_step || job.is_flow() {
         let (flow, job_status_to_update) =
             if let Some(parent_job_id) = job.parent_job {
-                let _ = update_job_future().await;
+                if let Err(e) = update_job_future().await {
+                    tracing::error!("error updating job future for job {} for handle_job_error: {e}", job.id);
+                }
                 (parent_job_id, job.id)
             } else {
                 (job.id, Uuid::nil())
@@ -2449,6 +2454,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                         e,
                         rsmq,
                         worker_name,
+                        false
                     )
                     .await;
                 }
