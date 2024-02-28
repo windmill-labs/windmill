@@ -252,7 +252,7 @@
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full pb-1">
 				<div class="text-tertiary text-sm flex items-center">
-					{#if (resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson) || isTableDisplay}
+					{#if (resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
 						<ToggleButtonGroup
 							class="h-6"
 							selected={isTableDisplay
@@ -265,12 +265,11 @@
 							on:selected={(ev) => {
 								if (isTableDisplay) {
 									richRender = ev.detail === 'table'
-								} else {
-									forceJson = ev.detail === 'json'
 								}
+								forceJson = ev.detail === 'json'
 							}}
 						>
-							{#if resultKind && !['json', 's3object', 's3object-list'].includes(resultKind) && !hideAsJson}
+							{#if resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson}
 								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
 							{/if}
 							{#if isTableDisplay}
