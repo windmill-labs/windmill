@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.281.0](https://github.com/windmill-labs/windmill/compare/v1.280.0...v1.281.0) (2024-02-28)
+
+
+### Features
+
+* implement progress monitor for parallel branches last transition ([fc34594](https://github.com/windmill-labs/windmill/commit/fc34594aeb95f7a4a7f936032447b3289a12642b))
+* improve performance of exprs in apps using memoized expr functors ([afa3c54](https://github.com/windmill-labs/windmill/commit/afa3c54140537fffdbab4193adf6af4a737cc2e7))
+
+
+### Bug Fixes
+
+* add limits to bun auto-type fetching ([ad3c551](https://github.com/windmill-labs/windmill/commit/ad3c551d664816ff4ef12d237e48a079d91af037))
+* allow eval with return in last line ([260468c](https://github.com/windmill-labs/windmill/commit/260468cf737e9836cf9ac6b7bc274b98e55fdc93))
+
 ## [1.280.0](https://github.com/windmill-labs/windmill/compare/v1.279.0...v1.280.0) (2024-02-27)
 
 
