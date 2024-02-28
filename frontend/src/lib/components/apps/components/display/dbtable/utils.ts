@@ -436,7 +436,7 @@ export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
 	return printSchema(buildClientSchema(dbSchema.schema))
 }
 
-export function getFieldType(type: string, databaseType: 'postgresql' | 'mysql') {
+export function getFieldType(type: string, databaseType: Preview.language) {
 	switch (databaseType) {
 		case 'postgresql': {
 			const baseType = type.split('(')[0]

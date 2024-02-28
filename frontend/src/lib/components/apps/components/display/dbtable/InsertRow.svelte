@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
+	import type { Preview } from '$lib/gen'
 	import { ColumnIdentity, getFieldType, type ColumnMetadata } from './utils'
 
 	export let args: Record<string, any> = {}
-	export let databaseType: 'postgresql' | 'mysql' = 'postgresql'
+	export let databaseType: 'postgresql' | 'mysql' | 'mssql' = 'postgresql'
 	type ColumnDef = {
 		field: string
 		ignored: boolean
@@ -37,7 +38,7 @@
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-			const fieldType = getFieldType(type, databaseType)
+			const fieldType = getFieldType(type, databaseType as Preview.language)
 
 			return {
 				type,

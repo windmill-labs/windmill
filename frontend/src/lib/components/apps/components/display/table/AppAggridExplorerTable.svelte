@@ -32,8 +32,6 @@
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
 
-	$: console.trace('datasource', datasource)
-
 	const { app, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
 

@@ -3358,7 +3358,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					selected: 'postgresql',
 					labels: {
 						postgresql: 'PostgreSQL',
-						msql: 'MySQL'
+						mysql: 'MySQL',
+						mssql: 'MS SQL Server'
 					},
 					configuration: {
 						postgresql: {
@@ -3381,6 +3382,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'mysql',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						mssql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'mssql',
 								value: ''
 							} as StaticAppInput,
 							table: {

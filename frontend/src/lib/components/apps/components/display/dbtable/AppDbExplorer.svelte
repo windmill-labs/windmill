@@ -62,11 +62,6 @@
 		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
 	)
 
-	// NOT SURE
-	$: if (resolvedConfig.whereClause || resolvedConfig.columnDefs) {
-		refreshCount++
-	}
-
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
 		if (timeoutInput) {
@@ -237,31 +232,58 @@
 		return []
 	}
 
+	const cache = {
+		params: {},
+		data: [],
+		promise: null // Store the promise of the ongoing request
+	} as { data: any[]; params: Record<string, any>; promise: Promise<any> | null }
+
+	function paramsChanged(currentParams: Record<string, any>) {
+		if (Object.keys(cache.params).length === 0) return true
+		return JSON.stringify(currentParams) !== JSON.stringify(cache.params)
+	}
+
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			let uuid = await runnableComponent?.runComponent(
-				undefined,
-				undefined,
-				undefined,
-				{
-					offset: params.startRow,
-					limit: params.endRow - params.startRow,
-					quicksearch,
-					orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
-					is_desc: params.sortModel?.[0]?.sort === 'desc'
-				},
-				{
-					done: (x) => {
-						let lastRow = -1
+			const currentParams = {
+				offset: params.startRow,
+				limit: params.endRow - params.startRow,
+				quicksearch,
+				orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+				is_desc: params.sortModel?.[0]?.sort === 'desc'
+			}
 
-						if (datasource.rowCount && datasource.rowCount <= params.endRow) {
-							lastRow = datasource.rowCount
-						}
+			if (!paramsChanged(currentParams) && cache.data.length > 0) {
+				// Serve from cache if it exists and parameters haven't changed.
+				console.debug('Serving from cache for ID:', id)
+				let lastRow = -1
+				if (datasource.rowCount && datasource.rowCount <= params.endRow) {
+					lastRow = datasource.rowCount
+				}
+				params.successCallback(cache.data, lastRow)
+				return
+			}
 
-						if (x && Array.isArray(x)) {
-							params.successCallback(
-								x.map((x) => {
+			// If parameters changed or no cache available, check for ongoing request
+			if (!cache.promise || paramsChanged(currentParams)) {
+				console.debug('Parameters changed or no ongoing request, fetching new data for ID:', id)
+				cache.params = currentParams // Update the cache with the new parameters
+				cache.promise = runnableComponent?.runComponent(
+					undefined,
+					undefined,
+					undefined,
+					currentParams,
+					{
+						done: (x) => {
+							let lastRow = -1
+
+							if (datasource.rowCount && datasource.rowCount <= params.endRow) {
+								lastRow = datasource.rowCount
+							}
+
+							if (x && Array.isArray(x)) {
+								let processedData = x.map((x) => {
 									let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
 									let o = {}
 									primaryKeys.forEach((pk) => {
@@ -269,26 +291,34 @@
 									})
 									x['__index'] = JSON.stringify(o)
 									return x
-								}),
-								lastRow
-							)
-						} else {
-							params.failCallback()
-						}
+								})
 
-						console.log('DONE', params, datasource.rowCount)
-					},
-					cancel: () => {
-						console.log('cancel datasource request')
-						params.failCallback()
-					},
-					error: () => {
-						console.log('error datasource request')
-						params.failCallback()
+								cache.data = processedData // Update cache with new data
+								params.successCallback(processedData, lastRow)
+							} else {
+								params.failCallback()
+							}
+							cache.promise = null
+						},
+						cancel: () => {
+							params.failCallback()
+							cache.promise = null
+						},
+						error: () => {
+							params.failCallback()
+							cache.promise = null
+						}
 					}
-				}
-			)
-			console.log('asking for ' + params.startRow + ' to ' + params.endRow, uuid)
+				)
+			} else {
+				console.debug('Request with same parameters already in progress, waiting for it to finish.')
+				await cache.promise // Wait for the ongoing request to finish
+				// After waiting, call getRows again to serve data from cache
+
+				setTimeout(() => {
+					this.getRows(params)
+				}, 0)
+			}
 		}
 	}
 
@@ -373,7 +403,7 @@
 	$: $worldStore && connectToComponents()
 
 	function connectToComponents() {
-		if ($worldStore) {
+		if ($worldStore && datasource) {
 			const outputs = $worldStore.outputsById[`${id}_count`]
 			if (outputs) {
 				outputs.result.subscribe(
