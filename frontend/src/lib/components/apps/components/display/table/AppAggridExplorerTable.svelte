@@ -135,11 +135,13 @@
 					new Button({
 						target: c.eGui,
 						props: {
-							btnClasses: 'mt-1',
-							color: 'red',
-							variant: 'border',
+							btnClasses: 'w-12',
+							wrapperClasses: 'flex justify-end items-center h-full',
+							color: 'light',
+							size: 'sm',
+							variant: 'contained',
 							iconOnly: true,
-							endIcon: { icon: Trash2 },
+							startIcon: { icon: Trash2 },
 							nonCaptureEvent: true
 						}
 					})
@@ -282,11 +284,7 @@
 
 {#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 	<div
-		class={twMerge(
-			'border shadow-sm divide-y flex flex-col h-full',
-			css?.container?.class,
-			'wm-aggrid-container'
-		)}
+		class={twMerge('divide-y flex flex-col h-full', css?.container?.class, 'wm-aggrid-container')}
 		style={containerHeight ? `height: ${containerHeight}px;` : css?.container?.style}
 		bind:clientHeight
 		bind:clientWidth
@@ -302,10 +300,10 @@
 		>
 			<div bind:this={eGui} style:height="100%" />
 		</div>
+		<div class="flex gap-1 w-full justify-end text-sm text-secondary py-1"
+			>{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows</div
+		>
 	</div>
-	<div class="flex gap-1 absolute bottom-1 right-2 text-sm text-secondary"
-		>{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows</div
-	>
 {:else if resolvedConfig.columnDefs != undefined}
 	<Alert title="Parsing issues" type="error" size="xs">
 		The columnDefs should be an array of objects, received:
