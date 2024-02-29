@@ -42,6 +42,7 @@
 	}
 
 	function reorder() {
+		console.log('reorder')
 		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
 
