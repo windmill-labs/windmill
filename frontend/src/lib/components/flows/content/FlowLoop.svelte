@@ -136,25 +136,27 @@
 								List to iterate over.
 							</Tooltip>
 						</div>
-						<IteratorGen
-							bind:this={iteratorGen}
-							focused={iteratorFieldFocused}
-							arg={mod.value.iterator}
-							on:showExpr={(e) => {
-								editor?.setSuggestion(e.detail)
-							}}
-							on:setExpr={(e) => {
-								if (mod.value.type === 'forloopflow') {
-									mod.value.iterator = {
-										type: 'javascript',
-										expr: e.detail
+						{#if enableAi}
+							<IteratorGen
+								bind:this={iteratorGen}
+								focused={iteratorFieldFocused}
+								arg={mod.value.iterator}
+								on:showExpr={(e) => {
+									editor?.setSuggestion(e.detail)
+								}}
+								on:setExpr={(e) => {
+									if (mod.value.type === 'forloopflow') {
+										mod.value.iterator = {
+											type: 'javascript',
+											expr: e.detail
+										}
 									}
-								}
-								editor?.setCode('')
-								editor?.insertAtCursor(e.detail)
-							}}
-							pickableProperties={stepPropPicker.pickableProperties}
-						/>
+									editor?.setCode('')
+									editor?.insertAtCursor(e.detail)
+								}}
+								pickableProperties={stepPropPicker.pickableProperties}
+							/>
+						{/if}
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}
 						<!-- svelte-ignore a11y-no-static-element-interactions -->

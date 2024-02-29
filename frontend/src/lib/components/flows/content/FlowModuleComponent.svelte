@@ -56,6 +56,7 @@
 	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let noEditor: boolean
+	export let enableAi: boolean
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -334,7 +335,7 @@
 											previousModuleId={previousModule?.id}
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
-											enableAi
+											{enableAi}
 										/>
 									</PropPickerWrapper>
 								</div>

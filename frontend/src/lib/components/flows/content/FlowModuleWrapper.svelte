@@ -144,6 +144,7 @@
 			failureModule={$selectedId === 'failure'}
 			{scriptKind}
 			{scriptTemplate}
+			{enableAi}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
