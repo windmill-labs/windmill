@@ -1,5 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { buildParamters, type DbType } from '../utils'
+import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeSelectQuery(
@@ -11,7 +11,7 @@ function makeSelectQuery(
 	if (!table) throw new Error('Table name is required')
 	let quicksearchCondition = ''
 
-	let query = buildParamters(
+	let query = buildParameters(
 		[
 			{ field: 'limit', datatype: 'int' },
 			{ field: 'offset', datatype: 'int' },

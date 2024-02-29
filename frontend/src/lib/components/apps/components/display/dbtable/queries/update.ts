@@ -1,5 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { getLanguageByResourceType, type ColumnDef, buildParamters, type DbType } from '../utils'
+import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
 
 function updateWithAllValues(
 	table: string,
@@ -7,7 +7,7 @@ function updateWithAllValues(
 	columns: ColumnDef[],
 	dbType: DbType
 ) {
-	let query = buildParamters(
+	let query = buildParameters(
 		[
 			{
 				field: 'value_to_update',

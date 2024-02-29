@@ -561,7 +561,7 @@ export function getLanguageByResourceType(name: string) {
 	return language[name]
 }
 
-export function buildParamters(
+export function buildParameters(
 	columns: Array<{
 		field: string
 		datatype: string

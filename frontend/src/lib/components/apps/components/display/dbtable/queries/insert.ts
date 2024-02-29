@@ -1,5 +1,5 @@
 import type { AppInput } from '$lib/components/apps/inputType'
-import { buildParamters, type DbType } from '../utils'
+import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
 function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
@@ -11,7 +11,7 @@ function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	)
 
 	const allInsertColumns = columnsInsert.concat(columnsDefault)
-	let query = buildParamters(columnsInsert, dbType)
+	let query = buildParameters(columnsInsert, dbType)
 
 	query += '\n'
 

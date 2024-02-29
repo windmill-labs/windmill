@@ -1,6 +1,6 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { Preview } from '$lib/gen'
-import { buildParamters, type DbType } from '../utils'
+import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeCountQuery(
@@ -12,7 +12,7 @@ function makeCountQuery(
 	const wherePrefix = ' WHERE '
 	const andCondition = ' AND '
 	let quicksearchCondition = ''
-	let query = buildParamters([{ field: 'quicksearch', datatype: 'text' }], dbType)
+	let query = buildParameters([{ field: 'quicksearch', datatype: 'text' }], dbType)
 
 	query += '\n'
 
