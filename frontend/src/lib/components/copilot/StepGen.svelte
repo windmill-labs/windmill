@@ -17,6 +17,7 @@
 	export let funcDesc: string
 	export let modules: FlowModule[]
 	export let trigger = false
+	export let disableAi = false
 
 	// state
 	let input: HTMLInputElement | undefined
@@ -131,7 +132,7 @@
 				/>
 			{/if}
 		</div>
-		{#if funcDesc.length > 0}
+		{#if !disableAi && funcDesc.length > 0}
 			<ul class="transition-all divide-y">
 				<li>
 					<button

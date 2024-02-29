@@ -144,11 +144,13 @@
 			failureModule={$selectedId === 'failure'}
 			{scriptKind}
 			{scriptTemplate}
+			{enableAi}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
 	{#each flowModule.value.modules as submodule, index (index)}
 		<svelte:self
+			{noEditor}
 			bind:flowModule={submodule}
 			bind:parentModule={flowModule}
 			previousModule={flowModule.value.modules[index - 1]}
@@ -164,6 +166,7 @@
 	{:else}
 		{#each flowModule.value.default as submodule, index}
 			<svelte:self
+				{noEditor}
 				bind:flowModule={submodule}
 				bind:parentModule={flowModule}
 				previousModule={flowModule.value.default[index - 1]}
@@ -183,6 +186,7 @@
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self
+					{noEditor}
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
@@ -198,6 +202,7 @@
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self
+					{noEditor}
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
