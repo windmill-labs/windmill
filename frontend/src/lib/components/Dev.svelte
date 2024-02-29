@@ -13,7 +13,9 @@
 		type OpenFlow,
 		type FlowModule,
 		WorkspaceService,
-		type InputTransform
+		type InputTransform,
+		RawScript,
+		type PathScript
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
@@ -38,6 +40,7 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
+	import { pickScript } from './flows/flowStateUtils'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -53,7 +56,7 @@
 		drawerStore: writable<Drawer | undefined>(undefined),
 		modulesStore: writable<FlowCopilotModule[]>([]),
 		currentStepStore: writable<string | undefined>(undefined),
-		genFlow: undefined,
+		genFlow,
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),
@@ -64,6 +67,33 @@
 			[key: string]: string | undefined
 		}>({}),
 		stepInputsLoading: writable<boolean>(false)
+	}
+	const { modulesStore } = flowCopilotContext
+
+	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
+		let module = stepOnly ? $modulesStore[0] : $modulesStore[idx]
+
+		if (module && module.selectedCompletion) {
+			const [hubScriptModule, hubScriptState] = await pickScript(
+				module.selectedCompletion.path,
+				`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
+				module.id,
+				undefined
+			)
+			const flowModule: FlowModule & {
+				value: RawScript | PathScript
+			} = {
+				id: module.id,
+				value: hubScriptModule.value,
+				summary: hubScriptModule.summary
+			}
+
+			$flowStateStore[module.id] = hubScriptState
+
+			flowModules.splice(idx, 0, flowModule)
+			$flowStore = $flowStore
+			sendUserToast('Added module', false)
+		}
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -517,7 +547,7 @@
 					</Pane>
 					<Pane size={33}>
 						{#key reload}
-							<FlowEditorPanel noEditor />
+							<FlowEditorPanel enableAi noEditor />
 						{/key}
 					</Pane>
 				</Splitpanes>
