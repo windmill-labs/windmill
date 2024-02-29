@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Drawer } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
@@ -12,7 +12,8 @@
 		Preview,
 		type OpenFlow,
 		type FlowModule,
-		WorkspaceService
+		WorkspaceService,
+		type InputTransform
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
@@ -36,6 +37,7 @@
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { workspacedOpenai } from './copilot/lib'
+	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -46,6 +48,25 @@
 		OpenAPI.WITH_CREDENTIALS = true
 		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
 	}
+
+	let flowCopilotContext: FlowCopilotContext = {
+		drawerStore: writable<Drawer | undefined>(undefined),
+		modulesStore: writable<FlowCopilotModule[]>([]),
+		currentStepStore: writable<string | undefined>(undefined),
+		genFlow: undefined,
+		shouldUpdatePropertyType: writable<{
+			[key: string]: 'static' | 'javascript' | undefined
+		}>({}),
+		exprsToSet: writable<{
+			[key: string]: InputTransform | any | undefined
+		}>({}),
+		generatedExprs: writable<{
+			[key: string]: string | undefined
+		}>({}),
+		stepInputsLoading: writable<boolean>(false)
+	}
+
+	setContext('FlowCopilotContext', flowCopilotContext)
 
 	async function setCopilotInfo() {
 		if (workspace) {
