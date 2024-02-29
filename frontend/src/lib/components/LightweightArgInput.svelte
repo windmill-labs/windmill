@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { Badge, Button } from './common'
-	import { createEventDispatcher, tick } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import autosize from 'svelte-autosize'
@@ -240,6 +240,7 @@
 					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'!bg-surface-secondary'}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
@@ -248,6 +249,7 @@
 					{:else if Array.isArray(itemsType?.enum) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'!bg-surface-secondary'}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}
 								selectedOptionsDraggable={true}

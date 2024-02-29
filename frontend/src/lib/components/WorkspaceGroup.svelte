@@ -386,6 +386,7 @@
 										}}
 										options={nconfig?.worker_tags}
 										selectedOptionsDraggable={false}
+										ulOptionsClass={'!bg-surface-secondary'}
 										placeholder="High priority tags"
 									/>
 								</Label>

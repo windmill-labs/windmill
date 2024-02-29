@@ -164,8 +164,14 @@
 			{/each}
 		</div>
 		<div class="flex flex-row my-1">
-			<Button size="sm" on:click={add}>+</Button>
-			<Button variant="border" size="sm" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>
+			<Button color="light" size="sm" on:click={add}>+</Button>
+			<Button
+				color="light"
+				variant="border"
+				size="sm"
+				btnClasses="ml-2"
+				on:click={() => (enum_ = undefined)}
+			>
 				Clear
 			</Button>
 		</div>
