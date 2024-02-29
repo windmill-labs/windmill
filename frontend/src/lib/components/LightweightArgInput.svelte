@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { Badge, Button } from './common'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import autosize from 'svelte-autosize'
@@ -51,15 +51,29 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
-
 	export let error: string = ''
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let rawValue: string | undefined = undefined
 
+	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
+
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
+	$: changeDefaultValue(inputCat, defaultValue)
+
+	$: rawValue && evalRawValueToValue()
+
+	$: validateInput(pattern, value, required)
+
 	$: {
+		if (inputCat === 'object') {
+			evalValueToRaw()
+		}
+	}
+
+	function evalRawValueToValue() {
 		if (rawValue) {
 			try {
 				value = JSON.parse(rawValue)
@@ -67,12 +81,6 @@
 			} catch (err) {
 				error = err.toString()
 			}
-		}
-	}
-
-	$: {
-		if (inputCat === 'object') {
-			evalValueToRaw()
 		}
 	}
 
@@ -133,9 +141,9 @@
 		}
 	}
 
-	$: {
-		if (value == undefined || value == null) {
-			value = defaultValue
+	async function changeDefaultValue(inputCat, defaultValue) {
+		value = defaultValue
+		if (value == null || value == undefined) {
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = ''
@@ -146,11 +154,11 @@
 				}
 			}
 		}
+
+		if (inputCat === 'object') {
+			evalValueToRaw()
+		}
 	}
-
-	$: validateInput(pattern, value, required)
-
-	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
 <div class="flex flex-col w-full min-w-[250px]">
