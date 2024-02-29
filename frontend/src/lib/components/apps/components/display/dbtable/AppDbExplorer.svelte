@@ -36,7 +36,6 @@
 	import DeleteRow from './DeleteRow.svelte'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import { getSelectInput } from './queries/select'
-	import type { Preview } from '$lib/gen'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -479,7 +478,7 @@
 			resolvedConfig.type.configuration[selected].table ?? 'unknown',
 			getPrimaryKeysresolvedConfig,
 			data,
-			selected as Preview.language
+			selected
 		)
 	}
 

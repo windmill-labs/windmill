@@ -208,7 +208,7 @@
 									id: x.id
 								})
 								r.push({
-									input: getCountInput(resourceValue, tableValue, dbType, [], undefined),
+									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
 								r.push({

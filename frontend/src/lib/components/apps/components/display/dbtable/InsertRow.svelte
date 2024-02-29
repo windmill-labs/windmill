@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
-	import type { Preview } from '$lib/gen'
-	import { ColumnIdentity, getFieldType, type ColumnMetadata } from './utils'
+	import { ColumnIdentity, getFieldType, type ColumnMetadata, type DbType } from './utils'
 
 	export let args: Record<string, any> = {}
 	export let databaseType: 'postgresql' | 'mysql' | 'ms_sql_server' = 'postgresql'
@@ -38,7 +37,7 @@
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-			const fieldType = getFieldType(type, databaseType as Preview.language)
+			const fieldType = getFieldType(type, databaseType as DbType)
 
 			return {
 				type,
