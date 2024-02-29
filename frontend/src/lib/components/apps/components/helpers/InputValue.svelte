@@ -271,7 +271,8 @@
 				$mode == 'dnd',
 				$componentControl,
 				$worldStore,
-				$runnableComponents
+				$runnableComponents,
+				false
 			)
 			error = ''
 			return r
@@ -295,7 +296,8 @@
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,
-					$runnableComponents
+					$runnableComponents,
+					false
 				)
 				error = ''
 				return r

@@ -18,8 +18,12 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 	}
 }
 
-function create_context_function_template(eval_string: string, contextKeys: string[]) {
-	let hasReturnAsLastLine = eval_string.split('\n').some((x) => x.startsWith('return '))
+function create_context_function_template(
+	eval_string: string,
+	contextKeys: string[],
+	noReturn: boolean
+) {
+	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
 return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
 "use strict";
@@ -60,12 +64,12 @@ type WmFunctor = (
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
-function make_context_evaluator(eval_string, contextKeys: string[]): WmFunctor {
-	let cacheKey = hashCode(JSON.stringify({ eval_string, contextKeys }))
+function make_context_evaluator(eval_string, contextKeys: string[], noReturn: boolean): WmFunctor {
+	let cacheKey = hashCode(JSON.stringify({ eval_string, contextKeys, noReturn }))
 	if (functorCache[cacheKey]) {
 		return functorCache[cacheKey]
 	}
-	let template = create_context_function_template(eval_string, contextKeys)
+	let template = create_context_function_template(eval_string, contextKeys, noReturn)
 	let functor = Function(template)
 	let r = functor()
 	functorCache[cacheKey] = r
@@ -139,7 +143,8 @@ export async function eval_like(
 		}
 	>,
 	worldStore: World | undefined,
-	runnableComponents: Record<string, { cb?: (() => void)[] }>
+	runnableComponents: Record<string, { cb?: (() => void)[] }>,
+	noReturn: boolean
 ) {
 	const proxiedState = new Proxy(state, {
 		set(target, key, value) {
@@ -157,7 +162,7 @@ export async function eval_like(
 		}
 	})
 
-	let evaluator = make_context_evaluator(text, Object.keys(context ?? {}))
+	let evaluator = make_context_evaluator(text, Object.keys(context ?? {}), noReturn)
 	// console.log(i, j)
 	return await evaluator(
 		context,

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.281.3](https://github.com/windmill-labs/windmill/compare/v1.281.2...v1.281.3) (2024-02-28)
+
+
+### Bug Fixes
+
+* table-col/row switch issue in display result ([#3311](https://github.com/windmill-labs/windmill/issues/3311)) ([0e6b164](https://github.com/windmill-labs/windmill/commit/0e6b164e166ba1abe2dfcf6b219146c25b1191f2))
+
+## [1.281.2](https://github.com/windmill-labs/windmill/compare/v1.281.1...v1.281.2) (2024-02-28)
+
+
+### Bug Fixes
+
+* fix app expr break ([07e166f](https://github.com/windmill-labs/windmill/commit/07e166fc02cb546425a0a15754b15e4c71fc82d1))
+
 ## [1.281.1](https://github.com/windmill-labs/windmill/compare/v1.281.0...v1.281.1) (2024-02-28)
 
 
