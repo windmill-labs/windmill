@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { Badge, Button } from './common'
-	import { createEventDispatcher, tick } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import autosize from 'svelte-autosize'
