@@ -70,7 +70,7 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			workspacedOpenai.init(workspace)
+			workspacedOpenai.init(workspace, token)
 			try {
 				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 			} catch (err) {
