@@ -76,16 +76,19 @@
 
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
-				<Alert
-					type="info"
-					title="For loops"
-					tooltip="For loops"
-					documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
-					class="mb-4"
-				>
-					Add steps inside the loop and specify an iterator expression that defines the sequence
-					over which your subsequent steps will iterate.
-				</Alert>
+				{#if !noEditor}
+					<Alert
+						type="info"
+						title="For loops"
+						tooltip="For loops"
+						documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+						class="mb-4"
+					>
+						Add steps inside the loop and specify an iterator expression that defines the sequence
+						over which your subsequent steps will iterate.
+					</Alert>
+				{/if}
+
 				{#if mod.value.type === 'forloopflow'}
 					<div class="flex flex-row gap-8 mt-2 mb-6">
 						<div>

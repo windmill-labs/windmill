@@ -27,13 +27,13 @@ const openaiConfig: ChatCompletionCreateParamsStreaming = {
 class WorkspacedOpenai {
 	private client: OpenAI | undefined
 
-	init(workspace: string) {
+	init(workspace: string, token: string | undefined = undefined) {
 		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
 		this.client = new OpenAI({
 			baseURL,
 			apiKey: 'fakekey',
 			defaultHeaders: {
-				Authorization: ''
+				Authorization: token ? `Bearer ${token}` : ''
 			},
 			dangerouslyAllowBrowser: true
 		})

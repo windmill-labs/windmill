@@ -36,9 +36,7 @@
 		<Cross class="mx-[5px]" size={15} />
 	</button>
 	<div id="flow-editor-insert-module">
-		{#if !disableAi}
-			<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} />
-		{/if}
+		<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} {disableAi} />
 
 		{#if funcDesc.length === 0}
 			<div class="font-mono divide-y text-xs w-full text-secondary">
