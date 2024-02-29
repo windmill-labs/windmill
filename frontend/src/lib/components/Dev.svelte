@@ -260,7 +260,7 @@
 		}
 	}
 
-	let mode: 'script' | 'flow' = 'script'
+	let mode: 'script' | 'flow' = 'flow' //'script'
 
 	const flowStore = writable({
 		summary: '',
