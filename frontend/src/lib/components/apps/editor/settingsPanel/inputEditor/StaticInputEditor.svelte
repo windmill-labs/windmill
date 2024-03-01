@@ -131,22 +131,6 @@
 				showSchemaExplorer
 				resourceType="snowflake"
 			/>
-		{:else if fieldType === 'resource' && subFieldType === 'bigquery'}
-			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
-						}
-					}
-				}}
-				showSchemaExplorer
-				resourceType="bigquery"
-			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}

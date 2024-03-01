@@ -170,23 +170,6 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 		case 'snowflake': {
 			return makeSnowflakeSelectQuery(table, columnDefs, whereClause, options)
 		}
-		case 'bigquery': {
-			const orderBy = columnDefs
-				.map((column) => {
-					return `
-(CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN ${column.field} END) ASC,
-(CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN ${column.field} END) DESC`
-				})
-				.join(',\n')
-
-			quicksearchCondition = ` (@quicksearch = '' OR CONCAT(${selectClause}) LIKE '%' || @quicksearch || '%')`
-
-			query += `SELECT ${selectClause} FROM ${table}`
-			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
-			query += ` ORDER BY ${orderBy}`
-			query += ` LIMIT @limit OFFSET @offset`
-			break
-		}
 
 		default:
 			throw new Error('Unsupported database type')
