@@ -39,10 +39,16 @@ function updateWithAllValues(
 			query += `\nUPDATE ${table} SET ${column.field} = @p1 WHERE ${conditions}`
 			return query
 		}
-		case 'snowflake':
+		case 'snowflake': {
 			const conditions = columns.map((c, i) => `${c.field} = ? `).join(' AND ')
 			query += `\nUPDATE ${table} SET ${column.field} = ? WHERE ${conditions}`
 			return query
+		}
+		case 'bigquery': {
+			const conditions = columns.map((c, i) => `${c.field} = @${c.field}`).join(' AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update WHERE ${conditions}`
+			return query
+		}
 		default:
 			throw new Error('Unsupported database type')
 	}

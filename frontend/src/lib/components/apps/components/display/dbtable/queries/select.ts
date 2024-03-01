@@ -91,11 +91,11 @@ function makeSelectQuery(
 
 	let query = buildParameters(
 		[
-			{ field: 'limit', datatype: 'int' },
-			{ field: 'offset', datatype: 'int' },
-			{ field: 'quicksearch', datatype: 'text' },
-			{ field: 'order_by', datatype: 'text' },
-			{ field: 'is_desc', datatype: 'boolean' }
+			{ field: 'limit', datatype: dbType === 'bigquery' ? 'integer' : 'int' },
+			{ field: 'offset', datatype: dbType === 'bigquery' ? 'integer' : 'int' },
+			{ field: 'quicksearch', datatype: dbType === 'bigquery' ? 'string' : 'text' },
+			{ field: 'order_by', datatype: 'bigquery' ? 'string' : 'text' },
+			{ field: 'is_desc', datatype: 'bigquery' ? 'bool' : 'boolean' }
 		],
 		dbType
 	)
@@ -104,6 +104,8 @@ function makeSelectQuery(
 
 	const filteredColumns = buildVisibleFieldList(columnDefs, dbType)
 	const selectClause = filteredColumns.join(', ')
+
+	console.log(table)
 
 	switch (dbType) {
 		case 'mysql': {

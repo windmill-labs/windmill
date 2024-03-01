@@ -12,6 +12,8 @@ function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: nu
 			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
 		case 'snowflake':
 			return columns.map(() => `?`).join(', ')
+		case 'bigquery':
+			return columns.map((c) => `@${c.field}`).join(', ')
 		default:
 			throw new Error('Unsupported database type')
 	}
