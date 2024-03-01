@@ -49,9 +49,9 @@
 			}}
 		/>
 	{:else}
-		<span class="px-2 text-tertiary">
+		<div class="px-2 pt-4 text-tertiary">
 			Selected editor component is a transformer but component has no transformer
-		</span>
+		</div>
 	{/if}
 {:else if componentInput?.type == 'runnable'}
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.name !== undefined}

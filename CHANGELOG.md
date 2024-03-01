@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.282.2](https://github.com/windmill-labs/windmill/compare/v1.282.1...v1.282.2) (2024-03-01)
+
+
+### Bug Fixes
+
+* redo release ([195ce11](https://github.com/windmill-labs/windmill/commit/195ce113fd680f74ce2b3e2b5ee2c175fd4cc6f9))
+
+## [1.282.1](https://github.com/windmill-labs/windmill/compare/v1.282.0...v1.282.1) (2024-03-01)
+
+
+### Bug Fixes
+
+* description of fields accept new lines ([07cea28](https://github.com/windmill-labs/windmill/commit/07cea28712b6b7e09f3415b0d69fe4f132f81e51))
+* fix flow progress monitor when using parallel branches and continuing long after ([07fb375](https://github.com/windmill-labs/windmill/commit/07fb3754afb86adab00e0ef88f55ec7dc4b43dbd))
+* maintain order in flow inputs when never reordering ([410ec2c](https://github.com/windmill-labs/windmill/commit/410ec2cd78e10cfb5282ca4e0b6e40722762240c))
+
+## [1.282.0](https://github.com/windmill-labs/windmill/compare/v1.281.3...v1.282.0) (2024-03-01)
+
+
+### Features
+
+* Use ACCEPT_INVALID_CERTS for SMTP ([#3318](https://github.com/windmill-labs/windmill/issues/3318)) ([cb4ac89](https://github.com/windmill-labs/windmill/commit/cb4ac89e08a86ad66c52d8b1aa443475d9a349f4))
+
+
+### Bug Fixes
+
+* AI copilot available in the vscode flow editor ([#3314](https://github.com/windmill-labs/windmill/issues/3314)) ([530d1a9](https://github.com/windmill-labs/windmill/commit/530d1a97ff8eab1249d404fd74b3c5c63ff879a3))
+* app forms change value on default value changes ([493d201](https://github.com/windmill-labs/windmill/commit/493d2012a81e2d79ed1b3561a07cb5f8fd9fb9dd))
+* improve dev mode for flows ([ec38f92](https://github.com/windmill-labs/windmill/commit/ec38f92aa604e9ace32c7d287cd7aa336ec0e7ba))
+
 ## [1.281.3](https://github.com/windmill-labs/windmill/compare/v1.281.2...v1.281.3) (2024-02-28)
 
 

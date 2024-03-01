@@ -70,6 +70,7 @@
 		</div>
 		<div class="flex flex-row mb-1 mt-2">
 			<Button
+				color="light"
 				variant="border"
 				size="sm"
 				on:click={() => {
@@ -83,6 +84,7 @@
 				<Plus size={14} />
 			</Button>
 			<Button
+				color="light"
 				variant="border"
 				size="sm"
 				btnClasses="ml-2"

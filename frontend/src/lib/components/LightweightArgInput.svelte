@@ -51,15 +51,29 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
-
 	export let error: string = ''
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let rawValue: string | undefined = undefined
 
+	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
+
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
+	$: changeDefaultValue(inputCat, defaultValue)
+
+	$: rawValue && evalRawValueToValue()
+
+	$: validateInput(pattern, value, required)
+
 	$: {
+		if (inputCat === 'object') {
+			evalValueToRaw()
+		}
+	}
+
+	function evalRawValueToValue() {
 		if (rawValue) {
 			try {
 				value = JSON.parse(rawValue)
@@ -67,12 +81,6 @@
 			} catch (err) {
 				error = err.toString()
 			}
-		}
-	}
-
-	$: {
-		if (inputCat === 'object') {
-			evalValueToRaw()
 		}
 	}
 
@@ -133,9 +141,9 @@
 		}
 	}
 
-	$: {
-		if (value == undefined || value == null) {
-			value = defaultValue
+	async function changeDefaultValue(inputCat, defaultValue) {
+		value = defaultValue
+		if (value == null || value == undefined) {
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = ''
@@ -146,11 +154,11 @@
 				}
 			}
 		}
+
+		if (inputCat === 'object') {
+			evalValueToRaw()
+		}
 	}
-
-	$: validateInput(pattern, value, required)
-
-	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
 <div class="flex flex-col w-full min-w-[250px]">
@@ -169,8 +177,8 @@
 		{/if}
 
 		{#if description}
-			<div class={twMerge('text-sm italic pb-1', css?.description?.class)}>
-				{description}
+			<div class={twMerge('text-xs italic pb-1', css?.description?.class)}>
+				<pre class="font-main">{description}</pre>
 			</div>
 		{/if}
 
@@ -232,6 +240,7 @@
 					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'!bg-surface-secondary'}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
@@ -240,6 +249,7 @@
 					{:else if Array.isArray(itemsType?.enum) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
+								ulOptionsClass={'!bg-surface-secondary'}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}
 								selectedOptionsDraggable={true}

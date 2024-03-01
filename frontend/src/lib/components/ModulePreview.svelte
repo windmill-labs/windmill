@@ -23,8 +23,9 @@
 	export let schema: Schema
 	export let pickableProperties: PickableProperties | undefined
 	export let lang: Script.language
-	export let editor: Editor
-	export let diffEditor: DiffEditor
+	export let editor: Editor | undefined
+	export let diffEditor: DiffEditor | undefined
+	export let noEditor = false
 
 	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -35,7 +36,7 @@
 	let testJob: Job | undefined = undefined
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
-		Object.keys(schema.properties).map((k) => [
+		Object.keys(schema.properties ?? {}).map((k) => [
 			k,
 			evalValue(k, mod, $testStepStore, pickableProperties, false)
 		])
@@ -89,6 +90,7 @@
 </script>
 
 <TestJobLoader
+	toastError={noEditor}
 	on:done={() => jobDone()}
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}

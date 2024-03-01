@@ -543,7 +543,6 @@ pub struct User {
     pub role: Option<String>,
 }
 
-
 #[derive(Serialize)]
 pub struct UserWithUsage {
     pub email: String,
@@ -718,12 +717,14 @@ async fn list_users(
         require_admin(authed.is_admin, &authed.username)?;
     }
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as!(User,
+    let rows = sqlx::query_as!(
+        User,
         "
         SELECT *
           FROM usr
          WHERE workspace_id = $1
-         ", w_id
+         ",
+        w_id
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -731,17 +732,18 @@ async fn list_users(
     Ok(Json(rows))
 }
 
-async fn list_user_usage(    
+async fn list_user_usage(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>) -> JsonResult<Vec<UserWithUsage>> {
-if *CLOUD_HOSTED && w_id == "demo" {
-    require_admin(authed.is_admin, &authed.username)?;
-}
-let mut tx = user_db.begin(&authed).await?;
-let rows = sqlx::query_as!(
-    UserWithUsage,
-    "
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<UserWithUsage>> {
+    if *CLOUD_HOSTED && w_id == "demo" {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query_as!(
+        UserWithUsage,
+        "
     SELECT usr.email, usage.executions
         FROM usr
             , LATERAL (
@@ -755,11 +757,11 @@ let rows = sqlx::query_as!(
         WHERE workspace_id = $1
         ",
         w_id
-)
-.fetch_all(&mut *tx)
-.await?;
-tx.commit().await?;
-Ok(Json(rows))
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_users_as_super_admin(
@@ -1679,8 +1681,11 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
     if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
-        let client = SmtpClientBuilder::new(smtp.host, smtp.port)
+        let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
             .implicit_tls(smtp.tls_implicit.unwrap_or(false));
+        if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
+            client = client.allow_invalid_certs();
+        }
         let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
             if !username.is_empty() {
                 client.credentials((username, password))
