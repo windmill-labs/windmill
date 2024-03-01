@@ -51,7 +51,8 @@
 		Server,
 		Share,
 		Table2,
-		Trash
+		Trash,
+		Play
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -234,7 +235,7 @@
 				href: `/runs/${script.path}`,
 				size: 'xs',
 				color: 'light',
-				startIcon: History
+				startIcon: Play
 			}
 		})
 
