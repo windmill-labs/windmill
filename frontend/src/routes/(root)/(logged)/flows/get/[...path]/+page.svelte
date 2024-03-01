@@ -6,7 +6,7 @@
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Alert, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
+	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -27,7 +27,8 @@
 		History,
 		Columns,
 		Pen,
-		Eye
+		Eye,
+		Calendar
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -42,6 +43,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
+	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -76,9 +78,13 @@
 		goto('/')
 	}
 
+	let schedule: Schedule | undefined = undefined
 	async function loadFlow(): Promise<void> {
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
+		try {
+			schedule = await loadFlowSchedule(path, $workspaceStore!)
+		} catch {}
 	}
 
 	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
@@ -306,6 +312,21 @@
 							{`Concurrency limit: ${flow?.value?.concurrent_limit} runs every ${flow?.value?.concurrency_time_window_s}s`}
 						</HeaderBadge>
 					</div>
+				{/if}
+				{#if schedule?.enabled}
+					<Button
+						btnClasses="inline-flex"
+						startIcon={{ icon: Calendar }}
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							detailSelected = 'details'
+							triggerSelected = 'schedule'
+						}}
+					>
+						{schedule.cron ?? ''}
+					</Button>
 				{/if}
 			</DetailPageHeader>
 		</svelte:fragment>
