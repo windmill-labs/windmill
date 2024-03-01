@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.283.0](https://github.com/windmill-labs/windmill/compare/v1.282.2...v1.283.0) (2024-03-01)
+
+
+### Features
+
+* sync users and groups ([#3328](https://github.com/windmill-labs/windmill/issues/3328)) ([8812dfd](https://github.com/windmill-labs/windmill/commit/8812dfd42801e7b05462931a6267dce94e8716d3))
+
 ## [1.282.2](https://github.com/windmill-labs/windmill/compare/v1.282.1...v1.282.2) (2024-03-01)
 
 
