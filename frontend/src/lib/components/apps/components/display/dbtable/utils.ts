@@ -561,7 +561,7 @@ export function getFieldType(type: string, databaseType: DbType) {
 	}
 }
 
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake'
+export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
@@ -577,7 +577,8 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 					return `\`${column?.field}\`` // MySQL uses backticks
 				case 'snowflake':
 					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
-
+				case 'bigquery':
+					return `\`${column?.field}\`` // BigQuery uses backticks
 				default:
 					throw new Error('Unsupported database type')
 			}
@@ -589,7 +590,8 @@ export function getLanguageByResourceType(name: string) {
 		postgresql: Preview.language.POSTGRESQL,
 		mysql: Preview.language.MYSQL,
 		ms_sql_server: Preview.language.MSSQL,
-		snowflake: Preview.language.SNOWFLAKE
+		snowflake: Preview.language.SNOWFLAKE,
+		bigquery: Preview.language.BIGQUERY
 	}
 	return language[name]
 }
@@ -612,6 +614,8 @@ export function buildParameters(
 					return `-- @p${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
 				case 'snowflake':
 					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
+				case 'bigquery':
+					return `-- @${column.field} (${column.datatype.split('(')[0]})`
 			}
 		})
 		.join('\n')

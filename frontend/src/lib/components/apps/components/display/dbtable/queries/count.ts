@@ -12,7 +12,10 @@ function makeCountQuery(
 	const wherePrefix = ' WHERE '
 	const andCondition = ' AND '
 	let quicksearchCondition = ''
-	let query = buildParameters([{ field: 'quicksearch', datatype: 'text' }], dbType)
+	let query = buildParameters(
+		[{ field: 'quicksearch', datatype: dbType === 'bigquery' ? 'string' : 'text' }],
+		dbType
+	)
 
 	query += '\n'
 
@@ -81,6 +84,17 @@ function makeCountQuery(
 			query += `SELECT COUNT(*) as count FROM ${table}`
 			break
 		}
+		case 'bigquery': {
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += `(@quicksearch = '' OR CONCAT(${filteredColumns.join(
+					', '
+				)}) LIKE '%' || @quicksearch || '%')`
+			} else {
+				quicksearchCondition += `(@quicksearch = '' OR 1 = 1)`
+			}
+			query += `SELECT COUNT(*) as count FROM \`${table}\``
+			break
+		}
 
 		default:
 			throw new Error('Unsupported database type:' + dbType)
@@ -95,7 +109,10 @@ function makeCountQuery(
 
 	if (
 		!whereClause &&
-		(dbType === Preview.language.MYSQL || dbType === 'postgresql' || dbType === 'snowflake')
+		(dbType === Preview.language.MYSQL ||
+			dbType === 'postgresql' ||
+			dbType === 'snowflake' ||
+			dbType === 'bigquery')
 	) {
 		query = query.replace(`${andCondition}`, wherePrefix)
 	}
