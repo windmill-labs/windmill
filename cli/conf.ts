@@ -12,6 +12,8 @@ export interface SyncOptions {
   skipResources?: boolean;
   skipSecrets?: boolean;
   includeSchedules?: boolean;
+  includeUsers?: boolean;
+  includeGroups?: boolean;
   message?: string;
   includes?: string[];
   extraIncludes?: string[];
