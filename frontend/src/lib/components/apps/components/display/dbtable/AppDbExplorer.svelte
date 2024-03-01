@@ -37,6 +37,7 @@
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
+	import { last } from 'lodash'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -284,12 +285,13 @@
 					// Serve from cache if it exists and parameters haven't changed.
 					console.debug('Serving from cache for ID:', id)
 					let lastRow = -1
+
 					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
 						lastRow = datasource.rowCount
 					}
 
 					if (datasource && (datasource?.rowCount ?? 0) > cache.data.length) {
-						datasource.rowCount = cache.data.length
+						lastRow = cache.data.length
 					}
 
 					params.successCallback(cache.data, lastRow)
@@ -331,7 +333,7 @@
 									})
 
 									if (datasource && (datasource?.rowCount ?? 0) > processedData.length) {
-										datasource.rowCount = processedData.length
+										lastRow = processedData.length
 									}
 
 									cache.data = processedData // Update cache with new data
