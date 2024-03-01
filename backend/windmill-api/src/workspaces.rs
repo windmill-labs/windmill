@@ -30,6 +30,7 @@ use axum::{
 };
 use chrono::Utc;
 
+use itertools::Itertools;
 use regex::Regex;
 
 use uuid::Uuid;
@@ -2335,13 +2336,14 @@ async fn tarball_workspace(
             let admins: Vec<String> = extra_perms
                 .iter()
                 .filter_map(|(k, v)| {
-                    // only consider extra_perms that concern existing users
+                    // only consider extra_perms that concern actual members of the group
                     if members.contains(&k[2..].to_string()) && *v {
                         Some(k.clone())
                     } else {
                         None
                     }
                 })
+                .sorted()
                 .collect();
             let group = SimplifiedGroup {
                 name: group.name,
