@@ -346,6 +346,7 @@
 									mod={flowModule}
 									{editor}
 									{diffEditor}
+									{noEditor}
 									lang={flowModule.value['language'] ?? 'deno'}
 									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
