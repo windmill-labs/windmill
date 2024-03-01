@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.282.2](https://github.com/windmill-labs/windmill/compare/v1.282.1...v1.282.2) (2024-03-01)
+
+
+### Bug Fixes
+
+* redo release ([195ce11](https://github.com/windmill-labs/windmill/commit/195ce113fd680f74ce2b3e2b5ee2c175fd4cc6f9))
+
 ## [1.282.1](https://github.com/windmill-labs/windmill/compare/v1.282.0...v1.282.1) (2024-03-01)
 
 
