@@ -1681,9 +1681,11 @@ pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &st
     if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
         let client = SmtpClientBuilder::new(smtp.host, smtp.port)
             .implicit_tls(smtp.tls_implicit.unwrap_or(false));
-        if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
-            client.allow_invalid_certs();
-        }
+        let client = if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
+            client.allow_invalid_certs()
+        } else {
+            client
+        };
         let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
             if !username.is_empty() {
                 client.credentials((username, password))

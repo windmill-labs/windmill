@@ -58,9 +58,11 @@ pub async fn test_email(
     let to = test_email.to;
     let client = SmtpClientBuilder::new(smtp.host, smtp.port)
         .implicit_tls(smtp.tls_implicit.unwrap_or(false));
-    if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
-        client.allow_invalid_certs();
-    }
+    let client = if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
+        client.allow_invalid_certs()
+    } else {
+        client
+    };
     let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
         if !username.is_empty() {
             client.credentials((username, password))
