@@ -12,6 +12,8 @@ import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
 import { deepEqual } from "./utils.ts";
 import { pushSchedule } from "./schedule.ts";
+import { pushWorkspaceUser } from "./user.ts";
+import { pushGroup } from "./user.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -122,6 +124,10 @@ export async function pushObj(
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
     await pushSchedule(workspace, p, befObj, newObj);
+  } else if (typeEnding === "user") {
+    await pushWorkspaceUser(workspace, p, befObj, newObj);
+  } else if (typeEnding === "group") {
+    await pushGroup(workspace, p, befObj, newObj);
   } else {
     throw new Error(
       `The item ${p} has an unrecognized type ending ${typeEnding}`
@@ -155,7 +161,9 @@ export function getTypeStrFromPath(
   | "resource-type"
   | "folder"
   | "app"
-  | "schedule" {
+  | "schedule"
+  | "user"
+  | "group" {
   if (p.includes(".flow" + path.sep)) {
     return "flow";
   }
@@ -183,7 +191,9 @@ export function getTypeStrFromPath(
     typeEnding === "resource" ||
     typeEnding === "resource-type" ||
     typeEnding === "app" ||
-    typeEnding === "schedule"
+    typeEnding === "schedule" ||
+    typeEnding === "user" ||
+    typeEnding === "group"
   ) {
     return typeEnding;
   } else {
@@ -199,4 +209,11 @@ export function removeType(str: string, type: string) {
     throw new Error(str + " does not end with ." + type + ".(yaml|json)");
   }
   return str.slice(0, str.length - type.length - 6);
+}
+
+export function removePathPrefix(str: string, prefix: string) {
+  if (!str.startsWith(prefix + "/")) {
+    throw new Error(str + " does not start with " + prefix);
+  }
+  return str.slice(prefix.length + 1);
 }

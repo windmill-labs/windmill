@@ -60,6 +60,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_usage", get(list_user_usage))
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
+        .route("/get/:user", get(get_workspace_user))
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
         .route("/is_owner/*path", get(is_owner_of_path))
@@ -1457,6 +1458,28 @@ async fn leave_instance(
 
     Ok(format!("Left instance",))
 }
+
+async fn get_workspace_user(
+    ApiAuthed { username, is_admin, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, username_to_update)): Path<(String, String)>,
+) -> Result<Json<User>> {
+    require_admin(is_admin, &username)?;
+
+    let user = sqlx::query_as!(
+        User,
+        "SELECT * FROM usr WHERE username = $1 AND workspace_id = $2",
+        &username_to_update,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let user = not_found_if_none(user, "User", username_to_update)?;
+
+    Ok(Json(user))
+}
+
 async fn update_workspace_user(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,

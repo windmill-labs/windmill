@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use crate::db::ApiAuthed;
 use crate::BASE_URL;
 use crate::{
@@ -1744,6 +1746,22 @@ async fn add_user(
         )));
     }
 
+    let already_exists_email = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
+        &w_id,
+        username,
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if already_exists_email {
+        return Err(Error::BadRequest(format!(
+            "user with email {} already exists in workspace {}",
+            email, w_id
+        )));
+    }
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin, operator)
@@ -1765,6 +1783,17 @@ async fn add_user(
         "all",
     )
     .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &nu.username,
+        "users.add_to_workspace",
+        ActionKind::Create,
+        &w_id,
+        Some(&email),
+        None,
+    )
     .await?;
 
     tx.commit().await?;
@@ -1933,11 +1962,17 @@ struct ArchiveQueryParams {
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
     include_schedules: Option<bool>,
+    include_users: Option<bool>,
+    include_groups: Option<bool>,
     default_ts: Option<String>,
 }
 
 #[inline]
-pub fn to_string_without_metadata<T>(value: &T, preserve_extra_perms: bool) -> Result<String>
+pub fn to_string_without_metadata<T>(
+    value: &T,
+    preserve_extra_perms: bool,
+    ignore_keys: Option<Vec<&str>>,
+) -> Result<String>
 where
     T: ?Sized + Serialize,
 {
@@ -1945,23 +1980,29 @@ where
     value
         .as_object_mut()
         .map(|obj| {
-            for key in [
-                "workspace_id",
-                "path",
-                "name",
-                "versions",
-                "id",
-                "created_at",
-                "updated_at",
-                "created_by",
-                "updated_by",
-                "edited_at",
-                "edited_by",
-                "archived",
-                "has_draft",
-                "draft_only",
-                "error",
-            ] {
+            let keys = [
+                vec![
+                    "workspace_id",
+                    "path",
+                    "name",
+                    "versions",
+                    "id",
+                    "created_at",
+                    "updated_at",
+                    "created_by",
+                    "updated_by",
+                    "edited_at",
+                    "edited_by",
+                    "archived",
+                    "has_draft",
+                    "draft_only",
+                    "error",
+                ],
+                ignore_keys.unwrap_or(vec![]),
+            ]
+            .concat();
+
+            for key in keys {
                 if obj.contains_key(key) {
                     obj.remove(key);
                 }
@@ -1981,6 +2022,22 @@ where
         .ok_or_else(|| Error::BadRequest("Impossible to serialize value".to_string()))
 }
 
+#[derive(Serialize)]
+struct SimplifiedUser {
+    username: String,
+    role: String,
+    disabled: bool,
+    email: String,
+}
+
+#[derive(Serialize)]
+struct SimplifiedGroup {
+    name: String,
+    summary: Option<String>,
+    members: Vec<String>,
+    admins: Vec<String>,
+}
+
 async fn tarball_workspace(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1994,6 +2051,8 @@ async fn tarball_workspace(
         skip_secrets,
         skip_variables,
         include_schedules,
+        include_users,
+        include_groups,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
@@ -2024,7 +2083,7 @@ async fn tarball_workspace(
         for folder in folders {
             archive
                 .write_to_archive(
-                    &to_string_without_metadata(&folder, true).unwrap(),
+                    &to_string_without_metadata(&folder, true, None).unwrap(),
                     &format!("f/{}/folder.meta.json", folder.name),
                 )
                 .await?;
@@ -2108,7 +2167,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource in resources {
-            let resource_str = &to_string_without_metadata(&resource, false).unwrap();
+            let resource_str = &to_string_without_metadata(&resource, false, None).unwrap();
             archive
                 .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
                 .await?;
@@ -2125,7 +2184,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource_type in resource_types {
-            let resource_str = &to_string_without_metadata(&resource_type, false).unwrap();
+            let resource_str = &to_string_without_metadata(&resource_type, false, None).unwrap();
             archive
                 .write_to_archive(
                     &resource_str,
@@ -2144,7 +2203,7 @@ async fn tarball_workspace(
         .await?;
 
         for flow in flows {
-            let flow_str = &to_string_without_metadata(&flow, false).unwrap();
+            let flow_str = &to_string_without_metadata(&flow, false, None).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -2171,7 +2230,7 @@ async fn tarball_workspace(
             {
                 var.value = Some(decrypt(&mc, var.value.unwrap())?);
             }
-            let var_str = &to_string_without_metadata(&var, false).unwrap();
+            let var_str = &to_string_without_metadata(&var, false, None).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
@@ -2191,7 +2250,7 @@ async fn tarball_workspace(
         .await?;
 
         for app in apps {
-            let app_str = &to_string_without_metadata(&app, false).unwrap();
+            let app_str = &to_string_without_metadata(&app, false, None).unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.app.json", app.path))
                 .await?;
@@ -2209,9 +2268,102 @@ async fn tarball_workspace(
         .await?;
 
         for schedule in schedules {
-            let app_str = &to_string_without_metadata(&schedule, false).unwrap();
+            let app_str = &to_string_without_metadata(&schedule, false, None).unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
+                .await?;
+        }
+    }
+
+    if include_users.unwrap_or(false) {
+        let users = sqlx::query!(
+            "SELECT * FROM usr
+            WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for user in users {
+            let user = SimplifiedUser {
+                username: user.username,
+                role: if user.is_admin {
+                    "admin".to_string()
+                } else if user.operator {
+                    "operator".to_string()
+                } else {
+                    "developer".to_string()
+                },
+                disabled: user.disabled,
+                email: user.email,
+            };
+            let user_str = &to_string_without_metadata(
+                &user,
+                false,
+                Some(vec!["is_admin", "operator", "email"]),
+            )
+            .unwrap();
+            archive
+                .write_to_archive(&user_str, &format!("users/{}.user.json", user.email))
+                .await?;
+        }
+    }
+
+    if include_groups.unwrap_or(false) {
+        let groups = sqlx::query!(
+            r#"SELECT g_.workspace_id, name, summary, extra_perms, array_agg(u2g.usr) filter (where u2g.usr is not null) as members 
+            FROM usr u
+            JOIN usr_to_group u2g ON u2g.usr = u.username AND u2g.workspace_id = u.workspace_id
+            RIGHT JOIN group_ g_ ON g_.workspace_id = u.workspace_id AND g_.name = u2g.group_
+            WHERE g_.workspace_id = $1 AND g_.name != 'all'
+            GROUP BY g_.workspace_id, name, summary, extra_perms"#,
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for group in groups {
+            let extra_perms: HashMap<String, bool> = serde_json::from_value(group.extra_perms)
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "Error parsing extra_perms for group {}: {}",
+                        group.name, e
+                    ))
+                })?;
+            tracing::info!("{:?}", extra_perms);
+            let members = group.members.unwrap_or(vec![]);
+            let admins: Vec<String> = extra_perms
+                .iter()
+                .filter_map(|(k, v)| {
+                    // only consider extra_perms that concern existing users
+                    if members.contains(&k[2..].to_string()) && *v {
+                        Some(k.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let group = SimplifiedGroup {
+                name: group.name,
+                summary: group.summary,
+                members: members
+                    .iter()
+                    .filter_map(|x| {
+                        // remove members that are also admins as they are already in the admins list
+                        let full_name = format!("u/{}", x);
+                        if !admins.contains(&full_name) {
+                            Some(full_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                admins,
+            };
+
+            let group_str = &to_string_without_metadata(&group, true, None).unwrap();
+            archive
+                .write_to_archive(&group_str, &format!("groups/{}.group.json", group.name))
                 .await?;
         }
     }
