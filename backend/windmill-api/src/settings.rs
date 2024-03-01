@@ -56,10 +56,10 @@ pub async fn test_email(
     require_super_admin(&db, &authed.email).await?;
     let smtp = test_email.smtp;
     let to = test_email.to;
-    let client = SmtpClientBuilder::new(smtp.host, smtp.port)
+    let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
         .implicit_tls(smtp.tls_implicit.unwrap_or(false));
     if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
-        client.allow_invalid_certs();
+        client = client.allow_invalid_certs();
     }
     let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
         if !username.is_empty() {

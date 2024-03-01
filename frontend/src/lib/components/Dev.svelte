@@ -311,7 +311,7 @@
 		}
 	}
 
-	let mode: 'script' | 'flow' = 'flow' //'script'
+	let mode: 'script' | 'flow' = 'script'
 
 	const flowStore = writable({
 		summary: '',
@@ -375,10 +375,10 @@
 		initialPath: ''
 	})
 
-	$: updateCode($flowStore)
+	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined
-	function updateCode(flow: OpenFlow) {
+	function updateFlow(flow: OpenFlow) {
 		if (lockChanges) {
 			return
 		}
