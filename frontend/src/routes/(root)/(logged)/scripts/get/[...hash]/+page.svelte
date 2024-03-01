@@ -151,10 +151,11 @@
 			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash })
 			hash = script.hash
 		}
-		schedule = await loadScriptSchedule(script.path, $workspaceStore!)
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
+		schedule = await loadScriptSchedule(script.path, $workspaceStore!)
+
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
@@ -215,7 +216,12 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let persistentScriptDrawer: PersistentScriptDrawer
 
-	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
+	function getMainButtons(
+		script: Script | undefined,
+		args: object | undefined,
+		topHash?: string,
+		can_write?: boolean
+	) {
 		const buttons: any = []
 
 		if (!topHash && script && !$userStore?.operator) {
@@ -311,7 +317,7 @@
 
 		return buttons
 	}
-	$: mainButtons = getMainButtons(script, args, topHash)
+	$: mainButtons = getMainButtons(script, args, topHash, can_write)
 
 	function getMenuItems(script: Script | undefined) {
 		if (!script || $userStore?.operator) return []
