@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.282.1](https://github.com/windmill-labs/windmill/compare/v1.282.0...v1.282.1) (2024-03-01)
+
+
+### Bug Fixes
+
+* description of fields accept new lines ([07cea28](https://github.com/windmill-labs/windmill/commit/07cea28712b6b7e09f3415b0d69fe4f132f81e51))
+* fix flow progress monitor when using parallel branches and continuing long after ([07fb375](https://github.com/windmill-labs/windmill/commit/07fb3754afb86adab00e0ef88f55ec7dc4b43dbd))
+* maintain order in flow inputs when never reordering ([410ec2c](https://github.com/windmill-labs/windmill/commit/410ec2cd78e10cfb5282ca4e0b6e40722762240c))
+
 ## [1.282.0](https://github.com/windmill-labs/windmill/compare/v1.281.3...v1.282.0) (2024-03-01)
 
 
