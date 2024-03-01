@@ -260,18 +260,15 @@
 			})
 
 			const { enabled, timezone, args, cron, summary } = $scheduleStore
-			const scheduleExists =
-				initialPath &&
-				initialPath != '' &&
-				(await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: initialPath
-				}))
+			const scheduleExists = await ScheduleService.existsSchedule({
+				workspace: $workspaceStore ?? '',
+				path: script.path
+			})
 
 			if (scheduleExists) {
 				const schedule = await ScheduleService.getSchedule({
 					workspace: $workspaceStore ?? '',
-					path: initialPath
+					path: script.path
 				})
 				if (
 					JSON.stringify(schedule.args) != JSON.stringify(args) ||
@@ -281,7 +278,7 @@
 				) {
 					await ScheduleService.updateSchedule({
 						workspace: $workspaceStore ?? '',
-						path: initialPath,
+						path: script.path,
 						requestBody: {
 							schedule: formatCron(cron),
 							timezone,
@@ -293,12 +290,12 @@
 				if (enabled != schedule.enabled) {
 					await ScheduleService.setScheduleEnabled({
 						workspace: $workspaceStore ?? '',
-						path: initialPath,
+						path: script.path,
 						requestBody: { enabled }
 					})
 				}
 			} else if (enabled) {
-				await createSchedule(initialPath)
+				await createSchedule(script.path)
 			}
 
 			savedScript = cloneDeep(script) as NewScriptWithDraft
