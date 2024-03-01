@@ -105,6 +105,9 @@
 			if (!schema.required) {
 				schema.required = []
 			}
+			if (!schema.order || !Array.isArray(schema.order)) {
+				syncOrders()
+			}
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
 				if (!schema.required.includes(modalProperty.name)) {
@@ -118,7 +121,14 @@
 			}
 
 			if (editing && oldArgName && oldArgName !== modalProperty.name) {
+				let oldPosition = schema.order.indexOf(oldArgName)
+				schema.order[oldPosition] = modalProperty.name
+				reorder()
 				handleDeleteArgument([oldArgName])
+			}
+
+			if (!schema.order?.includes(modalProperty.name)) {
+				schema.order.push(modalProperty.name)
 			}
 			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 			editing = false
@@ -128,7 +138,6 @@
 		}
 
 		schema = schema
-		syncOrders()
 		schemaString = JSON.stringify(schema, null, '\t')
 		jsonEditor?.setCode(schemaString)
 		dispatch('change', schema)
@@ -177,7 +186,9 @@
 				delete modifiedProperties[argName]
 
 				modifiedObject.required = schema.required.filter((arg) => arg !== argName)
-
+				if (modifiedObject.order) {
+					modifiedObject.order = modifiedObject.order.filter((arg) => arg !== argName)
+				}
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
 				dispatch('change', schema)
@@ -216,6 +227,7 @@
 		entries.splice(i, 1)
 		entries.splice(up ? i - 1 : i + 1, 0, element)
 		schema.properties = Object.fromEntries(entries)
+
 		syncOrders()
 	}
 
