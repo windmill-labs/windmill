@@ -36,6 +36,7 @@
 	import DeleteRow from './DeleteRow.svelte'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import { getSelectInput } from './queries/select'
+	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -577,9 +578,7 @@
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
-			<input
-				on:pointerdown|stopPropagation
-				on:keydown|stopPropagation
+			<DebouncedInput
 				class="w-full max-w-[300px]"
 				type="text"
 				bind:value={quicksearch}
