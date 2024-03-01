@@ -3,15 +3,19 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyString } from '$lib/utils'
-	import { getContext } from 'svelte'
-	import type { FlowEditorContext } from '../types'
 	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Calendar } from 'lucide-svelte'
+	import type { Writable } from 'svelte/store'
+	import type { ScriptSchedule } from '$lib/scripts'
 
-	const { schedule, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
+	export let initialPath: string
+	export let schema: Record<string, any> | undefined
+	export let schedule: Writable<ScriptSchedule>
+	// const { schedule, flowStore, pathStore, initialPath } =
+	// 	getContext<FlowEditorContext>('FlowEditorContext')
 	let schedules: Schedule[] | undefined = undefined
 
 	async function loadSchedules() {
@@ -20,7 +24,7 @@
 				await ScheduleService.listSchedules({
 					workspace: $workspaceStore ?? '',
 					path: initialPath,
-					isFlow: true
+					isFlow: false
 				})
 			).filter((s) => s.path != initialPath)
 		} catch (e) {
@@ -46,7 +50,7 @@
 
 <CronInput bind:schedule={$schedule.cron} bind:timezone={$schedule.timezone} />
 <div class="mt-10" />
-<SchemaForm schema={$flowStore.schema} bind:args={$schedule.args} />
+<SchemaForm {schema} bind:args={$schedule.args} />
 {#if emptyString($schedule.cron)}
 	<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 {/if}
@@ -73,7 +77,7 @@
 	<h2 class="pt-7">Other schedules</h2>
 	<div class="py-4 flex">
 		<Button
-			on:click={() => scheduleEditor?.openNew(true, initialPath)}
+			on:click={() => scheduleEditor?.openNew(false, initialPath)}
 			variant="border"
 			color="light"
 			size="xs"
@@ -92,7 +96,7 @@
 					<div class="grid grid-cols-6 text-2xs items-center py-2"
 						><div class="col-span-3 truncate">{schedule.path}</div><div>{schedule.schedule}</div>
 						<div>{schedule.enabled ? 'on' : 'off'}</div>
-						<button on:click={() => scheduleEditor?.openEdit(schedule.path, true)}>Edit</button>
+						<button on:click={() => scheduleEditor?.openEdit(schedule.path, false)}>Edit</button>
 					</div>
 				{/each}
 			</div>

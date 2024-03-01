@@ -21,7 +21,8 @@
 		Badge,
 		Alert,
 		DrawerContent,
-		Drawer
+		Drawer,
+		Button
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
@@ -41,6 +42,7 @@
 		Activity,
 		Archive,
 		ArchiveRestore,
+		Calendar,
 		Eye,
 		FolderOpen,
 		GitFork,
@@ -64,6 +66,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
+	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -139,6 +142,7 @@
 			}
 		}
 	}
+	let schedule: ScriptSchedule | undefined = undefined
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
@@ -147,6 +151,7 @@
 			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash })
 			hash = script.hash
 		}
+		schedule = await loadScriptSchedule(script.path, $workspaceStore!)
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
@@ -487,6 +492,21 @@
 								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
 							</Badge>
 						</div>
+					{/if}
+					{#if schedule?.enabled}
+						<Button
+							btnClasses="inline-flex"
+							startIcon={{ icon: Calendar }}
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								detailSelected = 'details'
+								triggerSelected = 'schedule'
+							}}
+						>
+							{schedule.cron ?? ''}
+						</Button>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>

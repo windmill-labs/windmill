@@ -72,9 +72,10 @@
 		drawer?.openDrawer()
 	}
 
-	export async function openNew(is_flow: boolean, initial_script_path?: string) {
+	export async function openNew(nis_flow: boolean, initial_script_path?: string) {
 		args = {}
 		runnable = undefined
+		is_flow = nis_flow
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
@@ -87,7 +88,7 @@
 		}
 
 		edit = false
-		itemKind = is_flow ? 'flow' : 'script'
+		itemKind = nis_flow ? 'flow' : 'script'
 		initialScriptPath = initial_script_path ?? ''
 		summary = ''
 		no_flow_overlap = false

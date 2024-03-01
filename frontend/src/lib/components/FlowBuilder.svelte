@@ -88,7 +88,7 @@
 	const dispatch = createEventDispatcher()
 
 	async function createSchedule(path: string) {
-		const { cron, timezone, args, enabled } = $scheduleStore
+		const { cron, timezone, args, enabled, summary } = $scheduleStore
 
 		try {
 			await ScheduleService.createSchedule({
@@ -100,7 +100,8 @@
 					script_path: path,
 					is_flow: true,
 					args,
-					enabled
+					enabled,
+					summary
 				}
 			})
 		} catch (err) {
@@ -215,7 +216,7 @@
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
-			const { cron, timezone, args, enabled } = $scheduleStore
+			const { cron, timezone, args, enabled, summary } = $scheduleStore
 			if (newFlow) {
 				try {
 					localStorage.removeItem('flow')
@@ -256,14 +257,20 @@
 						workspace: $workspaceStore ?? '',
 						path: initialPath
 					})
-					if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
+					if (
+						JSON.stringify(schedule.args) != JSON.stringify(args) ||
+						schedule.schedule != cron ||
+						schedule.timezone != timezone ||
+						schedule.summary != summary
+					) {
 						await ScheduleService.updateSchedule({
 							workspace: $workspaceStore ?? '',
 							path: initialPath,
 							requestBody: {
 								schedule: formatCron(cron),
 								timezone,
-								args
+								args,
+								summary
 							}
 						})
 					}
@@ -338,6 +345,7 @@
 	}
 
 	const scheduleStore = writable<Schedule>({
+		summary: undefined,
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -373,14 +381,15 @@
 	})
 
 	async function loadSchedule() {
-		loadFlowSchedule(initialPath, $workspaceStore)
+		loadFlowSchedule(initialPath, $workspaceStore!)
 			.then((schedule: Schedule) => {
 				scheduleStore.set(schedule)
 			})
 			.catch(() => {
 				scheduleStore.set({
+					summary: undefined,
 					cron: '0 */5 * * *',
-					timezone: 'UTC',
+					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 					args: {},
 					enabled: false
 				})
