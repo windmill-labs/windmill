@@ -176,7 +176,7 @@
 						editable: resolvedConfig?.allEditable,
 						onCellValueChanged
 					},
-					infiniteInitialRowCount: 1000,
+					infiniteInitialRowCount: 0,
 					cacheBlockSize: 100,
 					cacheOverflowSize: 2,
 					maxBlocksInCache: 20,

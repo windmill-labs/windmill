@@ -331,6 +331,10 @@
 										return item
 									})
 
+									if (datasource && (datasource?.rowCount ?? 0) > processedData.length) {
+										datasource.rowCount = processedData.length
+									}
+
 									cache.data = processedData // Update cache with new data
 									params.successCallback(processedData, lastRow)
 								} else {
