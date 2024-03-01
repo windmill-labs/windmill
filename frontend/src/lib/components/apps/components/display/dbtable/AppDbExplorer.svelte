@@ -80,7 +80,7 @@
 				whereClause,
 				resolvedConfig.type.selected as DbType
 			)
-		}, 1000)
+		}, 500)
 	}
 
 	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
@@ -90,14 +90,8 @@
 		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
 		listColumnsIfAvailable()
 
-	let firstQuicksearch = true
-	$: if (quicksearch) {
-		if (firstQuicksearch) {
-			firstQuicksearch = false
-		} else {
-			aggrid?.clearRows()
-		}
-	}
+	// Everythime quicksearch changes, we want to clear the rows
+	$: quicksearch != undefined && aggrid?.clearRows()
 
 	initializing = false
 
@@ -286,13 +280,18 @@
 					is_desc: params.sortModel?.[0]?.sort === 'desc'
 				}
 
-				if (!paramsChanged(currentParams) && cache.data.length > 0) {
+				if (!paramsChanged(currentParams) && cache.promise === null) {
 					// Serve from cache if it exists and parameters haven't changed.
 					console.debug('Serving from cache for ID:', id)
 					let lastRow = -1
 					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
 						lastRow = datasource.rowCount
 					}
+
+					if (datasource && (datasource?.rowCount ?? 0) > cache.data.length) {
+						datasource.rowCount = cache.data.length
+					}
+
 					params.successCallback(cache.data, lastRow)
 					return
 				}
@@ -603,7 +602,7 @@
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			{#key renderCount && render}
+			{#key renderCount}
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
