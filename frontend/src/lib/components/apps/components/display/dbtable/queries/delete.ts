@@ -23,6 +23,11 @@ function updateWithAllValues(table: string, columns: ColumnDef[], dbType: DbType
 			query += `\nDELETE FROM ${table} WHERE ${conditions}`
 			return query
 		}
+		case 'snowflake': {
+			const conditions = columns.map((c, i) => `${c.field} = ? `).join(' AND ')
+			query += `\nDELETE FROM ${table} WHERE ${conditions}`
+			return query
+		}
 		default:
 			throw new Error('Unsupported database type')
 	}

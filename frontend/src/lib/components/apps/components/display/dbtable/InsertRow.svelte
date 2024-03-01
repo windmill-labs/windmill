@@ -4,7 +4,8 @@
 	import { ColumnIdentity, getFieldType, type ColumnMetadata, type DbType } from './utils'
 
 	export let args: Record<string, any> = {}
-	export let databaseType: 'postgresql' | 'mysql' | 'ms_sql_server' = 'postgresql'
+	export let dbType: DbType = 'postgresql'
+
 	type ColumnDef = {
 		field: string
 		ignored: boolean
@@ -37,7 +38,7 @@
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-			const fieldType = getFieldType(type, databaseType as DbType)
+			const fieldType = getFieldType(type, dbType)
 
 			return {
 				type,
@@ -65,6 +66,7 @@
 					const extractedDefaultValue = field.defaultValue
 					schemaProperty.default = extractedDefaultValue ? Number(extractedDefaultValue) : undefined
 					break
+
 				case 'checkbox':
 					schemaProperty.type = 'boolean'
 					schemaProperty.default = field.defaultValue?.toLocaleLowerCase() === 'true'

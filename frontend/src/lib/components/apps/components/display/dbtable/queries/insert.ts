@@ -2,6 +2,41 @@ import type { AppInput } from '$lib/components/apps/inputType'
 import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
+function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {
+	switch (dbType) {
+		case 'mysql':
+			return columns.map((c) => `:${c.field}`).join(', ')
+		case 'postgresql':
+			return columns.map((c, i) => `$${startIndex + i}::${c.datatype}`).join(', ')
+		case 'ms_sql_server':
+			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
+		case 'snowflake':
+			return columns.map(() => `?`).join(', ')
+		default:
+			throw new Error('Unsupported database type')
+	}
+}
+
+function formatColumnNames(columns: ColumnDef[]): string {
+	return columns.map((c) => c.field).join(', ')
+}
+
+function formatDefaultValues(columns: ColumnDef[]): string {
+	const defaultValues = columns
+		.map((c) => {
+			if (c.defaultValueNull) {
+				return 'NULL'
+			} else {
+				return typeof c.defaultUserValue === 'string'
+					? `'${c.defaultUserValue}'`
+					: c.defaultUserValue
+			}
+		})
+		.join(', ')
+
+	return defaultValues
+}
+
 function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
@@ -15,35 +50,13 @@ function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 
 	query += '\n'
 
-	switch (dbType) {
-		case 'mysql':
-			query += `INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
-      VALUES (${columnsInsert.map((c) => `:${c.field}`).join(', ')}${
-				columnsDefault.length > 0 ? ',' : ''
-			} ${columnsDefault
-				.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}`))
-				.join(', ')})`
-			break
-		case 'postgresql':
-			query += `INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
-      VALUES (${columnsInsert.map((c, i) => `$${i + 1}::${c.datatype}`).join(', ')}${
-				columnsDefault.length > 0 ? ',' : ''
-			} ${columnsDefault
-				.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}::${c.datatype}`))
-				.join(', ')})`
-			break
-		case 'ms_sql_server':
-			query += `INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
-      VALUES (${columnsInsert.map((c, i) => `@p${i + 1}`).join(', ')}${
-				columnsDefault.length > 0 ? ',' : ''
-			} ${columnsDefault
-				.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}`))
-				.join(', ')})`
-			break
+	const shouldInsertComma = columnsDefault.length > 0 && columnsInsert.length > 0
+	const columnNames = formatColumnNames(allInsertColumns)
+	const insertValues = formatInsertValues(columnsInsert, dbType)
+	const defaultValues = formatDefaultValues(columnsDefault)
+	const commaOrEmpty = shouldInsertComma ? ', ' : ''
 
-		default:
-			throw new Error('Unsupported database type')
-	}
+	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
 
 	return query
 }

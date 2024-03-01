@@ -224,15 +224,37 @@
 	}
 
 	function getTablesByResource(schema: Partial<Record<string, DBSchema>>) {
-		if (resolvedConfig.type.selected === 'postgresql') {
-			// @ts-ignore
-			return Object.keys(Object.values(schema)?.[0]?.schema?.public ?? {})
-		} else if (resolvedConfig.type.selected === 'mysql') {
-			return Object.keys(Object.values(Object.values(schema)?.[0]?.schema ?? {})?.[0])
-		} else if (resolvedConfig.type.selected === 'ms_sql_server') {
-			return Object.keys(Object.values(Object.values(schema)?.[0]?.schema ?? {})?.[0])
+		const s = Object.values(schema)?.[0]
+		switch (resolvedConfig.type.selected) {
+			case 'postgresql':
+				if (s?.lang === 'postgresql') {
+					return Object.keys(s.schema?.public ?? s.schema ?? {})
+				}
+			case 'mysql':
+				return Object.keys(Object.values(s?.schema ?? {})?.[0])
+			case 'ms_sql_server':
+				return Object.keys(Object.values(s?.schema ?? {})?.[0])
+			case 'snowflake': {
+				return Object.keys(Object.values(s?.schema ?? {})?.[0])
+			}
+			case 'bigquery': {
+				const paths: string[] = []
+				for (const key in s?.schema) {
+					if (s?.schema.hasOwnProperty(key)) {
+						const subObj = s?.schema[key]
+						for (const subKey in subObj) {
+							if (subObj.hasOwnProperty(subKey)) {
+								paths.push(`${key}.${subKey}`)
+							}
+						}
+					}
+				}
+
+				return paths
+			}
+			default:
+				return []
 		}
-		return []
 	}
 
 	const cache = {
@@ -246,93 +268,87 @@
 		return JSON.stringify(currentParams) !== JSON.stringify(cache.params)
 	}
 
-	let datasource: IDatasource | undefined
+	let datasource: IDatasource | undefined = {
+		rowCount: 0,
+		getRows: async function (params) {
+			const currentParams = {
+				offset: params.startRow,
+				limit: params.endRow - params.startRow,
+				quicksearch,
+				orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+				is_desc: params.sortModel?.[0]?.sort === 'desc'
+			}
 
-	$: if (render) {
-		datasource = {
-			rowCount: 0,
-			getRows: async function (params) {
-				const currentParams = {
-					offset: params.startRow,
-					limit: params.endRow - params.startRow,
-					quicksearch,
-					orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
-					is_desc: params.sortModel?.[0]?.sort === 'desc'
+			if (!paramsChanged(currentParams) && cache.data.length > 0) {
+				// Serve from cache if it exists and parameters haven't changed.
+				console.debug('Serving from cache for ID:', id)
+				let lastRow = -1
+				if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
+					lastRow = datasource.rowCount
 				}
+				params.successCallback(cache.data, lastRow)
+				return
+			}
 
-				if (!paramsChanged(currentParams) && cache.data.length > 0) {
-					// Serve from cache if it exists and parameters haven't changed.
-					console.debug('Serving from cache for ID:', id)
-					let lastRow = -1
-					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
-						lastRow = datasource.rowCount
-					}
-					params.successCallback(cache.data, lastRow)
-					return
-				}
+			// If parameters changed or no cache available, check for ongoing request
+			if (!cache.promise || paramsChanged(currentParams)) {
+				console.debug('Parameters changed or no ongoing request, fetching new data for ID:', id)
+				cache.params = currentParams // Update the cache with the new parameters
 
-				// If parameters changed or no cache available, check for ongoing request
-				if (!cache.promise || paramsChanged(currentParams)) {
-					console.debug('Parameters changed or no ongoing request, fetching new data for ID:', id)
-					cache.params = currentParams // Update the cache with the new parameters
+				cache.promise = runnableComponent?.runComponent(
+					undefined,
+					undefined,
+					undefined,
+					currentParams,
+					{
+						done: (items) => {
+							let lastRow = -1
 
-					cache.promise = runnableComponent?.runComponent(
-						undefined,
-						undefined,
-						undefined,
-						currentParams,
-						{
-							done: (items) => {
-								let lastRow = -1
-
-								if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
-									lastRow = datasource.rowCount
-								}
-
-								if (items && Array.isArray(items)) {
-									// MsSql response have an outer array, we need to flatten it
-									if (resolvedConfig.type.selected === 'ms_sql_server') {
-										items = items?.[0]
-									}
-
-									let processedData = items.map((item) => {
-										let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
-										let o = {}
-										primaryKeys.forEach((pk) => {
-											o[pk] = item[pk]
-										})
-										item['__index'] = JSON.stringify(o)
-										return item
-									})
-
-									cache.data = processedData // Update cache with new data
-									params.successCallback(processedData, lastRow)
-								} else {
-									params.failCallback()
-								}
-								cache.promise = null
-							},
-							cancel: () => {
-								params.failCallback()
-								cache.promise = null
-							},
-							error: () => {
-								params.failCallback()
-								cache.promise = null
+							if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
+								lastRow = datasource.rowCount
 							}
-						}
-					)
-				} else {
-					console.debug(
-						'Request with same parameters already in progress, waiting for it to finish.'
-					)
-					await cache.promise // Wait for the ongoing request to finish
-					// After waiting, call getRows again to serve data from cache
 
-					setTimeout(() => {
-						this.getRows(params)
-					}, 0)
-				}
+							if (items && Array.isArray(items)) {
+								// MsSql response have an outer array, we need to flatten it
+								if (resolvedConfig.type.selected === 'ms_sql_server') {
+									items = items?.[0]
+								}
+
+								let processedData = items.map((item) => {
+									let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
+									let o = {}
+									primaryKeys.forEach((pk) => {
+										o[pk] = item[pk]
+									})
+									item['__index'] = JSON.stringify(o)
+									return item
+								})
+
+								cache.data = processedData // Update cache with new data
+								params.successCallback(processedData, lastRow)
+							} else {
+								params.failCallback()
+							}
+							cache.promise = null
+						},
+						cancel: () => {
+							params.failCallback()
+							cache.promise = null
+						},
+						error: () => {
+							params.failCallback()
+							cache.promise = null
+						}
+					}
+				)
+			} else {
+				console.debug('Request with same parameters already in progress, waiting for it to finish.')
+				await cache.promise // Wait for the ongoing request to finish
+				// After waiting, call getRows again to serve data from cache
+
+				setTimeout(() => {
+					this.getRows(params)
+				}, 0)
 			}
 		}
 	}
@@ -435,6 +451,9 @@
 							) {
 								// @ts-ignore
 								datasource.rowCount = value?.[0]?.[0]?.count
+							} else if (resolvedConfig.type.selected === 'snowflake') {
+								// @ts-ignore
+								datasource.rowCount = value?.[0]?.COUNT
 							} else {
 								// @ts-ignore
 								datasource.rowCount = value?.[0]?.count
@@ -569,10 +588,10 @@
 				Insert
 			</Button>
 		</div>
-		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table && datasource}
+		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			{#key renderCount}
+			{#key renderCount && render}
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
@@ -602,7 +621,7 @@
 				bind:args
 				bind:isInsertable
 				columnDefs={resolvedConfig.columnDefs}
-				databaseType={resolvedConfig.type.selected}
+				dbType={resolvedConfig.type.selected}
 			/>
 		</DrawerContent>
 	</Drawer>

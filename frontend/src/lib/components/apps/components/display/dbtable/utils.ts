@@ -105,7 +105,6 @@ export async function loadTableMetaData(
 	
 	`
 	} else if (resourceType === 'ms_sql_server') {
-		// TODO: TEST
 		code = `
 		SELECT 
     COLUMN_NAME as field,
@@ -122,6 +121,19 @@ WHERE
 ORDER BY
     ORDINAL_POSITION;
 
+	`
+	} else if (resourceType === 'snowflake') {
+		code = `
+		select COLUMN_NAME as field,
+		DATA_TYPE as DataType,
+		COLUMN_DEFAULT as DefaultValue,
+		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
+		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
+		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+	from information_schema.columns
+	where table_name = '${table}'
+	order by ORDINAL_POSITION;
 	`
 	}
 
@@ -526,13 +538,30 @@ export function getFieldType(type: string, databaseType: DbType) {
 				: 'text'
 		}
 
+		case 'snowflake': {
+			const baseType = type.split('(')[0].toLowerCase() // Ensure case-insensitive comparison
+			const validTextTypes = ['varchar', 'text', 'char']
+			const validNumberTypes = ['int', 'number', 'decimal', 'float', 'double']
+			const validDateTypes = ['date', 'timestamp', 'time']
+
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'boolean'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
+
 		default: {
 			return 'text'
 		}
 	}
 }
 
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql'
+export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
@@ -546,6 +575,10 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
 				case 'mysql':
 					return `\`${column?.field}\`` // MySQL uses backticks
+				case 'snowflake':
+					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
+				case 'bigquery':
+					return `\`${column?.field}\`` // BigQuery uses backticks
 				default:
 					throw new Error('Unsupported database type')
 			}
@@ -556,7 +589,9 @@ export function getLanguageByResourceType(name: string) {
 	const language = {
 		postgresql: Preview.language.POSTGRESQL,
 		mysql: Preview.language.MYSQL,
-		ms_sql_server: Preview.language.MSSQL
+		ms_sql_server: Preview.language.MSSQL,
+		snowflake: Preview.language.SNOWFLAKE,
+		bigquery: Preview.language.BIGQUERY
 	}
 	return language[name]
 }
@@ -577,6 +612,10 @@ export function buildParameters(
 					return `-- :${column.field} (${column.datatype.split('(')[0]})`
 				case 'ms_sql_server':
 					return `-- @p${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
+				case 'snowflake':
+					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
+				case 'bigquery':
+					return `-- @${column.field} (${column.datatype.split('(')[0]})`
 			}
 		})
 		.join('\n')

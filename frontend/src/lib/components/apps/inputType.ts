@@ -37,6 +37,8 @@ export type InputType =
 	| 'postgres'
 	| 'mysql'
 	| 'ms_sql_server'
+	| 'snowflake'
+	| 'bigquery'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -216,6 +218,8 @@ export type AppInput =
 	| AppInputSpec<'resource', string, 'postgres'>
 	| AppInputSpec<'resource', string, 'mysql'>
 	| AppInputSpec<'resource', string, 'ms_sql_server'>
+	| AppInputSpec<'resource', string, 'snowflake'>
+	| AppInputSpec<'resource', string, 'bigquery'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>

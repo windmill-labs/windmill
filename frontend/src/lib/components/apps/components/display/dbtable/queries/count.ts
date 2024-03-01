@@ -12,7 +12,10 @@ function makeCountQuery(
 	const wherePrefix = ' WHERE '
 	const andCondition = ' AND '
 	let quicksearchCondition = ''
-	let query = buildParameters([{ field: 'quicksearch', datatype: 'text' }], dbType)
+	let query = buildParameters(
+		[{ field: 'quicksearch', datatype: dbType === 'bigquery' ? 'string' : 'text' }],
+		dbType
+	)
 
 	query += '\n'
 
@@ -53,8 +56,48 @@ function makeCountQuery(
 			}
 			query += `SELECT COUNT(*) as count FROM [${table}]`
 			break
+		case 'snowflake': {
+			query = ''
+
+			if (filteredColumns.length > 0) {
+				query += buildParameters(
+					[
+						{ field: 'quicksearch', datatype: 'text' },
+						{ field: 'quicksearch', datatype: 'text' }
+					],
+					dbType
+				)
+
+				query += '\n'
+
+				quicksearchCondition += `(? = '' OR CONCAT(${filteredColumns.join(
+					', '
+				)}) ILIKE '%' || ? || '%')`
+			} else {
+				query += buildParameters([{ field: 'quicksearch', datatype: 'text' }], dbType)
+
+				query += '\n'
+
+				quicksearchCondition += `(? = '' OR 1 = 1)`
+			}
+
+			query += `SELECT COUNT(*) as count FROM ${table}`
+			break
+		}
+		case 'bigquery': {
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += `(@quicksearch = '' OR CONCAT(${filteredColumns.join(
+					', '
+				)}) LIKE '%' || @quicksearch || '%')`
+			} else {
+				quicksearchCondition += `(@quicksearch = '' OR 1 = 1)`
+			}
+			query += `SELECT COUNT(*) as count FROM \`${table}\``
+			break
+		}
+
 		default:
-			throw new Error('Unsupported database type')
+			throw new Error('Unsupported database type:' + dbType)
 	}
 
 	if (whereClause) {
@@ -64,7 +107,13 @@ function makeCountQuery(
 		query += quicksearchCondition
 	}
 
-	if (!whereClause && (dbType === Preview.language.MYSQL || dbType === 'postgresql')) {
+	if (
+		!whereClause &&
+		(dbType === Preview.language.MYSQL ||
+			dbType === 'postgresql' ||
+			dbType === 'snowflake' ||
+			dbType === 'bigquery')
+	) {
 		query = query.replace(`${andCondition}`, wherePrefix)
 	}
 

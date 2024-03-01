@@ -2,11 +2,89 @@ import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
+function makeSnowflakeSelectQuery(
+	table: string,
+	columnDefs: ColumnDef[],
+	whereClause: string | undefined,
+	options?: { limit?: number; offset?: number }
+) {
+	const limit = coerceToNumber(options?.limit) || 100
+	const offset = coerceToNumber(options?.offset) || 0
+
+	const headers: Array<{
+		field: string
+		datatype: string
+	}> = [
+		{
+			field: 'quicksearch',
+			datatype: 'text'
+		}
+	]
+
+	let query = ''
+
+	query += '\n'
+
+	const filteredColumns = buildVisibleFieldList(columnDefs, 'snowflake')
+	const selectClause = filteredColumns.join(', ')
+
+	query += `SELECT ${selectClause} FROM "${table}"`
+
+	const quicksearchCondition = [
+		'LENGTH(?) = 0',
+		...filteredColumns.map((column) => {
+			headers.push({
+				field: 'quicksearch',
+				datatype: 'text'
+			})
+
+			return `CONCAT(${column}) ILIKE CONCAT('%', ?, '%')`
+		})
+	].join(' OR ')
+
+	if (whereClause) {
+		query += ` WHERE ${whereClause} AND (${quicksearchCondition})`
+	} else {
+		query += ` WHERE ${quicksearchCondition}`
+	}
+
+	const orderBy = columnDefs.map((column) => {
+		headers.push(
+			{
+				field: 'order_by',
+				datatype: 'text'
+			},
+			{
+				field: 'is_desc',
+				datatype: 'boolean'
+			},
+			{
+				field: 'order_by',
+				datatype: 'text'
+			},
+			{
+				field: 'is_desc',
+				datatype: 'boolean'
+			}
+		)
+
+		return `CASE WHEN ? = '${column.field}' AND ? = FALSE THEN "${column.field}" END ASC,
+			CASE WHEN ? = '${column.field}' AND ? = TRUE THEN "${column.field}" END DESC`
+	})
+
+	query += ` ORDER BY ${orderBy.join(',\n')}`
+	query += ` LIMIT ${limit} OFFSET ${offset}`
+	query = buildParameters(headers, 'snowflake') + '\n' + query
+
+	return query
+}
+
 function makeSelectQuery(
 	table: string,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
-	dbType: DbType
+	dbType: DbType,
+	options?: { limit?: number; offset?: number }
 ) {
 	if (!table) throw new Error('Table name is required')
 	let quicksearchCondition = ''
@@ -89,6 +167,27 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			query += ` ORDER BY ${orderBy}`
 			query += ` OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
 			break
+		case 'snowflake': {
+			return makeSnowflakeSelectQuery(table, columnDefs, whereClause, options)
+		}
+		case 'bigquery': {
+			const orderBy = columnDefs
+				.map((column) => {
+					return `
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN ${column.field} END) ASC,
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN ${column.field} END) DESC`
+				})
+				.join(',\n')
+
+			quicksearchCondition = ` (@quicksearch = '' OR CONCAT(${selectClause}) LIKE '%' || @quicksearch || '%')`
+
+			query += `SELECT ${selectClause} FROM ${table}`
+			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
+			query += ` ORDER BY ${orderBy}`
+			query += ` LIMIT @limit OFFSET @offset`
+			break
+		}
+
 		default:
 			throw new Error('Unsupported database type')
 	}
@@ -96,12 +195,23 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 	return query
 }
 
+function coerceToNumber(value: any): number {
+	if (typeof value === 'number') {
+		return value
+	}
+	if (typeof value === 'string') {
+		return parseInt(value, 10)
+	}
+	return 0
+}
+
 export function getSelectInput(
 	resource: string,
 	table: string | undefined,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
-	dbType: DbType
+	dbType: DbType,
+	options?: { limit?: number; offset?: number }
 ): AppInput | undefined {
 	if (!resource || !table || !columnDefs) {
 		return undefined
@@ -115,7 +225,7 @@ export function getSelectInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeSelectQuery(table, columnDefs, whereClause, dbType),
+			content: makeSelectQuery(table, columnDefs, whereClause, dbType, options),
 			language: getLanguageByResourceType(dbType)
 		}
 	}
