@@ -3551,12 +3551,12 @@ dependencies = [
 
 [[package]]
 name = "libloading"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c571b676ddfc9a8c12f1f3d3085a7b163966a8fd8098a90640953ce5f6170161"
+checksum = "2caa5afb8bf9f3a2652760ce7d4f62d21c4d5a423e68466fca30df82f2330164"
 dependencies = [
  "cfg-if",
- "windows-sys 0.48.0",
+ "windows-targets 0.52.4",
 ]
 
 [[package]]
@@ -4308,9 +4308,9 @@ dependencies = [
 
 [[package]]
 name = "opaque-debug"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openapiv3"
@@ -8770,9 +8770,9 @@ checksum = "f3c4517f54858c779bbcbf228f4fca63d121bf85fbecb2dc578cdf4a39395690"
 
 [[package]]
 name = "walkdir"
-version = "2.4.0"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d71d857dc86794ca4c280d616f7da00d2dbfd8cd788846559a6813e6aa4b54ee"
+checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
@@ -9025,7 +9025,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9062,7 +9062,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9136,7 +9136,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9154,7 +9154,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9167,7 +9167,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9200,7 +9200,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9215,7 +9215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9223,7 +9223,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9234,7 +9234,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9246,7 +9246,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9257,7 +9257,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9268,7 +9268,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9285,7 +9285,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9296,7 +9296,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9314,7 +9314,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9332,7 +9332,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9365,7 +9365,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.282.2"
+version = "1.283.0"
 dependencies = [
  "anyhow",
  "async-recursion",
