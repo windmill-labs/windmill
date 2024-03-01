@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT owner FROM workspace WHERE owner NOT LIKE '%@windmill.dev'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2fa6e9c2cfc4f4ddbaa91793686feb9773b36993dd417019db51fa59fd4952c3"
+}
