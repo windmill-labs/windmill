@@ -38,6 +38,7 @@ export interface SchemaProperty {
 	required?: string[]
 	showExpr?: string
 	password?: boolean
+	order?: string[]
 }
 
 export interface ModalSchemaProperty {
