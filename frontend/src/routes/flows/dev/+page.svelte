@@ -16,6 +16,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import type { Schedule } from '$lib/components/flows/scheduleUtils'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -62,12 +63,14 @@
 
 	let initialCode = JSON.stringify($flowStore, null, 4)
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable({
+	const scheduleStore = writable<Schedule>({
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		enabled: false
+		enabled: false,
+		summary: undefined
 	})
+
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)

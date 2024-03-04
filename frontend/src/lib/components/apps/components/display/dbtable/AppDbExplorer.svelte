@@ -315,9 +315,7 @@
 										return item
 									})
 
-									if (datasource && (datasource?.rowCount ?? 0) < processedData.length) {
-										lastRow = processedData.length
-									}
+									lastRow = processedData.length
 
 									cache.data = processedData // Update cache with new data
 									params.successCallback(processedData, lastRow)
@@ -571,6 +569,7 @@
 				type="text"
 				bind:value={quicksearch}
 				placeholder="Quicksearch"
+				debounceDelay={200}
 			/>
 			<Button
 				startIcon={{ icon: Plus }}
