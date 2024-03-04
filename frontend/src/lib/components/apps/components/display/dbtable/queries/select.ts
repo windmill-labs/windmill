@@ -91,11 +91,11 @@ function makeSelectQuery(
 
 	let query = buildParameters(
 		[
-			{ field: 'limit', datatype: 'int' },
-			{ field: 'offset', datatype: 'int' },
-			{ field: 'quicksearch', datatype: 'text' },
-			{ field: 'order_by', datatype: 'text' },
-			{ field: 'is_desc', datatype: 'boolean' }
+			{ field: 'limit', datatype: dbType === 'bigquery' ? 'integer' : 'int' },
+			{ field: 'offset', datatype: dbType === 'bigquery' ? 'integer' : 'int' },
+			{ field: 'quicksearch', datatype: dbType === 'bigquery' ? 'string' : 'text' },
+			{ field: 'order_by', datatype: 'bigquery' ? 'string' : 'text' },
+			{ field: 'is_desc', datatype: 'bigquery' ? 'bool' : 'boolean' }
 		],
 		dbType
 	)
@@ -104,6 +104,8 @@ function makeSelectQuery(
 
 	const filteredColumns = buildVisibleFieldList(columnDefs, dbType)
 	const selectClause = filteredColumns.join(', ')
+
+	console.log(table)
 
 	switch (dbType) {
 		case 'mysql': {
@@ -169,6 +171,45 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			break
 		case 'snowflake': {
 			return makeSnowflakeSelectQuery(table, columnDefs, whereClause, options)
+		}
+		case 'bigquery': {
+			const orderBy = columnDefs
+				.map((column) => {
+					if (
+						column.datatype === 'JSON' ||
+						column.datatype.startsWith('STRUCT') ||
+						column.datatype.startsWith('ARRAY')
+					) {
+						return `
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN TO_JSON_STRING(${column.field}) END) ASC,
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN TO_JSON_STRING(${column.field}) END) DESC`
+					}
+					return `
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN ${column.field} END) ASC,
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN ${column.field} END) DESC`
+				})
+				.join(',\n')
+
+			const searchClause = filteredColumns
+				.map((col) => {
+					const def = columnDefs.find((c) => c.field === col.slice(1, -1))
+					if (
+						def?.datatype === 'JSON' ||
+						def?.datatype.startsWith('STRUCT') ||
+						def?.datatype.startsWith('ARRAY')
+					) {
+						return `TO_JSON_STRING(${col})`
+					}
+					return `${col}`
+				})
+				.join(',')
+			quicksearchCondition = ` (@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}), '(?i)' || @quicksearch))`
+
+			query += `SELECT ${selectClause} FROM ${table}`
+			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
+			query += ` ORDER BY ${orderBy}`
+			query += ` LIMIT @limit OFFSET @offset`
+			break
 		}
 
 		default:

@@ -12,7 +12,10 @@ function makeCountQuery(
 	const wherePrefix = ' WHERE '
 	const andCondition = ' AND '
 	let quicksearchCondition = ''
-	let query = buildParameters([{ field: 'quicksearch', datatype: 'text' }], dbType)
+	let query = buildParameters(
+		[{ field: 'quicksearch', datatype: dbType === 'bigquery' ? 'string' : 'text' }],
+		dbType
+	)
 
 	query += '\n'
 
@@ -81,6 +84,28 @@ function makeCountQuery(
 			query += `SELECT COUNT(*) as count FROM ${table}`
 			break
 		}
+		case 'bigquery': {
+			if (filteredColumns.length > 0) {
+				const searchClause = filteredColumns
+					.map((col) => {
+						const def = columnDefs.find((c) => c.field === col.slice(1, -1))
+						if (
+							def?.datatype === 'JSON' ||
+							def?.datatype.startsWith('STRUCT') ||
+							def?.datatype.startsWith('ARRAY')
+						) {
+							return `TO_JSON_STRING(${col})`
+						}
+						return `${col}`
+					})
+					.join(',')
+				quicksearchCondition += `(@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}), '(?i)' || @quicksearch))`
+			} else {
+				quicksearchCondition += `(@quicksearch = '' OR 1 = 1)`
+			}
+			query += `SELECT COUNT(*) as count FROM \`${table}\``
+			break
+		}
 
 		default:
 			throw new Error('Unsupported database type:' + dbType)
@@ -95,7 +120,10 @@ function makeCountQuery(
 
 	if (
 		!whereClause &&
-		(dbType === Preview.language.MYSQL || dbType === 'postgresql' || dbType === 'snowflake')
+		(dbType === Preview.language.MYSQL ||
+			dbType === 'postgresql' ||
+			dbType === 'snowflake' ||
+			dbType === 'bigquery')
 	) {
 		query = query.replace(`${andCondition}`, wherePrefix)
 	}

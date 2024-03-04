@@ -135,6 +135,25 @@ ORDER BY
 	where table_name = '${table}'
 	order by ORDINAL_POSITION;
 	`
+	} else if (resourceType === 'bigquery') {
+		code = `SELECT 
+    c.COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    test_dataset.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+WHERE   
+    c.TABLE_NAME = "${table.split('.')[1]}"
+order by c.ORDINAL_POSITION;`
+	} else {
+		throw new Error('Unsupported database type:' + resourceType)
 	}
 
 	const maxRetries = 3
@@ -280,7 +299,7 @@ const scripts: Record<
 		argName: 'api'
 	},
 	bigquery: {
-		code: `import { BigQuery } from '@google-cloud/bigquery';
+		code: `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
 export async function main(args: bigquery) {
 const bq = new BigQuery({
 	credentials: args
@@ -561,7 +580,7 @@ export function getFieldType(type: string, databaseType: DbType) {
 	}
 }
 
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake'
+export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
@@ -577,7 +596,8 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 					return `\`${column?.field}\`` // MySQL uses backticks
 				case 'snowflake':
 					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
-
+				case 'bigquery':
+					return `\`${column?.field}\`` // BigQuery uses backticks
 				default:
 					throw new Error('Unsupported database type')
 			}
@@ -589,7 +609,8 @@ export function getLanguageByResourceType(name: string) {
 		postgresql: Preview.language.POSTGRESQL,
 		mysql: Preview.language.MYSQL,
 		ms_sql_server: Preview.language.MSSQL,
-		snowflake: Preview.language.SNOWFLAKE
+		snowflake: Preview.language.SNOWFLAKE,
+		bigquery: Preview.language.BIGQUERY
 	}
 	return language[name]
 }
@@ -612,6 +633,8 @@ export function buildParameters(
 					return `-- @p${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
 				case 'snowflake':
 					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
+				case 'bigquery':
+					return `-- @${column.field} (${column.datatype.split('(')[0]})`
 			}
 		})
 		.join('\n')

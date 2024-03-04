@@ -3360,7 +3360,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						postgresql: 'PostgreSQL',
 						mysql: 'MySQL',
 						ms_sql_server: 'MS SQL Server',
-						snowflake: 'Snowflake'
+						snowflake: 'Snowflake',
+						bigquery: 'BigQuery'
 					},
 					configuration: {
 						postgresql: {
@@ -3413,6 +3414,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'snowflake',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						bigquery: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'bigquery',
 								value: ''
 							} as StaticAppInput,
 							table: {

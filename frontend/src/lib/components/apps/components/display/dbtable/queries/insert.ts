@@ -12,6 +12,8 @@ function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: nu
 			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
 		case 'snowflake':
 			return columns.map(() => `?`).join(', ')
+		case 'bigquery':
+			return columns.map((c) => `@${c.field}`).join(', ')
 		default:
 			throw new Error('Unsupported database type')
 	}
@@ -37,7 +39,7 @@ function formatDefaultValues(columns: ColumnDef[]): string {
 	return defaultValues
 }
 
-function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
+export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
 	const columnsInsert = columns.filter((x) => !x.hideInsert)

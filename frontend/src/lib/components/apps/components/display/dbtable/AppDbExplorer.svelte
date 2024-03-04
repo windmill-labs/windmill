@@ -239,6 +239,22 @@
 				return Object.keys(Object.values(s?.schema ?? {})?.[0])
 			}
 
+			case 'bigquery': {
+				const paths: string[] = []
+				for (const key in s?.schema) {
+					if (s?.schema.hasOwnProperty(key)) {
+						const subObj = s?.schema[key]
+						for (const subKey in subObj) {
+							if (subObj.hasOwnProperty(subKey)) {
+								paths.push(`${key}.${subKey}`)
+							}
+						}
+					}
+				}
+
+				return paths
+			}
+
 			default:
 				return []
 		}
