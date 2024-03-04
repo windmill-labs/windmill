@@ -64,7 +64,7 @@
 		timeoutInput = setTimeout(() => {
 			timeoutInput = undefined
 			console.log('compute input')
-			aggrid?.clearRows()
+
 			input = getSelectInput(
 				resource,
 				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
@@ -283,7 +283,7 @@
 							return item
 						})
 
-						if (processedData.length !== lastRow) {
+						if (processedData.length < lastRow) {
 							lastRow = processedData.length
 						}
 
