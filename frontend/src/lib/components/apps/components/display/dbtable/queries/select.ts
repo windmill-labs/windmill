@@ -175,7 +175,11 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 		case 'bigquery': {
 			const orderBy = columnDefs
 				.map((column) => {
-					if (column.datatype === 'JSON' || column.datatype.startsWith('STRUCT')) {
+					if (
+						column.datatype === 'JSON' ||
+						column.datatype.startsWith('STRUCT') ||
+						column.datatype.startsWith('ARRAY')
+					) {
 						return `
 (CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN TO_JSON_STRING(${column.field}) END) ASC,
 (CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN TO_JSON_STRING(${column.field}) END) DESC`
@@ -189,7 +193,11 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			const searchClause = filteredColumns
 				.map((col) => {
 					const def = columnDefs.find((c) => c.field === col.slice(1, -1))
-					if (def?.datatype === 'JSON' || def?.datatype.startsWith('STRUCT')) {
+					if (
+						def?.datatype === 'JSON' ||
+						def?.datatype.startsWith('STRUCT') ||
+						def?.datatype.startsWith('ARRAY')
+					) {
 						return `TO_JSON_STRING(${col})`
 					}
 					return `${col}`

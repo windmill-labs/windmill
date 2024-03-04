@@ -86,9 +86,20 @@ function makeCountQuery(
 		}
 		case 'bigquery': {
 			if (filteredColumns.length > 0) {
-				quicksearchCondition += `(@quicksearch = '' OR CONCAT(${filteredColumns.join(
-					', '
-				)}) LIKE '%' || @quicksearch || '%')`
+				const searchClause = filteredColumns
+					.map((col) => {
+						const def = columnDefs.find((c) => c.field === col.slice(1, -1))
+						if (
+							def?.datatype === 'JSON' ||
+							def?.datatype.startsWith('STRUCT') ||
+							def?.datatype.startsWith('ARRAY')
+						) {
+							return `TO_JSON_STRING(${col})`
+						}
+						return `${col}`
+					})
+					.join(',')
+				quicksearchCondition += `(@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}), '(?i)' || @quicksearch))`
 			} else {
 				quicksearchCondition += `(@quicksearch = '' OR 1 = 1)`
 			}
