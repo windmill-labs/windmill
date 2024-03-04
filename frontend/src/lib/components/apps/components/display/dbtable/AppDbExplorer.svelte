@@ -283,8 +283,6 @@
 							return item
 						})
 
-						lastRow = processedData.length
-
 						params.successCallback(processedData, lastRow)
 					} else {
 						params.failCallback()
