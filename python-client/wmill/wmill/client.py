@@ -119,10 +119,10 @@ class Windmill:
         path: str = None,
         hash_: str = None,
         args: dict = None,
-        timeout: dt.timedelta | int | float = None,
+        timeout: dt.timedelta | int | float | None = None,
         verbose: bool = False,
         cleanup: bool = True,
-        assert_result_is_not_none: bool = True,
+        assert_result_is_not_none: bool = False,
     ) -> Any:
         """Run script synchronously and return its result."""
         args = args or {}
@@ -131,12 +131,21 @@ class Windmill:
             logger.info(f"running `{path}` synchronously with {args = }")
 
         if isinstance(timeout, dt.timedelta):
-            timeout = timeout.total_seconds
-
-        start_time = time.time()
+            timeout = timeout.total_seconds()
 
         job_id = self.run_script_async(path=path, hash_=hash_, args=args)
+        return self.wait_job(
+            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        )
 
+    def wait_job(
+        self,
+        job_id,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ):
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
             self.post(
@@ -147,8 +156,33 @@ class Windmill:
         if cleanup:
             atexit.register(cancel_job)
 
+        start_time = time.time()
+
+        if isinstance(timeout, dt.timedelta):
+            timeout = timeout.total_seconds()
+
         while True:
-            job = self.get_job(job_id)
+            result_res = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", False).json()
+
+            started = result_res["started"]
+            completed = result_res["completed"]
+            success = result_res["success"]
+
+            if not started and verbose:
+                logger.info(f"job {job_id} has not started yet")
+
+            if cleanup and completed:
+                atexit.unregister(cancel_job)
+
+            if completed:
+                result =  result_res["result"]
+                if success:
+                    if result is None and assert_result_is_not_none:
+                        raise Exception("Result was none")
+                    return result
+                else:
+                    error = result["error"]
+                    raise Exception(f"Job {job_id} was not successful: {str(error)}")
 
             if timeout and ((time.time() - start_time) > timeout):
                 msg = "reached timeout"
@@ -158,32 +192,12 @@ class Windmill:
                     json={"reason": msg},
                 )
                 raise TimeoutError(msg)
-
-            result = job.get("result")
-            canceled, canceled_reason = job.get("canceled"), job.get("canceled_reason")
-            success = job.get("success")
-            job_type = job.get("type", "")
-            completed = job_type.lower() == "completedjob"
-
-            if cleanup and completed:
-                atexit.unregister(cancel_job)
-
-            if completed:
-                if success:
-                    if assert_result_is_not_none and result is None:
-                        raise Exception(f"result is None for {job_id = }")
-                    return result
-                else:
-                    if canceled:
-                        raise Exception(f"job canceled: {canceled_reason}")
-                    else:
-                        error = result.get("error")
-                        raise Exception(f"job failed: {error}")
-
             if verbose:
                 logger.info(f"sleeping 0.5 seconds for {job_id = }")
 
+            
             time.sleep(0.5)
+
 
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
@@ -226,7 +240,7 @@ class Windmill:
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
 
 
-    def get_id_token(self, audience: str) -> dict:
+    def get_id_token(self, audience: str) -> str:
         return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
 
     def get_job_status(self, job_id: str) -> JobStatus:
@@ -865,3 +879,39 @@ def run_script(
         cleanup=cleanup,
         timeout=timeout,
     )
+
+
+def task(*args, **kwargs):
+
+    def f(func, tag: str | None = None):
+        if os.environ.get("WM_JOB_ID") is None or os.environ.get("MAIN_OVERRIDE") == func.__name__:
+            def inner(*args, **kwargs):
+                return func(*args, **kwargs)
+
+            return inner
+        else:
+
+            def inner(*args, **kwargs):
+                _client=Windmill()
+                w_id = os.environ.get("WM_WORKSPACE")
+                job_id = os.environ.get("WM_JOB_ID")
+                f_name = func.__name__
+                json = kwargs
+                for i, v in enumerate(signature(func).parameters):
+                    json[v[0]] = args[i]
+                tag_str = f"?tag={tag}" if tag is not None else ""
+                r = _client.post(
+                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}{tag_str}",
+                    json={"args": json},
+                )
+                job_id = r.text
+                logger.info(f"Executing task {func.__name__} on job {job_id}")
+                return _client.wait_job(job_id)
+
+            return inner
+    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+        return f(args[0], None)
+    else:
+        return lambda x: f(x, kwargs.get("tag"))
+
+

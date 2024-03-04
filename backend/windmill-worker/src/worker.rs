@@ -2432,7 +2432,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(Some(parent_job)) =
-                    get_queued_job(parent_job_id, &job.workspace_id, &db).await
+                    get_queued_job(&parent_job_id, &job.workspace_id, &db).await
                 {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
                     let _ = add_completed_job_error(

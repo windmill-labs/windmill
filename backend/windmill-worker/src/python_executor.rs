@@ -3,7 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use sqlx::{Pool, Postgres};
+use sqlx::{types::Json, Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
@@ -14,7 +14,7 @@ use uuid::Uuid;
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
+    jobs::{QueuedJob, ENTRYPOINT_OVERRIDE},
     utils::calculate_hash,
     worker::WORKER_CONFIG,
     DB,
@@ -272,10 +272,17 @@ pub async fn handle_python_job(
         last,
         transforms,
         spread,
-    ) = prepare_wrapper(job_dir, inner_content, script_path).await?;
+        main_name,
+    ) = prepare_wrapper(job_dir, inner_content, script_path, job.args.as_ref()).await?;
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
+    let os_main_override = if let Some(main_override) = main_name.as_ref() {
+        format!("import os\nos.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
+    } else {
+        String::new()
+    };
+    let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let wrapper_content: String = format!(
         r#"
 import json
@@ -284,6 +291,7 @@ import json
 {import_datetime}
 import traceback
 import sys
+{os_main_override}
 from {module_dir_dot} import {last} as inner_script
 import re
 
@@ -303,7 +311,7 @@ def to_b_64(v: bytes):
 
 replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 try:
-    res = inner_script.main(**args)
+    res = inner_script.{main_override}(**args)
     typ = type(res)
     if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
@@ -443,6 +451,7 @@ async fn prepare_wrapper(
     job_dir: &str,
     inner_content: &str,
     script_path: &str,
+    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -452,7 +461,15 @@ async fn prepare_wrapper(
     String,
     String,
     String,
+    Option<String>,
 )> {
+    let main_override = args
+        .map(|x| {
+            x.0.get(ENTRYPOINT_OVERRIDE)
+                .map(|x| x.get().to_string().replace("\"", ""))
+        })
+        .flatten();
+
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
     let script_path_splitted = script_path.split("/");
@@ -491,7 +508,7 @@ async fn prepare_wrapper(
         let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
     }
 
-    let sig = windmill_parser_py::parse_python_signature(inner_content)?;
+    let sig = windmill_parser_py::parse_python_signature(inner_content, main_override.clone())?;
     let transforms = sig
         .args
         .iter()
@@ -569,6 +586,7 @@ if args["{name}"] is None:
         last,
         transforms,
         spread,
+        main_override,
     ))
 }
 
@@ -991,6 +1009,7 @@ pub async fn start_worker(
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
     set_logs(&mut logs, &Uuid::nil(), db).await;
 
+    let _args = None;
     let (
         import_loader,
         import_base64,
@@ -1000,7 +1019,8 @@ pub async fn start_worker(
         last,
         transforms,
         spread,
-    ) = prepare_wrapper(job_dir, inner_content, script_path).await?;
+        _,
+    ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref()).await?;
 
     {
         let indented_transforms = transforms
