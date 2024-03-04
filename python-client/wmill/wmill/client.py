@@ -882,7 +882,7 @@ def run_script(
 
 
 def task(*args, **kwargs):
-
+    from inspect import signature
     def f(func, tag: str | None = None):
         if os.environ.get("WM_JOB_ID") is None or os.environ.get("MAIN_OVERRIDE") == func.__name__:
             def inner(*args, **kwargs):
@@ -892,7 +892,9 @@ def task(*args, **kwargs):
         else:
 
             def inner(*args, **kwargs):
-                _client=Windmill()
+                global _client
+                if _client is None:
+                    _client = Windmill()
                 w_id = os.environ.get("WM_WORKSPACE")
                 job_id = os.environ.get("WM_JOB_ID")
                 f_name = func.__name__
