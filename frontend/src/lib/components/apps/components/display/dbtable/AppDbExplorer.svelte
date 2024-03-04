@@ -315,7 +315,7 @@
 										return item
 									})
 
-									if (datasource && (datasource?.rowCount ?? 0) > processedData.length) {
+									if (datasource && (datasource?.rowCount ?? 0) < processedData.length) {
 										lastRow = processedData.length
 									}
 
