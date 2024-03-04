@@ -283,8 +283,8 @@
 							return item
 						})
 
-						if (processedData.length < lastRow) {
-							lastRow = processedData.length
+						if (items.length < params.endRow - params.startRow) {
+							lastRow = params.startRow + items.length
 						}
 
 						params.successCallback(processedData, lastRow)
