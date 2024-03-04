@@ -283,6 +283,10 @@
 							return item
 						})
 
+						if (processedData.length !== lastRow) {
+							lastRow = processedData.length
+						}
+
 						params.successCallback(processedData, lastRow)
 					} else {
 						params.failCallback()
@@ -523,7 +527,6 @@
 				type="text"
 				bind:value={quicksearch}
 				placeholder="Quicksearch"
-				debounceDelay={200}
 			/>
 			<Button
 				startIcon={{ icon: Plus }}
