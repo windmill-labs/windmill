@@ -21,7 +21,6 @@
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
-
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let containerHeight: number | undefined = undefined
 	export let resolvedConfig: InitConfig<
@@ -176,7 +175,7 @@
 						editable: resolvedConfig?.allEditable,
 						onCellValueChanged
 					},
-					infiniteInitialRowCount: 1000,
+					infiniteInitialRowCount: 1,
 					cacheBlockSize: 100,
 					cacheOverflowSize: 2,
 					maxBlocksInCache: 20,
