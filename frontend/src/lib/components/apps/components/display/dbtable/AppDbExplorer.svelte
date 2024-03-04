@@ -57,32 +57,6 @@
 	let quicksearch = ''
 	let aggrid: AppAggridExplorerTable
 
-	$: computeInput(
-		resolvedConfig.columnDefs,
-		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
-	)
-
-	let timeoutInput: NodeJS.Timeout | undefined = undefined
-	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
-		if (timeoutInput) {
-			clearTimeout(timeoutInput)
-		}
-		timeoutInput = setTimeout(() => {
-			timeoutInput = undefined
-			console.log('compute input')
-			aggrid?.clearRows()
-
-			input = getSelectInput(
-				resource,
-				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
-				columnDefs,
-				whereClause,
-				resolvedConfig.type.selected as DbType
-			)
-		}, 500)
-	}
-
 	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
 
 	$: editorContext != undefined &&
@@ -247,7 +221,14 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			console.trace('getRows' + id, params)
+			input = getSelectInput(
+				resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
+				resolvedConfig.columnDefs,
+				resolvedConfig.whereClause,
+				resolvedConfig.type.selected as DbType
+			)
+
 			const currentParams = {
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
@@ -329,6 +310,11 @@
 		// console.log(tableMetadata)
 		const oldMap = Object.fromEntries(old.filter((x) => x != undefined).map((x) => [x.field, x]))
 		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
+
+		// if they are the same, do nothing
+		if (JSON.stringify(oldMap) === JSON.stringify(newMap)) {
+			return
+		}
 
 		let ncols: any[] = []
 		Object.entries(oldMap).forEach(([key, value]) => {
