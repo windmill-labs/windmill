@@ -899,8 +899,14 @@ def task(*args, **kwargs):
                 job_id = os.environ.get("WM_JOB_ID")
                 f_name = func.__name__
                 json = kwargs
-                for i, v in enumerate(signature(func).parameters):
-                    json[v[0]] = args[i]
+                params = list(signature(func).parameters)
+                for i, arg in enumerate(args):
+                    if i < len(params):
+                        p = params[i]
+                        key = p[0]
+                        if key not in kwargs:
+                            json[key] = arg
+
                 tag_str = f"?tag={tag}" if tag is not None else ""
                 r = _client.post(
                     f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}{tag_str}",
