@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.284.1](https://github.com/windmill-labs/windmill/compare/v1.284.0...v1.284.1) (2024-03-04)
+
+
+### Bug Fixes
+
+* workflow as code api improvement ([0795353](https://github.com/windmill-labs/windmill/commit/0795353ec2cb8c3da61bc085f1eafbb4d4d3a2ad))
+
 ## [1.284.0](https://github.com/windmill-labs/windmill/compare/v1.283.0...v1.284.0) (2024-03-04)
 
 
