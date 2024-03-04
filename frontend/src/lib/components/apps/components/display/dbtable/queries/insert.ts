@@ -39,7 +39,7 @@ function formatDefaultValues(columns: ColumnDef[]): string {
 	return defaultValues
 }
 
-function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
+export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
 	const columnsInsert = columns.filter((x) => !x.hideInsert)

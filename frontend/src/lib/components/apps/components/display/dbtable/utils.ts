@@ -135,6 +135,25 @@ ORDER BY
 	where table_name = '${table}'
 	order by ORDINAL_POSITION;
 	`
+	} else if (resourceType === 'bigquery') {
+		code = `SELECT 
+    c.COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    test_dataset.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+WHERE   
+    c.TABLE_NAME = "${table.split('.')[1]}"
+order by c.ORDINAL_POSITION;`
+	} else {
+		throw new Error('Unsupported database type:' + resourceType)
 	}
 
 	const maxRetries = 3
@@ -280,7 +299,7 @@ const scripts: Record<
 		argName: 'api'
 	},
 	bigquery: {
-		code: `import { BigQuery } from '@google-cloud/bigquery';
+		code: `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
 export async function main(args: bigquery) {
 const bq = new BigQuery({
 	credentials: args

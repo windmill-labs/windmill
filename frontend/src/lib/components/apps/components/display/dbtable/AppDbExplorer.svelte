@@ -276,7 +276,7 @@
 					offset: params.startRow,
 					limit: params.endRow - params.startRow,
 					quicksearch,
-					orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+					order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
 					is_desc: params.sortModel?.[0]?.sort === 'desc'
 				}
 

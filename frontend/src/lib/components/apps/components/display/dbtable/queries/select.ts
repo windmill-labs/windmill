@@ -175,13 +175,27 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 		case 'bigquery': {
 			const orderBy = columnDefs
 				.map((column) => {
+					if (column.datatype === 'JSON' || column.datatype.startsWith('STRUCT')) {
+						return `
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN TO_JSON_STRING(${column.field}) END) ASC,
+(CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN TO_JSON_STRING(${column.field}) END) DESC`
+					}
 					return `
 (CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN ${column.field} END) ASC,
 (CASE WHEN @order_by = '${column.field}' AND @is_desc = true THEN ${column.field} END) DESC`
 				})
 				.join(',\n')
 
-			quicksearchCondition = ` (@quicksearch = '' OR CONCAT(${selectClause}) LIKE '%' || @quicksearch || '%')`
+			const searchClause = filteredColumns
+				.map((col) => {
+					const def = columnDefs.find((c) => c.field === col.slice(1, -1))
+					if (def?.datatype === 'JSON' || def?.datatype.startsWith('STRUCT')) {
+						return `TO_JSON_STRING(${col})`
+					}
+					return `${col}`
+				})
+				.join(',')
+			quicksearchCondition = ` (@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}), '(?i)' || @quicksearch))`
 
 			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
