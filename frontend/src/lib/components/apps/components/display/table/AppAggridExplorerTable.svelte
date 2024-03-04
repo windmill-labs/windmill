@@ -27,7 +27,7 @@
 	export let resolvedConfig: InitConfig<
 		(typeof components)['dbexplorercomponent']['initialData']['configuration']
 	>
-	export let datasource: IDatasource | undefined = undefined
+	export let datasource: IDatasource
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean

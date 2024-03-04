@@ -221,13 +221,15 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			input = getSelectInput(
-				resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
-				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
-				resolvedConfig.columnDefs,
-				resolvedConfig.whereClause,
-				resolvedConfig.type.selected as DbType
-			)
+			if (input === undefined) {
+				input = getSelectInput(
+					resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+					resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
+					resolvedConfig.columnDefs,
+					resolvedConfig.whereClause,
+					resolvedConfig.type.selected as DbType
+				)
+			}
 
 			const currentParams = {
 				offset: params.startRow,
