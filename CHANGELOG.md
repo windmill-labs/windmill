@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.284.0](https://github.com/windmill-labs/windmill/compare/v1.283.0...v1.284.0) (2024-03-04)
+
+
+### Features
+
+* add schedule page to script settings ([67cf82f](https://github.com/windmill-labs/windmill/commit/67cf82f130e1d9d09a7501abc50d4b976b5250ee))
+* workflow as code v0 ([619e278](https://github.com/windmill-labs/windmill/commit/619e2784f06ad38a115fd292dc39fdd8d581dbd3))
+
+
+### Bug Fixes
+
+* allow multiselect in dynamic forms ([7f24ecd](https://github.com/windmill-labs/windmill/commit/7f24ecd6bcf09738702b0128407ab876f30b3510))
+
 ## [1.283.0](https://github.com/windmill-labs/windmill/compare/v1.282.2...v1.283.0) (2024-03-01)
 
 
