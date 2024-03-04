@@ -321,6 +321,8 @@ export async function elementsToMap(
     if (!json && path.endsWith(".json")) continue;
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
+    if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
+    if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
@@ -359,6 +361,8 @@ interface Skips {
   skipResources?: boolean | undefined;
   skipSecrets?: boolean | undefined;
   includeSchedules?: boolean | undefined;
+  includeUsers?: boolean | undefined;
+  includeGroups?: boolean | undefined;
 }
 
 async function compareDynFSElement(
@@ -456,8 +460,12 @@ function getOrderFromPath(p: string) {
     return 6;
   } else if (typ == "variable") {
     return 7;
-  } else {
+  } else if (typ == "user") {
     return 8;
+  } else if (typ == "group") {
+    return 9;
+  } else {
+    return 10;
   }
 }
 
@@ -469,7 +477,9 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
     return (
       !p.startsWith("u" + SEP) &&
       !p.startsWith("f" + SEP) &&
-      !p.startsWith("g" + SEP)
+      !p.startsWith("g" + SEP) &&
+      !p.startsWith("users" + SEP) &&
+      !p.startsWith("groups" + SEP)
     );
   }
 
@@ -481,7 +491,9 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       return (
         !p.startsWith("u" + SEP) &&
         !p.startsWith("f" + SEP) &&
-        !p.startsWith("g" + SEP)
+        !p.startsWith("g" + SEP) &&
+        !p.startsWith("users" + SEP) &&
+        !p.startsWith("groups" + SEP)
       );
     }
   } catch {
@@ -490,7 +502,15 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 };
 
 export const isWhitelisted = (p: string) => {
-  return p == "." + SEP || p == "" || p == "u" || p == "f" || p == "g";
+  return (
+    p == "." + SEP ||
+    p == "" ||
+    p == "u" ||
+    p == "f" ||
+    p == "g" ||
+    p == "users" ||
+    p == "groups"
+  );
 };
 
 export async function ignoreF(wmillconf: {
@@ -576,6 +596,8 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.skipResources,
       opts.skipSecrets,
       opts.includeSchedules,
+      opts.includeUsers,
+      opts.includeGroups,
       opts.defaultTs
     ))!,
     !opts.json
@@ -787,6 +809,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.skipResources,
       opts.skipSecrets,
       opts.includeSchedules,
+      opts.includeUsers,
+      opts.includeGroups,
       opts.defaultTs
     ))!,
     !opts.json
@@ -1030,6 +1054,8 @@ const command = new Command()
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--include-schedules", "Include syncing  schedules")
+  .option("--include-users", "Include syncing users")
+  .option("--include-groups", "Include syncing groups")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1063,7 +1089,9 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
-  .option("--include-schedules", "Include syncing  schedules")
+  .option("--include-schedules", "Include syncing schedules")
+  .option("--include-users", "Include syncing users")
+  .option("--include-groups", "Include syncing groups")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"

@@ -255,6 +255,15 @@
 								selectedOptionsDraggable={true}
 							/>
 						</div>
+					{:else if Array.isArray(enum_) && Array.isArray(value)}
+						<div class="items-start">
+							<Multiselect
+								ulOptionsClass={'!bg-surface-secondary'}
+								bind:selected={value}
+								options={enum_ ?? []}
+								selectedOptionsDraggable={true}
+							/>
+						</div>
 					{:else}
 						<div class="w-full">
 							{#if Array.isArray(value)}

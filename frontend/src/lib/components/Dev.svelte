@@ -41,6 +41,7 @@
 	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 	import { pickScript } from './flows/flowStateUtils'
+	import type { Schedule } from './flows/scheduleUtils'
 
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -346,11 +347,12 @@
 	}
 
 	const flowStateStore = writable({} as FlowState)
-	const scheduleStore = writable({
+	const scheduleStore = writable<Schedule>({
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		enabled: false
+		enabled: false,
+		summary: undefined
 	})
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)

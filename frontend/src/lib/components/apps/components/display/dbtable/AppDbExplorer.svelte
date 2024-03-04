@@ -49,21 +49,14 @@
 		configuration
 	)
 
-	const { app, worldStore, mode, selectedComponent } =
-		getContext<AppViewerContext>('AppViewerContext')
-	const editorContext = getContext<AppEditorContext>('AppEditorContext')
-
-	let input: AppInput | undefined = undefined
-	let quicksearch = ''
-	let aggrid: AppAggridExplorerTable
-
 	$: computeInput(
 		resolvedConfig.columnDefs,
 		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
 	)
 
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
+
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
 		if (timeoutInput) {
 			clearTimeout(timeoutInput)
@@ -71,7 +64,6 @@
 		timeoutInput = setTimeout(() => {
 			timeoutInput = undefined
 			console.log('compute input')
-			aggrid?.clearRows()
 
 			input = getSelectInput(
 				resource,
@@ -80,8 +72,16 @@
 				whereClause,
 				resolvedConfig.type.selected as DbType
 			)
-		}, 500)
+		}, 1000)
 	}
+
+	const { app, worldStore, mode, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+
+	let input: AppInput | undefined = undefined
+	let quicksearch = ''
+	let aggrid: AppAggridExplorerTable
 
 	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
 
@@ -90,8 +90,14 @@
 		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
 		listColumnsIfAvailable()
 
-	// Everythime quicksearch changes, we want to clear the rows
-	$: quicksearch != undefined && aggrid?.clearRows()
+	let firstQuicksearch = true
+	$: if (quicksearch !== undefined) {
+		if (firstQuicksearch) {
+			firstQuicksearch = false
+		} else {
+			aggrid?.clearRows()
+		}
+	}
 
 	initializing = false
 
@@ -254,116 +260,61 @@
 		}
 	}
 
-	const cache = {
-		params: {},
-		data: [],
-		promise: null // Store the promise of the ongoing request
-	} as { data: any[]; params: Record<string, any>; promise: Promise<any> | null }
+	let datasource: IDatasource = {
+		rowCount: 0,
+		getRows: async function (params) {
+			const currentParams = {
+				offset: params.startRow,
+				limit: params.endRow - params.startRow,
+				quicksearch,
+				order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+				is_desc: params.sortModel?.[0]?.sort === 'desc'
+			}
 
-	function paramsChanged(currentParams: Record<string, any>) {
-		if (Object.keys(cache.params).length === 0) return true
-		return JSON.stringify(currentParams) !== JSON.stringify(cache.params)
-	}
+			if (!render) {
+				return
+			}
 
-	let datasource: IDatasource | undefined
-
-	$: if (render && !datasource) {
-		refreshCount++
-		datasource = {
-			rowCount: 0,
-			getRows: async function (params) {
-				const currentParams = {
-					offset: params.startRow,
-					limit: params.endRow - params.startRow,
-					quicksearch,
-					order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
-					is_desc: params.sortModel?.[0]?.sort === 'desc'
-				}
-
-				if (!paramsChanged(currentParams) && cache.promise === null) {
-					// Serve from cache if it exists and parameters haven't changed.
-					console.debug('Serving from cache for ID:', id)
+			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
+				done: (items) => {
 					let lastRow = -1
 
 					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
 						lastRow = datasource.rowCount
 					}
 
-					if (datasource && (datasource?.rowCount ?? 0) > cache.data.length) {
-						lastRow = cache.data.length
-					}
-
-					params.successCallback(cache.data, lastRow)
-					return
-				}
-
-				// If parameters changed or no cache available, check for ongoing request
-				if (!cache.promise || paramsChanged(currentParams)) {
-					console.debug('Parameters changed or no ongoing request, fetching new data for ID:', id)
-					cache.params = currentParams // Update the cache with the new parameters
-
-					cache.promise = runnableComponent?.runComponent(
-						undefined,
-						undefined,
-						undefined,
-						currentParams,
-						{
-							done: (items) => {
-								let lastRow = -1
-
-								if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
-									lastRow = datasource.rowCount
-								}
-
-								if (items && Array.isArray(items)) {
-									// MsSql response have an outer array, we need to flatten it
-									if (resolvedConfig.type.selected === 'ms_sql_server') {
-										items = items?.[0]
-									}
-
-									let processedData = items.map((item) => {
-										let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
-										let o = {}
-										primaryKeys.forEach((pk) => {
-											o[pk] = item[pk]
-										})
-										item['__index'] = JSON.stringify(o)
-										return item
-									})
-
-									if (datasource && (datasource?.rowCount ?? 0) > processedData.length) {
-										lastRow = processedData.length
-									}
-
-									cache.data = processedData // Update cache with new data
-									params.successCallback(processedData, lastRow)
-								} else {
-									params.failCallback()
-								}
-								cache.promise = null
-							},
-							cancel: () => {
-								params.failCallback()
-								cache.promise = null
-							},
-							error: () => {
-								params.failCallback()
-								cache.promise = null
-							}
+					if (items && Array.isArray(items)) {
+						// MsSql response have an outer array, we need to flatten it
+						if (resolvedConfig.type.selected === 'ms_sql_server') {
+							items = items?.[0]
 						}
-					)
-				} else {
-					console.debug(
-						'Request with same parameters already in progress, waiting for it to finish.'
-					)
-					await cache.promise // Wait for the ongoing request to finish
-					// After waiting, call getRows again to serve data from cache
 
-					setTimeout(() => {
-						this.getRows(params)
-					}, 0)
+						let processedData = items.map((item) => {
+							let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
+							let o = {}
+							primaryKeys.forEach((pk) => {
+								o[pk] = item[pk]
+							})
+							item['__index'] = JSON.stringify(o)
+							return item
+						})
+
+						if (processedData.length < lastRow) {
+							lastRow = processedData.length
+						}
+
+						params.successCallback(processedData, lastRow)
+					} else {
+						params.failCallback()
+					}
+				},
+				cancel: () => {
+					params.failCallback()
+				},
+				error: () => {
+					params.failCallback()
 				}
-			}
+			})
 		}
 	}
 
@@ -399,6 +350,11 @@
 		// console.log(tableMetadata)
 		const oldMap = Object.fromEntries(old.filter((x) => x != undefined).map((x) => [x.field, x]))
 		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
+
+		// if they are the same, do nothing
+		if (JSON.stringify(oldMap) === JSON.stringify(newMap)) {
+			return
+		}
 
 		let ncols: any[] = []
 		Object.entries(oldMap).forEach(([key, value]) => {
@@ -603,7 +559,7 @@
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			{#key renderCount}
+			{#key renderCount && render}
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}

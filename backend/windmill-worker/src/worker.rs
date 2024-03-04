@@ -15,9 +15,9 @@ use prometheus::{
     IntCounter,
 };
 #[cfg(feature = "prometheus")]
-use windmill_common::METRICS_ENABLED;
-#[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
+#[cfg(feature = "prometheus")]
+use windmill_common::METRICS_ENABLED;
 
 use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -51,15 +51,13 @@ use windmill_common::{
     DB, IS_READY,
 };
 
-
 use windmill_queue::{
-    canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy,
-    PushArgs, PushIsolationLevel, WrappedError, HTTP_CLIENT,
+    canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy, PushArgs,
+    PushIsolationLevel, WrappedError, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
 use windmill_queue::register_metric;
-
 
 use serde_json::{json, value::RawValue, Value};
 
@@ -226,7 +224,6 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 const VACUUM_PERIOD: u32 = 10000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
-
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
@@ -502,7 +499,7 @@ macro_rules! add_time {
 }
 
 #[cfg(feature = "prometheus")]
-type Histo =Arc<prometheus::Histogram>;
+type Histo = Arc<prometheus::Histogram>;
 #[cfg(feature = "prometheus")]
 type GGauge = Arc<GenericGauge<AtomicI64>>;
 
@@ -510,7 +507,6 @@ type GGauge = Arc<GenericGauge<AtomicI64>>;
 type Histo = ();
 #[cfg(not(feature = "prometheus"))]
 type GGauge = ();
-
 
 async fn handle_receive_completed_job<
     R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
@@ -570,11 +566,7 @@ async fn handle_receive_completed_job<
 }
 
 #[derive(Clone)]
-pub struct JobCompletedSender(
-    Sender<SendResult>,
-    Option<GGauge>,
-    Option<Histo>,
-);
+pub struct JobCompletedSender(Sender<SendResult>, Option<GGauge>, Option<Histo>);
 
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
@@ -586,7 +578,6 @@ impl JobCompletedSender {
         &self,
         jc: JobCompleted,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
-
         #[cfg(feature = "prometheus")]
         if let Some(wj) = self.1.as_ref() {
             wj.inc()
@@ -708,9 +699,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     };
 
     let worker_job_completed_channel_queue = {
-            #[cfg(feature = "prometheus")]
-            if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
-            && METRICS_ENABLED.load(Ordering::Relaxed)
+        #[cfg(feature = "prometheus")]
+        if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed) && METRICS_ENABLED.load(Ordering::Relaxed)
         {
             Some(Arc::new(
                 prometheus::register_int_gauge!(prometheus::opts!(
@@ -727,8 +717,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         #[cfg(not(feature = "prometheus"))]
         None
     };
-
-
 
     let worker_completed_channel_queue_send_duration = {
         #[cfg(feature = "prometheus")]
@@ -767,8 +755,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let worker_code_execution_duration = {
         #[cfg(feature = "prometheus")]
-        if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
-            && METRICS_ENABLED.load(Ordering::Relaxed)
+        if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed) && METRICS_ENABLED.load(Ordering::Relaxed)
         {
             Some(Arc::new(
                 prometheus::register_histogram!(prometheus::HistogramOpts::new(
@@ -786,10 +773,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         None
     };
 
-    let worker_flow_initial_transition_duration =  {
+    let worker_flow_initial_transition_duration = {
         #[cfg(feature = "prometheus")]
-        if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
-            && METRICS_ENABLED.load(Ordering::Relaxed)
+        if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed) && METRICS_ENABLED.load(Ordering::Relaxed)
         {
             Some(Arc::new(
                 prometheus::register_histogram!(prometheus::HistogramOpts::new(
@@ -802,7 +788,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         } else {
             None
         }
-        
+
         #[cfg(not(feature = "prometheus"))]
         None
     };
@@ -1057,7 +1043,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(not(feature = "prometheus"))]
     let worker_flow_transition_duration2 = None;
 
-
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
     let job_completed_sender = job_completed_tx.0.clone();
@@ -1170,7 +1155,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             }
                         });
                     } else {
-                        let is_init_script_and_failure = !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                        let is_init_script_and_failure =
+                            !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                         handle_receive_completed_job(
                             jc,
                             base_internal_url2,
@@ -1419,9 +1405,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             if let Err(e) = sqlx::query!("VACUUM queue").execute(db).await {
-                jobs_executed += 1;
                 tracing::error!(worker = %worker_name, "failed to vacuum queue: {}", e);
             }
+            jobs_executed += 1;
             tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");
         }
 
@@ -1518,7 +1504,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             wb.set(1);
             tracing::debug!("set worker busy to 1");
         }
-
 
         match next_job {
             Ok(Some(job)) => {
@@ -1720,7 +1705,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             (&job_completed_tx.0).clone(),
                         )
                         .await;
-                        if  is_init_script {
+                        if is_init_script {
                             tracing::error!("failed to execute init_script, exiting");
                             killpill_tx.send(()).unwrap();
                             break;
@@ -2203,7 +2188,10 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         )
         .await?;
         inner_tx.commit().await?;
-        same_worker_tx.send(SameWorkerPayload{ job_id: uuid, recoverable: false}).await.map_err(to_anyhow)?;
+        same_worker_tx
+            .send(SameWorkerPayload { job_id: uuid, recoverable: false })
+            .await
+            .map_err(to_anyhow)?;
         tracing::info!("Creating initial job {uuid} from initial script script: {content}");
     }
     Ok(())
@@ -2405,20 +2393,22 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             err.clone(),
             rsmq_2,
             worker_name,
-            false
+            false,
         )
     };
 
     let update_job_future = if job.is_flow_step || job.is_flow() {
-        let (flow, job_status_to_update) =
-            if let Some(parent_job_id) = job.parent_job {
-                if let Err(e) = update_job_future().await {
-                    tracing::error!("error updating job future for job {} for handle_job_error: {e}", job.id);
-                }
-                (parent_job_id, job.id)
-            } else {
-                (job.id, Uuid::nil())
-            };
+        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+            if let Err(e) = update_job_future().await {
+                tracing::error!(
+                    "error updating job future for job {} for handle_job_error: {e}",
+                    job.id
+                );
+            }
+            (parent_job_id, job.id)
+        } else {
+            (job.id, Uuid::nil())
+        };
 
         let wrapped_error = WrappedError { error: err.clone() };
         let updated_flow = update_flow_status_after_job_completion(
@@ -2454,7 +2444,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                         e,
                         rsmq,
                         worker_name,
-                        false
+                        false,
                     )
                     .await;
                 }

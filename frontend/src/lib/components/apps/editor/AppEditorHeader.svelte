@@ -81,6 +81,7 @@
 	import { getSelectInput } from '../components/display/dbtable/queries/select'
 	import { getInsertInput } from '../components/display/dbtable/queries/insert'
 	import { getUpdateInput } from '../components/display/dbtable/queries/update'
+	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 
 	async function hash(message) {
 		try {
@@ -214,6 +215,10 @@
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
+								})
+								r.push({
+									input: getDeleteInput(resourceValue, tableValue, columnDefs, dbType),
+									id: x.id + '_delete'
 								})
 
 								let primaryColumns = getPrimaryKeys(columnDefs)
