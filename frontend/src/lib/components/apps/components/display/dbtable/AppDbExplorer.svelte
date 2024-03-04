@@ -49,6 +49,32 @@
 		configuration
 	)
 
+	$: computeInput(
+		resolvedConfig.columnDefs,
+		resolvedConfig.whereClause,
+		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
+	)
+
+	let timeoutInput: NodeJS.Timeout | undefined = undefined
+
+	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
+		if (timeoutInput) {
+			clearTimeout(timeoutInput)
+		}
+		timeoutInput = setTimeout(() => {
+			timeoutInput = undefined
+			console.log('compute input')
+			aggrid?.clearRows()
+			input = getSelectInput(
+				resource,
+				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
+				columnDefs,
+				whereClause,
+				resolvedConfig.type.selected as DbType
+			)
+		}, 1000)
+	}
+
 	const { app, worldStore, mode, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -221,22 +247,16 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			if (input === undefined) {
-				input = getSelectInput(
-					resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
-					resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
-					resolvedConfig.columnDefs,
-					resolvedConfig.whereClause,
-					resolvedConfig.type.selected as DbType
-				)
-			}
-
 			const currentParams = {
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
 				quicksearch,
 				order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
 				is_desc: params.sortModel?.[0]?.sort === 'desc'
+			}
+
+			if (!render) {
+				return
 			}
 
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
@@ -522,7 +542,7 @@
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			{#key renderCount}
+			{#key renderCount && render}
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
