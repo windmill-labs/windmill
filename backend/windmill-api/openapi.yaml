@@ -4840,6 +4840,44 @@ paths:
                 type: string
                 format: uuid
 
+
+  /w/{workspace}/jobs/workflow_as_code/{job_id}/{entrypoint}:
+    post:
+      summary: run code-workflow task
+      operationId: runCodeWorkflowTask
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: entrypoint
+          in: path
+          required: true
+          schema:
+            type: string
+
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowTask"
+
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run/dependencies:
     post:
       summary: run a one-off dependencies job
@@ -8856,6 +8894,15 @@ components:
           type: string
       required:
         - args
+
+    WorkflowTask:
+      type: object
+      properties:
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
+      required:
+        - args
+
 
     CreateResource:
       type: object

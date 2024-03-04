@@ -7,7 +7,9 @@
  */
 
 use std::{
-    collections::{HashMap, HashSet}, sync::Arc, vec
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    vec,
 };
 
 use anyhow::Context;
@@ -97,7 +99,6 @@ lazy_static::lazy_static! {
 
 }
 
-
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -106,7 +107,7 @@ lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT_WORKER: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .build().unwrap();
-    
+
 }
 
 #[cfg(feature = "enterprise")]
@@ -171,7 +172,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             e,
             rsmq.clone(),
             "server",
-            false
+            false,
         )
         .await;
         if let Err(e) = add_job {
@@ -362,7 +363,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     e: serde_json::Value,
     rsmq: Option<R>,
     _worker_name: &str,
-    flow_is_done: bool
+    flow_is_done: bool,
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -568,11 +569,13 @@ pub async fn add_completed_job<
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
-    if queued_job.is_flow_step
-    {
-        if let Some(parent_job) = queued_job.parent_job  {
+    if queued_job.is_flow_step {
+        if let Some(parent_job) = queued_job.parent_job {
             // persist the flow last progress timestamp to avoid zombie flow jobs
-            tracing::debug!("Persisting flow last progress timestamp to flow job: {:?}", parent_job);
+            tracing::debug!(
+                "Persisting flow last progress timestamp to flow job: {:?}",
+                parent_job
+            );
             sqlx::query!(
                 "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2",
                 parent_job,
@@ -587,11 +590,13 @@ pub async fn add_completed_job<
                     &queued_job.id
                 ).fetch_optional(&mut tx).await?;
                 if r.is_some() {
-                    tracing::info!("parallel flow is done, setting parallel monitor last ping lock for job {}", &queued_job.id);
+                    tracing::info!(
+                        "parallel flow is done, setting parallel monitor last ping lock for job {}",
+                        &queued_job.id
+                    );
                 }
             }
         }
-
     }
 
     if !queued_job.is_flow_step
@@ -1891,7 +1896,6 @@ pub struct ResultWithId {
     id: Uuid,
 }
 
-
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
@@ -1908,11 +1912,8 @@ pub async fn get_result_by_id(
     )
     .await
     {
-        Ok(res) => {
-            Ok(res)
-        },
+        Ok(res) => Ok(res),
         Err(_) => {
-
             let running_flow_job = sqlx::query_as::<_, QueuedJob>(
                 "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
             ).bind(flow_id)
@@ -2020,7 +2021,6 @@ async fn get_result_by_id_from_original_flow(
         &mut leaf_jobs_for_flow,
     )
     .await?;
-
 
     if !leaf_jobs_for_flow.contains_key(&node_id.to_string()) {
         // if the flow is itself a restart flow, the step job might be from the upstream flow
@@ -2151,13 +2151,16 @@ async fn extract_result_from_job_result(
             .fetch_all(db)
             .await?
             .into_iter()
-            .filter_map(|x| ResultWithId::from_row(&x).ok().and_then(|x| x.result.map(|y| (x.id, y))))
+            .filter_map(|x| {
+                ResultWithId::from_row(&x)
+                    .ok()
+                    .and_then(|x| x.result.map(|y| (x.id, y)))
+            })
             .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
             let result = job_ids
                 .into_iter()
                 .map(|id| {
-                    rows
-                        .get(&id)
+                    rows.get(&id)
                         .map(|x| x.0.clone())
                         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
                 })
@@ -2250,7 +2253,7 @@ pub async fn get_queued_job_tx<'c>(
     }
 }
 
-pub async fn get_queued_job(id: Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
+pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
     let r = sqlx::query(
         "SELECT *
             FROM queue WHERE id = $1 AND workspace_id = $2",
@@ -2304,6 +2307,12 @@ pub struct PushArgs<T> {
     pub extra: HashMap<String, Box<RawValue>>,
     #[serde(flatten)]
     pub args: Json<T>,
+}
+
+impl<T> PushArgs<T> {
+    pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
+        self.extra.insert(k.into(), v.into());
+    }
 }
 
 #[derive(Deserialize)]

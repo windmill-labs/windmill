@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
+use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
 use windmill_common::variables::get_workspace_key;
 
 use crate::db::ApiAuthed;
@@ -57,7 +58,6 @@ use windmill_common::{
 
 #[cfg(feature = "prometheus")]
 use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
-
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
@@ -111,6 +111,12 @@ pub fn workspaced_service() -> Router {
                 .layer(cors.clone()),
         )
         .route(
+            "/run/workflow_as_code/:job_id/:entrypoint",
+            post(run_workflow_as_code)
+                .head(|| async { "" })
+                .layer(cors.clone()),
+        )
+        .route(
             "/restart/f/:job_id/from/:step_id",
             post(restart_flow).head(|| async { "" }).layer(cors.clone()),
         )
@@ -120,7 +126,7 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run/p/*script_path",
-            post(run_job_by_path)
+            post(run_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone()),
         )
@@ -150,7 +156,7 @@ pub fn workspaced_service() -> Router {
                 .head(|| async { "" })
                 .layer(cors.clone()),
         )
-        .route("/run/preview", post(run_preview_job))
+        .route("/run/preview", post(run_preview_script))
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
@@ -267,10 +273,10 @@ async fn get_root_job(
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
-    let mut job = get_queued_job(job_id, w_id, db).await?;
+    let mut job = get_queued_job(&job_id, w_id, db).await?;
     while let Some(j) = job {
         if let Some(uuid) = j.parent_job {
-            job = get_queued_job(uuid, w_id, db).await?;
+            job = get_queued_job(&uuid, w_id, db).await?;
         } else {
             return Ok(j.id.to_string());
         }
@@ -480,7 +486,7 @@ async fn get_flow_job_debug_info(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job = get_queued_job(id, w_id.as_str(), &db).await?;
+    let job = get_queued_job(&id, w_id.as_str(), &db).await?;
     if let Some(job) = job {
         let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
@@ -641,6 +647,7 @@ pub struct RunJobQuery {
     payload: Option<String>,
     job_id: Option<Uuid>,
     tag: Option<String>,
+    timeout: Option<i32>,
 }
 
 impl RunJobQuery {
@@ -858,7 +865,7 @@ async fn cancel_all(
     for j in jobs.iter() {
         if !j.running && !j.is_flow_step.unwrap_or(false) {
             let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
-            let job_running = get_queued_job(j.id, &w_id, &db).await?;
+            let job_running = get_queued_job(&j.id, &w_id, &db).await?;
 
             if let Some(job_running) = job_running {
                 let add_job = add_completed_job_error(
@@ -1785,6 +1792,11 @@ struct Preview {
 }
 
 #[derive(Deserialize)]
+pub struct WorkflowTask {
+    pub args: Option<HashMap<String, Box<JsonRawValue>>>,
+}
+
+#[derive(Deserialize)]
 struct PreviewFlow {
     value: FlowValue,
     path: Option<String>,
@@ -2086,7 +2098,7 @@ pub async fn restart_flow(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_job_by_path(
+pub async fn run_script_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -2108,6 +2120,78 @@ pub async fn run_job_by_path(
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        &w_id,
+        job_payload,
+        args,
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        scheduled_for,
+        None,
+        run_query.parent_job,
+        run_query.parent_job,
+        run_query.job_id,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
+        timeout,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+pub async fn run_workflow_as_code(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path((w_id, job_id, entrypoint)): Path<(String, Uuid, String)>,
+    Query(run_query): Query<RunJobQuery>,
+    Json(task): Json<WorkflowTask>,
+) -> error::Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+    check_tag_available_for_workspace(&w_id, &run_query.tag).await?;
+
+    let job = get_queued_job(&job_id, &w_id, &db).await?;
+    let job = not_found_if_none(job, "Queued Job", &job_id.to_string())?;
+    let (job_payload, tag, _delete_after_use, timeout) = match job.job_kind {
+        JobKind::Preview => (
+            JobPayload::Code(RawCode {
+                content: job.raw_code.unwrap_or_default(),
+                path: job.script_path,
+                language: job.language.unwrap_or_else(|| ScriptLang::Deno),
+                lock: job.raw_lock,
+                concurrent_limit: job.concurrent_limit,
+                concurrency_time_window_s: job.concurrency_time_window_s,
+                cache_ttl: job.cache_ttl,
+                dedicated_worker: None,
+            }),
+            Some(job.tag.clone()),
+            None,
+            run_query.timeout,
+        ),
+        JobKind::Script => script_path_to_payload(job.script_path(), &db, &w_id).await?,
+        _ => return Err(anyhow::anyhow!("Not supported").into()),
+    };
+
+    let mut extra = HashMap::new();
+    extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
+
+    let args = PushArgs { args: sqlx::types::Json(task.args), extra };
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+
+    let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2689,7 +2773,7 @@ async fn run_wait_result_flow_by_path_internal(
     run_wait_result(&db, uuid, w_id, early_return).await
 }
 
-async fn run_preview_job(
+async fn run_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -2744,7 +2828,7 @@ async fn run_preview_job(
         None,
         true,
         tag,
-        None,
+        run_query.timeout,
         None,
         None,
     )
