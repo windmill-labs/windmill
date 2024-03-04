@@ -260,7 +260,7 @@
 					offset: params.startRow,
 					limit: params.endRow - params.startRow,
 					quicksearch,
-					orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+					order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
 					is_desc: params.sortModel?.[0]?.sort === 'desc'
 				}
 
@@ -340,12 +340,12 @@
 					console.debug(
 						'Request with same parameters already in progress, waiting for it to finish.'
 					)
-					await cache.promise // Wait for the ongoing request to finish
-					// After waiting, call getRows again to serve data from cache
+
+					await cache.promise
 
 					setTimeout(() => {
 						this.getRows(params)
-					}, 0)
+					}, 50)
 				}
 			}
 		}
