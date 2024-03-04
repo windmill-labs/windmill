@@ -21,7 +21,8 @@
 		Badge,
 		Alert,
 		DrawerContent,
-		Drawer
+		Drawer,
+		Button
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
@@ -41,6 +42,7 @@
 		Activity,
 		Archive,
 		ArchiveRestore,
+		Calendar,
 		Eye,
 		FolderOpen,
 		GitFork,
@@ -51,7 +53,8 @@
 		Server,
 		Share,
 		Table2,
-		Trash
+		Trash,
+		Play
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -63,6 +66,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
+	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -138,6 +142,7 @@
 			}
 		}
 	}
+	let schedule: ScriptSchedule | undefined = undefined
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
@@ -149,6 +154,8 @@
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
+		schedule = await loadScriptSchedule(script.path, $workspaceStore!)
+
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
@@ -209,7 +216,12 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let persistentScriptDrawer: PersistentScriptDrawer
 
-	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
+	function getMainButtons(
+		script: Script | undefined,
+		args: object | undefined,
+		topHash?: string,
+		can_write?: boolean
+	) {
 		const buttons: any = []
 
 		if (!topHash && script && !$userStore?.operator) {
@@ -234,7 +246,7 @@
 				href: `/runs/${script.path}`,
 				size: 'xs',
 				color: 'light',
-				startIcon: History
+				startIcon: Play
 			}
 		})
 
@@ -305,7 +317,7 @@
 
 		return buttons
 	}
-	$: mainButtons = getMainButtons(script, args, topHash)
+	$: mainButtons = getMainButtons(script, args, topHash, can_write)
 
 	function getMenuItems(script: Script | undefined) {
 		if (!script || $userStore?.operator) return []
@@ -486,6 +498,21 @@
 								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
 							</Badge>
 						</div>
+					{/if}
+					{#if schedule?.enabled}
+						<Button
+							btnClasses="inline-flex"
+							startIcon={{ icon: Calendar }}
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								detailSelected = 'details'
+								triggerSelected = 'schedule'
+							}}
+						>
+							{schedule.cron ?? ''}
+						</Button>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>

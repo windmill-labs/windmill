@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.282.2
+  version: 1.283.0
   title: Windmill API
 
   contact:
@@ -180,29 +180,27 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/add:
-    post:
-      summary: create user (require admin privilege)
-      operationId: createUser
+  /w/{workspace}/users/{username}:
+    get:
+      summary: get user (require admin privilege)
+      operationId: getUser
       tags:
         - user
         - admin
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new user
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NewUser"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
-        "201":
+        "200":
           description: user created
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/User"
 
   /w/{workspace}/users/update/{username}:
     post:
@@ -8446,20 +8444,6 @@ components:
       required:
         - email
         - password
-
-    NewUser:
-      type: object
-      properties:
-        email:
-          type: string
-        username:
-          type: string
-        is_admin:
-          type: boolean
-      required:
-        - email
-        - username
-        - is_admin
 
     EditWorkspaceUser:
       type: object

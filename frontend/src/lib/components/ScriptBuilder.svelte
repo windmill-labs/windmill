@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { DraftService, NewScript, Script, ScriptService, type NewScriptWithDraft } from '$lib/gen'
+	import {
+		DraftService,
+		NewScript,
+		Script,
+		ScriptService,
+		type NewScriptWithDraft,
+		ScheduleService
+	} from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
@@ -10,6 +17,7 @@
 		emptySchema,
 		emptyString,
 		encodeState,
+		formatCron,
 		orderedJsonStringify
 	} from '$lib/utils'
 	import Path from './Path.svelte'
@@ -24,6 +32,7 @@
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
+		Calendar,
 		CheckCircle,
 		Code,
 		DiffIcon,
@@ -50,6 +59,9 @@
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
+	import ScriptSchedules from './ScriptSchedules.svelte'
+	import { writable } from 'svelte/store'
+	import { type ScriptSchedule, loadScriptSchedule } from '$lib/scripts'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -68,6 +80,26 @@
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
+
+	let scheduleStore = writable<ScriptSchedule>({
+		summary: '',
+		cron: '0 */5 * * *',
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+		args: {},
+		enabled: false
+	})
+	async function loadSchedule() {
+		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
+		if (scheduleRes) {
+			scheduleStore.set(scheduleRes)
+		}
+	}
+
+	$: {
+		if (initialPath != '') {
+			loadSchedule()
+		}
+	}
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 
@@ -161,6 +193,28 @@
 		}
 	}
 
+	async function createSchedule(path: string) {
+		const { cron, timezone, args, enabled, summary } = $scheduleStore
+
+		try {
+			await ScheduleService.createSchedule({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: path,
+					schedule: formatCron(cron),
+					timezone,
+					script_path: path,
+					is_flow: false,
+					args,
+					enabled,
+					summary
+				}
+			})
+		} catch (err) {
+			sendUserToast(`The primary schedule could not be created: ${err}`, true)
+		}
+	}
+
 	async function editScript(stay: boolean): Promise<void> {
 		loadingSave = true
 		try {
@@ -204,6 +258,46 @@
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key
 				}
 			})
+
+			const { enabled, timezone, args, cron, summary } = $scheduleStore
+			const scheduleExists = await ScheduleService.existsSchedule({
+				workspace: $workspaceStore ?? '',
+				path: script.path
+			})
+
+			if (scheduleExists) {
+				const schedule = await ScheduleService.getSchedule({
+					workspace: $workspaceStore ?? '',
+					path: script.path
+				})
+				if (
+					JSON.stringify(schedule.args) != JSON.stringify(args) ||
+					schedule.schedule != cron ||
+					schedule.timezone != timezone ||
+					schedule.summary != summary
+				) {
+					await ScheduleService.updateSchedule({
+						workspace: $workspaceStore ?? '',
+						path: script.path,
+						requestBody: {
+							schedule: formatCron(cron),
+							timezone,
+							args,
+							summary
+						}
+					})
+				}
+				if (enabled != schedule.enabled) {
+					await ScheduleService.setScheduleEnabled({
+						workspace: $workspaceStore ?? '',
+						path: script.path,
+						requestBody: { enabled }
+					})
+				}
+			} else if (enabled) {
+				await createSchedule(script.path)
+			}
+
 			savedScript = cloneDeep(script) as NewScriptWithDraft
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			if (stay) {
@@ -365,7 +459,7 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -387,6 +481,7 @@
 						cannot be inferred from the type directly.
 					</Tooltip>
 				</Tab>
+				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
 				<svelte:fragment slot="content">
 					<div class="p-4">
 						<TabContent value="metadata">
@@ -858,6 +953,9 @@
 							<div class="mt-4" />
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
+						<TabContent value="schedule">
+							<ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} />
+						</TabContent>
 					</div>
 				</svelte:fragment>
 			</Tabs>
@@ -888,6 +986,21 @@
 				</div>
 
 				<div class="gap-4 flex">
+					{#if $scheduleStore.enabled}
+						<Button
+							btnClasses="hidden lg:inline-flex"
+							startIcon={{ icon: Calendar }}
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={async () => {
+								metadataOpen = true
+								selectedTab = 'schedule'
+							}}
+						>
+							{$scheduleStore.cron ?? ''}
+						</Button>
+					{/if}
 					<div class="flex justify-start w-full border rounded-md overflow-hidden">
 						<div>
 							<button
