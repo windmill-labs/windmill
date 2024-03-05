@@ -585,7 +585,7 @@ export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'b
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
 	return columnDefs
-		.filter((columnDef: ColumnDef) => columnDef && columnDef.hide !== true)
+		.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
 		.map((column) => {
 			switch (dbType) {
 				case 'postgresql':
