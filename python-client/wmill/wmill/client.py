@@ -911,7 +911,7 @@ def task(*args, **kwargs):
                 for i, arg in enumerate(args):
                     if i < len(params):
                         p = params[i]
-                        key = p[0]
+                        key = p
                         if key not in kwargs:
                             json[key] = arg
 
