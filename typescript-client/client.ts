@@ -188,12 +188,14 @@ function getParamNames(func: Function): string[] {
 }
 
 export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
+  !clientSet && setClient();
+
   return async (...y) => {
     const args: Record<string, any> = {};
     const paramNames = getParamNames(f);
     y.forEach((x, i) => (args[paramNames[i]] = x));
     let req = await fetch(
-      `http://0.0.0.0:8000/api/w/foo/jobs/run/workflow_as_code/${getEnv(
+      `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
         "WM_JOB_ID"
       )}/${f.name}`,
       {
@@ -216,6 +218,8 @@ export async function runScriptAsync(
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
+  !clientSet && setClient();
+
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
