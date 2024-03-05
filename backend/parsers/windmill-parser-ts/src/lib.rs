@@ -128,7 +128,11 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     Ok(visitor.idents.into_iter().collect())
 }
 
-pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainArgSignature> {
+pub fn parse_deno_signature(
+    code: &str,
+    skip_dflt: bool,
+    main_override: Option<String>,
+) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
     let lexer = Lexer::new(
@@ -154,11 +158,12 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
         })?
         .body;
 
+    let main_name = main_override.unwrap_or("main".to_string());
     let params = ast.into_iter().find_map(|x| match x {
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
             decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, function, .. }),
             ..
-        })) if &sym.to_string() == "main" => Some(function.params),
+        })) if &sym.to_string() == &main_name => Some(function.params),
         _ => None,
     });
 

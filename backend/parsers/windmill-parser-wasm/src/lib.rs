@@ -13,7 +13,7 @@ fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
 
 #[wasm_bindgen]
 pub fn parse_deno(code: &str) -> String {
-    wrap_sig(windmill_parser_ts::parse_deno_signature(code, false))
+    wrap_sig(windmill_parser_ts::parse_deno_signature(code, false, None))
 }
 
 #[wasm_bindgen]

@@ -565,7 +565,7 @@ pub async fn add_completed_job<
     // tracing::error!("2 {:?}", start.elapsed());
 
     if !queued_job.is_flow_step {
-        if _duration > 1000 {
+        if _duration > 500 {
             if let Err(e) = sqlx::query!(
                 "UPDATE completed_job SET flow_status = q.flow_status FROM queue q WHERE completed_job.id = $1 AND q.id = $1 AND q.workspace_id = $2 AND completed_job.workspace_id = $2",
                 &queued_job.id,
