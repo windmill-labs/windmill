@@ -67,7 +67,7 @@
 			<IconSelectInput bind:componentInput />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
-		{:else if fieldType === 'resource' && subFieldType === 'postgres'}
+		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'bigquery'].includes(subFieldType)}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
@@ -81,71 +81,7 @@
 					}
 				}}
 				showSchemaExplorer
-				resourceType="postgresql"
-			/>
-		{:else if fieldType === 'resource' && subFieldType === 'mysql'}
-			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
-						}
-					}
-				}}
-				showSchemaExplorer
-				resourceType="mysql"
-			/>
-		{:else if fieldType === 'resource' && subFieldType === 'ms_sql_server'}
-			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
-						}
-					}
-				}}
-				showSchemaExplorer
-				resourceType="ms_sql_server"
-			/>
-		{:else if fieldType === 'resource' && subFieldType === 'snowflake'}
-			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
-						}
-					}
-				}}
-				showSchemaExplorer
-				resourceType="snowflake"
-			/>
-		{:else if fieldType === 'resource' && subFieldType === 'bigquery'}
-			<ResourcePicker
-				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
-				on:change={(e) => {
-					let path = e.detail
-					if (componentInput) {
-						if (path) {
-							componentInput.value = `$res:${path}`
-						} else {
-							componentInput.value = undefined
-						}
-					}
-				}}
-				showSchemaExplorer
-				resourceType="bigquery"
+				resourceType={subFieldType}
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
