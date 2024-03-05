@@ -81,7 +81,7 @@
 					}
 				}}
 				showSchemaExplorer
-				resourceType={subFieldType}
+				resourceType={subFieldType === 'postgres' ? 'postgresql' : subFieldType}
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
