@@ -63,15 +63,19 @@ export type Configuration =
 	| TemplateV2AppInput
 
 export type StaticConfiguration = GeneralAppInput & StaticAppInput
-export type RichConfigurationT<T> =
-	| (T & { type: AppInput['type'] })
-	| {
-			type: 'oneOf'
-			selected: string
-			tooltip?: string
-			labels?: Record<string, string>
-			configuration: Record<string, Record<string, T>>
-	  }
+export type OneOfRichConfiguration<T> = {
+	type: 'oneOf'
+	selected: string
+	tooltip?: string
+	labels?: Record<string, string>
+	configuration: Record<string, Record<string, T>>
+}
+
+export type OneOfConfiguration = OneOfRichConfiguration<
+	GeneralAppInput & (StaticAppInput | EvalAppInput | EvalV2AppInput)
+>
+
+export type RichConfigurationT<T> = (T & { type: AppInput['type'] }) | OneOfRichConfiguration<T>
 export type RichConfiguration = RichConfigurationT<Configuration>
 export type RichConfigurations = Record<string, RichConfiguration>
 

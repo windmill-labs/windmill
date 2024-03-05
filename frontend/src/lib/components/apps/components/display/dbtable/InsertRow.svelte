@@ -1,19 +1,33 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
-	import { ColumnIdentity, type ColumnMetadata } from './utils'
+	import {
+		ColumnIdentity,
+		getFieldType,
+		type ColumnMetadata,
+		type DbType,
+		type ColumnDef
+	} from './utils'
+
+	import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
+	import init, {
+		parse_sql,
+		parse_mysql,
+		parse_bigquery,
+		parse_snowflake,
+		parse_mssql
+	} from 'windmill-parser-wasm'
+	import type { MainArgSignature } from '$lib/gen'
+	import { makeInsertQuery } from './queries/insert'
+	import { argSigToJsonSchemaType } from '$lib/infer'
+	init(wasmUrl)
 
 	export let args: Record<string, any> = {}
-	export let columnDefs: Array<
-		{
-			field: string
-			ignored: boolean
-			hideInsert: boolean
-			overrideDefaultValue: boolean
-			defaultUserValue: any
-			defaultValueNull: boolean
-		} & ColumnMetadata
-	> = []
+	export let dbType: DbType = 'postgresql'
+
+	let schema: Schema | undefined = undefined
+
+	export let columnDefs: Array<ColumnDef & ColumnMetadata> = []
 
 	type FieldMetadata = {
 		type: string
@@ -36,21 +50,7 @@
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-
-			const baseType = type.split('(')[0]
-			const validTextTypes = ['character varying', 'text']
-			const validNumberTypes = ['integer', 'bigint', 'numeric', 'double precision']
-			const validDateTypes = ['date', 'timestamp without time zone', 'timestamp with time zone']
-
-			const fieldType = validTextTypes.includes(baseType)
-				? 'text'
-				: validNumberTypes.includes(baseType)
-				? 'number'
-				: baseType === 'boolean'
-				? 'checkbox'
-				: validDateTypes.includes(baseType)
-				? 'date'
-				: 'text'
+			const fieldType = getFieldType(type, dbType)
 
 			return {
 				type,
@@ -63,35 +63,61 @@
 			}
 		}) as FieldMetadata[] | undefined
 
-	function builtSchema(fields: FieldMetadata[]): Schema {
+	async function parseSQLArgs(code: string, dbType: DbType) {
+		await init(wasmUrl)
+
+		let rawSchema = ''
+		switch (dbType) {
+			case 'mysql':
+				rawSchema = parse_mysql(code)
+				break
+			case 'postgresql':
+				rawSchema = parse_sql(code)
+				break
+			case 'bigquery':
+				rawSchema = parse_bigquery(code)
+				break
+			case 'snowflake':
+				rawSchema = parse_snowflake(code)
+				break
+			case 'ms_sql_server':
+				rawSchema = parse_mssql(code)
+				break
+			default:
+				throw new Error('Language not supported')
+		}
+
+		const args: MainArgSignature = JSON.parse(rawSchema)
+
+		return args
+	}
+
+	async function builtSchema(fields: FieldMetadata[], dbType: DbType) {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
 
+		const insertCode = makeInsertQuery('ignoredtable', columnDefs, dbType)
+		const args = await parseSQLArgs(insertCode, dbType)
+
 		fields.forEach((field) => {
+			console.log(field)
 			const schemaProperty: SchemaProperty = {
-				type: field.fieldType
+				type: 'string'
 			}
 
-			switch (field.fieldType) {
-				case 'number':
-					schemaProperty.type = 'number'
-					const extractedDefaultValue = field.defaultValue
-					schemaProperty.default = extractedDefaultValue ? Number(extractedDefaultValue) : undefined
-					break
-				case 'checkbox':
-					schemaProperty.type = 'boolean'
+			const parsedArg = args.args.find((arg) => arg.name === field.name)
+			if (parsedArg) {
+				argSigToJsonSchemaType(parsedArg.typ, schemaProperty)
+			}
+
+			if (field.defaultValue) {
+				if (schemaProperty.type === 'number') {
+					schemaProperty.default = field.defaultValue ? Number(field.defaultValue) : undefined
+				} else if (schemaProperty.type === 'boolean') {
 					schemaProperty.default = field.defaultValue?.toLocaleLowerCase() === 'true'
-					break
-				case 'date':
-					schemaProperty.type = 'string'
-					schemaProperty.format = 'date-time'
+				} else {
 					schemaProperty.default = field.defaultValue
-					break
-				case 'text':
-				default:
-					schemaProperty.type = 'string'
-					schemaProperty.default = field.defaultValue
-					break
+				}
 			}
 
 			properties[field.name] = schemaProperty
@@ -106,15 +132,15 @@
 			}
 		})
 
-		return {
+		schema = {
 			$schema: 'http://json-schema.org/draft-07/schema#',
 			type: 'object',
 			properties,
 			required
-		}
+		} as Schema
 	}
 
-	$: schema = builtSchema(fields ?? []) as Schema
+	$: builtSchema(fields ?? [], dbType)
 
 	export let isInsertable: boolean = false
 
@@ -127,4 +153,6 @@
 	}
 </script>
 
-<LightweightSchemaForm {schema} bind:args />
+{#if schema}
+	<LightweightSchemaForm {schema} bind:args />
+{/if}

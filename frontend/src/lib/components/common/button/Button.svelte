@@ -133,7 +133,7 @@
 		ButtonType.FontSizeClasses[size],
 		ButtonType.SpacingClasses[spacingSize][variant],
 		'focus-visible:ring-2 font-semibold',
-		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
+		dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
 		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
 		'active:opacity-80 transition-all',
