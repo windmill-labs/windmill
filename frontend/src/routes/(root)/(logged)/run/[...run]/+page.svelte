@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job, ScriptService, Script } from '$lib/gen'
+	import { JobService, Job, ScriptService, Script, type WorkflowStatus } from '$lib/gen'
 	import { canWrite, copyToClipboard, displayDate, emptyString, truncateHash } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -65,6 +65,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -219,6 +220,10 @@
 	}
 
 	let redactSensitive = false
+
+	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
+		return x as Record<string, WorkflowStatus>
+	}
 </script>
 
 {#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
@@ -601,6 +606,13 @@
 				/>
 			</div>
 		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
+			{#if job?.flow_status}
+				<div class="mt-10" />
+				<WorkflowTimeline
+					flow_status={asWorkflowStatus(job.flow_status)}
+					flowDone={job.type == 'CompletedJob'}
+				/>
+			{/if}
 			<!-- Logs and outputs-->
 			<div class="mr-2 sm:mr-0 mt-12">
 				<Tabs bind:selected={viewTab}>

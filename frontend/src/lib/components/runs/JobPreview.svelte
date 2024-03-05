@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job } from '../../gen'
+	import { Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -11,6 +11,7 @@
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
 	import DurationMs from '../DurationMs.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 
 	export let id: string
 	export let blankLink = false
@@ -34,6 +35,10 @@
 	$: id && watchJob && watchJob(id)
 
 	let viewTab = 'result'
+
+	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
+		return x as Record<string, WorkflowStatus>
+	}
 </script>
 
 <TestJobLoader workspaceOverride={workspace} bind:job={currentJob} bind:watchJob on:done={onDone} />
@@ -94,6 +99,13 @@
 		{/if}
 
 		<div class=" w-full rounded-md min-h-full">
+			{#if job?.is_flow_step == false && job?.flow_status && (job?.job_kind == 'preview' || job?.job_kind == 'script')}
+				<WorkflowTimeline
+					flow_status={asWorkflowStatus(job.flow_status)}
+					flowDone={job.type == 'CompletedJob'}
+				/>
+			{/if}
+
 			{#if job?.type === Job.type.COMPLETED_JOB}
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>

@@ -91,6 +91,10 @@ class Windmill:
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if os.environ.get("WM_JOB_ID"):
+            params["parent_job"] = os.environ.get("WM_JOB_ID")
+        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
         elif hash_:
@@ -108,6 +112,10 @@ class Windmill:
         """Create a flow job and return its job id."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if os.environ.get("WM_JOB_ID"):
+            params["parent_job"] = os.environ.get("WM_JOB_ID")
+        if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
+            params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/f/{path}"
         else:
@@ -907,14 +915,19 @@ def task(*args, **kwargs):
                         if key not in kwargs:
                             json[key] = arg
 
-                tag_str = f"?tag={tag}" if tag is not None else ""
+                params = {}
+                if tag is not None:
+                    params["tag"] = tag
                 r = _client.post(
                     f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}{tag_str}",
                     json={"args": json},
+                    params=params,
                 )
                 job_id = r.text
-                logger.info(f"Executing task {func.__name__} on job {job_id}")
-                return _client.wait_job(job_id)
+                print(f"Executing task {func.__name__} on job {job_id}")
+                r = _client.wait_job(job_id)
+                print(f"Task {func.__name__} ({job_id}) completed")
+                return r
 
             return inner
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):

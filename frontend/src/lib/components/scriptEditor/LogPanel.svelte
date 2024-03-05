@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CompletedJob, Job, JobService, Preview } from '$lib/gen'
+	import { CompletedJob, Job, JobService, Preview, type WorkflowStatus } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -18,6 +18,7 @@
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
+	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 
 	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
@@ -48,6 +49,10 @@
 
 	function closeDrawer() {
 		drawerOpen = false
+	}
+
+	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
+		return x as Record<string, WorkflowStatus>
 	}
 </script>
 
@@ -84,6 +89,14 @@
 		{#if selectedTab === 'logs'}
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
+					{#if previewJob?.is_flow_step == false && previewJob?.flow_status}
+						<Pane class="relative">
+							<WorkflowTimeline
+								flow_status={asWorkflowStatus(previewJob.flow_status)}
+								flowDone={previewJob.type == 'CompletedJob'}
+							/>
+						</Pane>
+					{/if}
 					<Pane class="relative">
 						<LogViewer
 							jobId={previewJob?.id}

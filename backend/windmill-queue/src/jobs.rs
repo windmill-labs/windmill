@@ -564,6 +564,32 @@ pub async fn add_completed_job<
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     // tracing::error!("2 {:?}", start.elapsed());
 
+    if !queued_job.is_flow_step {
+        if _duration > 1000 {
+            if let Err(e) = sqlx::query!(
+                "UPDATE completed_job SET flow_status = q.flow_status FROM queue q WHERE completed_job.id = $1 AND q.id = $1 AND q.workspace_id = $2 AND completed_job.workspace_id = $2",
+                &queued_job.id,
+                &queued_job.workspace_id
+            )
+            .execute(&mut tx)
+            .await {
+                tracing::error!("Could not update job duration: {}", e);
+            }
+        }
+        if let Some(parent_job) = queued_job.parent_job {
+            if let Err(e) = sqlx::query_scalar!(
+                "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1],  COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'duration_ms'], to_jsonb($2::bigint)) WHERE id = $3 AND workspace_id = $4",
+                &queued_job.id.to_string(),
+                _duration,
+                parent_job,
+                &queued_job.workspace_id
+            )
+            .execute(&mut tx)
+            .await {
+                tracing::error!("Could not update parent job flow_status: {}", e);
+            }
+        }
+    }
     // tracing::error!("Added completed job {:#?}", queued_job);
     let mut skip_downstream_error_handlers = false;
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
@@ -597,40 +623,36 @@ pub async fn add_completed_job<
                 }
             }
         }
-    }
-
-    if !queued_job.is_flow_step
-        && queued_job.schedule_path.is_some()
-        && queued_job.script_path.is_some()
-    {
-        (skip_downstream_error_handlers, tx) = apply_schedule_handlers(
-            tx,
-            db,
-            queued_job.schedule_path.as_ref().unwrap(),
-            queued_job.script_path.as_ref().unwrap(),
-            &queued_job.workspace_id,
-            success,
-            result,
-            job_id,
-            queued_job.started_at.unwrap_or(chrono::Utc::now()),
-            queued_job.priority,
-        )
-        .await?;
-    }
-    if !queued_job.is_flow_step
-        && !queued_job.is_flow()
-        && queued_job.schedule_path.is_some()
-        && queued_job.script_path.is_some()
-    {
-        // script only
-        tx = handle_maybe_scheduled_job(
-            tx,
-            db,
-            queued_job.schedule_path.as_ref().unwrap(),
-            queued_job.script_path.as_ref().unwrap(),
-            &queued_job.workspace_id,
-        )
-        .await?;
+    } else {
+        if queued_job.schedule_path.is_some() && queued_job.script_path.is_some() {
+            (skip_downstream_error_handlers, tx) = apply_schedule_handlers(
+                tx,
+                db,
+                queued_job.schedule_path.as_ref().unwrap(),
+                queued_job.script_path.as_ref().unwrap(),
+                &queued_job.workspace_id,
+                success,
+                result,
+                job_id,
+                queued_job.started_at.unwrap_or(chrono::Utc::now()),
+                queued_job.priority,
+            )
+            .await?;
+        }
+        if !queued_job.is_flow()
+            && queued_job.schedule_path.is_some()
+            && queued_job.script_path.is_some()
+        {
+            // script only
+            tx = handle_maybe_scheduled_job(
+                tx,
+                db,
+                queued_job.schedule_path.as_ref().unwrap(),
+                queued_job.script_path.as_ref().unwrap(),
+                &queued_job.workspace_id,
+            )
+            .await?;
+        }
     }
     if queued_job.concurrent_limit.is_some() {
         let concurrency_key = concurrency_key(db, queued_job).await;

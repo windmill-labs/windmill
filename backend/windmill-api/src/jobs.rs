@@ -642,6 +642,7 @@ pub struct RunJobQuery {
     scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     scheduled_in_secs: Option<i64>,
     parent_job: Option<Uuid>,
+    root_job: Option<Uuid>,
     invisible_to_owner: Option<bool>,
     queue_limit: Option<i64>,
     payload: Option<String>,
@@ -1994,7 +1995,7 @@ pub async fn run_flow_by_path(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -2082,7 +2083,7 @@ pub async fn restart_flow(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -2134,7 +2135,7 @@ pub async fn run_script_by_path(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -2194,7 +2195,7 @@ pub async fn run_workflow_as_code(
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -2218,6 +2219,13 @@ pub async fn run_workflow_as_code(
         None,
     )
     .await?;
+    sqlx::query!(
+        "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
+        uuid.to_string(),
+        job_id,
+        w_id,
+        entrypoint
+    ).execute(&mut tx).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
@@ -2480,7 +2488,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -2599,7 +2607,7 @@ async fn run_wait_result_script_by_path_internal(
         None,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -2674,7 +2682,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -2756,7 +2764,7 @@ async fn run_wait_result_flow_by_path_internal(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -3197,7 +3205,7 @@ pub async fn run_job_by_hash(
         scheduled_for,
         None,
         run_query.parent_job,
-        run_query.parent_job,
+        run_query.root_job.or(run_query.parent_job),
         run_query.job_id,
         false,
         false,
@@ -3226,6 +3234,7 @@ pub struct JobUpdate {
     pub completed: Option<bool>,
     pub new_logs: Option<String>,
     pub mem_peak: Option<i32>,
+    pub flow_status: Option<serde_json::Value>,
 }
 
 async fn get_job_update(
@@ -3234,7 +3243,9 @@ async fn get_job_update(
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let record = sqlx::query!(
-        "SELECT running, substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
+        "SELECT running, substr(logs, $1) as logs, mem_peak, 
+        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status 
+        FROM queue WHERE workspace_id = $2 AND id = $3",
         log_offset,
         &w_id,
         &job_id
@@ -3252,6 +3263,7 @@ async fn get_job_update(
             completed: None,
             new_logs: record.logs,
             mem_peak: record.mem_peak,
+            flow_status: record.flow_status,
         }))
     } else {
         let logs = query_scalar!(
@@ -3268,7 +3280,8 @@ async fn get_job_update(
             running: Some(false),
             completed: Some(true),
             new_logs: logs,
-            mem_peak: record.map(|r| r.mem_peak).flatten(),
+            mem_peak: record.as_ref().map(|r| r.mem_peak).flatten(),
+            flow_status: record.and_then(|r| r.flow_status),
         }))
     }
 }
