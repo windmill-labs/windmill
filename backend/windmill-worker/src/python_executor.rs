@@ -1098,7 +1098,7 @@ for line in sys.stdin:
         "dedicated_worker",
         "dedicated_worker",
         Uuid::nil().to_string().as_str(),
-        "dedicted_worker",
+        "dedicated_worker",
         Some(script_path.to_string()),
         None,
         None,

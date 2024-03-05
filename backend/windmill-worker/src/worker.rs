@@ -2580,6 +2580,18 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
         r
     } else {
+        if let Some(parent_job) = job.parent_job {
+            if let Err(e) = sqlx::query_scalar!(
+                "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
+                &job.id.to_string(),
+                parent_job,
+                &job.workspace_id
+            )
+            .execute(db)
+            .await {
+                tracing::error!("Could not update parent job started_at flow_status: {}", e);
+            }
+        }
         None
     };
 
