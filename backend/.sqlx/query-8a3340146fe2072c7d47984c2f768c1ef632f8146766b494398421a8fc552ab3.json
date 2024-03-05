@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT running, substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
+  "query": "SELECT running, substr(logs, $1) as logs, mem_peak, \n        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status \n        FROM queue WHERE workspace_id = $2 AND id = $3",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "mem_peak",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "flow_status",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -29,8 +34,9 @@
     "nullable": [
       false,
       null,
-      true
+      true,
+      null
     ]
   },
-  "hash": "dda02bee4e15e0f3a2b0cb17ca86ae7ee3a4c0413d3484d3bc960796b39cd650"
+  "hash": "8a3340146fe2072c7d47984c2f768c1ef632f8146766b494398421a8fc552ab3"
 }
