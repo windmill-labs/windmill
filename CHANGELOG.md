@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.286.0](https://github.com/windmill-labs/windmill/compare/v1.285.4...v1.286.0) (2024-03-05)
+
+
+### Features
+
+* workflow as code for typescript ([e3e86e5](https://github.com/windmill-labs/windmill/commit/e3e86e5c34dff66aebfc1d2e223d81f5a62195b8))
+
+
+### Bug Fixes
+
+* workers to load custom tags for running sync scripts locally ([7575e12](https://github.com/windmill-labs/windmill/commit/7575e12dc8245448c778a21c3829b38cbf030d04))
+
 ## [1.285.4](https://github.com/windmill-labs/windmill/compare/v1.285.3...v1.285.4) (2024-03-05)
 
 
