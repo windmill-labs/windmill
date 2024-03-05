@@ -234,7 +234,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
         let (mut stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
             //do not stop early if module is a flow step
-            let flow_job = get_queued_job(flow, w_id, db)
+            let flow_job = get_queued_job(&flow, w_id, db)
                 .await?
                 .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
             let module = get_module(&flow_job, module_index);

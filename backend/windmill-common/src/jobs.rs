@@ -5,6 +5,8 @@ use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use uuid::Uuid;
 
+pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
+
 use crate::{
     error::{self, Error},
     flow_status::{FlowStatus, RestartedFrom},

@@ -55,7 +55,7 @@ pub fn parse_go(code: &str) -> String {
 
 #[wasm_bindgen]
 pub fn parse_python(code: &str) -> String {
-    wrap_sig(windmill_parser_py::parse_python_signature(code))
+    wrap_sig(windmill_parser_py::parse_python_signature(code, None))
 }
 
 #[wasm_bindgen]
