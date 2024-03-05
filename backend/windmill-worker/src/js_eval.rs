@@ -599,7 +599,7 @@ pub async fn eval_fetch_timeout(
 ) -> anyhow::Result<(Box<RawValue>, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
-    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true)?.args;
+    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, None)?.args;
     let spread = parsed_args
         .into_iter()
         .map(|x| {
