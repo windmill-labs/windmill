@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.285.3](https://github.com/windmill-labs/windmill/compare/v1.285.2...v1.285.3) (2024-03-05)
+
+
+### Bug Fixes
+
+* improve workflow as code python client ([6a5fb87](https://github.com/windmill-labs/windmill/commit/6a5fb874911d9d4acf2cf70940d6ec8ced04830c))
+
 ## [1.285.2](https://github.com/windmill-labs/windmill/compare/v1.285.1...v1.285.2) (2024-03-05)
 
 
