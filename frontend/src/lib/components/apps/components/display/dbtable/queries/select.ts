@@ -105,8 +105,6 @@ function makeSelectQuery(
 	const filteredColumns = buildVisibleFieldList(columnDefs, dbType)
 	const selectClause = filteredColumns.join(', ')
 
-	console.log(table)
-
 	switch (dbType) {
 		case 'mysql': {
 			const orderBy = columnDefs
@@ -140,12 +138,15 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				)
 				.join(',\n')}`
 
-			quicksearchCondition = ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
+			quicksearchCondition = `($3 = '' OR CONCAT(${filteredColumns.join(
+				', '
+			)}) ILIKE '%' || $3 || '%')`
+
 			query += `SELECT ${filteredColumns
 				.map((column) => `${column}::text`)
-				.join(', ')} FROM "${table}"`
-			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
-			query += ` ORDER BY ${orderBy}`
+				.join(', ')} FROM "${table}"\n`
+			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}\n`
+			query += ` ORDER BY ${orderBy}\n`
 			query += ` LIMIT $1::INT OFFSET $2::INT`
 
 			break
