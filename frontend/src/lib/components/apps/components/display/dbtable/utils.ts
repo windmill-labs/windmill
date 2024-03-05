@@ -1,312 +1,7 @@
-import type { AppInput, RunnableByName } from '../../../inputType'
 import { JobService, Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
 import { tryEvery } from '$lib/utils'
-
-export function makeQuery(
-	table: string,
-	tableMetadata: TableMetadata,
-	whereClause: string | undefined
-) {
-	if (!table) throw new Error('Table name is required')
-
-	const filteredColumns = tableMetadata
-		.filter((x) => x != undefined)
-		.map((column) => `"${column?.field}"::text`)
-
-	let selectClause = filteredColumns.join(', ')
-
-	let orderBy = `
-	${tableMetadata
-		.map(
-			(column) =>
-				`
-(CASE WHEN $4 = '${column.field}' AND $5 IS false THEN "${column.field}"::text END),
-(CASE WHEN $4 = '${column.field}' AND $5 IS true THEN "${column.field}"::text END) DESC`
-		)
-		.join(',\n')}`
-
-	let query = `
--- $1 limit
--- $2 offset
--- $3 quicksearch
--- $4 orderBy
--- $5 is_desc
-
-SELECT ${selectClause} FROM "${table}" WHERE `
-	if (whereClause) {
-		query += ` ${whereClause} AND `
-	}
-	query += ` ($3 = '' OR "${table}"::text ILIKE '%' || $3 || '%')`
-
-	query += ` ORDER BY ${orderBy}`
-	query += ` LIMIT $1::INT OFFSET $2::INT`
-
-	return query
-}
-
-export function createPostgresInsert(
-	table: string,
-	columns: ColumnDef[],
-	resource: string
-): AppInput {
-	return {
-		runnable: {
-			name: 'AppDbExplorer',
-			type: 'runnableByName',
-			inlineScript: {
-				content: makeInsertQuery(table, columns),
-				language: Preview.language.POSTGRESQL,
-				schema: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: ['database'],
-					type: 'object'
-				}
-			}
-		},
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: 'resource-postgresql'
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-}
-
-export function makeInsertQuery(table: string, columns: ColumnDef[]) {
-	if (!table) throw new Error('Table name is required')
-
-	const columnsInsert = columns.filter((x) => !x.hideInsert)
-	const columnsDefault = columns.filter(
-		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null)
-	)
-
-	const allInsertColumns = columnsInsert.concat(columnsDefault)
-	// Constructing the query
-	const query = `
-${columnsInsert.map((column, i) => `-- $${i + 1} ${column.field}`).join('\n')}
-
-INSERT INTO ${table} (${allInsertColumns.map((c) => c.field).join(', ')}) 
-VALUES (${columnsInsert.map((c, i) => `$${i + 1}::${c.datatype}`).join(', ')}${
-		columnsDefault.length > 0 ? ',' : ''
-	} ${columnsDefault
-		.map((c) => (c.defaultValueNull ? 'NULL' : `${c.defaultUserValue}::${c.datatype}`))
-		.join(', ')})`
-
-	return query
-}
-
-export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
-	let r = tableMetadata?.filter((x) => x.isprimarykey)?.map((x) => x.field) ?? []
-	if (r?.length === 0) {
-		r = tableMetadata?.map((x) => x.field) ?? []
-	}
-	return r ?? []
-}
-
-export function createPostgresInput(
-	resource: string,
-	table: string | undefined,
-	columns: TableMetadata,
-	whereClause: string | undefined
-): AppInput | undefined {
-	if (!resource || !table || !columns) {
-		// Return undefined if resource or table is not defined
-		return undefined
-	}
-
-	if (columns.length === 0) {
-		return undefined
-	}
-
-	const getRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: makeQuery(table, columns, whereClause),
-			language: Preview.language.POSTGRESQL
-		}
-	}
-
-	const getQuery: AppInput = {
-		runnable: getRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: 'resource-postgresql'
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return getQuery
-}
-
-export function createUpdatePostgresInput(
-	resource: string,
-	table: string,
-	column: ColumnMetadata,
-	columns: ColumnMetadata[]
-): AppInput | undefined {
-	if (!resource || !table) {
-		return undefined
-	}
-
-	const query = updateWithAllValues()
-
-	function updateWithAllValues() {
-		let query = `
--- $1 valueToUpdate
-${columns.map((c, i) => `-- $${i + 2} ${c.field}`).join('\n')}
-		
-UPDATE ${table} SET ${column.field} = $1::text::${column.datatype} WHERE 
-${columns.map((c, i) => `${c.field} = $${i + 2}::text::${c.datatype} `).join(' AND ')}		
-RETURNING 1`
-
-		return query
-	}
-
-	const updateRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: query,
-			language: Preview.language.POSTGRESQL,
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {},
-				required: ['database'],
-				type: 'object'
-			}
-		}
-	}
-
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: 'resource-postgresql'
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return updateQuery
-}
-
-export function createDeletePostgresInput(
-	resource: string,
-	table: string,
-	columns: ColumnMetadata[]
-): AppInput | undefined {
-	if (!resource || !table) {
-		return undefined
-	}
-
-	const query = updateWithAllValues()
-
-	function updateWithAllValues() {
-		let query = `
-${columns.map((c, i) => `-- $${i + 1} ${c.field}`).join('\n')}
-
-DELETE FROM ${table} WHERE ${columns
-			.map((c, i) => `${c.field} = $${i + 1}::text::${c.datatype}`)
-			.join(' AND ')} RETURNING 1;`
-
-		return query
-	}
-
-	const updateRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: query,
-			language: Preview.language.POSTGRESQL,
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {},
-				required: ['database'],
-				type: 'object'
-			}
-		}
-	}
-
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: 'resource-postgresql'
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return updateQuery
-}
-
-export function getCountPostgresql(resource: string, table: string): AppInput | undefined {
-	if (!resource || !table) {
-		return undefined
-	}
-
-	const query = `
--- $1 quicksearch
-SELECT COUNT(*) FROM ${table} WHERE ($1 = '' OR ${table}::text ILIKE '%' || $1 || '%')`
-
-	const updateRunnable: RunnableByName = {
-		name: 'AppDbExplorer',
-		type: 'runnableByName',
-		inlineScript: {
-			content: query,
-			language: Preview.language.POSTGRESQL,
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {
-					database: {
-						description: 'Database name',
-						type: 'object',
-						format: 'resource-postgresql'
-					}
-				},
-				required: ['database'],
-				type: 'object'
-			}
-		}
-	}
-
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: 'resource-postgresql'
-			}
-		},
-		type: 'runnable',
-		fieldType: 'object'
-	}
-
-	return updateQuery
-}
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -353,41 +48,113 @@ export type ColumnDef = {
 export async function loadTableMetaData(
 	resource: string,
 	workspace: string | undefined,
-	table: string | undefined
+	table: string | undefined,
+	resourceType: string
 ): Promise<TableMetadata | undefined> {
 	if (!resource || !table || !workspace) {
 		return undefined
 	}
 
-	const code = `
-	SELECT 
-	a.attname as field,
-	pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
-	(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
-	 FROM pg_catalog.pg_attrdef d
-	 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
-	(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
-	 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
-	 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-							 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
-	CASE a.attidentity
-			WHEN 'd' THEN 'By Default'
-			WHEN 'a' THEN 'Always'
-			ELSE 'No'
-	END as IsIdentity,
-	CASE a.attnotnull
-			WHEN false THEN 'YES'
-			ELSE 'NO'
-	END as IsNullable,
-	(SELECT true
-	 FROM pg_catalog.pg_enum e
-	 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
-FROM pg_catalog.pg_attribute a
-WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
-	AND a.attnum > 0 AND NOT a.attisdropped
-ORDER BY a.attnum;
+	let code: string = ''
 
-`
+	if (resourceType === 'mysql') {
+		code = `
+	SELECT 
+			COLUMN_NAME as field,
+			COLUMN_TYPE as DataType,
+			COLUMN_DEFAULT as DefaultValue,
+			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
+			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
+			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
+	FROM 
+			INFORMATION_SCHEMA.COLUMNS
+	WHERE 
+			TABLE_NAME = '${table}'
+	ORDER BY 
+			ORDINAL_POSITION;
+	`
+	} else if (resourceType === 'postgresql') {
+		code = `
+		SELECT 
+		a.attname as field,
+		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
+		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
+		 FROM pg_catalog.pg_attrdef d
+		 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
+		(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
+		 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
+		 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
+								 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
+		CASE a.attidentity
+				WHEN 'd' THEN 'By Default'
+				WHEN 'a' THEN 'Always'
+				ELSE 'No'
+		END as IsIdentity,
+		CASE a.attnotnull
+				WHEN false THEN 'YES'
+				ELSE 'NO'
+		END as IsNullable,
+		(SELECT true
+		 FROM pg_catalog.pg_enum e
+		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
+	FROM pg_catalog.pg_attribute a
+	WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
+		AND a.attnum > 0 AND NOT a.attisdropped
+	ORDER BY a.attnum;
+	
+	`
+	} else if (resourceType === 'ms_sql_server') {
+		code = `
+		SELECT 
+    COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    COLUMN_DEFAULT as DefaultValue,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
+    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+FROM    
+    INFORMATION_SCHEMA.COLUMNS
+WHERE   
+    TABLE_NAME = '${table}'
+ORDER BY
+    ORDINAL_POSITION;
+
+	`
+	} else if (resourceType === 'snowflake') {
+		code = `
+		select COLUMN_NAME as field,
+		DATA_TYPE as DataType,
+		COLUMN_DEFAULT as DefaultValue,
+		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
+		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
+		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+	from information_schema.columns
+	where table_name = '${table}'
+	order by ORDINAL_POSITION;
+	`
+	} else if (resourceType === 'bigquery') {
+		code = `SELECT 
+    c.COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    test_dataset.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+WHERE   
+    c.TABLE_NAME = "${table.split('.')[1]}"
+order by c.ORDINAL_POSITION;`
+	} else {
+		throw new Error('Unsupported database type:' + resourceType)
+	}
 
 	const maxRetries = 3
 	let attempts = 0
@@ -397,7 +164,7 @@ ORDER BY a.attnum;
 			const job = await JobService.runScriptPreview({
 				workspace: workspace,
 				requestBody: {
-					language: Preview.language.POSTGRESQL,
+					language: getLanguageByResourceType(resourceType),
 					content: code,
 					args: {
 						database: resource
@@ -415,7 +182,11 @@ ORDER BY a.attnum;
 			if (testResult.success) {
 				attempts = maxRetries
 
-				return testResult.result
+				if (resourceType === 'ms_sql_server') {
+					return testResult.result[0]
+				} else {
+					return testResult.result
+				}
 			} else {
 				attempts++
 			}
@@ -457,6 +228,7 @@ const scripts: Record<
 				acc[table_schema].push(a)
 				return acc
 			}, {})
+
 			const data = {}
 			for (const key in schemas) {
 				data[key] = schemas[key].reduce((acc, a) => {
@@ -478,13 +250,14 @@ const scripts: Record<
 					return acc
 				}, {})
 			}
+
 			return data
 		},
 		lang: 'postgresql',
 		argName: 'database'
 	},
 	mysql: {
-		code: "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'information_schema'",
+		code: "SELECT DATABASE() AS default_db_name, TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT FROM information_schema.columns WHERE table_schema = DATABASE() OR table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys', '_vt');",
 		processingFn: (rows) => {
 			const schemas = rows.reduce((acc, a) => {
 				const table_schema = a.TABLE_SCHEMA
@@ -493,6 +266,7 @@ const scripts: Record<
 				acc[table_schema].push(a)
 				return acc
 			}, {})
+
 			const data = {}
 			for (const key in schemas) {
 				data[key] = schemas[key].reduce((acc, a) => {
@@ -525,7 +299,7 @@ const scripts: Record<
 		argName: 'api'
 	},
 	bigquery: {
-		code: `import { BigQuery } from '@google-cloud/bigquery';
+		code: `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
 export async function main(args: bigquery) {
 const bq = new BigQuery({
 	credentials: args
@@ -657,6 +431,7 @@ export async function getDbSchemas(
 								const { processingFn } = scripts[resourceType]
 								const schema =
 									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
+
 								dbSchemas[resourcePath] = {
 									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 									schema,
@@ -715,73 +490,160 @@ export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
 	return printSchema(buildClientSchema(dbSchema.schema))
 }
 
-/**
- * Base class for embedding a svelte component within an AGGrid call.
- * See: https://stackoverflow.com/a/72608215
- */
-import type { ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
+export function getFieldType(type: string, databaseType: DbType) {
+	switch (databaseType) {
+		case 'postgresql': {
+			const baseType = type.split('(')[0]
+			const validTextTypes = ['character varying', 'text']
+			const validNumberTypes = ['integer', 'bigint', 'numeric', 'double precision']
+			const validDateTypes = ['date', 'timestamp without time zone', 'timestamp with time zone']
 
-/**
- * Class for defining a cell renderer.
- * If you don't need to define a separate class you could use cellRendererFactory
- * to create a component with the column definitions.
- */
-export abstract class AbstractCellRenderer implements ICellRendererComp {
-	eGui: any
-	protected value: any
-	protected params: any
-	constructor(parentElement = 'span') {
-		// create empty span (or other element) to place svelte component in
-		this.eGui = document.createElement(parentElement)
-	}
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'boolean'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
+		case 'mysql': {
+			const baseType = type.split('(')[0].toLowerCase() // Ensure case-insensitive comparison
+			const validTextTypes = ['varchar', 'text', 'char', 'mediumtext', 'longtext', 'tinytext']
+			const validNumberTypes = ['int', 'bigint', 'decimal', 'numeric', 'float', 'double']
+			const validDateTypes = ['date', 'datetime', 'timestamp', 'time', 'year']
 
-	init(params: ICellRendererParams & { onClick?: (data: any) => void }) {
-		this.value = params.value
-		this.createComponent(params)
-		this.eGui.addEventListener('click', () => params.onClick?.(params.data))
-		this.params = params
-	}
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'boolean'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
+		case 'ms_sql_server': {
+			const baseType = type.split('(')[0].toLowerCase() // Ensure case-insensitive comparison
+			const validTextTypes = ['varchar', 'text', 'char', 'nchar', 'nvarchar', 'ntext']
+			const validNumberTypes = [
+				'int',
+				'bigint',
+				'decimal',
+				'numeric',
+				'float',
+				'real',
+				'smallint',
+				'tinyint'
+			]
+			const validDateTypes = [
+				'date',
+				'datetime',
+				'datetime2',
+				'smalldatetime',
+				'datetimeoffset',
+				'time'
+			]
 
-	getGui() {
-		return this.eGui
-	}
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'bit'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
 
-	refresh(params: ICellRendererParams) {
-		this.value = params.value
-		this.eGui.innerHTML = ''
+		case 'snowflake': {
+			const baseType = type.split('(')[0].toLowerCase() // Ensure case-insensitive comparison
+			const validTextTypes = ['varchar', 'text', 'char']
+			const validNumberTypes = ['int', 'number', 'decimal', 'float', 'double']
+			const validDateTypes = ['date', 'timestamp', 'time']
 
-		return true
-	}
+			return validTextTypes.includes(baseType)
+				? 'text'
+				: validNumberTypes.includes(baseType)
+				? 'number'
+				: baseType === 'boolean'
+				? 'checkbox'
+				: validDateTypes.includes(baseType)
+				? 'date'
+				: 'text'
+		}
 
-	/**
-	 * Define and create the svelte component to use in the cell
-	 * @example
-	 * // This is all you need to do within this method: create the component with new, specify the target
-	 * // is the class, and pass in props via the params.
-	 * new CampusIcon({
-	 *    target: this.eGui,
-	 *    props: {
-	 *        color: params.data?.color,
-	 *        name: params.data?.name
-	 * }
-	 * @param params params for rendering the call, including the value for the cell
-	 */
-	abstract createComponent(params: ICellRendererParams): void
-}
-
-/**
- * Creates a cell renderer using the given callback for how to initialise a svelte component.
- * See AbstractCellRenderer.createComponent
- * @param svelteComponent function for how to create the svelte component
- * @returns
- */
-export function cellRendererFactory(
-	svelteComponent: (cell: AbstractCellRenderer, params: ICellRendererParams) => void
-) {
-	class Renderer extends AbstractCellRenderer {
-		createComponent(params: ICellRendererParams<any, any>): void {
-			svelteComponent(this, params)
+		default: {
+			return 'text'
 		}
 	}
-	return Renderer
+}
+
+export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
+
+export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
+	// Filter out hidden columns to avoid counting the wrong number of rows
+	return columnDefs
+		.filter((columnDef: ColumnDef) => columnDef && columnDef.hide !== true)
+		.map((column) => {
+			switch (dbType) {
+				case 'postgresql':
+					return `"${column?.field}"` // PostgreSQL uses double quotes for identifiers
+				case 'ms_sql_server':
+					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
+				case 'mysql':
+					return `\`${column?.field}\`` // MySQL uses backticks
+				case 'snowflake':
+					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
+				case 'bigquery':
+					return `\`${column?.field}\`` // BigQuery uses backticks
+				default:
+					throw new Error('Unsupported database type')
+			}
+		})
+}
+
+export function getLanguageByResourceType(name: string) {
+	const language = {
+		postgresql: Preview.language.POSTGRESQL,
+		mysql: Preview.language.MYSQL,
+		ms_sql_server: Preview.language.MSSQL,
+		snowflake: Preview.language.SNOWFLAKE,
+		bigquery: Preview.language.BIGQUERY
+	}
+	return language[name]
+}
+
+export function buildParameters(
+	columns: Array<{
+		field: string
+		datatype: string
+	}>,
+	databaseType: string
+) {
+	return columns
+		.map((column, i) => {
+			switch (databaseType) {
+				case 'postgresql':
+					return `-- $${i + 1} ${column.field}`
+				case 'mysql':
+					return `-- :${column.field} (${column.datatype.split('(')[0]})`
+				case 'ms_sql_server':
+					return `-- @p${i + 1} ${column.field} (${column.datatype.split('(')[0]})`
+				case 'snowflake':
+					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
+				case 'bigquery':
+					return `-- @${column.field} (${column.datatype.split('(')[0]})`
+			}
+		})
+		.join('\n')
+}
+
+export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
+	let r = tableMetadata?.filter((x) => x.isprimarykey)?.map((x) => x.field) ?? []
+	if (r?.length === 0) {
+		r = tableMetadata?.map((x) => x.field) ?? []
+	}
+	return r ?? []
 }

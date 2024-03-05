@@ -3358,13 +3358,77 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					selected: 'postgresql',
 					labels: {
 						postgresql: 'PostgreSQL',
-						msql: 'MySQL'
+						mysql: 'MySQL',
+						ms_sql_server: 'MS SQL Server',
+						snowflake: 'Snowflake',
+						bigquery: 'BigQuery'
 					},
 					configuration: {
 						postgresql: {
 							resource: {
 								type: 'static',
 								fieldType: 'resource',
+								subFieldType: 'postgres',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						mysql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'mysql',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						ms_sql_server: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'ms_sql_server',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						snowflake: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'snowflake',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						bigquery: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'bigquery',
 								value: ''
 							} as StaticAppInput,
 							table: {

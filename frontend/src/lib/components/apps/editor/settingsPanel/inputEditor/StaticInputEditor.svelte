@@ -67,7 +67,7 @@
 			<IconSelectInput bind:componentInput />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
-		{:else if fieldType === 'resource' && subFieldType !== 's3'}
+		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'bigquery'].includes(subFieldType)}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
@@ -81,7 +81,7 @@
 					}
 				}}
 				showSchemaExplorer
-				resourceType="postgresql"
+				resourceType={subFieldType === 'postgres' ? 'postgresql' : subFieldType}
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker

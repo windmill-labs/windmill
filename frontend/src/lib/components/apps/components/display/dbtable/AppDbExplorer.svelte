@@ -3,22 +3,23 @@
 		AppEditorContext,
 		AppViewerContext,
 		ComponentCustomCSS,
+		OneOfConfiguration,
 		RichConfigurations
 	} from '../../../types'
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
-		createPostgresInput,
 		getDbSchemas,
 		loadTableMetaData,
-		type ColumnMetadata,
 		type TableMetadata,
-		getPrimaryKeys
+		getPrimaryKeys,
+		type ColumnDef,
+		type DbType
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
-	import { workspaceStore, type DBSchemas } from '$lib/stores'
+	import { workspaceStore, type DBSchemas, type DBSchema } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -34,6 +35,8 @@
 	import InsertRowRunnable from './InsertRowRunnable.svelte'
 	import DeleteRow from './DeleteRow.svelte'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+	import { getSelectInput } from './queries/select'
+	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -46,6 +49,32 @@
 		configuration
 	)
 
+	$: computeInput(
+		resolvedConfig.columnDefs,
+		resolvedConfig.whereClause,
+		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
+	)
+
+	let timeoutInput: NodeJS.Timeout | undefined = undefined
+
+	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
+		if (timeoutInput) {
+			clearTimeout(timeoutInput)
+		}
+		timeoutInput = setTimeout(() => {
+			timeoutInput = undefined
+			console.log('compute input')
+
+			input = getSelectInput(
+				resource,
+				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
+				columnDefs,
+				whereClause,
+				resolvedConfig.type.selected as DbType
+			)
+		}, 1000)
+	}
+
 	const { app, worldStore, mode, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -54,39 +83,15 @@
 	let quicksearch = ''
 	let aggrid: AppAggridExplorerTable
 
-	$: computeInput(
-		resolvedConfig.columnDefs,
-		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration.postgresql.resource
-	)
-
-	let timeoutInput: NodeJS.Timeout | undefined = undefined
-	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
-		if (timeoutInput) {
-			clearTimeout(timeoutInput)
-		}
-		timeoutInput = setTimeout(() => {
-			timeoutInput = undefined
-			console.log('compute input')
-			aggrid?.clearRows()
-			input = createPostgresInput(
-				resource,
-				resolvedConfig.type.configuration.postgresql.table,
-				columnDefs,
-				whereClause
-			)
-		}, 1000)
-	}
-
 	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
 
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
-		resolvedConfig.type.configuration?.postgresql?.table &&
+		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
 		listColumnsIfAvailable()
 
 	let firstQuicksearch = true
-	$: if (quicksearch) {
+	$: if (quicksearch !== undefined) {
 		if (firstQuicksearch) {
 			firstQuicksearch = false
 		} else {
@@ -106,7 +111,7 @@
 	function onUpdate(
 		e: CustomEvent<{
 			row: number
-			columnDef: ColumnMetadata
+			columnDef: ColumnDef
 			column: string
 			value: any
 			data: any
@@ -116,13 +121,14 @@
 		const { columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
-			resolvedConfig.type.configuration.postgresql.resource,
-			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			columnDef,
 			resolvedConfig.columnDefs,
 			value,
 			data,
-			oldValue
+			oldValue,
+			resolvedConfig.type.selected as DbType
 		)
 	}
 
@@ -140,8 +146,30 @@
 	})
 
 	let lastResource: string | undefined = undefined
+
+	function updateOneOfConfiguration<T, U extends string, V>(
+		oneOfConfiguration: OneOfConfiguration,
+		resolvedConfig: {
+			configuration: Record<U, V>
+			selected: U
+		},
+		patch: Partial<Record<keyof V, any>>
+	) {
+		const selectedConfig = oneOfConfiguration.configuration[resolvedConfig.selected]
+		if (!selectedConfig) {
+			console.warn(`Selected configuration '${resolvedConfig.selected}' does not exist.`)
+			return
+		}
+		Object.keys(patch).forEach((key) => {
+			oneOfConfiguration.configuration[resolvedConfig.selected][key] = {
+				...oneOfConfiguration.configuration[resolvedConfig.selected][key],
+				...patch[key]
+			}
+		})
+	}
+
 	async function listTableIfAvailable() {
-		let resource = resolvedConfig.type.configuration?.postgresql?.resource
+		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
 		if (lastResource === resource) return
 		lastResource = resource
 		const gridItem = findGridItem($app, id)
@@ -150,105 +178,143 @@
 			return
 		}
 
-		if (
-			'configuration' in gridItem.data?.configuration?.type &&
-			'selectOptions' in gridItem.data?.configuration?.type?.configuration?.postgresql?.table
-		) {
-			gridItem.data.configuration.type.configuration.postgresql.table.selectOptions = []
-		}
+		updateOneOfConfiguration(
+			gridItem.data.configuration.type as OneOfConfiguration,
+			resolvedConfig.type,
+			{
+				table: {
+					selectOptions: [],
+					loading: true
+				}
+			}
+		)
 
-		if (!resolvedConfig.type?.configuration?.postgresql?.resource) {
+		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
 			$app = {
 				...$app
 			}
 			return
 		}
 
-		if (
-			'configuration' in gridItem.data?.configuration?.type &&
-			gridItem.data.configuration.type.configuration.postgresql.table
-		) {
-			gridItem.data.configuration.type.configuration.postgresql.table.loading = true
-		}
-
 		try {
 			const dbSchemas: DBSchemas = {}
 
 			await getDbSchemas(
-				'postgresql',
-				resolvedConfig.type.configuration.postgresql.resource.split(':')[1],
+				resolvedConfig?.type?.selected,
+				resolvedConfig.type.configuration[resolvedConfig?.type?.selected].resource.split(':')[1],
 				$workspaceStore,
 				dbSchemas,
 				(message: string) => {}
 			)
 
-			if ('configuration' in gridItem.data.configuration.type) {
-				gridItem.data.configuration.type.configuration.postgresql.table['selectOptions'] = dbSchemas
-					? // @ts-ignore
-					  Object.keys(Object.values(dbSchemas)?.[0]?.schema?.public ?? {})
-					: []
-			}
+			updateOneOfConfiguration(
+				gridItem.data.configuration.type as OneOfConfiguration,
+				resolvedConfig.type,
+				{
+					table: {
+						selectOptions: dbSchemas ? getTablesByResource(dbSchemas) : [],
+						loading: false
+					}
+				}
+			)
 
 			$app = {
 				...$app
 			}
 		} catch (e) {}
-		if (
-			'configuration' in gridItem.data?.configuration?.type &&
-			gridItem.data.configuration.type.configuration.postgresql.table
-		) {
-			gridItem.data.configuration.type.configuration.postgresql.table.loading = false
+	}
+
+	function getTablesByResource(schema: Partial<Record<string, DBSchema>>) {
+		const s = Object.values(schema)?.[0]
+		switch (resolvedConfig.type.selected) {
+			case 'postgresql':
+				if (s?.lang === 'postgresql') {
+					return Object.keys(s.schema?.public ?? s.schema ?? {})
+				}
+			case 'mysql':
+				return Object.keys(Object.values(s?.schema ?? {})?.[0])
+			case 'ms_sql_server':
+				return Object.keys(Object.values(s?.schema ?? {})?.[0])
+			case 'snowflake': {
+				return Object.keys(Object.values(s?.schema ?? {})?.[0])
+			}
+
+			case 'bigquery': {
+				const paths: string[] = []
+				for (const key in s?.schema) {
+					if (s?.schema.hasOwnProperty(key)) {
+						const subObj = s?.schema[key]
+						for (const subKey in subObj) {
+							if (subObj.hasOwnProperty(subKey)) {
+								paths.push(`${key}.${subKey}`)
+							}
+						}
+					}
+				}
+
+				return paths
+			}
+
+			default:
+				return []
 		}
 	}
 
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			let uuid = await runnableComponent?.runComponent(
-				undefined,
-				undefined,
-				undefined,
-				{
-					offset: params.startRow,
-					limit: params.endRow - params.startRow,
-					quicksearch,
-					orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
-					is_desc: params.sortModel?.[0]?.sort === 'desc'
-				},
-				{
-					done: (x) => {
-						let lastRow = -1
-						if (datasource.rowCount && datasource.rowCount <= params.endRow) {
-							lastRow = datasource.rowCount
+			const currentParams = {
+				offset: params.startRow,
+				limit: params.endRow - params.startRow,
+				quicksearch,
+				order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+				is_desc: params.sortModel?.[0]?.sort === 'desc'
+			}
+
+			if (!render) {
+				return
+			}
+
+			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
+				done: (items) => {
+					let lastRow = -1
+
+					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
+						lastRow = datasource.rowCount
+					}
+
+					if (items && Array.isArray(items)) {
+						// MsSql response have an outer array, we need to flatten it
+						if (resolvedConfig.type.selected === 'ms_sql_server') {
+							items = items?.[0]
 						}
-						if (x && Array.isArray(x)) {
-							params.successCallback(
-								x.map((x) => {
-									let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
-									let o = {}
-									primaryKeys.forEach((pk) => {
-										o[pk] = x[pk]
-									})
-									x['__index'] = JSON.stringify(o)
-									return x
-								}),
-								lastRow
-							)
-						} else {
-							params.failCallback()
+
+						let processedData = items.map((item) => {
+							let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
+							let o = {}
+							primaryKeys.forEach((pk) => {
+								o[pk] = item[pk]
+							})
+							item['__index'] = JSON.stringify(o)
+							return item
+						})
+
+						if (items.length < params.endRow - params.startRow) {
+							lastRow = params.startRow + items.length
 						}
-					},
-					cancel: () => {
-						console.log('cancel datasource request')
-						params.failCallback()
-					},
-					error: () => {
-						console.log('error datasource request')
+
+						params.successCallback(processedData, lastRow)
+					} else {
 						params.failCallback()
 					}
+				},
+				cancel: () => {
+					params.failCallback()
+				},
+				error: () => {
+					params.failCallback()
 				}
-			)
-			console.log('asking for ' + params.startRow + ' to ' + params.endRow, uuid)
+			})
 		}
 	}
 
@@ -256,15 +322,19 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	async function listColumnsIfAvailable() {
-		let table = resolvedConfig.type.configuration?.postgresql?.table
-		if (lastTable === table) return
-		lastTable = table
+		const selected = resolvedConfig.type.selected
+		let table = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.table
 
+		if (lastTable === table) return
+
+		lastTable = table
 		let tableMetadata = await loadTableMetaData(
-			resolvedConfig.type.configuration.postgresql.resource,
+			resolvedConfig.type.configuration[selected].resource,
 			$workspaceStore,
-			resolvedConfig.type.configuration.postgresql.table
+			resolvedConfig.type.configuration[selected].table,
+			selected
 		)
+
 		if (!tableMetadata) return
 
 		const gridItem = findGridItem($app, id)
@@ -281,6 +351,11 @@
 		const oldMap = Object.fromEntries(old.filter((x) => x != undefined).map((x) => [x.field, x]))
 		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
 
+		// if they are the same, do nothing
+		if (JSON.stringify(oldMap) === JSON.stringify(newMap)) {
+			return
+		}
+
 		let ncols: any[] = []
 		Object.entries(oldMap).forEach(([key, value]) => {
 			if (newMap[key]) {
@@ -294,6 +369,15 @@
 			if (!oldMap[key]) {
 				ncols.push(value)
 			}
+		})
+
+		// Mysql capitalizes the column names, so we make sure to lowercase them
+		ncols = ncols.map((x) => {
+			let o = {}
+			Object.keys(x).forEach((k) => {
+				o[k.toLowerCase()] = x[k]
+			})
+			return o
 		})
 
 		state = undefined
@@ -321,14 +405,29 @@
 	$: $worldStore && connectToComponents()
 
 	function connectToComponents() {
-		if ($worldStore) {
+		if ($worldStore && datasource !== undefined) {
 			const outputs = $worldStore.outputsById[`${id}_count`]
+
 			if (outputs) {
 				outputs.result.subscribe(
 					{
 						id: 'dbexplorer-count-' + id,
 						next: (value) => {
-							datasource.rowCount = value?.[0]?.count
+							// MsSql response have an outer array, we need to flatten it
+							if (
+								Array.isArray(value) &&
+								value.length === 1 &&
+								resolvedConfig.type.selected === 'ms_sql_server'
+							) {
+								// @ts-ignore
+								datasource.rowCount = value?.[0]?.[0]?.count
+							} else if (resolvedConfig.type.selected === 'snowflake') {
+								// @ts-ignore
+								datasource.rowCount = value?.[0]?.COUNT
+							} else {
+								// @ts-ignore
+								datasource.rowCount = value?.[0]?.count
+							}
 						}
 					},
 					datasource.rowCount
@@ -339,12 +438,14 @@
 
 	async function insert() {
 		try {
+			const selected = resolvedConfig.type.selected
 			await insertRowRunnable?.insertRow(
-				resolvedConfig.type.configuration.postgresql.resource,
+				resolvedConfig.type.configuration[selected].resource,
 				$workspaceStore,
-				resolvedConfig.type.configuration.postgresql.table,
+				resolvedConfig.type.configuration[selected].table,
 				resolvedConfig.columnDefs,
-				args
+				args,
+				selected
 			)
 
 			insertDrawer?.closeDrawer()
@@ -368,11 +469,13 @@
 		let getPrimaryKeysresolvedConfig = resolvedConfig.columnDefs?.filter((x) =>
 			primaryColumns.includes(x.field)
 		)
+		const selected = resolvedConfig.type.selected
 		deleteRow?.triggerDelete(
-			resolvedConfig.type.configuration.postgresql.resource,
-			resolvedConfig.type.configuration.postgresql.table ?? 'unknown',
+			resolvedConfig.type.configuration[selected].resource,
+			resolvedConfig.type.configuration[selected].table ?? 'unknown',
 			getPrimaryKeysresolvedConfig,
-			data
+			data,
+			selected
 		)
 	}
 
@@ -408,13 +511,18 @@
 	/>
 {/if}
 <UpdateCell {id} bind:this={updateCell} />
-<DbExplorerCount
-	renderCount={refreshCount}
-	{id}
-	{quicksearch}
-	table={resolvedConfig?.type?.configuration?.postgresql?.table ?? ''}
-	resource={resolvedConfig?.type?.configuration?.postgresql?.resource ?? ''}
-/>
+{#if render}
+	<DbExplorerCount
+		renderCount={refreshCount}
+		{id}
+		{quicksearch}
+		table={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.table ?? ''}
+		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource ?? ''}
+		resourceType={resolvedConfig?.type?.selected}
+		columnDefs={resolvedConfig?.columnDefs}
+		whereClause={resolvedConfig?.whereClause}
+	/>
+{/if}
 
 <InitializeComponent {id} />
 
@@ -430,9 +538,7 @@
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
-			<input
-				on:pointerdown|stopPropagation
-				on:keydown|stopPropagation
+			<DebouncedInput
 				class="w-full max-w-[300px]"
 				type="text"
 				bind:value={quicksearch}
@@ -450,10 +556,10 @@
 				Insert
 			</Button>
 		</div>
-		{#if resolvedConfig.type.configuration?.postgresql?.resource && resolvedConfig.type.configuration?.postgresql?.table}
+		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
-			{#key renderCount}
+			{#key renderCount && render}
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
@@ -479,7 +585,12 @@
 				<Button color="dark" size="xs" on:click={insert} disabled={!isInsertable}>Insert</Button>
 			</svelte:fragment>
 
-			<InsertRow bind:args bind:isInsertable columnDefs={resolvedConfig.columnDefs} />
+			<InsertRow
+				bind:args
+				bind:isInsertable
+				columnDefs={resolvedConfig.columnDefs}
+				dbType={resolvedConfig.type.selected}
+			/>
 		</DrawerContent>
 	</Drawer>
 </Portal>

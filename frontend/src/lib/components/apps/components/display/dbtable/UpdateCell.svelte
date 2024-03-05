@@ -5,8 +5,9 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { createUpdatePostgresInput, type ColumnMetadata, getPrimaryKeys } from './utils'
+	import { getPrimaryKeys, type ColumnDef, type DbType } from './utils'
 	import { sendUserToast } from '$lib/toast'
+	import { getUpdateInput } from './queries/update'
 
 	export let id: string
 
@@ -20,24 +21,24 @@
 
 	let runnableComponent: RunnableComponent
 	let loading = false
-
 	let input: AppInput | undefined = undefined
 
 	export async function triggerUpdate(
 		resource: string,
 		table: string,
-		column: ColumnMetadata,
-		allColumns: ColumnMetadata[],
+		column: ColumnDef,
+		allColumns: ColumnDef[],
 		valueToUpdate: string,
 		data: Record<string, any>,
-		oldValue: string | undefined = undefined
+		oldValue: string | undefined = undefined,
+		dbType: DbType
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
 		let primaryColumns = getPrimaryKeys(allColumns)
 		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
 
-		input = createUpdatePostgresInput(resource, table, column, columns)
+		input = getUpdateInput(resource, table, column, columns, dbType)
 
 		await tick()
 
@@ -51,7 +52,7 @@
 				undefined,
 				undefined,
 				undefined,
-				{ valueToUpdate, ...ndata },
+				{ value_to_update: valueToUpdate, ...ndata },
 				{
 					done: (x) => {
 						sendUserToast('Value updated', false)

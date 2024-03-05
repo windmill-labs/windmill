@@ -151,7 +151,7 @@ export async function inferArgs(
 	await tick()
 }
 
-function argSigToJsonSchemaType(
+export function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
