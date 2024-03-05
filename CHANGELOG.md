@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.285.2](https://github.com/windmill-labs/windmill/compare/v1.285.1...v1.285.2) (2024-03-05)
+
+
+### Bug Fixes
+
+* retrigger release ([32fc3e2](https://github.com/windmill-labs/windmill/commit/32fc3e25d10b20139ecfb51ddb32f8b60df30141))
+
 ## [1.285.1](https://github.com/windmill-labs/windmill/compare/v1.285.0...v1.285.1) (2024-03-05)
 
 
