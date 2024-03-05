@@ -75,7 +75,7 @@
 		}, 1000)
 	}
 
-	const { app, worldStore, mode, selectedComponent } =
+	const { app, worldStore, mode, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -318,6 +318,11 @@
 		}
 	}
 
+	$: console.log(
+		'table',
+		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table
+	)
+
 	let lastTable: string | undefined = undefined
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -480,6 +485,44 @@
 	}
 
 	let refreshCount = 0
+
+	async function reset(newValue: any) {
+		aggrid?.clearRows()
+
+		const gridItem = findGridItem($app, id)
+
+		if (!gridItem) {
+			return
+		}
+
+		//@ts-ignore
+		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }
+		gridItem.data = gridItem.data
+		$app = $app
+		await tick()
+
+		console.log('newValue', newValue)
+
+		updateOneOfConfiguration(
+			gridItem.data.configuration.type as OneOfConfiguration,
+			resolvedConfig.type,
+			{
+				table: {
+					value: newValue
+				}
+			}
+		)
+
+		tick().then(() => {
+			$app = {
+				...$app
+			}
+		})
+	}
+
+	$componentControl[id] = {
+		reset
+	}
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}

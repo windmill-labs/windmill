@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { GripVertical, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { flip } from 'svelte/animate'
@@ -233,6 +233,25 @@
 	}
 
 	let raw: boolean = false
+	let mounted = false
+
+	$: if (componentInput.value && mounted) {
+		const newItems = (Array.isArray(componentInput.value) ? componentInput.value : [])
+			.filter((x) => x != undefined)
+			.map((item, index) => {
+				return { value: item, id: generateRandomString() }
+			})
+
+		if (
+			JSON.stringify(newItems.map((i) => i.value)) !== JSON.stringify(items.map((i) => i.value))
+		) {
+			items = newItems
+		}
+	}
+
+	onMount(() => {
+		mounted = true
+	})
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">

@@ -197,11 +197,13 @@
 					},
 					onGridReady: (e) => {
 						outputs?.ready.set(true)
+
 						$componentControl[id] = {
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {
 								e.api.getRowNode(index.toString())?.setSelected(true)
-							}
+							},
+							reset: $componentControl[id]?.reset
 						}
 						api = e.api
 						resolvedConfig?.extraConfig?.['onGridReady']?.(e)
