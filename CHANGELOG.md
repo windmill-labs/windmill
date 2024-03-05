@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.286.1](https://github.com/windmill-labs/windmill/compare/v1.286.0...v1.286.1) (2024-03-05)
+
+
+### Bug Fixes
+
+* add more functions to typescript client ([b17ae78](https://github.com/windmill-labs/windmill/commit/b17ae785e6103f44757a0b98d1b7712a356bed28))
+
 ## [1.286.0](https://github.com/windmill-labs/windmill/compare/v1.285.4...v1.286.0) (2024-03-05)
 
 
