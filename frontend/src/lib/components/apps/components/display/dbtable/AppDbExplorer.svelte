@@ -318,14 +318,9 @@
 		}
 	}
 
-	$: console.log(
-		'table',
-		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table
-	)
-
 	let lastTable: string | undefined = undefined
-
 	let timeout: NodeJS.Timeout | undefined = undefined
+
 	async function listColumnsIfAvailable() {
 		const selected = resolvedConfig.type.selected
 		let table = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.table
@@ -500,8 +495,6 @@
 		gridItem.data = gridItem.data
 		$app = $app
 		await tick()
-
-		console.log('newValue', newValue)
 
 		updateOneOfConfiguration(
 			gridItem.data.configuration.type as OneOfConfiguration,
