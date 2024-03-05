@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.285.0](https://github.com/windmill-labs/windmill/compare/v1.284.1...v1.285.0) (2024-03-05)
+
+
+### Features
+
+* **frontend:** Added support for mysql, mssql and snowflake in the Database Studio ([#3250](https://github.com/windmill-labs/windmill/issues/3250)) ([ca6311d](https://github.com/windmill-labs/windmill/commit/ca6311d8cd0ca48bf9a469176bb50c9701f3e0c5))
+
+
+### Bug Fixes
+
+* **frontend:** Fix PSQL select ([#3343](https://github.com/windmill-labs/windmill/issues/3343)) ([4c6a751](https://github.com/windmill-labs/windmill/commit/4c6a7516f79fcafac614192332525b9e26274e82))
+* workflow as code python sdk improvement ([5407265](https://github.com/windmill-labs/windmill/commit/54072654190dab8a203c59fa800aee5dd73f0572))
+
 ## [1.284.1](https://github.com/windmill-labs/windmill/compare/v1.284.0...v1.284.1) (2024-03-04)
 
 
