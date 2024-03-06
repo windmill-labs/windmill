@@ -13,9 +13,11 @@
 		try {
 			const existsWorkerWithTag = await WorkerService.existsWorkerWithTag({ tag })
 			noWorkerWithTag = !existsWorkerWithTag
-			timeout = setTimeout(() => {
-				lookForTag()
-			}, 1000)
+			if (noWorkerWithTag) {
+				timeout = setTimeout(() => {
+					lookForTag()
+				}, 1000)
+			}
 		} catch (err) {
 			console.error(err)
 		}
