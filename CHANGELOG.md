@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.286.2](https://github.com/windmill-labs/windmill/compare/v1.286.1...v1.286.2) (2024-03-06)
+
+
+### Bug Fixes
+
+* add more functions to typescript client ([465dfc1](https://github.com/windmill-labs/windmill/commit/465dfc186b72d617e5f7ce27c7fed8f10c7693af))
+
+## [1.286.1](https://github.com/windmill-labs/windmill/compare/v1.286.0...v1.286.1) (2024-03-05)
+
+
+### Bug Fixes
+
+* add more functions to typescript client ([b17ae78](https://github.com/windmill-labs/windmill/commit/b17ae785e6103f44757a0b98d1b7712a356bed28))
+
+## [1.286.0](https://github.com/windmill-labs/windmill/compare/v1.285.4...v1.286.0) (2024-03-05)
+
+
+### Features
+
+* workflow as code for typescript ([e3e86e5](https://github.com/windmill-labs/windmill/commit/e3e86e5c34dff66aebfc1d2e223d81f5a62195b8))
+
+
+### Bug Fixes
+
+* workers to load custom tags for running sync scripts locally ([7575e12](https://github.com/windmill-labs/windmill/commit/7575e12dc8245448c778a21c3829b38cbf030d04))
+
+## [1.285.4](https://github.com/windmill-labs/windmill/compare/v1.285.3...v1.285.4) (2024-03-05)
+
+
+### Bug Fixes
+
+* improve workflow as code python client ([d30cd3a](https://github.com/windmill-labs/windmill/commit/d30cd3a4ba751b22679fa1cb32a555bbc8ae5ef9))
+
+## [1.285.3](https://github.com/windmill-labs/windmill/compare/v1.285.2...v1.285.3) (2024-03-05)
+
+
+### Bug Fixes
+
+* improve workflow as code python client ([6a5fb87](https://github.com/windmill-labs/windmill/commit/6a5fb874911d9d4acf2cf70940d6ec8ced04830c))
+
 ## [1.285.2](https://github.com/windmill-labs/windmill/compare/v1.285.1...v1.285.2) (2024-03-05)
 
 

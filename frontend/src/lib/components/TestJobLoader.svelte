@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { Job, JobService, type FlowStatus } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -162,7 +162,7 @@
 						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 					}
 					if (previewJobUpdates.flow_status) {
-						job.flow_status = previewJobUpdates.flow_status
+						job.flow_status = previewJobUpdates.flow_status as FlowStatus
 					}
 					if (previewJobUpdates.mem_peak && job) {
 						job.mem_peak = previewJobUpdates.mem_peak

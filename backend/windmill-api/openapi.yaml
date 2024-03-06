@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.285.2
+  version: 1.286.2
   title: Windmill API
 
   contact:
@@ -5261,8 +5261,7 @@ paths:
                   mem_peak:
                     type: integer
                   flow_status:
-                    additionalProperties:
-                      $ref: "#/components/schemas/WorkflowStatus"
+                    $ref: "#/components/schemas/WorkflowStatusRecord"
 
   /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
     get:
@@ -8905,6 +8904,11 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
       required:
         - args
+
+    WorkflowStatusRecord:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/WorkflowStatus"
 
     WorkflowStatus:
       type: object

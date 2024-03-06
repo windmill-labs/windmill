@@ -110,6 +110,160 @@ export async function getRootJobId(jobId?: string): Promise<string> {
   return await JobService.getRootJobId({ workspace, id: jobId });
 }
 
+export async function runScript(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  args = args || {};
+
+  if (verbose) {
+    console.info(`running \`${path}\` synchronously with args:`, args);
+  }
+
+  const jobId = await runScriptAsync(path, hash_, args);
+  return await waitJob(jobId, verbose);
+}
+
+export async function waitJob(
+  jobId: string,
+  verbose: boolean = false
+): Promise<any> {
+  while (true) {
+    // Implement your HTTP request logic here to get job result
+    const resultRes = await getResultMaybe(jobId);
+
+    const started = resultRes.started;
+    const completed = resultRes.completed;
+    const success = resultRes.success;
+
+    if (!started && verbose) {
+      console.info(`job ${jobId} has not started yet`);
+    }
+
+    if (completed) {
+      const result = resultRes.result;
+      if (success) {
+        return result;
+      } else {
+        const error = result.error;
+        throw new Error(
+          `Job ${jobId} was not successful: ${JSON.stringify(error)}`
+        );
+      }
+    }
+
+    if (verbose) {
+      console.info(`sleeping 0.5 seconds for jobId: ${jobId}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+export async function getResult(jobId: string): Promise<any> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  return await JobService.getCompletedJobResult({ workspace, id: jobId });
+}
+
+export async function getResultMaybe(jobId: string): Promise<any> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
+}
+const STRIP_COMMENTS =
+  /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
+const ARGUMENT_NAMES = /([^\s,]+)/g;
+function getParamNames(func: Function): string[] {
+  const fnStr = func.toString().replace(STRIP_COMMENTS, "");
+  let result: string[] | null = fnStr
+    .slice(fnStr.indexOf("(") + 1, fnStr.indexOf(")"))
+    .match(ARGUMENT_NAMES);
+  if (result === null) result = [];
+  return result;
+}
+
+export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
+  !clientSet && setClient();
+
+  return async (...y) => {
+    const args: Record<string, any> = {};
+    const paramNames = getParamNames(f);
+    y.forEach((x, i) => (args[paramNames[i]] = x));
+    let req = await fetch(
+      `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+        "WM_JOB_ID"
+      )}/${f.name}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+        },
+        body: JSON.stringify({ args }),
+      }
+    );
+    let jobId = await req.text();
+    console.log(`Started task ${f.name} as job ${jobId}`);
+    let r = await waitJob(jobId);
+    console.log(`Task ${f.name} (${jobId}) completed`);
+    return r;
+  };
+}
+
+export async function runScriptAsync(
+  path: string | null,
+  hash_: string | null,
+  args: Record<string, any> | null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  !clientSet && setClient();
+
+  // Create a script job and return its job id.
+  if (path && hash_) {
+    throw new Error("path and hash_ are mutually exclusive");
+  }
+  args = args || {};
+  const params: Record<string, any> = {};
+
+  if (scheduledInSeconds) {
+    params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  let parentJobId = getEnv("WM_JOB_ID");
+  if (parentJobId !== undefined) {
+    params["parent_job"] = parentJobId;
+  }
+
+  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+  if (rootJobId != undefined) {
+    params["root_job"] = rootJobId;
+  }
+
+  let endpoint: string;
+  if (path) {
+    endpoint = `/w/${getWorkspace()}/jobs/run/p/${path}`;
+  } else if (hash_) {
+    endpoint = `/w/${getWorkspace()}/jobs/run/h/${hash_}`;
+  } else {
+    throw new Error("path or hash_ must be provided");
+  }
+  let url = new URL(OpenAPI.BASE + endpoint);
+  url.search = new URLSearchParams(params).toString();
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OpenAPI.TOKEN}`,
+    },
+    body: JSON.stringify(args),
+  })
+    .then((res) => res.json())
+    .then((data) => data.id);
+}
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`
