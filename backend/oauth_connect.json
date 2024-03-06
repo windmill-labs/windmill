@@ -2,32 +2,47 @@
   "github": {
     "auth_url": "https://github.com/login/oauth/authorize",
     "token_url": "https://github.com/login/oauth/access_token",
-    "scopes": ["workflow", "repo"]
+    "scopes": [
+      "workflow",
+      "repo"
+    ]
   },
   "gitlab": {
     "auth_url": "https://gitlab.com/oauth/authorize",
     "token_url": "https://gitlab.com/oauth/token",
-    "scopes": ["api"]
+    "scopes": [
+      "api"
+    ]
   },
   "bitbucket": {
     "auth_url": "https://bitbucket.org/site/oauth2/authorize",
     "token_url": "https://bitbucket.org/site/oauth2/access_token",
-    "scopes": ["repository"]
+    "scopes": [
+      "repository"
+    ]
   },
   "slack": {
     "auth_url": "https://slack.com/oauth/authorize",
     "token_url": "https://slack.com/api/oauth.access",
-    "scopes": ["chat:write:user", "users:read", "users:read.email"]
+    "scopes": [
+      "chat:write:user",
+      "users:read",
+      "users:read.email"
+    ]
   },
   "supabase_wizard": {
     "auth_url": "https://api.supabase.com/v1/oauth/authorize",
     "token_url": "https://api.supabase.com/v1/oauth/token",
-    "scopes": ["all"]
+    "scopes": [
+      "all"
+    ]
   },
   "gsheets": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -36,7 +51,9 @@
   "gdrive": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/drive"],
+    "scopes": [
+      "https://www.googleapis.com/auth/drive"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -45,7 +62,9 @@
   "gmail": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.send"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -54,7 +73,9 @@
   "gcal": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/calendar.events"],
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.events"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -63,7 +84,9 @@
   "gcloud": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+    "scopes": [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -94,7 +117,18 @@
   "linkedin": {
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
-    "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
+    "scopes": [
+      "w_member_social",
+      "r_liteprofile",
+      "r_emailaddress"
+    ],
     "req_body_auth": true
+  },
+  "quickbooks": {
+    "auth_url": "https://appcenter.intuit.com/connect/oauth2",
+    "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    "scopes": [
+      "com.intuit.quickbooks.accounting"
+    ]
   }
 }

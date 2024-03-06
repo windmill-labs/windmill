@@ -160,7 +160,8 @@
 		'gcloud',
 		'gworkspace',
 		'basecamp',
-		'linkedin'
+		'linkedin',
+		'quickbooks'
 	]
 
 	let oauth_name = undefined
