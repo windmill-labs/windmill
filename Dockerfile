@@ -211,8 +211,7 @@ COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 
-COPY --from=downloader /deno /usr/bin/deno
-RUN chmod 755 /usr/bin/deno
+COPY --from=downloader --chmod=755 /deno /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
@@ -221,11 +220,9 @@ COPY --from=oven/bun:1.0.29 /usr/local/bin/bun /usr/bin/bun
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
-RUN mkdir -p ${APP}
+WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
-
-WORKDIR ${APP}
 
 RUN windmill cache
 
