@@ -206,7 +206,10 @@ export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
       }
     );
     let jobId = await req.text();
-    return await waitJob(jobId);
+    console.log(`Started task ${f.name} as job ${jobId}`);
+    let r = await waitJob(jobId);
+    console.log(`Task ${f.name} (${jobId}) completed`);
+    return r;
   };
 }
 
