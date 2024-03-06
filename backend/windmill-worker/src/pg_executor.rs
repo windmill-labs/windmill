@@ -400,7 +400,7 @@ fn convert_val(value: &Value, arg_t: &String, typ: &Typ) -> windmill_common::err
                 chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(PgType::Time(time))
         }
-        Value::String(s) if arg_t == "timestamp" => {
+        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
             let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
                 .unwrap_or_default();
             Ok(PgType::Timestamp(datetime))

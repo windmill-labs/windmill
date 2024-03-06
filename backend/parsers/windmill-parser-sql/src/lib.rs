@@ -307,7 +307,7 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
             "numeric" => Typ::Float,
             "decimal" => Typ::Float,
             "oid" => Typ::Int,
-            "date" | "time" | "timestamp" => Typ::Datetime,
+            "date" | "time" | "timestamp" | "timestamptz" => Typ::Datetime,
             _ => Typ::Str(None),
         }
     }
