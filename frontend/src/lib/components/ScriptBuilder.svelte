@@ -686,8 +686,13 @@
 												type="text"
 												autofocus
 												bind:value={script.concurrency_key}
-												placeholder={`$workspace/script/${script.path}`}
+												placeholder={`$workspace/script/${script.path}-$args[foo]`}
 											/>
+											<Tooltip
+												>Concurrency keys are global, you can have them be workspace specific using
+												the variable `$workspace`. You can also use an argument's value using
+												`$args[name_of_arg]`</Tooltip
+											>
 										</Label>
 									</div>
 								</Section>

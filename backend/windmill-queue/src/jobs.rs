@@ -666,6 +666,20 @@ pub async fn add_completed_job<
         {
             tracing::error!("Could not decrement concurrency counter: {}", e);
         }
+
+        if let Err(e) = sqlx::query_scalar!(
+            "INSERT INTO custom_concurrency_key_ended VALUES ($1)",
+            concurrency_key,
+        )
+        .execute(&mut tx)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "Error inserting into custom_concurrency_key_ended for key {concurrency_key}: {e}"
+            ))
+        }) {
+            tracing::error!("Could not insert into custom_concurrency_key_ended: {}", e);
+        }
         tracing::debug!("decremented concurrency counter");
     }
 
@@ -1517,7 +1531,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let job_script_path = pulled_job.script_path.clone().unwrap();
 
         let job_concurrency_key = concurrency_key(db, &pulled_job).await;
-        tracing::warn!("Concurrency key is '{}'", job_concurrency_key);
+        tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
         let job_custom_concurrency_time_window_s =
@@ -1558,22 +1572,24 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         })?;
         tracing::debug!("running_job: {}", running_job.unwrap_or(0));
 
-        let script_path_live_stats = sqlx::query!(
-            "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) AS completed_count
-            FROM
-                (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as completed_count
-                FROM completed_job
-                WHERE script_path = $1 AND job_kind != 'dependencies' AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2) AND workspace_id = $3 AND canceled = false
-                GROUP BY script_path) as j
-            FULL OUTER JOIN
-                (SELECT script_path, MIN(started_at) as min_started_at
-                FROM queue
-                WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $3 AND canceled = false
-                GROUP BY script_path) as q
-            ON q.script_path = j.script_path",
-            job_script_path,
+        let completed_count = sqlx::query!(
+            "SELECT COUNT(*) as count, COALESCE(MAX(ended_at), now() - INTERVAL '1 second' * $2)  as max_ended_at FROM custom_concurrency_key_ended  WHERE key = $1 AND ended_at >=  (now() - INTERVAL '1 second' * $2)",
+            job_concurrency_key,
             f64::from(job_custom_concurrency_time_window_s),
-            &pulled_job.workspace_id
+        ).fetch_one(&mut tx).await.map_err(|e| {
+            Error::InternalErr(format!(
+                "Error getting completed count for key {job_concurrency_key}: {e}"
+            ))
+        })?;
+
+        let min_started_at = sqlx::query_scalar!(
+            "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
+            FROM queue
+            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false
+            GROUP BY script_path), $3)",
+            job_script_path,
+            &pulled_job.workspace_id,
+            completed_count.max_ended_at
         )
         .fetch_one(&mut tx)
         .await
@@ -1584,8 +1600,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         })?;
 
         let concurrent_jobs_for_this_script =
-            script_path_live_stats.completed_count.unwrap_or_default() as i32
-                + running_job.unwrap_or(0) as i32;
+            completed_count.count.unwrap_or_default() as i32 + running_job.unwrap_or(0) as i32;
         tracing::debug!(
             "Current concurrent jobs for this script: {}",
             concurrent_jobs_for_this_script
@@ -1611,10 +1626,10 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "Error decreasing concurrency count for script path {job_script_path}: {e}"
             ))
         })?;
+
         tracing::debug!("running_job after decrease: {}", x.unwrap_or(0));
 
         let job_uuid: Uuid = pulled_job.id;
-        let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
         let avg_script_duration: Option<i64> = sqlx::query_scalar!(
             "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS BIGINT) AS avg_duration_s FROM
                 (SELECT duration_ms FROM completed_job WHERE script_path = $1
@@ -1629,12 +1644,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for)
             + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0))
             + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
-        tracing::info!("Job '{}' from path '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
-            job_uuid, job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
+        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
+            job_uuid, job_script_path, job_custom_concurrent_limit,  job_concurrency_key, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
         let job_log_line_break = '\n';
         let job_log_event = format!(
-            "Re-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits"
+            "Re-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
         );
         if rsmq.is_some() {
             // if let Some(ref mut rsmq) = tx.rsmq {

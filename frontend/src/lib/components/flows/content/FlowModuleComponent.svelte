@@ -420,6 +420,12 @@
 														bind:seconds={flowModule.value.concurrency_time_window_s}
 													/>
 												</Label>
+												<Label label="Custom concurrency key">
+													<div class="text-tertiary text-xs"
+														>Custom concurrency keys can only be set as the setting of a workspace
+														script</div
+													>
+												</Label>
 											{:else}
 												<Alert type="warning" title="Limitation" size="xs">
 													The concurrency limit of a workspace script is only settable in the script
