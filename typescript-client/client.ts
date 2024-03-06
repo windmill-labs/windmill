@@ -128,12 +128,11 @@ export async function runScript(
 
 export async function waitJob(
   jobId: string,
-  verbose: boolean = false,
-  assertResultIsNotNull: boolean = false
+  verbose: boolean = false
 ): Promise<any> {
   while (true) {
     // Implement your HTTP request logic here to get job result
-    const resultRes = await getResult(jobId);
+    const resultRes = await getResultMaybe(jobId);
 
     const started = resultRes.started;
     const completed = resultRes.completed;
@@ -146,13 +145,12 @@ export async function waitJob(
     if (completed) {
       const result = resultRes.result;
       if (success) {
-        if (result === null && assertResultIsNotNull) {
-          throw new Error("Result was null");
-        }
         return result;
       } else {
         const error = result.error;
-        throw new Error(`Job ${jobId} was not successful: ${error}`);
+        throw new Error(
+          `Job ${jobId} was not successful: ${JSON.stringify(error)}`
+        );
       }
     }
 
