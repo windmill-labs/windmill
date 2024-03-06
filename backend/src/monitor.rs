@@ -276,39 +276,44 @@ pub async fn delete_expired_items(db: &DB) -> () {
     if job_retention_secs > 0 {
         match db.begin().await {
             Ok(mut tx) => {
-                let r = sqlx::query!(
-                    "DELETE FROM job_stats WHERE job_id IN (SELECT id FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now())",
-                    job_retention_secs
-                )
-                .fetch_all(&mut *tx)
-                .await;
-                match r {
-                    Ok(_) => {
-                        let deleted_jobs = sqlx::query_scalar!(
+                let deleted_jobs = sqlx::query_scalar!(
                             "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id",
                             job_retention_secs
                         )
                         .fetch_all(&mut *tx)
                         .await;
 
-                        match deleted_jobs {
-                            Ok(deleted_jobs) => {
-                                if deleted_jobs.len() > 0 {
-                                    tracing::info!(
-                                        "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
-                                        deleted_jobs.len(),
-                                        job_retention_secs,
-                                        deleted_jobs,
-                                    )
-                                }
+                match deleted_jobs {
+                    Ok(deleted_jobs) => {
+                        if deleted_jobs.len() > 0 {
+                            tracing::info!(
+                                "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
+                                deleted_jobs.len(),
+                                job_retention_secs,
+                                deleted_jobs,
+                            );
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM job_stats WHERE job_id = ANY($1)",
+                                &deleted_jobs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting job stats: {:?}", e);
                             }
-                            Err(e) => {
-                                tracing::error!("Error deleting expired jobs: {:?}", e)
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM custom_concurrency_key_ended WHERE  ended_at <= now() - ($1::bigint::text || ' s')::interval ",
+                                job_retention_secs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting  custom concurrency key: {:?}", e);
                             }
                         }
                     }
-                    Err(err) => {
-                        tracing::error!("Error deleting expired job stats: {:?}", err)
+                    Err(e) => {
+                        tracing::error!("Error deleting expired jobs: {:?}", e)
                     }
                 }
 
