@@ -6,7 +6,7 @@
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
-	import { Clock, MemoryStick, Calendar, Bot, User, Scroll } from 'lucide-svelte'
+	import { Clock, MemoryStick, Calendar, Bot, User, Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let job: Job
@@ -89,7 +89,11 @@
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			<div class="flex flex-row gap-2 items-center">
-				<Scroll size={SMALL_ICON_SIZE} class="text-secondary" />
+				{#if isScript}
+					<Code2 size={SMALL_ICON_SIZE} class="text-secondary" />
+				{:else}
+					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
+				{/if}
 				<span>
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>

@@ -15,7 +15,6 @@
 		List,
 		Pen,
 		RefreshCw,
-		Scroll,
 		TimerOff,
 		Trash,
 		XCircle,
@@ -513,7 +512,7 @@
 					size="sm"
 					startIcon={{
 						icon:
-							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Scroll
+							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Code2
 					}}
 				>
 					View {job?.job_kind}
