@@ -451,8 +451,8 @@
 						variant="border"
 						on:click={removeGridElement}
 						shortCut={{
-							key: 'Del',
-							withoutModifier: false
+							key: getModifierKey() + 'Del',
+							withoutModifier: true
 						}}
 					>
 						Delete
