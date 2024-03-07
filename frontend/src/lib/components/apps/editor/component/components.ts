@@ -3355,7 +3355,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			configuration: {
 				type: {
 					type: 'oneOf',
-					selected: 'postgresql',
+					selected: '',
 					labels: {
 						postgresql: 'PostgreSQL',
 						mysql: 'MySQL',

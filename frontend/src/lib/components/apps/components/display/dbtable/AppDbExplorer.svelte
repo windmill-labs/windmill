@@ -15,11 +15,12 @@
 		type TableMetadata,
 		getPrimaryKeys,
 		type ColumnDef,
-		type DbType
+		type DbType,
+		getTablesByResource
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
-	import { workspaceStore, type DBSchemas, type DBSchema } from '$lib/stores'
+	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -44,16 +45,40 @@
 	export let render: boolean
 	export let initializing: boolean = true
 
+	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
+		| string
+		| undefined
+
+	$: table !== null && clearColumns()
+
+	function clearColumns() {
+		const gridItem = findGridItem($app, id)
+
+		if (!gridItem) {
+			return
+		}
+
+		console.log('clear columns', table, gridItem.data.configuration.columnDefs)
+
+		// @ts-ignore
+		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }
+
+		$app = {
+			...$app
+		}
+	}
+
 	const resolvedConfig = initConfig(
 		components['dbexplorercomponent'].initialData.configuration,
 		configuration
 	)
 
-	$: computeInput(
-		resolvedConfig.columnDefs,
-		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
-	)
+	$: resolvedConfig.type.selected &&
+		computeInput(
+			resolvedConfig.columnDefs,
+			resolvedConfig.whereClause,
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
+		)
 
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
 
@@ -75,7 +100,7 @@
 		}, 1000)
 	}
 
-	const { app, worldStore, mode, selectedComponent, componentControl } =
+	const { app, worldStore, mode, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -83,7 +108,7 @@
 	let quicksearch = ''
 	let aggrid: AppAggridExplorerTable
 
-	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
+	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTables()
 
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
@@ -168,7 +193,7 @@
 		})
 	}
 
-	async function listTableIfAvailable() {
+	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
 		if (lastResource === resource) return
 		lastResource = resource
@@ -212,7 +237,9 @@
 				resolvedConfig.type,
 				{
 					table: {
-						selectOptions: dbSchemas ? getTablesByResource(dbSchemas) : [],
+						selectOptions: dbSchemas
+							? getTablesByResource(dbSchemas, resolvedConfig?.type?.selected)
+							: [],
 						loading: false
 					}
 				}
@@ -222,42 +249,6 @@
 				...$app
 			}
 		} catch (e) {}
-	}
-
-	function getTablesByResource(schema: Partial<Record<string, DBSchema>>) {
-		const s = Object.values(schema)?.[0]
-		switch (resolvedConfig.type.selected) {
-			case 'postgresql':
-				if (s?.lang === 'postgresql') {
-					return Object.keys(s.schema?.public ?? s.schema ?? {})
-				}
-			case 'mysql':
-				return Object.keys(Object.values(s?.schema ?? {})?.[0])
-			case 'ms_sql_server':
-				return Object.keys(Object.values(s?.schema ?? {})?.[0])
-			case 'snowflake': {
-				return Object.keys(Object.values(s?.schema ?? {})?.[0])
-			}
-
-			case 'bigquery': {
-				const paths: string[] = []
-				for (const key in s?.schema) {
-					if (s?.schema.hasOwnProperty(key)) {
-						const subObj = s?.schema[key]
-						for (const subKey in subObj) {
-							if (subObj.hasOwnProperty(subKey)) {
-								paths.push(`${key}.${subKey}`)
-							}
-						}
-					}
-				}
-
-				return paths
-			}
-
-			default:
-				return []
-		}
 	}
 
 	let datasource: IDatasource = {
@@ -328,6 +319,7 @@
 		if (lastTable === table) return
 
 		lastTable = table
+
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
 			$workspaceStore,
@@ -386,6 +378,7 @@
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
 		gridItem.data = gridItem.data
+
 		$app = $app
 		let oldS = $selectedComponent
 		$selectedComponent = []
@@ -414,6 +407,11 @@
 					{
 						id: 'dbexplorer-count-' + id,
 						next: (value) => {
+							if (value?.error) {
+								sendUserToast(value.error, true)
+								return
+							}
+
 							// MsSql response have an outer array, we need to flatten it
 							if (
 								Array.isArray(value) &&
@@ -481,42 +479,6 @@
 	}
 
 	let refreshCount = 0
-
-	async function reset(newValue: any) {
-		aggrid?.clearRows()
-
-		const gridItem = findGridItem($app, id)
-
-		if (!gridItem) {
-			return
-		}
-
-		//@ts-ignore
-		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }
-		gridItem.data = gridItem.data
-		$app = $app
-		await tick()
-
-		updateOneOfConfiguration(
-			gridItem.data.configuration.type as OneOfConfiguration,
-			resolvedConfig.type,
-			{
-				table: {
-					value: newValue
-				}
-			}
-		)
-
-		tick().then(() => {
-			$app = {
-				...$app
-			}
-		})
-	}
-
-	$componentControl[id] = {
-		reset
-	}
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -553,8 +515,8 @@
 		renderCount={refreshCount}
 		{id}
 		{quicksearch}
-		table={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.table ?? ''}
-		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource ?? ''}
+		{table}
+		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource}
 		resourceType={resolvedConfig?.type?.selected}
 		columnDefs={resolvedConfig?.columnDefs}
 		whereClause={resolvedConfig?.whereClause}

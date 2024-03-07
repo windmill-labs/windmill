@@ -9,8 +9,8 @@
 	import { getCountInput } from './queries/count'
 
 	export let id: string
-	export let table: string
-	export let resource: string
+	export let table: string | undefined
+	export let resource: string | undefined
 	export let renderCount: number
 	export let quicksearch: string
 	export let resourceType: string
@@ -28,9 +28,19 @@
 	let runnableComponent: RunnableComponent
 	let loading = false
 	let input: AppInput | undefined = undefined
-	let lastTableCount = ''
+	let lastTableCount: string | undefined = undefined
 	let renderCountLast = -1
 	let quicksearchLast: string | undefined = undefined
+
+	let localColumnDefs = columnDefs
+	let lastTable = table
+
+	$: {
+		if (table !== lastTable) {
+			localColumnDefs = []
+			lastTable = table
+		}
+	}
 
 	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
 
@@ -41,7 +51,7 @@
 			quicksearch == quicksearchLast
 		)
 			return
-		if (table != '' && resource != '') {
+		if (table != undefined && resource !== undefined) {
 			renderCountLast = renderCount
 			lastTableCount = table
 			quicksearchLast = quicksearch
@@ -50,7 +60,7 @@
 	}
 
 	async function getCount(resource: string, table: string, quicksearch: string) {
-		input = getCountInput(resource, table, resourceType as DbType, columnDefs, whereClause)
+		input = getCountInput(resource, table, resourceType as DbType, localColumnDefs, whereClause)
 
 		await tick()
 
