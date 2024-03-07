@@ -183,9 +183,9 @@ order by c.ORDINAL_POSITION;`
 				attempts = maxRetries
 
 				if (resourceType === 'ms_sql_server') {
-					return testResult.result[0]
+					return lowercaseKeys(testResult.result[0])
 				} else {
-					return testResult.result
+					return lowercaseKeys(testResult.result)
 				}
 			} else {
 				attempts++
@@ -207,6 +207,16 @@ export function resourceTypeToLang(rt: string) {
 	} else {
 		return rt
 	}
+}
+
+function lowercaseKeys(arr: Array<Record<string, any>>): Array<any> {
+	return arr.map((obj) => {
+		const newObj = {}
+		Object.keys(obj).forEach((key) => {
+			newObj[key.toLowerCase()] = obj[key]
+		})
+		return newObj
+	})
 }
 
 const scripts: Record<
