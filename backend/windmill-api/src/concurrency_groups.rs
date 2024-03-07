@@ -112,6 +112,14 @@ async fn delete_concurrency_group(
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query!(
+        "DELETE FROM custom_concurrency_key_ended  WHERE key = $1",
+        concurrency_id.clone(),
+    )
+    .execute(&mut *tx)
+    .await?;
+
     tx.commit().await?;
     Ok(Json(()))
 }

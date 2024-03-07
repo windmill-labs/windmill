@@ -1,8 +1,8 @@
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser_bash::parse_powershell_sig;
 use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
-use windmill_parser_bash::{parse_powershell_sig};
 
 #[wasm_bindgen_test]
 fn test_parse_deno_sig() -> anyhow::Result<()> {
@@ -17,7 +17,7 @@ export function main(test1?: string, test2: string = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -135,7 +135,7 @@ export function main(test2 = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -204,7 +204,7 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -245,7 +245,7 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,

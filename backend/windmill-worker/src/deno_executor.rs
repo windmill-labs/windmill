@@ -7,8 +7,8 @@ use windmill_queue::CanceledBy;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, parse_npm_config,
-        read_result, set_logs, start_child_process, write_file,
+        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
+        parse_npm_config, read_result, set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
@@ -185,11 +185,15 @@ pub async fn handle_deno_job(
         Ok(()) as error::Result<()>
     };
 
+    let main_override = get_main_override(job.args.as_ref());
+
     let write_main_f = write_file(job_dir, "main.ts", inner_content);
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let args =
+            windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
+                .args;
         let dates = args
             .iter()
             .enumerate()
@@ -204,10 +208,11 @@ pub async fn handle_deno_job(
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
+        let main_name = main_override.unwrap_or("main".to_string());
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         let wrapper_content: String = format!(
             r#"
-import {{ main }} from "./main.ts";
+import {{ {main_name} }} from "./main.ts";
 
 const args = await Deno.readTextFile("args.json")
     .then(JSON.parse)
@@ -219,7 +224,7 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res: any = await main(...args);
+    let res: any = await {main_name}(...args);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
@@ -447,7 +452,7 @@ pub async fn start_worker(
 
     {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
         let dates = args
             .iter()
             .enumerate()

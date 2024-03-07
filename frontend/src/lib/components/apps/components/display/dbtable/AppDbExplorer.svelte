@@ -341,6 +341,7 @@
 		if (!gridItem) return
 
 		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
+
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
 		if (!Array.isArray(old)) {
 			console.log('old is not an array RESET')

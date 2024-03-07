@@ -911,7 +911,7 @@ def task(*args, **kwargs):
                 for i, arg in enumerate(args):
                     if i < len(params):
                         p = params[i]
-                        key = p[0]
+                        key = p
                         if key not in kwargs:
                             json[key] = arg
 
@@ -919,7 +919,7 @@ def task(*args, **kwargs):
                 if tag is not None:
                     params["tag"] = tag
                 r = _client.post(
-                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}{tag_str}",
+                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
                     json={"args": json},
                     params=params,
                 )

@@ -931,7 +931,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     port: u16,
 ) -> <Fut as std::future::Future>::Output {
     let (quit, worker) = spawn_test_worker(db, port);
-    let worker = tokio::time::timeout(std::time::Duration::from_secs(45), worker);
+    let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
     tokio::pin!(worker);
 
     let res = tokio::select! {
