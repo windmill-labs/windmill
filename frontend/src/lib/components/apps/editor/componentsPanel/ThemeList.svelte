@@ -144,6 +144,7 @@
 									on:reloadThemes={() => {
 										getThemes()
 									}}
+									on:setCodeTab
 								/>
 							{/key}
 						{/each}
