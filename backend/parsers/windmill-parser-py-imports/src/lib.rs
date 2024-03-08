@@ -45,7 +45,9 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "shapefile" => "pyshp",
     "sklearn" => "scikit-learn",
     "umap" => "umap-learn",
-    "cv2" => "opencv-python"
+    "cv2" => "opencv-python",
+    "requests" => "requests",
+    "json" => "json"
 };
 
 fn replace_import(x: String) -> String {
