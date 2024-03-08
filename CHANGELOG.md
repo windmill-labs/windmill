@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.287.0](https://github.com/windmill-labs/windmill/compare/v1.286.2...v1.287.0) (2024-03-08)
+
+
+### Features
+
+* add quickbooks oauth ([#3359](https://github.com/windmill-labs/windmill/issues/3359)) ([8b88f64](https://github.com/windmill-labs/windmill/commit/8b88f64ede99f62972ce961e26720e5e6a6b4b10))
+
+
+### Bug Fixes
+
+* **frontend:** fix snowflake columnsDefs ([#3377](https://github.com/windmill-labs/windmill/issues/3377)) ([2e90531](https://github.com/windmill-labs/windmill/commit/2e905313b8444c2b99d8e44c9c58527c7e481177))
+* **frontend:** improve table selection ([#3347](https://github.com/windmill-labs/windmill/issues/3347)) ([ed9379a](https://github.com/windmill-labs/windmill/commit/ed9379aab4bd09fa63453845c8eae414e5516440))
+* improve custom concurrency key handling ([2a85a87](https://github.com/windmill-labs/windmill/commit/2a85a874d7fa8f5593affa6a3579dd9d5e085ad9))
+* pg timstamptz param ([#3364](https://github.com/windmill-labs/windmill/issues/3364)) ([c04adcc](https://github.com/windmill-labs/windmill/commit/c04adcca86f454fa01b03dd5341c8bf2c691201c))
+
 ## [1.286.2](https://github.com/windmill-labs/windmill/compare/v1.286.1...v1.286.2) (2024-03-06)
 
 
