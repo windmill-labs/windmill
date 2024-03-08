@@ -52,13 +52,17 @@
 	$: table !== null && clearColumns()
 
 	function clearColumns() {
+		// We only want to clear the columns if the table has changed
+		if (!(lastTable && table && lastTable !== table) && !(lastTable && !table)) {
+			return
+		}
+		lastTable = table
+
 		const gridItem = findGridItem($app, id)
 
 		if (!gridItem) {
 			return
 		}
-
-		console.log('clear columns', table, gridItem.data.configuration.columnDefs)
 
 		// @ts-ignore
 		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }

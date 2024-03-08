@@ -10,6 +10,10 @@
 
 	let selectedValue: string | undefined = componentInput?.value ?? undefined
 	let darkMode: boolean = false
+
+	const sortedOptions = Array.isArray(selectOptions)
+		? selectOptions?.sort((a, b) => a.localeCompare(b))
+		: []
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -29,7 +33,7 @@
 				componentInput.value = undefined
 			}
 		}}
-		items={selectOptions}
+		items={sortedOptions}
 		class="text-clip grow min-w-0"
 		placeholder="Select a table"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}

@@ -51,8 +51,6 @@ export async function loadTableMetaData(
 	table: string | undefined,
 	resourceType: string
 ): Promise<TableMetadata | undefined> {
-	console.log(resourceType)
-
 	if (!resource || !table || !workspace) {
 		return undefined
 	}
