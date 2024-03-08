@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use crate::db::ApiAuthed;
+use crate::utils::{get_instance_username_or_create_pending, INVALID_USERNAME_CHARS};
 use crate::BASE_URL;
 use crate::{
     apps::AppWithLastVersion,
@@ -46,6 +47,7 @@ use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
+    global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
@@ -229,7 +231,7 @@ struct EditLargeFileStorageConfig {
 struct CreateWorkspace {
     id: String,
     name: String,
-    username: String,
+    username: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -272,7 +274,7 @@ pub struct NewWorkspaceInvite {
 #[derive(Deserialize)]
 pub struct NewWorkspaceUser {
     pub email: String,
-    pub username: String,
+    pub username: Option<String>,
     pub is_admin: bool,
     pub operator: bool,
 }
@@ -538,47 +540,62 @@ async fn auto_add_user(
     operator: &bool,
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<()> {
-    let mut username = email
-        .split('@')
-        .next()
-        .unwrap()
-        .to_string()
-        .replace(".", "");
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
 
-    username = INVALID_USERNAME_CHARS
-        .replace_all(&mut username, "")
-        .to_string();
+    let username = if automate_username_creation {
+        get_instance_username_or_create_pending(&mut *tx, &email).await?
+    } else {
+        let mut username = email
+            .split('@')
+            .next()
+            .unwrap()
+            .to_string()
+            .replace(".", "");
 
-    if username.is_empty() {
-        username = "user".to_string()
-    }
+        username = INVALID_USERNAME_CHARS
+            .replace_all(&mut username, "")
+            .to_string();
 
-    let base_username = username.clone();
-    let mut username_conflict = true;
-    let mut i = 1;
-    while username_conflict {
-        if i > 1000 {
-            return Err(Error::InternalErr(format!(
-                "too many username conflicts for {}",
-                email
-            )));
+        if username.is_empty() {
+            username = "user".to_string()
         }
-        if i > 1 {
-            username = format!("{}{}", base_username, i)
+
+        let base_username = username.clone();
+        let mut username_conflict = true;
+        let mut i = 1;
+        while username_conflict {
+            if i > 1000 {
+                return Err(Error::InternalErr(format!(
+                    "too many username conflicts for {}",
+                    email
+                )));
+            }
+            if i > 1 {
+                username = format!("{}{}", base_username, i)
+            }
+            username_conflict = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
+                &username,
+                &w_id
+            )
+            .fetch_one(&mut **tx)
+            .await?
+            .unwrap_or(false);
+            i += 1;
         }
-        username_conflict = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
-            &username,
-            &w_id
-        )
-        .fetch_one(&mut **tx)
-        .await?
-        .unwrap_or(false);
-        i += 1;
-    }
+        username
+    };
 
     sqlx::query!(
-        "INSERT INTO usr (workspace_id, username, email, is_admin, operator) VALUES ($1, $2, $3, false, $4)",
+        "INSERT INTO usr (workspace_id, username, email, is_admin, operator) VALUES ($1, $2, $3, false, $4) ON CONFLICT DO NOTHING",
         &w_id,
         &username,
         &email,
@@ -1249,8 +1266,6 @@ lazy_static::lazy_static! {
         }
     };
 
-    pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
-
 }
 
 async fn create_workspace_require_superadmin() -> String {
@@ -1330,13 +1345,30 @@ async fn create_workspace(
     // .execute(&mut tx)
     // .await?;
 
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
+    } else {
+        nw.username
+            .ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin)
             VALUES ($1, $2, $3, true)",
         nw.id,
         authed.email,
-        nw.username,
+        username,
     )
     .execute(&mut *tx)
     .await?;
@@ -1353,7 +1385,7 @@ async fn create_workspace(
         "INSERT INTO usr_to_group
             VALUES ($1, 'all', $2)",
         nw.id,
-        nw.username
+        username
     )
     .execute(&mut *tx)
     .await?;
@@ -1659,7 +1691,7 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
     .fetch_all(&mut *tx)
     .await?;
     for r in workspaces {
-        if r.auto_add.is_some() && r.auto_add.unwrap() {
+        if r.auto_add.is_some() {
             let operator = r.auto_invite_operator.unwrap_or(false);
             auto_add_user(email, &r.workspace_id, &operator, &mut tx).await?;
         } else {
@@ -1741,16 +1773,11 @@ async fn add_user(
     nu.email = nu.email.to_lowercase();
 
     let mut tx = db.begin().await?;
-    if !VALID_USERNAME.is_match(&nu.username) {
-        return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-        )));
-    }
 
     let already_exists_email = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
         &w_id,
-        username,
+        nu.email,
     )
     .fetch_one(&mut *tx)
     .await?
@@ -1763,13 +1790,39 @@ async fn add_user(
         )));
     }
 
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        get_instance_username_or_create_pending(&mut tx, &nu.email).await?
+    } else {
+        let username = nu
+            .username
+            .ok_or(Error::BadRequest("username is required".to_string()))?;
+
+        if !VALID_USERNAME.is_match(&username) {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
+            )));
+        }
+
+        username
+    };
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin, operator)
             VALUES ($1, $2, $3, $4, $5)",
         &w_id,
         nu.email,
-        nu.username,
+        username,
         nu.is_admin,
         nu.operator
     )
@@ -1780,7 +1833,7 @@ async fn add_user(
         Group,
         "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
-        nu.username,
+        username,
         "all",
     )
     .execute(&mut *tx)
@@ -1788,7 +1841,7 @@ async fn add_user(
 
     audit_log(
         &mut *tx,
-        &nu.username,
+        &username,
         "users.add_to_workspace",
         ActionKind::Create,
         &w_id,

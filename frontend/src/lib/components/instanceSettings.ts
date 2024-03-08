@@ -3,6 +3,7 @@ export interface Setting {
 	description?: string
 	placeholder?: string
 	cloudonly?: boolean
+	disable_on_cloud?: boolean
 	ee_only?: string
 	tooltip?: string
 	key: string
@@ -84,6 +85,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
+		},
+		{
+			label: 'Automate username creation',
+			key: 'automate_username_creation',
+			description:
+				'Automatically create a username for new users based on their email, shared across workspaces',
+			fieldType: 'boolean',
+			storage: 'setting',
+			disable_on_cloud: true
 		},
 		{
 			label: 'Expose metrics',

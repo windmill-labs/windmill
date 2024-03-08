@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { UserService, GlobalUserInfo } from '$lib/gen'
+	import { UserService, GlobalUserInfo, SettingService } from '$lib/gen'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
@@ -18,7 +18,7 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { settingsKeys } from './instanceSettings'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-
+	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	let drawer: Drawer
 	let filter = ''
 
@@ -52,6 +52,13 @@
 	let nbDisplayed = 50
 
 	let instanceSettings
+
+	let automateUsernameCreation = false
+	async function getAutomateUsernameCreationSetting() {
+		automateUsernameCreation =
+			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+	}
+	getAutomateUsernameCreationSetting()
 </script>
 
 <SearchItems
@@ -108,16 +115,36 @@
 											<th>email</th>
 											<th>auth</th>
 											<th>name</th>
+											{#if automateUsernameCreation}
+												<th>username</th>
+											{/if}
 											<th />
 											<th />
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name } (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name, username } (email)}
 													<tr class="border">
 														<td>{email}</td>
 														<td>{login_type}</td>
 														<td><span class="break-words">{truncate(name ?? '', 30)}</span></td>
+
+														{#if automateUsernameCreation}
+															<td>
+																{#if username}
+																	{username}
+																{:else}
+																	<ChangeInstanceUsername
+																		username=""
+																		{email}
+																		isConflict
+																		on:renamed={() => {
+																			listUsers()
+																		}}
+																	/>
+																{/if}
+															</td>
+														{/if}
 														<td>
 															<ToggleButtonGroup
 																selected={super_admin}
@@ -143,9 +170,22 @@
 															</ToggleButtonGroup>
 														</td>
 														<td>
-															<div class="flex flex-row gap-x-1">
-																<button
-																	class="text-red-500 whitespace-nowrap"
+															<div class="flex flex-row gap-x-1 justify-end">
+																{#if automateUsernameCreation && username}
+																	<ChangeInstanceUsername
+																		{username}
+																		{email}
+																		on:renamed={() => {
+																			listUsers()
+																		}}
+																	/>
+																{/if}
+																<Button
+																	color="light"
+																	variant="contained"
+																	size="xs"
+																	spacingSize="xs2"
+																	btnClasses="text-red-500"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
 																			console.log(email)
@@ -156,7 +196,7 @@
 																	}}
 																>
 																	Remove
-																</button>
+																</Button>
 															</div>
 														</td>
 													</tr>
