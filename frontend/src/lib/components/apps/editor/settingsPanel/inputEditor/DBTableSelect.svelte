@@ -11,7 +11,7 @@
 	let selectedValue: string | undefined = componentInput?.value ?? undefined
 	let darkMode: boolean = false
 
-	const sortedOptions = Array.isArray(selectOptions)
+	$: sortedOptions = Array.isArray(selectOptions)
 		? selectOptions?.sort((a, b) => a.localeCompare(b))
 		: []
 </script>

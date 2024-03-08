@@ -49,14 +49,13 @@
 		| string
 		| undefined
 
-	$: table !== null && clearColumns()
+	$: table !== null && render && clearColumns()
 
 	function clearColumns() {
 		// We only want to clear the columns if the table has changed
 		if (!(lastTable && table && lastTable !== table) && !(lastTable && !table)) {
 			return
 		}
-		lastTable = table
 
 		const gridItem = findGridItem($app, id)
 
@@ -78,6 +77,7 @@
 	)
 
 	$: resolvedConfig.type.selected &&
+		render &&
 		computeInput(
 			resolvedConfig.columnDefs,
 			resolvedConfig.whereClause,
@@ -199,6 +199,9 @@
 
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+
+		if (!resource) return
+
 		if (lastResource === resource) return
 		lastResource = resource
 		const gridItem = findGridItem($app, id)
@@ -400,7 +403,7 @@
 
 	let isInsertable: boolean = false
 
-	$: $worldStore && connectToComponents()
+	$: $worldStore && render && connectToComponents()
 
 	function connectToComponents() {
 		if ($worldStore && datasource !== undefined) {
