@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:openidconnect"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
 stripe = ["dep:async-stripe"]
 enterprise_saml = ["dep:samael"]
 benchmark = []
@@ -85,6 +85,6 @@ candle-nn = { workspace = true, optional = true}
 polars = { workspace = true, optional = true}
 polars-io = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
-openidconnect = { workspace = true, optional = true}
+openidconnect = { workspace = true}
 pin-project.workspace = true
 
