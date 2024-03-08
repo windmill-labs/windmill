@@ -920,9 +920,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.15.3"
+version = "3.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea184aa71bb362a1157c896979544cc23974e08fd265f29ea96b59f0b4a555b"
+checksum = "7ff69b9dd49fd426c69a0db9fc04dd934cdb6645ff000864d98f7e2af8830eaa"
 
 [[package]]
 name = "bytecheck"
@@ -1068,9 +1068,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.89"
+version = "1.0.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0ba8f7aaa012f30d5b2861462f6708eccd49c3c39863fe083a308035f63d723"
+checksum = "8cd6604a82acf3039f1144f54b8eb34e91ffba622051189e71b781822d5ee1f5"
 dependencies = [
  "jobserver",
  "libc",
@@ -1099,9 +1099,9 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "chrono"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bc015644b92d5890fab7489e49d21f879d5c990186827d42ec511919404f38b"
+checksum = "8eaf5903dcbc0a39312feb77df2ff4c76387d591b9fc7b04a238dcf8bb62639a"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -1166,9 +1166,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.1"
+version = "4.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c918d541ef2913577a0f9566e9ce27cb35b6df072075769e0b26cb5a554520da"
+checksum = "b230ab84b0ffdf890d5a10abdbc8b83ae1c4918275daea1ab8801f71536b2651"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1176,9 +1176,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.1"
+version = "4.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f3e7391dad68afb0c2ede1bf619f579a3dc9c2ec67f089baa397123a2f3d1eb"
+checksum = "ae129e2e766ae0ec03484e609954119f123cc1fe650337e155d03b022f24f7b4"
 dependencies = [
  "anstream",
  "anstyle",
@@ -9054,7 +9054,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9091,7 +9091,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9165,7 +9165,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9183,7 +9183,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9196,7 +9196,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9229,7 +9229,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9244,7 +9244,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9252,7 +9252,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9263,7 +9263,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9275,7 +9275,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9286,7 +9286,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9297,7 +9297,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9314,7 +9314,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9325,7 +9325,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9343,7 +9343,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9361,7 +9361,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9394,7 +9394,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.286.2"
+version = "1.287.0"
 dependencies = [
  "anyhow",
  "async-recursion",
