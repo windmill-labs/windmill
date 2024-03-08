@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.288.0](https://github.com/windmill-labs/windmill/compare/v1.287.1...v1.288.0) (2024-03-08)
+
+
+### Features
+
+* implement s3 oidc support + azure workload identity support ([4578ed3](https://github.com/windmill-labs/windmill/commit/4578ed32da42b154833c6307cc6f82b526b05ab4))
+
 ## [1.287.1](https://github.com/windmill-labs/windmill/compare/v1.287.0...v1.287.1) (2024-03-08)
 
 
