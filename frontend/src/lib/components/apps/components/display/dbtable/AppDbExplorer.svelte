@@ -15,11 +15,12 @@
 		type TableMetadata,
 		getPrimaryKeys,
 		type ColumnDef,
-		type DbType
+		type DbType,
+		getTablesByResource
 	} from './utils'
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
-	import { workspaceStore, type DBSchemas, type DBSchema } from '$lib/stores'
+	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -44,16 +45,44 @@
 	export let render: boolean
 	export let initializing: boolean = true
 
+	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
+		| string
+		| undefined
+
+	$: table !== null && render && clearColumns()
+
+	function clearColumns() {
+		// We only want to clear the columns if the table has changed
+		if (!(lastTable && table && lastTable !== table) && !(lastTable && !table)) {
+			return
+		}
+
+		const gridItem = findGridItem($app, id)
+
+		if (!gridItem) {
+			return
+		}
+
+		// @ts-ignore
+		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }
+
+		$app = {
+			...$app
+		}
+	}
+
 	const resolvedConfig = initConfig(
 		components['dbexplorercomponent'].initialData.configuration,
 		configuration
 	)
 
-	$: computeInput(
-		resolvedConfig.columnDefs,
-		resolvedConfig.whereClause,
-		resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
-	)
+	$: resolvedConfig.type.selected &&
+		render &&
+		computeInput(
+			resolvedConfig.columnDefs,
+			resolvedConfig.whereClause,
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
+		)
 
 	let timeoutInput: NodeJS.Timeout | undefined = undefined
 
@@ -83,7 +112,7 @@
 	let quicksearch = ''
 	let aggrid: AppAggridExplorerTable
 
-	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTableIfAvailable()
+	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTables()
 
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
@@ -168,8 +197,11 @@
 		})
 	}
 
-	async function listTableIfAvailable() {
+	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+
+		if (!resource) return
+
 		if (lastResource === resource) return
 		lastResource = resource
 		const gridItem = findGridItem($app, id)
@@ -212,7 +244,9 @@
 				resolvedConfig.type,
 				{
 					table: {
-						selectOptions: dbSchemas ? getTablesByResource(dbSchemas) : [],
+						selectOptions: dbSchemas
+							? getTablesByResource(dbSchemas, resolvedConfig?.type?.selected)
+							: [],
 						loading: false
 					}
 				}
@@ -222,42 +256,6 @@
 				...$app
 			}
 		} catch (e) {}
-	}
-
-	function getTablesByResource(schema: Partial<Record<string, DBSchema>>) {
-		const s = Object.values(schema)?.[0]
-		switch (resolvedConfig.type.selected) {
-			case 'postgresql':
-				if (s?.lang === 'postgresql') {
-					return Object.keys(s.schema?.public ?? s.schema ?? {})
-				}
-			case 'mysql':
-				return Object.keys(Object.values(s?.schema ?? {})?.[0])
-			case 'ms_sql_server':
-				return Object.keys(Object.values(s?.schema ?? {})?.[0])
-			case 'snowflake': {
-				return Object.keys(Object.values(s?.schema ?? {})?.[0])
-			}
-
-			case 'bigquery': {
-				const paths: string[] = []
-				for (const key in s?.schema) {
-					if (s?.schema.hasOwnProperty(key)) {
-						const subObj = s?.schema[key]
-						for (const subKey in subObj) {
-							if (subObj.hasOwnProperty(subKey)) {
-								paths.push(`${key}.${subKey}`)
-							}
-						}
-					}
-				}
-
-				return paths
-			}
-
-			default:
-				return []
-		}
 	}
 
 	let datasource: IDatasource = {
@@ -319,8 +317,8 @@
 	}
 
 	let lastTable: string | undefined = undefined
-
 	let timeout: NodeJS.Timeout | undefined = undefined
+
 	async function listColumnsIfAvailable() {
 		const selected = resolvedConfig.type.selected
 		let table = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.table
@@ -328,6 +326,7 @@
 		if (lastTable === table) return
 
 		lastTable = table
+
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
 			$workspaceStore,
@@ -386,6 +385,7 @@
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
 		gridItem.data = gridItem.data
+
 		$app = $app
 		let oldS = $selectedComponent
 		$selectedComponent = []
@@ -403,7 +403,7 @@
 
 	let isInsertable: boolean = false
 
-	$: $worldStore && connectToComponents()
+	$: $worldStore && render && connectToComponents()
 
 	function connectToComponents() {
 		if ($worldStore && datasource !== undefined) {
@@ -414,6 +414,11 @@
 					{
 						id: 'dbexplorer-count-' + id,
 						next: (value) => {
+							if (value?.error) {
+								sendUserToast(value.error, true)
+								return
+							}
+
 							// MsSql response have an outer array, we need to flatten it
 							if (
 								Array.isArray(value) &&
@@ -517,8 +522,8 @@
 		renderCount={refreshCount}
 		{id}
 		{quicksearch}
-		table={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.table ?? ''}
-		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource ?? ''}
+		{table}
+		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource}
 		resourceType={resolvedConfig?.type?.selected}
 		columnDefs={resolvedConfig?.columnDefs}
 		whereClause={resolvedConfig?.whereClause}

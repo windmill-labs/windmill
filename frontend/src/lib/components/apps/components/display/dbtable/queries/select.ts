@@ -69,7 +69,7 @@ function makeSnowflakeSelectQuery(
 		)
 
 		return `CASE WHEN ? = '${column.field}' AND ? = FALSE THEN "${column.field}" END ASC,
-			CASE WHEN ? = '${column.field}' AND ? = TRUE THEN "${column.field}" END DESC`
+		CASE WHEN ? = '${column.field}' AND ? = TRUE THEN "${column.field}" END DESC`
 	})
 
 	query += ` ORDER BY ${orderBy.join(',\n')}`
