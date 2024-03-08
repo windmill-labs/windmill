@@ -380,7 +380,7 @@
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		<div>
 			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} /></h1>
-			<div class="py-2 box prose mb-8">
+			<div class="py-2 box prose mb-8 text-secondary">
 				{resourceTypeViewerObj.description ?? ''}
 			</div>
 			<SchemaViewer schema={resourceTypeViewerObj.schema} />
@@ -547,8 +547,8 @@
 					<Tooltip
 						documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 					>
-						Every resource has a Resource Type attached to it which contains its schema and make
-						it easy in scripts and flows to accept only resources of a specific resource type.
+						Every resource has a Resource Type attached to it which contains its schema and make it
+						easy in scripts and flows to accept only resources of a specific resource type.
 					</Tooltip>
 				</div>
 			</Tab>

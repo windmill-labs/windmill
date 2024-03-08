@@ -61,16 +61,6 @@
 		jobId: undefined
 	})
 
-	if (rowContext && rowInputs) {
-		const inputOutput = { result: outputs.result.peak(), loading: false }
-		rowInputs.set(id, inputOutput)
-	}
-
-	if (iterContext && listInputs) {
-		const inputOutput = { result: outputs.result.peak(), loading: false }
-		listInputs.set(id, inputOutput)
-	}
-
 	if (controls) {
 		$componentControl[id] = controls
 	}

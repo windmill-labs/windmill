@@ -24,10 +24,13 @@ pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
 pub mod job_metrics;
+#[cfg(feature = "parquet")]
+pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
 pub mod s3_helpers;
+
 pub mod schedule;
 pub mod scripts;
 pub mod server;
