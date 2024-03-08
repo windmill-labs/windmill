@@ -305,7 +305,8 @@ impl AuthCache {
                             key,
                             ExpiringAuthCache {
                                 authed: authed.clone(),
-                                expiry: chrono::Utc::now() + chrono::Duration::seconds(120),
+                                expiry: chrono::Utc::now()
+                                    + chrono::Duration::try_seconds(120).unwrap(),
                             },
                         );
                     }

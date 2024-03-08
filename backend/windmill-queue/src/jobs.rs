@@ -777,8 +777,8 @@ pub async fn add_completed_job<
                     .num_seconds()
                     < 10
                 {
-                    let next_run =
-                        queued_job.started_at.unwrap_or(now) + chrono::Duration::seconds(10);
+                    let next_run = queued_job.started_at.unwrap_or(now)
+                        + chrono::Duration::try_seconds(10).unwrap();
                     tracing::warn!("Perpetual script {:?} is running too fast, only 1 job per 10s it supported. Scheduling next run for {:?}", queued_job.script_path, next_run);
                     Some(next_run)
                 } else {
@@ -1642,8 +1642,10 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
         let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for)
-            + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0))
-            + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
+            + Duration::try_seconds(avg_script_duration.map(i64::from).unwrap_or(0))
+                .unwrap_or_default()
+            + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
+                .unwrap_or_default();
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path, job_custom_concurrent_limit,  job_concurrency_key, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 

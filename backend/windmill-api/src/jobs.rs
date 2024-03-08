@@ -660,7 +660,9 @@ impl RunJobQuery {
             Ok(Some(scheduled_for))
         } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
             let now = now_from_db(db).await?;
-            Ok(Some(now + chrono::Duration::seconds(scheduled_in_secs)))
+            Ok(Some(
+                now + chrono::Duration::try_seconds(scheduled_in_secs).unwrap_or_default(),
+            ))
         } else {
             Ok(None)
         }
