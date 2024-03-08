@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.287.1](https://github.com/windmill-labs/windmill/compare/v1.287.0...v1.287.1) (2024-03-08)
+
+
+### Bug Fixes
+
+* **frontend:** fix theme fork ([#3380](https://github.com/windmill-labs/windmill/issues/3380)) ([3713ad0](https://github.com/windmill-labs/windmill/commit/3713ad0b8d9e9e1089697a5b21f80bd7a8125683))
+
 ## [1.287.0](https://github.com/windmill-labs/windmill/compare/v1.286.2...v1.287.0) (2024-03-08)
 
 
