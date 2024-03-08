@@ -202,8 +202,10 @@ async function updateScriptLock(
     }
   );
 
+  let responseText = "reading response failed";
   try {
-    const response = await rawResponse.json();
+    responseText = await rawResponse.text();
+    const response = JSON.parse(responseText);
     const lock = response.lock;
     if (lock === undefined) {
       throw new Error(
@@ -213,11 +215,9 @@ async function updateScriptLock(
       );
     }
     metadataContent.lock = lock;
-  } catch {
+  } catch (e) {
     throw new Error(
-      `Failed to generate lockfile. Status was: ${
-        rawResponse.statusText
-      }, ${await rawResponse.text()}`
+      `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
     );
   }
 }
