@@ -6,7 +6,7 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 
 	import { Code, Eye, GitBranch, Pin, Save, Trash } from 'lucide-svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppTheme, AppViewerContext } from '../../types'
 	import { sendUserToast } from '$lib/toast'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -103,13 +103,21 @@
 		$previewTheme = theme ?? ''
 	}
 
-	async function fork() {
+	async function fork(path: string) {
 		stopPreview()
-		const theme = await resolveTheme($app.theme, $workspaceStore)
+
+		const theme: AppTheme = {
+			type: 'path',
+			path: path ?? ''
+		}
+
+		const resolvedTheme = await resolveTheme(theme, $workspaceStore)
+
 		$app.theme = {
 			type: 'inlined',
-			css: theme
+			css: resolvedTheme
 		}
+
 		dispatch('setCodeTab')
 	}
 
@@ -177,7 +185,7 @@
 								View code
 							</div>
 						</MenuItem>
-						<MenuItem on:click={fork}>
+						<MenuItem on:click={() => fork(row.path)}>
 							<div
 								class={classNames(
 									'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
