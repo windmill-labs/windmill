@@ -177,7 +177,7 @@
 					},
 					infiniteInitialRowCount: 100,
 					cacheBlockSize: 100,
-					cacheOverflowSize: 2,
+					cacheOverflowSize: 10,
 					maxBlocksInCache: 20,
 					suppressColumnMoveAnimation: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
@@ -197,6 +197,7 @@
 					},
 					onGridReady: (e) => {
 						outputs?.ready.set(true)
+
 						$componentControl[id] = {
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {

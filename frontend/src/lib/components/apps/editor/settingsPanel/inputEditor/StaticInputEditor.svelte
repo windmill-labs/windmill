@@ -21,6 +21,7 @@
 	import DBExplorerWizard from '$lib/components/wizards/DBExplorerWizard.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
+	import DBTableSelect from './DBTableSelect.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -50,19 +51,23 @@
 		{:else if fieldType === 'boolean'}
 			<Toggle bind:checked={componentInput.value} size="xs" class="mt-2" />
 		{:else if fieldType === 'select' && selectOptions}
-			<select on:keydown|stopPropagation bind:value={componentInput.value}>
-				{#each selectOptions ?? [] as option}
-					{#if typeof option == 'string'}
-						<option value={option}>
-							{option}
-						</option>
-					{:else}
-						<option value={option.value}>
-							{option.label}
-						</option>
-					{/if}
-				{/each}
-			</select>
+			{#if subFieldType === 'db-table'}
+				<DBTableSelect bind:componentInput {selectOptions} {id} />
+			{:else}
+				<select on:keydown|stopPropagation bind:value={componentInput.value}>
+					{#each selectOptions ?? [] as option}
+						{#if typeof option == 'string'}
+							<option value={option}>
+								{option}
+							</option>
+						{:else}
+							<option value={option.value}>
+								{option.label}
+							</option>
+						{/if}
+					{/each}
+				</select>
+			{/if}
 		{:else if fieldType === 'icon-select'}
 			<IconSelectInput bind:componentInput />
 		{:else if fieldType === 'tab-select'}

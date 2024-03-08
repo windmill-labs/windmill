@@ -192,7 +192,6 @@
 						let config = c.configuration as any
 
 						const dbType = config?.type?.selected
-
 						let pg = config?.type?.configuration?.[dbType]
 
 						if (pg && dbType) {
@@ -208,6 +207,7 @@
 									input: getSelectInput(resourceValue, tableValue, columnDefs, whereClause, dbType),
 									id: x.id
 								})
+
 								r.push({
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
