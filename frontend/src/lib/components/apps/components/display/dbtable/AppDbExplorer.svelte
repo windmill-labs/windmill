@@ -415,7 +415,8 @@
 						id: 'dbexplorer-count-' + id,
 						next: (value) => {
 							if (value?.error) {
-								sendUserToast(value.error, true)
+								const message = value?.error?.message ?? value?.error
+								sendUserToast(message, true)
 								return
 							}
 
@@ -543,25 +544,31 @@
 	{outputs}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
-		<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
-			<DebouncedInput
-				class="w-full max-w-[300px]"
-				type="text"
-				bind:value={quicksearch}
-				placeholder="Quicksearch"
-			/>
-			<Button
-				startIcon={{ icon: Plus }}
-				color="dark"
-				size="xs2"
-				on:click={() => {
-					args = {}
-					insertDrawer?.openDrawer()
-				}}
-			>
-				Insert
-			</Button>
-		</div>
+		{#if !(resolvedConfig?.hideSearch && resolvedConfig?.hideInsert)}
+			<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
+				{#if resolvedConfig?.hideSearch === false}
+					<DebouncedInput
+						class="w-full max-w-[300px]"
+						type="text"
+						bind:value={quicksearch}
+						placeholder="Quicksearch"
+					/>
+				{/if}
+				{#if resolvedConfig?.hideInsert === false}
+					<Button
+						startIcon={{ icon: Plus }}
+						color="dark"
+						size="xs"
+						on:click={() => {
+							args = {}
+							insertDrawer?.openDrawer()
+						}}
+					>
+						Insert
+					</Button>
+				{/if}
+			</div>
+		{/if}
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
@@ -576,7 +583,7 @@
 					{customCss}
 					{outputs}
 					allowDelete={resolvedConfig.allowDelete ?? false}
-					containerHeight={componentContainerHeight - buttonContainerHeight}
+					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
 				/>

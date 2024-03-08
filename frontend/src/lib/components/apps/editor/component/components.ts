@@ -3498,6 +3498,18 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip: 'any configuration that can be passed to ag-grid top level'
+				},
+				hideInsert: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide the insert button'
+				},
+				hideSearch: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide the search bar'
 				}
 			},
 			componentInput: undefined
